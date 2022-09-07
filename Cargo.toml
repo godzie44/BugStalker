@@ -1,0 +1,23 @@
+[package]
+name = "bugstalker"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Derevtsov Konstantin <godzie@yandex.ru>"]
+
+[dependencies]
+nix = "0.25.0"
+once_cell = "1.13.1"
+anyhow = "1.0"
+rustyline = "10.0.0"
+gimli = "0.26.2"
+object = "0.29.0"
+memmap2 = "0.5.7"
+ouroboros = "0.15.4"
+typed-arena = "2.0.1"
+fallible-iterator = "0.2.0"
+itertools = "0.10.3"
+
+[dev-dependencies]
+assert_cmd = "2.0.4"
+rexpect = "0.4.0"
