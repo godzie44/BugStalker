@@ -13,7 +13,7 @@ pub struct DwarfContext<R: gimli::Reader> {
     unit_ranges: Vec<ParsedUnit<R>>,
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub struct LineRow {
     pub address: u64,
     pub file_index: u64,
