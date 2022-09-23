@@ -1,34 +1,97 @@
 use fallible_iterator::FallibleIterator;
-use gimli::{Dwarf, Reader, RunTimeEndian, Unit};
+use gimli::{
+    DW_AT_high_pc, DW_AT_low_pc, DW_TAG_subprogram, DwTag, Dwarf, Range, Reader, RunTimeEndian,
+    Unit,
+};
 use itertools::Itertools;
 use object::{Object, ObjectSection};
 use std::borrow::Cow;
 use std::num::NonZeroU64;
 use std::rc::Rc;
 
-type EndianRcSlice = gimli::EndianRcSlice<gimli::RunTimeEndian>;
+pub type EndianRcSlice = gimli::EndianRcSlice<gimli::RunTimeEndian>;
 
-pub struct DwarfContext<R: gimli::Reader> {
+pub struct DwarfContext<R: gimli::Reader = EndianRcSlice> {
     _inner: Dwarf<R>,
     unit_ranges: Vec<ParsedUnit<R>>,
 }
 
-#[derive(PartialEq, Debug)]
-pub struct LineRow {
+pub struct Place<'a, R: gimli::Reader = EndianRcSlice> {
+    pub file: &'a str,
     pub address: u64,
-    pub file_index: u64,
-    pub line: u64,
-    pub column: u64,
+    pub line_number: u64,
+    pub pos_in_unit: usize,
+    pub is_stmt: bool,
+    unit: &'a ParsedUnit<R>,
+    pub column_number: u64,
 }
 
-struct ParsedUnit<R: gimli::Reader> {
+impl<'a> Place<'a> {
+    pub fn next(&self) -> Option<Place<'a>> {
+        self.unit.get_place(self.pos_in_unit + 1)
+    }
+}
+
+impl<'a, R: gimli::Reader> PartialEq for Place<'a, R> {
+    fn eq(&self, other: &Self) -> bool {
+        self.file == other.file
+            && self.address == other.address
+            && self.line_number == other.line_number
+            && self.pos_in_unit == other.pos_in_unit
+            && self.column_number == other.column_number
+    }
+}
+
+#[derive(PartialEq, Debug)]
+struct LineRow {
+    address: u64,
+    file_index: u64,
+    line: u64,
+    column: u64,
+    is_stmt: bool,
+}
+
+pub struct DieRange {
+    range: Range,
+    die_idx: usize,
+}
+
+pub struct Die {
+    pub tag: DwTag,
+    pub low_pc: Option<u64>,
+    pub high_pc: Option<u64>,
+}
+
+struct ParsedUnit<R: gimli::Reader = EndianRcSlice> {
     files: Vec<String>,
-    ranges: Vec<gimli::Range>,
+    ranges: Vec<Range>,
     lines: Vec<LineRow>,
+    dies: Vec<Die>,
+    die_ranges: Vec<DieRange>,
     _unit: Rc<Unit<R>>,
 }
 
-impl DwarfContext<EndianRcSlice> {
+impl ParsedUnit {
+    pub fn get_place(&self, line_pos: usize) -> Option<Place<EndianRcSlice>> {
+        let line = self.lines.get(line_pos)?;
+
+        Some(Place {
+            file: self
+                .files
+                .get(line.file_index as usize)
+                .map(|s| s.as_str())
+                .expect("parse error"),
+            address: line.address,
+            line_number: line.line,
+            column_number: line.column,
+            pos_in_unit: line_pos,
+            is_stmt: line.is_stmt,
+            unit: self,
+        })
+    }
+}
+
+impl DwarfContext {
     pub fn new<'a: 'b, 'b, OBJ: Object<'a, 'b>>(obj_file: &'a OBJ) -> anyhow::Result<Self> {
         let endian = if obj_file.is_little_endian() {
             RunTimeEndian::Little
@@ -75,7 +138,8 @@ impl DwarfContext<EndianRcSlice> {
         })
     }
 
-    pub fn find_line_from_pc(&self, pc: u64) -> Option<(String, &LineRow)> {
+    pub fn find_place_from_pc(&self, pc: usize) -> Option<Place<EndianRcSlice>> {
+        let pc = pc as u64;
         let unit = self.find_unit(pc)?;
 
         let pos = match unit.lines.binary_search_by_key(&pc, |line| line.address) {
@@ -83,15 +147,7 @@ impl DwarfContext<EndianRcSlice> {
             Err(p) => p - 1,
         };
 
-        unit.lines.get(pos).map(|line| {
-            (
-                unit.files
-                    .get(line.file_index as usize)
-                    .cloned()
-                    .unwrap_or_default(),
-                line,
-            )
-        })
+        unit.get_place(pos)
     }
 
     fn parse(
@@ -113,13 +169,61 @@ impl DwarfContext<EndianRcSlice> {
 
                 lines.sort_by_key(|x| x.address);
 
-                let mut ranges = dwarf.unit_ranges(&unit)?.collect::<Vec<_>>()?;
-                ranges.sort_by_key(|r| r.begin);
+                let mut unit_ranges = dwarf.unit_ranges(&unit)?.collect::<Vec<_>>()?;
+                unit_ranges.sort_by_key(|r| r.begin);
+
+                let mut dies = vec![];
+                let mut die_ranges = vec![];
+
+                let mut cursor = unit.entries();
+                while let Some((_, die)) = cursor.next_dfs()? {
+                    let mut low_pc = None;
+                    if let Some(l_pc_attr) = die.attr(DW_AT_low_pc)? {
+                        match l_pc_attr.value() {
+                            gimli::AttributeValue::Addr(val) => low_pc = Some(val),
+                            gimli::AttributeValue::DebugAddrIndex(index) => {
+                                low_pc = Some(dwarf.address(&unit, index)?)
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let mut high_pc = None;
+                    if let Some(h_pc_attr) = die.attr(DW_AT_high_pc)? {
+                        match h_pc_attr.value() {
+                            gimli::AttributeValue::Addr(val) => high_pc = Some(val),
+                            gimli::AttributeValue::DebugAddrIndex(index) => {
+                                high_pc = Some(dwarf.address(&unit, index)?)
+                            }
+                            gimli::AttributeValue::Udata(val) => {
+                                high_pc = Some(low_pc.unwrap_or(0) + val)
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    dies.push(Die {
+                        tag: die.tag(),
+                        low_pc,
+                        high_pc,
+                    });
+
+                    dwarf.die_ranges(&unit, die)?.for_each(|r| {
+                        die_ranges.push(DieRange {
+                            range: r,
+                            die_idx: dies.len() - 1,
+                        });
+                        Ok(())
+                    })?;
+                }
+                die_ranges.sort_by_key(|dr| dr.range.begin);
 
                 let parsed_unit = ParsedUnit {
                     files,
                     lines,
-                    ranges,
+                    ranges: unit_ranges,
+                    dies,
+                    die_ranges,
                     _unit: Rc::new(unit),
                 };
 
@@ -135,7 +239,29 @@ impl DwarfContext<EndianRcSlice> {
             .map_err(Into::into)
     }
 
-    pub fn find_function_from_pc<F>(&self, pc: u64) {}
+    pub fn find_function_from_pc(&self, pc: usize) -> Option<&Die> {
+        let pc = pc as u64;
+        let unit = self.find_unit(pc)?;
+
+        let find_pos = match unit
+            .die_ranges
+            .binary_search_by_key(&pc, |dr| dr.range.begin)
+        {
+            Ok(pos) => pos + 1,
+            Err(pos) => pos,
+        };
+
+        unit.die_ranges[..find_pos]
+            .iter()
+            .rev()
+            .find(|dr| {
+                if unit.dies[dr.die_idx].tag != DW_TAG_subprogram {
+                    return false;
+                };
+                dr.range.begin <= pc && pc <= dr.range.end
+            })
+            .map(|dr| &unit.dies[dr.die_idx])
+    }
 }
 
 fn parse_lines<R, Offset>(
@@ -157,6 +283,7 @@ where
             file_index: line_row.file_index(),
             line: line_row.line().map(NonZeroU64::get).unwrap_or(0) as u64,
             column,
+            is_stmt: line_row.is_stmt(),
         })
     }
     Ok(lines)

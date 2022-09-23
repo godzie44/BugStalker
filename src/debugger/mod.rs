@@ -3,7 +3,7 @@ mod dwarf;
 mod register;
 
 use crate::debugger::breakpoint::Breakpoint;
-use crate::debugger::dwarf::DwarfContext;
+use crate::debugger::dwarf::{DwarfContext, EndianRcSlice, Place};
 use crate::debugger::register::{
     get_register_from_name, get_register_value, set_register_value, Register,
 };
@@ -26,7 +26,7 @@ use std::{fs, io, u64};
 
 pub struct Debugger<'a, R: gimli::Reader> {
     _program: &'a str,
-    load_addr: Cell<u64>,
+    load_addr: Cell<usize>,
     pid: Pid,
     breakpoints: RefCell<HashMap<usize, Breakpoint>>,
     obj_kind: object::ObjectKind,
@@ -61,7 +61,7 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
                 .split('-')
                 .next()
                 .ok_or_else(|| anyhow!("unexpected line format"))?;
-            let addr = u64::from_str_radix(addr, 16)?;
+            let addr = usize::from_str_radix(addr, 16)?;
             self.load_addr.set(addr);
         }
         Ok(())
@@ -127,7 +127,7 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
                 )?,
                 _ => eprintln!("unknown subcommand"),
             },
-            "m" | "memory" => match args[1].to_lowercase().as_str() {
+            "mem" | "memory" => match args[1].to_lowercase().as_str() {
                 "read" => println!(
                     "{:#0X}",
                     self.read_memory(
@@ -150,12 +150,18 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
                 _ => eprintln!("unknown subcommand"),
             },
             "step" => {
+                if let Some(place) = self.dwarf.find_place_from_pc(self.offset_pc()?) {
+                    println!("{}", self.render_source(&place, 1)?);
+                }
+
                 self.step_in()?;
 
-                if let Some(place) = self.dwarf.find_line_from_pc(self.offset_pc()?) {
-                    println!("{}:{}", place.0, place.1.line);
-                    println!("{}", self.render_source(&place.0, place.1.line, 1)?);
+                if let Some(place) = self.dwarf.find_place_from_pc(self.offset_pc()?) {
+                    println!("{}", self.render_source(&place, 1)?);
                 }
+            }
+            "next" => {
+                self.step_over()?;
             }
             "stepout" => {
                 self.step_out()?;
@@ -163,11 +169,11 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
             "stepi" => {
                 self.single_step_instruction()?;
                 let offset_pc = self.offset_pc()?;
-                let mb_place = self.dwarf.find_line_from_pc(offset_pc);
+                let mb_place = self.dwarf.find_place_from_pc(offset_pc);
 
                 if let Some(place) = mb_place {
-                    println!("{}:{}", place.0, place.1.line);
-                    println!("{}", self.render_source(&place.0, place.1.line, 1)?);
+                    println!("{}:{}", place.file, place.line_number);
+                    println!("{}", self.render_source(&place, 1)?);
                 }
             }
             "q" | "quit" => exit(0),
@@ -177,11 +183,11 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
         Ok(())
     }
 
-    fn offset_load_addr(&self, addr: u64) -> u64 {
+    fn offset_load_addr(&self, addr: usize) -> usize {
         addr - self.load_addr.get()
     }
 
-    fn offset_pc(&self) -> nix::Result<u64> {
+    fn offset_pc(&self) -> nix::Result<usize> {
         Ok(self.offset_load_addr(self.get_pc()?))
     }
 
@@ -227,12 +233,12 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
         unsafe { sys::ptrace::write(self.pid, addr as *mut c_void, value as *mut c_void) }
     }
 
-    fn get_pc(&self) -> nix::Result<u64> {
-        get_register_value(self.pid, Register::Rip)
+    fn get_pc(&self) -> nix::Result<usize> {
+        get_register_value(self.pid, Register::Rip).map(|addr| addr as usize)
     }
 
-    fn set_pc(&self, value: u64) -> nix::Result<()> {
-        set_register_value(self.pid, Register::Rip, value)
+    fn set_pc(&self, value: usize) -> nix::Result<()> {
+        set_register_value(self.pid, Register::Rip, value as u64)
     }
 
     fn step_over_breakpoint(&self) -> anyhow::Result<()> {
@@ -273,9 +279,9 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
                 let current_pc = self.get_pc()?;
                 println!("Hit breakpoint at address {:#X}", current_pc);
                 let offset_pc = self.offset_load_addr(current_pc);
-                if let Some(place) = self.dwarf.find_line_from_pc(offset_pc) {
-                    println!("{}:{}", place.0, place.1.line);
-                    println!("{}", self.render_source(&place.0, place.1.line, 1)?);
+                if let Some(place) = self.dwarf.find_place_from_pc(offset_pc) {
+                    println!("{}:{}", place.file, place.line_number);
+                    println!("{}", self.render_source(&place, 1)?);
                 }
 
                 Ok(())
@@ -301,7 +307,7 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
 
     fn step_out(&self) -> anyhow::Result<()> {
         let fp = self.get_frame_pointer()?;
-        let ret_addr = self.read_memory(fp as uintptr_t + 8)?;
+        let ret_addr = self.read_memory(fp + 8)?;
 
         let bp_is_set = self
             .breakpoints
@@ -320,13 +326,13 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
     fn step_in(&self) -> anyhow::Result<()> {
         let place = self
             .dwarf
-            .find_line_from_pc(self.offset_pc()?)
-            .ok_or_else(|| anyhow!("line not found (may be program not started?)"))?;
+            .find_place_from_pc(self.offset_pc()?)
+            .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
 
         while place
             == self
                 .dwarf
-                .find_line_from_pc(self.offset_pc()?)
+                .find_place_from_pc(self.offset_pc()?)
                 .ok_or_else(|| anyhow!("unreachable! line not found"))?
         {
             self.single_step_instruction()?
@@ -335,18 +341,75 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
         Ok(())
     }
 
+    fn step_over(&self) -> anyhow::Result<()> {
+        let func = self
+            .dwarf
+            .find_function_from_pc(self.offset_pc()?)
+            .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
+
+        let mut line = self
+            .dwarf
+            .find_place_from_pc(
+                func.low_pc
+                    .ok_or_else(|| anyhow!("unreachable: function not found"))?
+                    as usize,
+            )
+            .unwrap();
+        let current_line = self.dwarf.find_place_from_pc(self.offset_pc()?).unwrap();
+
+        let mut to_delete = vec![];
+        while line.address < func.high_pc.unwrap_or(0) {
+            if line.is_stmt {
+                let load_addr = self.offset_to_glob_addr(line.address as usize);
+                if line.address != current_line.address
+                    && self.breakpoints.borrow().get(&load_addr).is_none()
+                {
+                    self.set_breakpoint(load_addr)?;
+                    to_delete.push(load_addr);
+                }
+            }
+
+            match line.next() {
+                None => break,
+                Some(n) => line = n,
+            }
+        }
+
+        let fp = self.get_frame_pointer()?;
+        let ret_addr = self.read_memory(fp + 8)?;
+
+        if self.breakpoints.borrow().get(&ret_addr).is_none() {
+            self.set_breakpoint(ret_addr)?;
+            to_delete.push(ret_addr);
+        }
+
+        self.continue_execution()?;
+
+        to_delete
+            .into_iter()
+            .try_for_each(|addr| self.remove_breakpoint(addr))?;
+
+        Ok(())
+    }
+
+    /// Return value of rbp register.
+    /// Note: rust program must compile with -Cforce-frame-pointers=y
+    /// TODO make fp calculation with dwarf.
     fn get_frame_pointer(&self) -> nix::Result<usize> {
         register::get_register_value(self.pid, Register::Rbp).map(|fp| fp as usize)
     }
 
-    fn render_source(
-        &self,
-        file_name: &str,
-        line_number: u64,
-        bounds: u64,
-    ) -> anyhow::Result<String> {
+    fn offset_to_glob_addr(&self, addr: usize) -> usize {
+        addr + self.load_addr.get()
+    }
+
+    fn render_source(&self, place: &Place<EndianRcSlice>, bounds: u64) -> anyhow::Result<String> {
         const DELIMITER: &str = "--------------------";
-        let line_number = if line_number == 0 { 1 } else { line_number };
+        let line_number = if place.line_number == 0 {
+            1
+        } else {
+            place.line_number
+        };
         let line_pos = line_number - 1;
         let start = if line_pos < bounds {
             0
@@ -354,7 +417,7 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
             line_pos - bounds
         };
 
-        let file = fs::File::open(file_name)?;
+        let file = fs::File::open(place.file)?;
         let result = io::BufReader::new(file)
             .lines()
             .filter_map(|line| line.ok())

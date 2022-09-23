@@ -130,6 +130,27 @@ fn test_step_out() {
         .unwrap();
 }
 
+#[test]
+fn test_step_over() {
+    let mut session = setup_hello_world_debugee();
+
+    session.exp_string("No previous history.").unwrap();
+    session.send_line("break 55555555BBE4").unwrap();
+    session.exp_string("break 55555555BBE4").unwrap();
+
+    session.send_line("continue").unwrap();
+    session.exp_string("myprint(\"Hello, world!\");").unwrap();
+
+    session.send_line("next").unwrap();
+    session
+        .exp_string(">    sleep(Duration::from_secs(1));")
+        .unwrap();
+    session.send_line("next").unwrap();
+    session.exp_string(">    myprint(\"bye!\")").unwrap();
+    session.send_line("next").unwrap();
+    session.exp_string(">}").unwrap();
+}
+
 fn setup_hello_world_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
     cmd.arg("../hello-world/target/debug/hello-world");
