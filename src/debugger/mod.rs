@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::io::BufRead;
 use std::process::exit;
-use std::str::from_utf8;
+use std::str::{from_utf8, FromStr};
 use std::{fs, io, u64};
 
 pub struct Debugger<'a, R: gimli::Reader> {
@@ -99,56 +99,82 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
         Ok(())
     }
 
+    fn assert_command_value<'s>(&self, mb_value: Option<&'s str>) -> anyhow::Result<&'s str> {
+        mb_value.ok_or_else(|| anyhow!("unknown command format, second parameter must be set"))
+    }
+
     fn handle_cmd(&self, cmd: &str) -> anyhow::Result<()> {
         let args = cmd.split(' ').collect::<Vec<_>>();
         let command = args[0];
+        let value = args.get(1).copied();
 
         match command.to_lowercase().as_str() {
             "c" | "continue" => self
                 .continue_execution()
                 .context("Failed to continue execution")?,
-            "b" | "break" => self.set_breakpoint(
-                usize::from_str_radix(args[1], 16).context("Failed to parse input argument")?,
-            )?,
-            "rm" | "rmbreak" => self.remove_breakpoint(
-                usize::from_str_radix(args[1], 16).context("Failed to parse input argument")?,
-            )?,
-            "r" | "register" => match args[1].to_lowercase().as_str() {
-                "dump" => self.print_registers()?,
-                "read" => println!(
-                    "{:#0X}",
-                    get_register_value(self.pid, get_register_from_name(args[2])?)
-                        .context("Failed to get register value")?
-                ),
-                "write" => set_register_value(
-                    self.pid,
-                    get_register_from_name(args[2])?,
-                    u64::from_str_radix(args[3], 16).context("Failed to parse input argument")?,
-                )?,
-                _ => eprintln!("unknown subcommand"),
-            },
-            "mem" | "memory" => match args[1].to_lowercase().as_str() {
-                "read" => println!(
-                    "{:#0X}",
-                    self.read_memory(
-                        u64::from_str_radix(args[2], 16)
-                            .context("Failed to parse input argument")?
-                            as uintptr_t
-                    )
-                    .context("Failed to read memory")?
-                ),
-                "write" => self
-                    .write_memory(
-                        u64::from_str_radix(args[2], 16)
-                            .context("Failed to parse input argument")?
-                            as uintptr_t,
+            "b" | "break" => {
+                let value = self.assert_command_value(value)?;
+                if value.starts_with("0x") {
+                    self.set_breakpoint(
+                        usize::from_str_radix(&value[2..], 16)
+                            .context("Failed to parse input argument")?,
+                    )?
+                } else if value.find(':').is_some() {
+                    let args = value.split(':').collect::<Vec<_>>();
+                    self.set_breakpoint_at_line(args[0], u64::from_str(args[1])?)?
+                } else {
+                    self.set_breakpoint_at_fn(value)?
+                }
+            }
+            "rm" | "rmbreak" => {
+                let value = self.assert_command_value(value)?;
+                self.remove_breakpoint(
+                    usize::from_str_radix(value, 16).context("Failed to parse input argument")?,
+                )?
+            }
+            "r" | "register" => {
+                let value = self.assert_command_value(value)?;
+                match value.to_lowercase().as_str() {
+                    "dump" => self.print_registers()?,
+                    "read" => println!(
+                        "{:#0X}",
+                        get_register_value(self.pid, get_register_from_name(args[2])?)
+                            .context("Failed to get register value")?
+                    ),
+                    "write" => set_register_value(
+                        self.pid,
+                        get_register_from_name(args[2])?,
                         u64::from_str_radix(args[3], 16)
-                            .context("Failed to parse input argument")?
-                            as uintptr_t,
-                    )
-                    .context("Failed to write_memory memory")?,
-                _ => eprintln!("unknown subcommand"),
-            },
+                            .context("Failed to parse input argument")?,
+                    )?,
+                    _ => eprintln!("unknown subcommand"),
+                }
+            }
+            "mem" | "memory" => {
+                let value = self.assert_command_value(value)?;
+                match value.to_lowercase().as_str() {
+                    "read" => println!(
+                        "{:#0X}",
+                        self.read_memory(
+                            u64::from_str_radix(args[2], 16)
+                                .context("Failed to parse input argument")?
+                                as uintptr_t
+                        )
+                        .context("Failed to read memory")?
+                    ),
+                    "write" => self
+                        .write_memory(
+                            u64::from_str_radix(args[2], 16)
+                                .context("Failed to parse input argument")?
+                                as uintptr_t,
+                            u64::from_str_radix(args[3], 16)
+                                .context("Failed to parse input argument")?
+                                as uintptr_t,
+                        )
+                        .context("Failed to write_memory memory")?,
+                    _ => eprintln!("unknown subcommand"),
+                }
+            }
             "step" => {
                 if let Some(place) = self.dwarf.find_place_from_pc(self.offset_pc()?) {
                     println!("{}", self.render_source(&place, 1)?);
@@ -389,6 +415,34 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
             .into_iter()
             .try_for_each(|addr| self.remove_breakpoint(addr))?;
 
+        Ok(())
+    }
+
+    fn set_breakpoint_at_fn(&self, name: &str) -> anyhow::Result<()> {
+        let func = self
+            .dwarf
+            .find_function_from_name(name)
+            .ok_or_else(|| anyhow!("function not found"))?;
+
+        let low_pc = func
+            .low_pc
+            .ok_or_else(|| anyhow!("invalid function entry"))?;
+        let entry = self
+            .dwarf
+            .find_place_from_pc(low_pc as usize)
+            .ok_or_else(|| anyhow!("invalid function entry"))?;
+        let entry = entry
+            // TODO skip prologue smarter
+            .next()
+            .ok_or_else(|| anyhow!("invalid function entry"))?;
+
+        self.set_breakpoint(self.offset_to_glob_addr(entry.address as usize))
+    }
+
+    fn set_breakpoint_at_line(&self, fine_name: &str, line: u64) -> anyhow::Result<()> {
+        if let Some(place) = self.dwarf.find_stmt_line(fine_name, line) {
+            self.set_breakpoint(self.offset_to_glob_addr(place.address as usize))?;
+        }
         Ok(())
     }
 

@@ -1,7 +1,7 @@
 use fallible_iterator::FallibleIterator;
 use gimli::{
-    DW_AT_high_pc, DW_AT_low_pc, DW_TAG_subprogram, DwTag, Dwarf, Range, Reader, RunTimeEndian,
-    Unit,
+    DW_AT_high_pc, DW_AT_low_pc, DW_AT_name, DW_TAG_subprogram, DwTag, Dwarf, Range, Reader,
+    RunTimeEndian, Unit,
 };
 use itertools::Itertools;
 use object::{Object, ObjectSection};
@@ -57,7 +57,8 @@ pub struct DieRange {
 }
 
 pub struct Die {
-    pub tag: DwTag,
+    tag: DwTag,
+    name: Option<String>,
     pub low_pc: Option<u64>,
     pub high_pc: Option<u64>,
 }
@@ -202,8 +203,15 @@ impl DwarfContext {
                         }
                     }
 
+                    let name = die
+                        .attr(DW_AT_name)?
+                        .and_then(|attr| dwarf.attr_string(&unit, attr.value()).ok());
+
                     dies.push(Die {
                         tag: die.tag(),
+                        name: name
+                            .map(|s| s.to_string_lossy().map(|s| s.to_string()))
+                            .transpose()?,
                         low_pc,
                         high_pc,
                     });
@@ -261,6 +269,46 @@ impl DwarfContext {
                 dr.range.begin <= pc && pc <= dr.range.end
             })
             .map(|dr| &unit.dies[dr.die_idx])
+    }
+
+    pub fn find_function_from_name(&self, fn_name: &str) -> Option<&Die> {
+        for unit in &self.unit_ranges {
+            for die in &unit.dies {
+                if let Some(name) = die.name.as_ref() {
+                    if name == fn_name {
+                        return Some(die);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn find_stmt_line(&self, file: &str, line: u64) -> Option<Place<'_>> {
+        for unit in &self.unit_ranges {
+            let found = unit
+                ._unit
+                .name
+                .as_ref()
+                .map(|n| {
+                    n.to_string_lossy()
+                        // TODO find file substring look weird
+                        .map(|s| s.find(file).is_some())
+                        .unwrap_or(false)
+                })
+                .unwrap_or_default();
+
+            if !found {
+                continue;
+            }
+
+            for (pos, line_row) in unit.lines.iter().enumerate() {
+                if line_row.line == line {
+                    return unit.get_place(pos);
+                }
+            }
+        }
+        None
     }
 }
 

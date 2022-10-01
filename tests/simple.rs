@@ -14,12 +14,12 @@ fn test_debugee_execute() {
 }
 
 #[test]
-fn test_breakpoint_set() {
+fn test_address_breakpoint_set() {
     let mut session = setup_hello_world_debugee();
 
     session.exp_string("No previous history.").unwrap();
-    session.send_line("break 55555555BC13").unwrap();
-    session.exp_string("break 55555555BC13").unwrap();
+    session.send_line("break 0x55555555BC13").unwrap();
+    session.exp_string("break 0x55555555BC13").unwrap();
     session.send_line("continue").unwrap();
     session.exp_string("Hello, world!").unwrap();
     session
@@ -32,14 +32,14 @@ fn test_breakpoint_set() {
 }
 
 #[test]
-fn test_multiple_breakpoint_set() {
+fn test_multiple_address_breakpoint_set() {
     let mut session = setup_hello_world_debugee();
 
     session.exp_string("No previous history.").unwrap();
-    session.send_line("break 55555555BBE4").unwrap();
-    session.exp_string("break 55555555BBE4").unwrap();
-    session.send_line("break 55555555BC13").unwrap();
-    session.exp_string("break 55555555BC13").unwrap();
+    session.send_line("break 0x55555555BBE4").unwrap();
+    session.exp_string("break 0x55555555BBE4").unwrap();
+    session.send_line("break 0x55555555BC13").unwrap();
+    session.exp_string("break 0x55555555BC13").unwrap();
 
     session.send_line("continue").unwrap();
 
@@ -66,8 +66,8 @@ fn test_read_write_register() {
 
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break 55555555BC1D").unwrap();
-    session.exp_string("break 55555555BC1D").unwrap();
+    session.send_line("break 0x55555555BC1D").unwrap();
+    session.exp_string("break 0x55555555BC1D").unwrap();
 
     session.send_line("continue").unwrap();
     session.exp_string("Hello, world!").unwrap();
@@ -90,8 +90,8 @@ fn test_step_in() {
     let mut session = setup_hello_world_debugee();
 
     session.exp_string("No previous history.").unwrap();
-    session.send_line("break 55555555BBD0").unwrap();
-    session.exp_string("break 55555555BBD0").unwrap();
+    session.send_line("break 0x55555555BBD0").unwrap();
+    session.exp_string("break 0x55555555BBD0").unwrap();
 
     session.send_line("continue").unwrap();
     session.exp_string(">fn main()").unwrap();
@@ -113,8 +113,8 @@ fn test_step_out() {
     let mut session = setup_hello_world_debugee();
 
     session.exp_string("No previous history.").unwrap();
-    session.send_line("break 55555555BBE4").unwrap();
-    session.exp_string("break 55555555BBE4").unwrap();
+    session.send_line("break 0x55555555BBE4").unwrap();
+    session.exp_string("break 0x55555555BBE4").unwrap();
 
     session.send_line("continue").unwrap();
     session.exp_string("myprint(\"Hello, world!\");").unwrap();
@@ -135,8 +135,8 @@ fn test_step_over() {
     let mut session = setup_hello_world_debugee();
 
     session.exp_string("No previous history.").unwrap();
-    session.send_line("break 55555555BBE4").unwrap();
-    session.exp_string("break 55555555BBE4").unwrap();
+    session.send_line("break 0x55555555BBE4").unwrap();
+    session.exp_string("break 0x55555555BBE4").unwrap();
 
     session.send_line("continue").unwrap();
     session.exp_string("myprint(\"Hello, world!\");").unwrap();
@@ -149,6 +149,44 @@ fn test_step_over() {
     session.exp_string(">    myprint(\"bye!\")").unwrap();
     session.send_line("next").unwrap();
     session.exp_string(">}").unwrap();
+}
+
+#[test]
+fn test_function_breakpoint() {
+    let mut session = setup_hello_world_debugee();
+
+    session.exp_string("No previous history.").unwrap();
+    session.send_line("break myprint").unwrap();
+    session.exp_string("break myprint").unwrap();
+
+    session.send_line("continue").unwrap();
+    session.exp_string("fn myprint").unwrap();
+
+    session.send_line("continue").unwrap();
+    session.exp_string("Hello, world!").unwrap();
+    session.exp_string("fn myprint").unwrap();
+
+    session.send_line("continue").unwrap();
+    session.exp_string("bye!").unwrap();
+}
+
+#[test]
+fn test_line_breakpoint() {
+    let mut session = setup_hello_world_debugee();
+
+    session.exp_string("No previous history.").unwrap();
+    session.send_line("break main.rs:15").unwrap();
+    session.exp_string("break main.rs:15").unwrap();
+
+    session.send_line("continue").unwrap();
+    session.exp_string("println!(\"{}\",s)").unwrap();
+
+    session.send_line("continue").unwrap();
+    session.exp_string("Hello, world!").unwrap();
+    session.exp_string("println!(\"{}\",s)").unwrap();
+
+    session.send_line("continue").unwrap();
+    session.exp_string("bye!").unwrap();
 }
 
 fn setup_hello_world_debugee() -> PtySession {
