@@ -189,6 +189,18 @@ fn test_line_breakpoint() {
     session.exp_string("bye!").unwrap();
 }
 
+#[test]
+fn test_symbol() {
+    let mut session = setup_hello_world_debugee();
+
+    session.exp_string("No previous history.").unwrap();
+    session.send_line("symbol main").unwrap();
+    session.exp_string("Text 0x7C80").unwrap();
+
+    session.send_line("symbol myprint").unwrap();
+    session.exp_string("Text 0x7C20").unwrap();
+}
+
 fn setup_hello_world_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
     cmd.arg("../hello-world/target/debug/hello-world");

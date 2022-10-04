@@ -4,9 +4,11 @@ use gimli::{
     RunTimeEndian, Unit,
 };
 use itertools::Itertools;
-use object::{Object, ObjectSection};
+use object::{Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, SymbolKind};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::num::NonZeroU64;
+use std::ops::Deref;
 use std::rc::Rc;
 
 pub type EndianRcSlice = gimli::EndianRcSlice<gimli::RunTimeEndian>;
@@ -14,6 +16,7 @@ pub type EndianRcSlice = gimli::EndianRcSlice<gimli::RunTimeEndian>;
 pub struct DwarfContext<R: gimli::Reader = EndianRcSlice> {
     _inner: Dwarf<R>,
     unit_ranges: Vec<ParsedUnit<R>>,
+    symbol_table: Option<SymbolTab>,
 }
 
 pub struct Place<'a, R: gimli::Reader = EndianRcSlice> {
@@ -22,8 +25,8 @@ pub struct Place<'a, R: gimli::Reader = EndianRcSlice> {
     pub line_number: u64,
     pub pos_in_unit: usize,
     pub is_stmt: bool,
-    unit: &'a ParsedUnit<R>,
     pub column_number: u64,
+    unit: &'a ParsedUnit<R>,
 }
 
 impl<'a> Place<'a> {
@@ -117,9 +120,11 @@ impl DwarfContext {
         }
 
         let dwarf = gimli::Dwarf::load(|id| load_section(id, obj_file, endian))?;
+        let symbol_table = SymbolTab::new(obj_file);
 
         Ok(Self {
             unit_ranges: Self::parse(&dwarf)?,
+            symbol_table,
             _inner: dwarf,
         })
     }
@@ -310,6 +315,14 @@ impl DwarfContext {
         }
         None
     }
+
+    pub fn find_symbol(&self, name: &str) -> Option<&Symbol> {
+        if let Some(ref st) = self.symbol_table {
+            return st.get(name);
+        };
+
+        None
+    }
 }
 
 fn parse_lines<R, Offset>(
@@ -405,5 +418,46 @@ fn path_push(path: &mut String, p: &str) {
             path.push(dir_separator);
         }
         *path += p;
+    }
+}
+
+#[derive(Debug)]
+pub struct Symbol {
+    pub kind: SymbolKind,
+    pub addr: u64,
+}
+
+#[derive(Debug)]
+struct SymbolTab(HashMap<String, Symbol>);
+
+impl Deref for SymbolTab {
+    type Target = HashMap<String, Symbol>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl SymbolTab {
+    pub fn new<'data: 'file, 'file, OBJ: Object<'data, 'file>>(
+        object_file: &'data OBJ,
+    ) -> Option<Self> {
+        object_file.symbol_table().as_ref().map(|sym_table| {
+            SymbolTab(
+                sym_table
+                    .symbols()
+                    .map(|symbol| {
+                        let name: String = symbol.name().unwrap_or_default().into();
+                        (
+                            name,
+                            Symbol {
+                                kind: symbol.kind(),
+                                addr: symbol.address(),
+                            },
+                        )
+                    })
+                    .collect::<HashMap<_, _>>(),
+            )
+        })
     }
 }

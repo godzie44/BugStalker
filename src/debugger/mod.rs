@@ -202,6 +202,14 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
                     println!("{}", self.render_source(&place, 1)?);
                 }
             }
+            "s" | "symbol" => {
+                let name = self.assert_command_value(value)?;
+                let symbol = self
+                    .dwarf
+                    .find_symbol(name)
+                    .ok_or_else(|| anyhow!("symbol not found"))?;
+                println!("{:?} {:#X}", symbol.kind, symbol.addr);
+            }
             "q" | "quit" => exit(0),
             _ => eprintln!("unknown command"),
         };
