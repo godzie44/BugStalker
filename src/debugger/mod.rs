@@ -1,6 +1,7 @@
 mod breakpoint;
 mod dwarf;
 mod register;
+mod uw;
 
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::dwarf::{DwarfContext, EndianRcSlice, Place};
@@ -210,6 +211,7 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
                     .ok_or_else(|| anyhow!("symbol not found"))?;
                 println!("{:?} {:#X}", symbol.kind, symbol.addr);
             }
+            "bt" | "trace" => uw::print_backtrace(self.pid),
             "q" | "quit" => exit(0),
             _ => eprintln!("unknown command"),
         };
@@ -340,21 +342,21 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
     }
 
     fn step_out(&self) -> anyhow::Result<()> {
-        let fp = self.get_frame_pointer()?;
-        let ret_addr = self.read_memory(fp + 8)?;
-
-        let bp_is_set = self
-            .breakpoints
-            .borrow()
-            .get(&(ret_addr as usize))
-            .is_some();
-        if bp_is_set {
-            self.continue_execution()
-        } else {
-            self.set_breakpoint(ret_addr)?;
-            self.continue_execution()?;
-            self.remove_breakpoint(ret_addr)
+        if let Some(ret_addr) = uw::return_addr(self.pid)? {
+            let bp_is_set = self
+                .breakpoints
+                .borrow()
+                .get(&(ret_addr as usize))
+                .is_some();
+            if bp_is_set {
+                self.continue_execution()?;
+            } else {
+                self.set_breakpoint(ret_addr)?;
+                self.continue_execution()?;
+                self.remove_breakpoint(ret_addr)?;
+            }
         }
+        Ok(())
     }
 
     fn step_in(&self) -> anyhow::Result<()> {
@@ -409,12 +411,11 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
             }
         }
 
-        let fp = self.get_frame_pointer()?;
-        let ret_addr = self.read_memory(fp + 8)?;
-
-        if self.breakpoints.borrow().get(&ret_addr).is_none() {
-            self.set_breakpoint(ret_addr)?;
-            to_delete.push(ret_addr);
+        if let Some(ret_addr) = uw::return_addr(self.pid)? {
+            if self.breakpoints.borrow().get(&ret_addr).is_none() {
+                self.set_breakpoint(ret_addr)?;
+                to_delete.push(ret_addr);
+            }
         }
 
         self.continue_execution()?;
@@ -452,13 +453,6 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
             self.set_breakpoint(self.offset_to_glob_addr(place.address as usize))?;
         }
         Ok(())
-    }
-
-    /// Return value of rbp register.
-    /// Note: rust program must compile with -Cforce-frame-pointers=y
-    /// TODO make fp calculation with dwarf.
-    fn get_frame_pointer(&self) -> nix::Result<usize> {
-        register::get_register_value(self.pid, Register::Rbp).map(|fp| fp as usize)
     }
 
     fn offset_to_glob_addr(&self, addr: usize) -> usize {

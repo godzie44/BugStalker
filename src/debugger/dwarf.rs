@@ -61,7 +61,7 @@ pub struct DieRange {
 
 pub struct Die {
     tag: DwTag,
-    name: Option<String>,
+    pub name: Option<String>,
     pub low_pc: Option<u64>,
     pub high_pc: Option<u64>,
 }

@@ -17,6 +17,8 @@ ouroboros = "0.15.4"
 typed-arena = "2.0.1"
 fallible-iterator = "0.2.0"
 itertools = "0.10.3"
+unwind = { version = "0.4.1", features = ["ptrace"] }
+rustc-demangle = "0.1.21"
 
 [dev-dependencies]
 assert_cmd = "2.0.4"

@@ -201,6 +201,24 @@ fn test_symbol() {
     session.exp_string("Text 0x7C20").unwrap();
 }
 
+#[test]
+fn test_backtrace() {
+    let mut session = setup_hello_world_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break main.rs:15").unwrap();
+    session.exp_string("break main.rs:15").unwrap();
+
+    session.send_line("continue").unwrap();
+    session.exp_string("println!(\"{}\",s)").unwrap();
+
+    session.send_line("bt").unwrap();
+    session.exp_string("myprint (0x0055555555bc20)").unwrap();
+    session
+        .exp_string("hello_world::main (0x0055555555bbd0)")
+        .unwrap();
+}
+
 fn setup_hello_world_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
     cmd.arg("../hello-world/target/debug/hello-world");
