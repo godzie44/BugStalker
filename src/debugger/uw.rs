@@ -1,7 +1,3 @@
-mod upt {
-    use core::ffi::c_void;
-}
-
 use nix::unistd::Pid;
 use unwind::{Accessors, AddressSpace, Byteorder, Cursor, PTraceState, RegNum};
 

@@ -23,3 +23,7 @@ rustc-demangle = "0.1.21"
 [dev-dependencies]
 assert_cmd = "2.0.4"
 rexpect = "0.4.0"
+
+[[bin]]
+name = "hello_world"
+test = false
