@@ -4,6 +4,7 @@ mod register;
 mod uw;
 
 use crate::debugger::breakpoint::Breakpoint;
+use crate::debugger::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::dwarf::{DwarfContext, EndianRcSlice, Place};
 use crate::debugger::register::{
     get_register_from_name, get_register_value, set_register_value, Register,
@@ -212,6 +213,18 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
                 println!("{:?} {:#X}", symbol.kind, symbol.addr);
             }
             "bt" | "trace" => uw::print_backtrace(self.pid),
+            "vars" => self.read_variables(self.offset_pc()?)?,
+            "frame" => {
+                let func = self.dwarf.find_function_from_pc(self.offset_pc()?).unwrap();
+                let evaluator = ExpressionEvaluator::new(self.pid, &self.dwarf);
+
+                let fp = func.frame_base_addr(&self.dwarf, &evaluator).unwrap();
+                println!("current frame at {:?}", fp);
+
+                if let Some(ret_addr) = uw::return_addr(self.pid)? {
+                    println!("return address at {:#016x}", ret_addr);
+                }
+            }
             "q" | "quit" => exit(0),
             _ => eprintln!("unknown command"),
         };
@@ -489,5 +502,26 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
             });
 
         Ok(result + "\n" + DELIMITER)
+    }
+
+    fn read_variables(&self, pc: usize) -> anyhow::Result<()> {
+        let current_func = self.dwarf.find_function_from_pc(pc);
+
+        if let Some(func) = current_func {
+            let vars = self.dwarf.find_variables(func);
+            vars.iter().try_for_each(|var| -> anyhow::Result<()> {
+                let values = var.read_value_at_location(self.pid, func, &self.dwarf)?;
+
+                println!(
+                    "{} : {}",
+                    var.name.as_deref().unwrap_or("unknown"),
+                    values[0]
+                );
+
+                Ok(())
+            })?;
+        }
+
+        Ok(())
     }
 }

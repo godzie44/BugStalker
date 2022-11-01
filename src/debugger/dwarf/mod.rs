@@ -1,12 +1,22 @@
+pub mod eval;
+
+use crate::debugger::dwarf::eval::ExpressionEvaluator;
+use anyhow::anyhow;
 use fallible_iterator::FallibleIterator;
+use gimli::Location::Address;
 use gimli::{
-    DW_AT_high_pc, DW_AT_low_pc, DW_AT_name, DW_TAG_subprogram, DwTag, Dwarf, Range, Reader,
+    Attribute, DW_AT_frame_base, DW_AT_high_pc, DW_AT_location, DW_AT_low_pc, DW_AT_name,
+    DW_TAG_subprogram, DW_TAG_variable, DwTag, Dwarf, EvaluationResult, Range, Reader,
     RunTimeEndian, Unit,
 };
 use itertools::Itertools;
+use nix::libc::uintptr_t;
+use nix::sys;
+use nix::unistd::Pid;
 use object::{Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, SymbolKind};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::ffi::c_void;
 use std::num::NonZeroU64;
 use std::ops::Deref;
 use std::rc::Rc;
@@ -54,23 +64,109 @@ struct LineRow {
     is_stmt: bool,
 }
 
+#[derive(Debug)]
 pub struct DieRange {
     range: Range,
     die_idx: usize,
 }
 
+#[derive(Debug)]
 pub struct Die {
     tag: DwTag,
+    idx: usize,
+    unit_idx: usize,
     pub name: Option<String>,
     pub low_pc: Option<u64>,
     pub high_pc: Option<u64>,
+    location: Option<Attribute<EndianRcSlice>>,
+    fb_addr: Option<Attribute<EndianRcSlice>>,
 }
 
-struct ParsedUnit<R: gimli::Reader = EndianRcSlice> {
+impl Die {
+    pub fn read_value_at_location(
+        &self,
+        pid: Pid,
+        current_fn: &Die,
+        dwarf: &DwarfContext,
+    ) -> anyhow::Result<Vec<u64>> {
+        let mut result = vec![];
+        if let Some(ref loc) = self.location {
+            let expr = loc.exprloc_value().unwrap();
+
+            let parsed_unit = dwarf.unit_ranges.get(self.unit_idx).unwrap();
+            let mut eval = expr.evaluation(parsed_unit._unit.encoding());
+            let mut evaluate_res = eval.evaluate()?;
+            while evaluate_res != EvaluationResult::Complete {
+                match evaluate_res {
+                    EvaluationResult::RequiresMemory {
+                        address,
+                        size,
+                        space,
+                        base_type,
+                    } => {
+                        println!("req mem {address} {size} ");
+                        break;
+                    }
+                    EvaluationResult::RequiresRegister {
+                        register,
+                        base_type,
+                    } => {
+                        println!("req mem {:?} ", register);
+                        break;
+                    }
+                    EvaluationResult::RequiresFrameBase => {
+                        let evaluator = ExpressionEvaluator::new(pid, dwarf);
+
+                        let fba = current_fn.frame_base_addr(dwarf, &evaluator)?;
+                        evaluate_res = eval.resume_with_frame_base(fba as u64)?;
+                    }
+                    _ => {
+                        break;
+                    }
+                };
+            }
+
+            let pieces = eval.as_result();
+            result = pieces
+                .iter()
+                .map(|piece| match piece.location {
+                    Address { address } => {
+                        sys::ptrace::read(pid, address as *mut c_void).map(|v| v as u64)
+                    }
+                    _ => todo!(),
+                })
+                .collect::<nix::Result<Vec<u64>>>()?;
+        }
+
+        Ok(result)
+    }
+
+    pub fn frame_base_addr(
+        &self,
+        dwarf: &DwarfContext,
+        evaluator: &eval::ExpressionEvaluator,
+    ) -> anyhow::Result<usize> {
+        let attr = self
+            .fb_addr
+            .as_ref()
+            .ok_or_else(|| anyhow!("no frame base attr"))?;
+        let expr = attr
+            .exprloc_value()
+            .ok_or_else(|| anyhow!("frame base attribute not an expression"))?;
+
+        let parsed_unit = dwarf.unit_ranges.get(self.unit_idx).unwrap();
+        let result = evaluator.evaluate(parsed_unit, expr)?.as_u64()?;
+        Ok(result as usize)
+    }
+}
+
+#[derive(Debug)]
+pub struct ParsedUnit<R: gimli::Reader = EndianRcSlice> {
     files: Vec<String>,
     ranges: Vec<Range>,
     lines: Vec<LineRow>,
     dies: Vec<Die>,
+    local_vars: HashMap<usize, Vec<usize>>,
     die_ranges: Vec<DieRange>,
     _unit: Rc<Unit<R>>,
 }
@@ -161,7 +257,8 @@ impl DwarfContext {
     ) -> anyhow::Result<Vec<ParsedUnit<EndianRcSlice>>> {
         dwarf
             .units()
-            .map(|header| {
+            .enumerate()
+            .map(|(unit_idx, header)| {
                 let unit = dwarf.unit(header)?;
 
                 let mut lines = vec![];
@@ -179,7 +276,9 @@ impl DwarfContext {
                 unit_ranges.sort_by_key(|r| r.begin);
 
                 let mut dies = vec![];
+                let mut current_fn_die_idx = 0;
                 let mut die_ranges = vec![];
+                let mut variables = HashMap::new();
 
                 let mut cursor = unit.entries();
                 while let Some((_, die)) = cursor.next_dfs()? {
@@ -219,6 +318,10 @@ impl DwarfContext {
                             .transpose()?,
                         low_pc,
                         high_pc,
+                        idx: dies.len(),
+                        unit_idx,
+                        location: None,
+                        fb_addr: None,
                     });
 
                     dwarf.die_ranges(&unit, die)?.for_each(|r| {
@@ -228,6 +331,23 @@ impl DwarfContext {
                         });
                         Ok(())
                     })?;
+
+                    if die.tag() == DW_TAG_subprogram {
+                        current_fn_die_idx = dies.len() - 1;
+
+                        if let Some(fb) = die.attr(DW_AT_frame_base)? {
+                            dies.last_mut().unwrap().fb_addr = Some(fb);
+                        }
+                    }
+                    if die.tag() == DW_TAG_variable {
+                        if let Some(at_loc) = die.attr(DW_AT_location)? {
+                            dies.last_mut().unwrap().location = Some(at_loc);
+                            let vars: &mut Vec<_> =
+                                variables.entry(current_fn_die_idx).or_default();
+
+                            (*vars).push(dies.len() - 1);
+                        }
+                    }
                 }
                 die_ranges.sort_by_key(|dr| dr.range.begin);
 
@@ -235,6 +355,7 @@ impl DwarfContext {
                     files,
                     lines,
                     ranges: unit_ranges,
+                    local_vars: variables,
                     dies,
                     die_ranges,
                     _unit: Rc::new(unit),
@@ -250,6 +371,23 @@ impl DwarfContext {
             })
             .collect::<Vec<_>>()
             .map_err(Into::into)
+    }
+
+    pub fn find_variables(&self, function: &Die) -> Vec<&Die> {
+        let idx = function.idx;
+
+        match self.unit_ranges[function.unit_idx].local_vars.get(&idx) {
+            None => vec![],
+            Some(indexes) => indexes
+                .iter()
+                .map(|die_idx| {
+                    self.unit_ranges[function.unit_idx]
+                        .dies
+                        .get(*die_idx)
+                        .unwrap()
+                })
+                .collect(),
+        }
     }
 
     pub fn find_function_from_pc(&self, pc: usize) -> Option<&Die> {
