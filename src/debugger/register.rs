@@ -156,6 +156,7 @@ pub fn get_register_value_dwarf(pid: Pid, dwarf_num: i32) -> anyhow::Result<u64>
     Ok(get_register_value(pid, descr.r)?)
 }
 
+#[allow(unused)]
 pub fn get_register_name(reg: Register) -> &'static str {
     match LIST.iter().find(|r| r.r == reg) {
         None => unreachable!(),

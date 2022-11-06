@@ -18,12 +18,12 @@ fn test_address_breakpoint_set() {
     let mut session = setup_hello_world_debugee();
 
     session.exp_string("No previous history.").unwrap();
-    session.send_line("break 0x55555555BD33").unwrap();
-    session.exp_string("break 0x55555555BD33").unwrap();
+    session.send_line("break 0x55555555BD63").unwrap();
+    session.exp_string("break 0x55555555BD63").unwrap();
     session.send_line("continue").unwrap();
     session.exp_string("Hello, world!").unwrap();
     session
-        .exp_string("Hit breakpoint at address 0x55555555BD33")
+        .exp_string("Hit breakpoint at address 0x55555555BD63")
         .unwrap();
     session.exp_string("myprint(\"bye!\")").unwrap();
 
@@ -36,15 +36,15 @@ fn test_multiple_address_breakpoint_set() {
     let mut session = setup_hello_world_debugee();
 
     session.exp_string("No previous history.").unwrap();
-    session.send_line("break 0x55555555BD00").unwrap();
-    session.exp_string("break 0x55555555BD00").unwrap();
-    session.send_line("break 0x55555555BD33").unwrap(); // zamenil
-    session.exp_string("break 0x55555555BD33").unwrap(); // zamenil
+    session.send_line("break 0x55555555BD30").unwrap();
+    session.exp_string("break 0x55555555BD30").unwrap();
+    session.send_line("break 0x55555555BD63").unwrap(); // zamenil
+    session.exp_string("break 0x55555555BD63").unwrap(); // zamenil
 
     session.send_line("continue").unwrap();
 
     session
-        .exp_string("Hit breakpoint at address 0x55555555BD00")
+        .exp_string("Hit breakpoint at address 0x55555555BD30")
         .unwrap();
     session.exp_string("myprint(\"Hello, world!\")").unwrap();
 
@@ -52,7 +52,7 @@ fn test_multiple_address_breakpoint_set() {
     session.exp_string("Hello, world!").unwrap();
 
     session
-        .exp_string("Hit breakpoint at address 0x55555555BD33")
+        .exp_string("Hit breakpoint at address 0x55555555BD63")
         .unwrap();
     session.exp_string("myprint(\"bye!\")").unwrap();
 
@@ -66,18 +66,18 @@ fn test_read_write_register() {
 
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break 0x55555555BD3C").unwrap();
-    session.exp_string("break 0x55555555BD3C").unwrap();
+    session.send_line("break 0x55555555BD6C").unwrap();
+    session.exp_string("break 0x55555555BD6C").unwrap();
 
     session.send_line("continue").unwrap();
     session.exp_string("Hello, world!").unwrap();
     session.exp_string("bye!").unwrap();
 
     session
-        .send_line("register write rip 55555555BCF0")
+        .send_line("register write rip 55555555BD20")
         .unwrap();
     session
-        .exp_string("register write rip 55555555BCF0")
+        .exp_string("register write rip 55555555BD20")
         .unwrap();
 
     session.send_line("continue").unwrap();
@@ -90,8 +90,8 @@ fn test_step_in() {
     let mut session = setup_hello_world_debugee();
 
     session.exp_string("No previous history.").unwrap();
-    session.send_line("break 0x55555555BCF0").unwrap();
-    session.exp_string("break 0x55555555BCF0").unwrap();
+    session.send_line("break 0x55555555BD20").unwrap();
+    session.exp_string("break 0x55555555BD20").unwrap();
 
     session.send_line("continue").unwrap();
     session.exp_string(">fn main()").unwrap();
@@ -113,8 +113,8 @@ fn test_step_out() {
     let mut session = setup_hello_world_debugee();
 
     session.exp_string("No previous history.").unwrap();
-    session.send_line("break 0x55555555BD00").unwrap();
-    session.exp_string("break 0x55555555BD00").unwrap();
+    session.send_line("break 0x55555555BD30").unwrap();
+    session.exp_string("break 0x55555555BD30").unwrap();
 
     session.send_line("continue").unwrap();
     session.exp_string("myprint(\"Hello, world!\");").unwrap();
@@ -135,8 +135,8 @@ fn test_step_over() {
     let mut session = setup_hello_world_debugee();
 
     session.exp_string("No previous history.").unwrap();
-    session.send_line("break 0x55555555BD00").unwrap();
-    session.exp_string("break 0x55555555BD00").unwrap();
+    session.send_line("break 0x55555555BD30").unwrap();
+    session.exp_string("break 0x55555555BD30").unwrap();
 
     session.send_line("continue").unwrap();
     session.exp_string("myprint(\"Hello, world!\");").unwrap();
@@ -195,10 +195,10 @@ fn test_symbol() {
 
     session.exp_string("No previous history.").unwrap();
     session.send_line("symbol main").unwrap();
-    session.exp_string("Text 0x7DB0").unwrap();
+    session.exp_string("Text 0x7DE0").unwrap();
 
     session.send_line("symbol myprint").unwrap();
-    session.exp_string("Text 0x7D40").unwrap();
+    session.exp_string("Text 0x7D70").unwrap();
 }
 
 #[test]
@@ -213,9 +213,9 @@ fn test_backtrace() {
     session.exp_string(">    println!(\"{}\", s)").unwrap();
 
     session.send_line("bt").unwrap();
-    session.exp_string("myprint (0x0055555555bd40)").unwrap();
+    session.exp_string("myprint (0x0055555555bd70)").unwrap();
     session
-        .exp_string("hello_world::main (0x0055555555bcf0)")
+        .exp_string("hello_world::main (0x0055555555bd20)")
         .unwrap();
 }
 
@@ -237,7 +237,7 @@ fn test_read_value_u64() {
 fn setup_hello_world_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
     // cmd.arg("../hello-world/target/debug/hello-world");
-    cmd.arg("./target/debug/hello_world");
+    cmd.arg("./tests/hello_world");
     let program = cmd.get_program().to_string_lossy().to_string()
         + cmd
             .get_args()
@@ -253,7 +253,7 @@ fn setup_hello_world_debugee() -> PtySession {
 fn setup_calc_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
     // cmd.arg("../hello-world/target/debug/hello-world");
-    cmd.arg("./target/debug/calc");
+    cmd.arg("./tests/calc");
     let program = cmd.get_program().to_string_lossy().to_string()
         + cmd
             .get_args()

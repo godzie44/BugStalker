@@ -4,8 +4,7 @@ mod register;
 mod uw;
 
 use crate::debugger::breakpoint::Breakpoint;
-use crate::debugger::dwarf::eval::ExpressionEvaluator;
-use crate::debugger::dwarf::{DwarfContext, EndianRcSlice, Place};
+use crate::debugger::dwarf::DebugeeContext;
 use crate::debugger::register::{
     get_register_from_name, get_register_value, set_register_value, Register,
 };
@@ -32,7 +31,7 @@ pub struct Debugger<'a, R: gimli::Reader> {
     pid: Pid,
     breakpoints: RefCell<HashMap<usize, Breakpoint>>,
     obj_kind: object::ObjectKind,
-    dwarf: DwarfContext<R>,
+    dwarf: DebugeeContext<R>,
 }
 
 impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
@@ -46,7 +45,7 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
             _program: program,
             pid,
             breakpoints: Default::default(),
-            dwarf: DwarfContext::new(&object).unwrap(),
+            dwarf: DebugeeContext::new(&object).unwrap(),
             obj_kind: object.kind(),
         }
     }
@@ -215,10 +214,9 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
             "bt" | "trace" => uw::print_backtrace(self.pid),
             "vars" => self.read_variables(self.offset_pc()?)?,
             "frame" => {
-                let func = self.dwarf.find_function_from_pc(self.offset_pc()?).unwrap();
-                let evaluator = ExpressionEvaluator::new(self.pid, &self.dwarf);
+                let func = self.dwarf.find_function_by_pc(self.offset_pc()?).unwrap();
 
-                let fp = func.frame_base_addr(&self.dwarf, &evaluator).unwrap();
+                let fp = func.frame_base_addr(self.pid).unwrap();
                 println!("current frame at {:?}", fp);
 
                 if let Some(ret_addr) = uw::return_addr(self.pid)? {
@@ -393,13 +391,15 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
     fn step_over(&self) -> anyhow::Result<()> {
         let func = self
             .dwarf
-            .find_function_from_pc(self.offset_pc()?)
+            .find_function_by_pc(self.offset_pc()?)
             .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
 
         let mut line = self
             .dwarf
             .find_place_from_pc(
-                func.low_pc
+                func.die
+                    .base_attributes
+                    .low_pc
                     .ok_or_else(|| anyhow!("unreachable: function not found"))?
                     as usize,
             )
@@ -407,7 +407,7 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
         let current_line = self.dwarf.find_place_from_pc(self.offset_pc()?).unwrap();
 
         let mut to_delete = vec![];
-        while line.address < func.high_pc.unwrap_or(0) {
+        while line.address < func.die.base_attributes.high_pc.unwrap_or(0) {
             if line.is_stmt {
                 let load_addr = self.offset_to_glob_addr(line.address as usize);
                 if line.address != current_line.address
@@ -443,17 +443,18 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
     fn set_breakpoint_at_fn(&self, name: &str) -> anyhow::Result<()> {
         let func = self
             .dwarf
-            .find_function_from_name(name)
+            .find_function_by_name(name)
             .ok_or_else(|| anyhow!("function not found"))?;
 
         let low_pc = func
+            .die
+            .base_attributes
             .low_pc
             .ok_or_else(|| anyhow!("invalid function entry"))?;
         let entry = self
             .dwarf
             .find_place_from_pc(low_pc as usize)
-            .ok_or_else(|| anyhow!("invalid function entry"))?;
-        let entry = entry
+            .ok_or_else(|| anyhow!("invalid function entry"))?
             // TODO skip prologue smarter
             .next()
             .ok_or_else(|| anyhow!("invalid function entry"))?;
@@ -472,7 +473,7 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
         addr + self.load_addr.get()
     }
 
-    fn render_source(&self, place: &Place<EndianRcSlice>, bounds: u64) -> anyhow::Result<String> {
+    fn render_source(&self, place: &dwarf::parse::Place, bounds: u64) -> anyhow::Result<String> {
         const DELIMITER: &str = "--------------------";
         let line_number = if place.line_number == 0 {
             1
@@ -504,23 +505,45 @@ impl<'a> Debugger<'a, gimli::EndianRcSlice<gimli::RunTimeEndian>> {
         Ok(result + "\n" + DELIMITER)
     }
 
+    // fn read_variables(&self, pc: usize) -> anyhow::Result<()> {
+    //     let current_func = self.dwarf.find_function_from_pc(pc);
+    //
+    //     if let Some(func) = current_func {
+    //         let vars = self.dwarf.find_variables(func);
+    //         vars.iter().try_for_each(|var| -> anyhow::Result<()> {
+    //             let values = var.read_value_at_location(self.pid, func, &self.dwarf)?;
+    //
+    //             println!(
+    //                 "{} : {}",
+    //                 var.name.as_deref().unwrap_or("unknown"),
+    //                 values[0]
+    //             );
+    //
+    //             Ok(())
+    //         })?;
+    //     }
+    //
+    //     Ok(())
+    // }
+
     fn read_variables(&self, pc: usize) -> anyhow::Result<()> {
-        let current_func = self.dwarf.find_function_from_pc(pc);
+        let current_func = self
+            .dwarf
+            .find_function_by_pc(pc)
+            .ok_or_else(|| anyhow!("not in function"))?;
 
-        if let Some(func) = current_func {
-            let vars = self.dwarf.find_variables(func);
-            vars.iter().try_for_each(|var| -> anyhow::Result<()> {
-                let values = var.read_value_at_location(self.pid, func, &self.dwarf)?;
+        let vars = current_func.find_variables();
+        vars.iter().try_for_each(|var| -> anyhow::Result<()> {
+            let value = var.read_value_at_location(current_func.clone(), self.pid)?;
 
-                println!(
-                    "{} : {}",
-                    var.name.as_deref().unwrap_or("unknown"),
-                    values[0]
-                );
+            println!(
+                "{} : {}",
+                var.die.base_attributes.name.as_deref().unwrap_or("unknown"),
+                value
+            );
 
-                Ok(())
-            })?;
-        }
+            Ok(())
+        })?;
 
         Ok(())
     }
