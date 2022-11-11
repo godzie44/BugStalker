@@ -330,6 +330,8 @@ impl<'a, T> Clone for ContextualDieRef<'a, T> {
     }
 }
 
+impl<'a, T> Copy for ContextualDieRef<'a, T> {}
+
 impl<'a> ContextualDieRef<'a, FunctionDie> {
     pub fn frame_base_addr(&self, pid: Pid) -> anyhow::Result<usize> {
         let attr = self

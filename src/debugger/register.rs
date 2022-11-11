@@ -113,7 +113,7 @@ pub fn get_register_value(pid: Pid, reg: Register) -> nix::Result<u64> {
     })
 }
 
-pub fn set_register_value(pid: Pid, reg: Register, value: u64) -> nix::Result<()> {
+pub(super) fn set_register_value(pid: Pid, reg: Register, value: u64) -> nix::Result<()> {
     let mut regs = sys::ptrace::getregs(pid)?;
 
     match reg {
@@ -148,7 +148,7 @@ pub fn set_register_value(pid: Pid, reg: Register, value: u64) -> nix::Result<()
     sys::ptrace::setregs(pid, regs)
 }
 
-pub fn get_register_value_dwarf(pid: Pid, dwarf_num: i32) -> anyhow::Result<u64> {
+pub(super) fn get_register_value_dwarf(pid: Pid, dwarf_num: i32) -> anyhow::Result<u64> {
     let descr = LIST
         .iter()
         .find(|r| r.dwarf_num == dwarf_num)
@@ -164,7 +164,7 @@ pub fn get_register_name(reg: Register) -> &'static str {
     }
 }
 
-pub fn get_register_from_name(name: &str) -> anyhow::Result<Register> {
+pub(super) fn get_register_from_name(name: &str) -> anyhow::Result<Register> {
     LIST.iter()
         .find_map(|r| if r.name == name { Some(r.r) } else { None })
         .ok_or_else(|| anyhow!("Register not found"))

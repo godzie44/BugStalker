@@ -23,7 +23,7 @@ fn test_address_breakpoint_set() {
     session.send_line("continue").unwrap();
     session.exp_string("Hello, world!").unwrap();
     session
-        .exp_string("Hit breakpoint at address 0x55555555BD63")
+        .exp_string("Hit breakpoint at address 0x0055555555BD63")
         .unwrap();
     session.exp_string("myprint(\"bye!\")").unwrap();
 
@@ -44,7 +44,7 @@ fn test_multiple_address_breakpoint_set() {
     session.send_line("continue").unwrap();
 
     session
-        .exp_string("Hit breakpoint at address 0x55555555BD30")
+        .exp_string("Hit breakpoint at address 0x0055555555BD30")
         .unwrap();
     session.exp_string("myprint(\"Hello, world!\")").unwrap();
 
@@ -52,7 +52,7 @@ fn test_multiple_address_breakpoint_set() {
     session.exp_string("Hello, world!").unwrap();
 
     session
-        .exp_string("Hit breakpoint at address 0x55555555BD63")
+        .exp_string("Hit breakpoint at address 0x0055555555BD63")
         .unwrap();
     session.exp_string("myprint(\"bye!\")").unwrap();
 
@@ -195,10 +195,10 @@ fn test_symbol() {
 
     session.exp_string("No previous history.").unwrap();
     session.send_line("symbol main").unwrap();
-    session.exp_string("Text 0x7DE0").unwrap();
+    session.exp_string("Text 0x00000000007DE0").unwrap();
 
     session.send_line("symbol myprint").unwrap();
-    session.exp_string("Text 0x7D70").unwrap();
+    session.exp_string("Text 0x00000000007D70").unwrap();
 }
 
 #[test]
@@ -213,9 +213,9 @@ fn test_backtrace() {
     session.exp_string(">    println!(\"{}\", s)").unwrap();
 
     session.send_line("bt").unwrap();
-    session.exp_string("myprint (0x0055555555bd70)").unwrap();
+    session.exp_string("myprint (0x0055555555BD70)").unwrap();
     session
-        .exp_string("hello_world::main (0x0055555555bd20)")
+        .exp_string("hello_world::main (0x0055555555BD20)")
         .unwrap();
 }
 

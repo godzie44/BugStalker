@@ -20,8 +20,10 @@ fn main() {
         }
         Parent { child } => {
             println!("Child pid {:?}", pid);
-            let dbg = debugger::Debugger::new(debugee, child);
-            dbg.run().expect("run debugger fail");
+            let app = debugger::ui::TerminalApplication::new();
+            let debugger = debugger::Debugger::new(debugee, child, app.make_hook());
+
+            app.run(debugger).expect("run application fail");
         }
     }
 }
