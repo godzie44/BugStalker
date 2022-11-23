@@ -7,8 +7,8 @@ use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use gimli::{
     Attribute, AttributeValue, DW_AT_byte_size, DW_AT_data_member_location, DW_AT_encoding,
-    DW_AT_frame_base, DW_AT_high_pc, DW_AT_location, DW_AT_low_pc, DW_AT_name, DW_AT_type, DwAte,
-    DwTag, Range, Reader, Unit as DwarfUnit, UnitOffset,
+    DW_AT_frame_base, DW_AT_location, DW_AT_name, DW_AT_type, DwAte, DwTag, Range, Reader,
+    Unit as DwarfUnit, UnitOffset,
 };
 use nix::unistd::Pid;
 use std::collections::{HashMap, VecDeque};
@@ -75,9 +75,6 @@ impl Unit {
 
         let mut cursor = unit.entries();
         while let Some((delta_depth, die)) = cursor.next_dfs()? {
-            let low_pc = extract_low_pc(dwarf, &unit, die)?;
-            let high_pc = extract_high_pc(dwarf, &unit, die, low_pc)?;
-
             let current_idx = parsed_unit.dies.len();
             let prev_index = if parsed_unit.dies.is_empty() {
                 None
@@ -115,8 +112,10 @@ impl Unit {
                 name: name
                     .map(|s| s.to_string_lossy().map(|s| s.to_string()))
                     .transpose()?,
-                low_pc,
-                high_pc,
+                ranges: dwarf
+                    .die_ranges(&unit, die)?
+                    .collect::<Vec<Range>>()?
+                    .into(),
             };
 
             let parsed_die = match die.tag() {
@@ -324,8 +323,7 @@ impl<'a> PartialEq for Place<'a> {
 pub struct DieAttributes {
     _tag: DwTag,
     pub name: Option<String>,
-    pub low_pc: Option<u64>,
-    pub high_pc: Option<u64>,
+    pub ranges: Box<[Range]>,
 }
 
 #[derive(Debug)]
@@ -531,38 +529,6 @@ impl<'a> ContextualDieRef<'a, VariableDie> {
             })
             .unwrap_or(true)
     }
-}
-
-fn extract_low_pc(
-    dwarf: &gimli::Dwarf<EndianRcSlice>,
-    unit: &gimli::Unit<EndianRcSlice>,
-    die: &gimli::DebuggingInformationEntry<EndianRcSlice>,
-) -> gimli::Result<Option<u64>> {
-    if let Some(attr) = die.attr(DW_AT_low_pc)? {
-        return match attr.value() {
-            gimli::AttributeValue::Addr(val) => Ok(Some(val)),
-            gimli::AttributeValue::DebugAddrIndex(index) => Ok(Some(dwarf.address(unit, index)?)),
-            _ => Ok(None),
-        };
-    }
-    Ok(None)
-}
-
-pub fn extract_high_pc(
-    dwarf: &gimli::Dwarf<EndianRcSlice>,
-    unit: &gimli::Unit<EndianRcSlice>,
-    die: &gimli::DebuggingInformationEntry<EndianRcSlice>,
-    low_pc: Option<u64>,
-) -> gimli::Result<Option<u64>> {
-    if let Some(attr) = die.attr(DW_AT_high_pc)? {
-        return match attr.value() {
-            gimli::AttributeValue::Udata(val) => Ok(Some(low_pc.unwrap_or(0) + val)),
-            gimli::AttributeValue::Addr(val) => Ok(Some(val)),
-            gimli::AttributeValue::DebugAddrIndex(index) => Ok(Some(dwarf.address(unit, index)?)),
-            _ => Ok(None),
-        };
-    }
-    Ok(None)
 }
 
 fn parse_lines<R, Offset>(

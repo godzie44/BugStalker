@@ -270,20 +270,16 @@ impl<'a, T: EventHook> Debugger<'a, T> {
             .find_function_by_pc(self.offset_pc()?)
             .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
 
+        //todo may be function have not single range, rewrite with respect of multiple ranges
+
         let mut line = self
             .dwarf
-            .find_place_from_pc(
-                func.die
-                    .base_attributes
-                    .low_pc
-                    .ok_or_else(|| anyhow!("unreachable: function not found"))?
-                    as usize,
-            )
+            .find_place_from_pc(func.die.base_attributes.ranges[0].begin as usize)
             .unwrap();
         let current_line = self.dwarf.find_place_from_pc(self.offset_pc()?).unwrap();
 
         let mut to_delete = vec![];
-        while line.address < func.die.base_attributes.high_pc.unwrap_or(0) {
+        while line.address < func.die.base_attributes.ranges[0].end {
             if line.is_stmt {
                 let load_addr = self.offset_to_glob_addr(line.address as usize);
                 if line.address != current_line.address
@@ -322,11 +318,8 @@ impl<'a, T: EventHook> Debugger<'a, T> {
             .find_function_by_name(name)
             .ok_or_else(|| anyhow!("function not found"))?;
 
-        let low_pc = func
-            .die
-            .base_attributes
-            .low_pc
-            .ok_or_else(|| anyhow!("invalid function entry"))?;
+        // todo find range with lowes begin
+        let low_pc = func.die.base_attributes.ranges[0].begin;
         let entry = self
             .dwarf
             .find_place_from_pc(low_pc as usize)
