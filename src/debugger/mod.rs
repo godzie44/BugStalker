@@ -3,16 +3,19 @@ pub mod command;
 mod dwarf;
 mod register;
 pub mod ui;
+mod utils;
 mod uw;
 
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::dwarf::parse::Place;
+use crate::debugger::dwarf::r#type::TypeDeclaration;
 use crate::debugger::dwarf::{DebugeeContext, EndianRcSlice, Symbol};
 use crate::debugger::register::{
     get_register_from_name, get_register_value, set_register_value, Register,
 };
 use crate::debugger::uw::Backtrace;
 use anyhow::anyhow;
+use bytes::Bytes;
 use nix::errno::Errno;
 use nix::libc::{c_void, siginfo_t, uintptr_t};
 use nix::sys::wait::waitpid;
@@ -347,18 +350,22 @@ impl<'a, T: EventHook> Debugger<'a, T> {
     }
 
     fn read_variables(&self) -> anyhow::Result<Vec<Variable>> {
+        let pc = self.offset_pc()?;
+
         let current_func = self
             .dwarf
-            .find_function_by_pc(self.offset_pc()?)
+            .find_function_by_pc(pc)
             .ok_or_else(|| anyhow!("not in function"))?;
 
         current_func
-            .find_variables()
+            .find_variables(pc)
             .iter()
             .map(|var| {
-                let value = var.read_value_at_location(current_func, self.pid)?;
+                let mb_type = var.r#type();
+                let value = var.read_value_at_location(current_func, self.pid);
                 Ok(Variable {
-                    name: Cow::Owned(var.die.base_attributes.name.clone().unwrap_or_default()),
+                    r#type: mb_type,
+                    name: var.die.base_attributes.name.clone().map(Cow::Owned),
                     value,
                 })
             })
@@ -382,6 +389,7 @@ impl<'a, T: EventHook> Debugger<'a, T> {
 }
 
 pub struct Variable<'a> {
-    name: Cow<'a, str>,
-    value: u64,
+    name: Option<Cow<'a, str>>,
+    r#type: Option<TypeDeclaration>,
+    value: Option<Bytes>,
 }

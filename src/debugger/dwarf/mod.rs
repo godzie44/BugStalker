@@ -1,5 +1,6 @@
 pub mod eval;
 pub mod parse;
+pub mod r#type;
 
 use crate::debugger::dwarf::parse::{ContextualDieRef, FunctionDie};
 use fallible_iterator::FallibleIterator;

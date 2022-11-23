@@ -231,7 +231,7 @@ fn test_read_value_u64() {
     session.exp_string(">    print(s);").unwrap();
 
     session.send_line("vars").unwrap();
-    session.exp_string("s : 3").unwrap();
+    session.exp_string("s = i64(3)").unwrap();
 }
 
 fn setup_hello_world_debugee() -> PtySession {

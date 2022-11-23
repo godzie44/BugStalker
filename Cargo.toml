@@ -20,6 +20,9 @@ itertools = "0.10.3"
 unwind = { version = "0.4.1", features = ["ptrace"] }
 rustc-demangle = "0.1.21"
 thiserror = "1.0.37"
+bytes = "1.2.1"
+log = "0.4.17"
+env_logger = "0.9.3"
 
 [dev-dependencies]
 assert_cmd = "2.0.4"
@@ -31,4 +34,8 @@ test = false
 
 [[bin]]
 name = "calc"
+test = false
+
+[[bin]]
+name = "vars"
 test = false

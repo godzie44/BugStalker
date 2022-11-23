@@ -3,14 +3,17 @@ use crate::debugger::command::{
     Backtrace, Break, Frame, Quit, StepI, StepInto, StepOut, StepOver, Symbol, Variables,
 };
 use crate::debugger::ui::hook::TerminalHook;
+use crate::debugger::ui::variable::render_variable_value;
 use crate::debugger::ui::view::FileView;
 use crate::debugger::{command, Debugger};
 use command::{Memory, Register};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use std::borrow::Cow;
 use std::rc::Rc;
 
 pub mod hook;
+mod variable;
 pub mod view;
 
 pub struct TerminalApplication {
@@ -117,7 +120,11 @@ impl TerminalApplication {
             "finish" | "stepout" => StepOut::new(debugger).run()?,
             "vars" => {
                 Variables::new(debugger).run()?.iter().for_each(|var| {
-                    println!("{} : {}", var.name, var.value);
+                    println!(
+                        "{} = {}",
+                        var.name.as_ref().unwrap_or(&Cow::Borrowed("unknown")),
+                        render_variable_value(var, debugger.pid)
+                    );
                 });
             }
             "frame" => {
