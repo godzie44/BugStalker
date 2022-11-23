@@ -108,9 +108,9 @@ impl From<ContextualDieRef<'_, StructTypeDie>> for TypeDeclaration {
             .children
             .iter()
             .filter_map(|child_idx| {
-                let d_die = &ctx_die.context.dies[*child_idx];
+                let entry = &ctx_die.context.entries[*child_idx];
 
-                if let DieVariant::TypeMember(member) = &d_die.die {
+                if let DieVariant::TypeMember(member) = &entry.die {
                     let loc = member.location.as_ref().map(|attr| attr.value());
                     let in_struct_location =
                         if let Some(offset) = loc.as_ref().and_then(|l| l.sdata_value()) {
@@ -127,18 +127,18 @@ impl From<ContextualDieRef<'_, StructTypeDie>> for TypeDeclaration {
                     let type_decl = member.type_addr.as_ref().and_then(|addr| {
                         if let gimli::AttributeValue::UnitRef(unit_offset) = addr.value() {
                             let mb_type_die = ctx_die.context.find_die(unit_offset);
-                            mb_type_die.and_then(|d_die| match &d_die.die {
+                            mb_type_die.and_then(|entry| match &entry.die {
                                 DieVariant::BaseType(die) => {
                                     Some(TypeDeclaration::from(ContextualDieRef {
                                         context: ctx_die.context,
-                                        node: &d_die.node,
+                                        node: &entry.node,
                                         die,
                                     }))
                                 }
                                 DieVariant::StructType(die) => {
                                     Some(TypeDeclaration::from(ContextualDieRef {
                                         context: ctx_die.context,
-                                        node: &d_die.node,
+                                        node: &entry.node,
                                         die,
                                     }))
                                 }

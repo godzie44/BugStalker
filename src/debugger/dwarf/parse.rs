@@ -35,7 +35,7 @@ pub struct Unit {
     files: Vec<String>,
     lines: Vec<LineRow>,
     pub ranges: Vec<Range>,
-    pub(super) dies: Vec<DeterminedDie>,
+    pub(super) entries: Vec<Entry>,
     die_ranges: Vec<DieRange>,
     die_offsets: HashMap<UnitOffset, usize>,
     name: Option<String>,
@@ -53,7 +53,7 @@ impl Unit {
             .and_then(|n| n.to_string_lossy().ok().map(|s| s.to_string()));
 
         let mut parsed_unit = Unit {
-            dies: vec![],
+            entries: vec![],
             files: vec![],
             lines: vec![],
             ranges: vec![],
@@ -75,11 +75,11 @@ impl Unit {
 
         let mut cursor = unit.entries();
         while let Some((delta_depth, die)) = cursor.next_dfs()? {
-            let current_idx = parsed_unit.dies.len();
-            let prev_index = if parsed_unit.dies.is_empty() {
+            let current_idx = parsed_unit.entries.len();
+            let prev_index = if parsed_unit.entries.is_empty() {
                 None
             } else {
-                Some(parsed_unit.dies.len() - 1)
+                Some(parsed_unit.entries.len() - 1)
             };
 
             let name = die
@@ -90,12 +90,12 @@ impl Unit {
                 // if 1 then previous die is a parent
                 1 => prev_index,
                 // if 0 then previous die is a sibling
-                0 => parsed_unit.dies.last().and_then(|dd| dd.node.parent),
+                0 => parsed_unit.entries.last().and_then(|dd| dd.node.parent),
                 // if < 0 then parent of previous die is a sibling
                 mut x if x < 0 => {
-                    let mut parent = parsed_unit.dies.last().unwrap();
+                    let mut parent = parsed_unit.entries.last().unwrap();
                     while x != 0 {
-                        parent = &parsed_unit.dies[parent.node.parent.unwrap()];
+                        parent = &parsed_unit.entries[parent.node.parent.unwrap()];
                         x += 1;
                     }
                     parent.node.parent
@@ -104,18 +104,30 @@ impl Unit {
             };
 
             if let Some(parent_idx) = parent_idx {
-                parsed_unit.dies[parent_idx].node.children.push(current_idx)
+                parsed_unit.entries[parent_idx]
+                    .node
+                    .children
+                    .push(current_idx)
             }
+
+            let ranges: Box<[Range]> = dwarf
+                .die_ranges(&unit, die)?
+                .collect::<Vec<Range>>()?
+                .into();
+
+            ranges.iter().for_each(|r| {
+                parsed_unit.die_ranges.push(DieRange {
+                    range: *r,
+                    die_idx: current_idx,
+                })
+            });
 
             let base_attrs = DieAttributes {
                 _tag: die.tag(),
                 name: name
                     .map(|s| s.to_string_lossy().map(|s| s.to_string()))
                     .transpose()?,
-                ranges: dwarf
-                    .die_ranges(&unit, die)?
-                    .collect::<Vec<Range>>()?
-                    .into(),
+                ranges,
             };
 
             let parsed_die = match die.tag() {
@@ -127,11 +139,11 @@ impl Unit {
                     let mut lexical_block_idx = None;
                     let mut mb_parent_idx = parent_idx;
                     while let Some(parent_idx) = mb_parent_idx {
-                        if let DieVariant::LexicalBlock(_) = parsed_unit.dies[parent_idx].die {
+                        if let DieVariant::LexicalBlock(_) = parsed_unit.entries[parent_idx].die {
                             lexical_block_idx = Some(parent_idx);
                             break;
                         }
-                        mb_parent_idx = parsed_unit.dies[parent_idx].node.parent;
+                        mb_parent_idx = parsed_unit.entries[parent_idx].node.parent;
                     }
 
                     DieVariant::Variable(VariableDie {
@@ -176,17 +188,8 @@ impl Unit {
                 _ => DieVariant::Default(base_attrs),
             };
 
-            parsed_unit
-                .dies
-                .push(DeterminedDie::new(parsed_die, parent_idx));
+            parsed_unit.entries.push(Entry::new(parsed_die, parent_idx));
 
-            dwarf.die_ranges(&unit, die)?.for_each(|r| {
-                parsed_unit.die_ranges.push(DieRange {
-                    range: r,
-                    die_idx: current_idx,
-                });
-                Ok(())
-            })?;
             parsed_unit.die_offsets.insert(die.offset(), current_idx);
         }
         parsed_unit.die_ranges.sort_by_key(|dr| dr.range.begin);
@@ -195,7 +198,7 @@ impl Unit {
     }
 
     pub fn find_function_by_name(&self, name: &str) -> Option<ContextualDieRef<FunctionDie>> {
-        self.dies.iter().find_map(|det_die| {
+        self.entries.iter().find_map(|det_die| {
             if let DieVariant::Function(func) = &det_die.die {
                 if func
                     .base_attributes
@@ -274,10 +277,10 @@ impl Unit {
         };
 
         self.die_ranges[..find_pos].iter().rev().find_map(|dr| {
-            if let parse::DieVariant::Function(ref func) = self.dies[dr.die_idx].die {
+            if let parse::DieVariant::Function(ref func) = self.entries[dr.die_idx].die {
                 if dr.range.begin <= pc && pc <= dr.range.end {
                     return Some(ContextualDieRef {
-                        node: &self.dies[dr.die_idx].node,
+                        node: &self.entries[dr.die_idx].node,
                         context: self,
                         die: func,
                     });
@@ -287,9 +290,9 @@ impl Unit {
         })
     }
 
-    pub(super) fn find_die(&self, offset: UnitOffset) -> Option<&DeterminedDie> {
+    pub(super) fn find_die(&self, offset: UnitOffset) -> Option<&Entry> {
         let die_idx = self.die_offsets.get(&offset)?;
-        Some(&self.dies[*die_idx])
+        Some(&self.entries[*die_idx])
     }
 }
 
@@ -388,12 +391,12 @@ pub struct Node {
 }
 
 #[derive(Debug)]
-pub struct DeterminedDie {
+pub struct Entry {
     pub(super) die: DieVariant,
     pub(super) node: Node,
 }
 
-impl DeterminedDie {
+impl Entry {
     fn new(die: DieVariant, parent_idx: Option<usize>) -> Self {
         Self {
             die,
@@ -446,10 +449,10 @@ impl<'a> ContextualDieRef<'a, FunctionDie> {
         let mut result = vec![];
         let mut queue = VecDeque::from(self.node.children.clone());
         while let Some(idx) = queue.pop_front() {
-            if let DieVariant::Variable(ref var) = self.context.dies[idx].die {
+            if let DieVariant::Variable(ref var) = self.context.entries[idx].die {
                 let var_ref = ContextualDieRef {
                     context: self.context,
-                    node: &self.context.dies[idx].node,
+                    node: &self.context.entries[idx].node,
                     die: var,
                 };
 
@@ -457,7 +460,7 @@ impl<'a> ContextualDieRef<'a, FunctionDie> {
                     result.push(var_ref);
                 }
             }
-            self.context.dies[idx]
+            self.context.entries[idx]
                 .node
                 .children
                 .iter()
@@ -492,17 +495,17 @@ impl<'a> ContextualDieRef<'a, VariableDie> {
     pub fn r#type(&self) -> Option<TypeDeclaration> {
         self.die.type_addr.as_ref().and_then(|addr| {
             if let gimli::AttributeValue::UnitRef(unit_offset) = addr.value() {
-                let d_die = &self.context.find_die(unit_offset)?;
-                let type_decl = match d_die.die {
+                let entry = &self.context.find_die(unit_offset)?;
+                let type_decl = match entry.die {
                     DieVariant::BaseType(ref type_die) => TypeDeclaration::from(ContextualDieRef {
                         context: self.context,
-                        node: &d_die.node,
+                        node: &entry.node,
                         die: type_die,
                     }),
                     DieVariant::StructType(ref type_die) => {
                         TypeDeclaration::from(ContextualDieRef {
                             context: self.context,
-                            node: &d_die.node,
+                            node: &entry.node,
                             die: type_die,
                         })
                     }
@@ -519,7 +522,7 @@ impl<'a> ContextualDieRef<'a, VariableDie> {
         self.die
             .lexical_block_idx
             .map(|lb_idx| {
-                let DieVariant::LexicalBlock(lb) = &self.context.dies[lb_idx].die else {
+                let DieVariant::LexicalBlock(lb) = &self.context.entries[lb_idx].die else {
                     unreachable!();
                 };
 
