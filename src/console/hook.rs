@@ -1,6 +1,6 @@
-use crate::debugger::console::view::FileView;
-use crate::debugger::dwarf::parse::Place;
+use crate::console::view::FileView;
 use crate::debugger::EventHook;
+use crate::debugger::Place;
 use std::rc::Rc;
 
 pub struct TerminalHook {

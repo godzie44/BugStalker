@@ -1,4 +1,4 @@
-use crate::debugger::dwarf::r#type::TypeDeclaration;
+use crate::debugger::TypeDeclaration;
 use crate::debugger::Variable;
 use bytes::Bytes;
 use nix::unistd::Pid;

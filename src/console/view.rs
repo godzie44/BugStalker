@@ -1,4 +1,4 @@
-use crate::debugger::dwarf::parse::Place;
+use crate::debugger::Place;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::BufRead;

@@ -23,6 +23,8 @@ thiserror = "1.0.37"
 bytes = "1.2.1"
 log = "0.4.17"
 env_logger = "0.9.3"
+tui = "0.19"
+crossterm = "0.25"
 clap =  { version = "4.0", features = ["derive"] }
 
 [dev-dependencies]

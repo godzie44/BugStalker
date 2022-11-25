@@ -1,5 +1,5 @@
 use anyhow::bail;
-use bugstalker::debugger;
+use bugstalker::{console, debugger};
 use clap::Parser;
 use nix::errno::errno;
 use nix::libc::{c_char, execl};
@@ -7,7 +7,6 @@ use nix::sys;
 use nix::sys::personality::Persona;
 use nix::unistd::fork;
 use nix::unistd::ForkResult::{Child, Parent};
-use std::env;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -34,7 +33,7 @@ fn main() {
             match args.ui.as_str() {
                 "cui" => {}
                 _ => {
-                    let app = debugger::console::TerminalApplication::new();
+                    let app = console::TerminalApplication::new();
                     let debugger = debugger::Debugger::new(debugee, child, app.make_hook());
 
                     app.run(debugger).expect("run application fail");

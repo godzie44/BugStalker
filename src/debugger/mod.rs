@@ -1,14 +1,13 @@
 mod breakpoint;
 pub mod command;
-pub mod console;
 mod dwarf;
 mod register;
 mod utils;
 mod uw;
+pub use dwarf::parse::Place;
+pub use dwarf::r#type::TypeDeclaration;
 
 use crate::debugger::breakpoint::Breakpoint;
-use crate::debugger::dwarf::parse::Place;
-use crate::debugger::dwarf::r#type::TypeDeclaration;
 use crate::debugger::dwarf::{DebugeeContext, EndianRcSlice, Symbol};
 use crate::debugger::register::{
     get_register_from_name, get_register_value, set_register_value, Register,
@@ -40,7 +39,7 @@ pub trait EventHook {
 pub struct Debugger<'a, T: EventHook> {
     _program: &'a str,
     load_addr: Cell<usize>,
-    pid: Pid,
+    pub pid: Pid,
     breakpoints: RefCell<HashMap<usize, Breakpoint>>,
     obj_kind: object::ObjectKind,
     dwarf: DebugeeContext<EndianRcSlice>,
@@ -382,7 +381,7 @@ impl<'a, T: EventHook> Debugger<'a, T> {
 }
 
 pub struct Variable<'a> {
-    name: Option<Cow<'a, str>>,
-    r#type: Option<TypeDeclaration>,
-    value: Option<Bytes>,
+    pub name: Option<Cow<'a, str>>,
+    pub r#type: Option<TypeDeclaration>,
+    pub value: Option<Bytes>,
 }
