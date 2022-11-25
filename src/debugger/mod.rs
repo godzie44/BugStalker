@@ -1,8 +1,8 @@
 mod breakpoint;
 pub mod command;
+pub mod console;
 mod dwarf;
 mod register;
-pub mod ui;
 mod utils;
 mod uw;
 

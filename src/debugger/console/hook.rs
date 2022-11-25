@@ -1,5 +1,5 @@
+use crate::debugger::console::view::FileView;
 use crate::debugger::dwarf::parse::Place;
-use crate::debugger::ui::view::FileView;
 use crate::debugger::EventHook;
 use std::rc::Rc;
 
