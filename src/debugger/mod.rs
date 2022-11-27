@@ -36,8 +36,8 @@ pub trait EventHook {
     fn on_sigtrap(&self, pc: usize, place: Option<Place>) -> anyhow::Result<()>;
 }
 
-pub struct Debugger<'a, T: EventHook> {
-    _program: &'a str,
+pub struct Debugger<T: EventHook> {
+    _program: String,
     load_addr: Cell<usize>,
     pub pid: Pid,
     breakpoints: RefCell<HashMap<usize, Breakpoint>>,
@@ -46,9 +46,10 @@ pub struct Debugger<'a, T: EventHook> {
     event_hooks: T,
 }
 
-impl<'a, T: EventHook> Debugger<'a, T> {
-    pub fn new(program: &'a str, pid: Pid, hooks: T) -> Self {
-        let file = fs::File::open(program).unwrap();
+impl<T: EventHook> Debugger<T> {
+    pub fn new(program: impl Into<String>, pid: Pid, hooks: T) -> Self {
+        let program = program.into();
+        let file = fs::File::open(&program).unwrap();
         let mmap = unsafe { memmap2::Mmap::map(&file).unwrap() };
         let object = object::File::parse(&*mmap).unwrap();
 

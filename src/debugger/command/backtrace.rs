@@ -1,11 +1,11 @@
 use crate::debugger::{command, uw, Debugger, EventHook};
 
 pub struct Backtrace<'a, T: EventHook> {
-    dbg: &'a Debugger<'a, T>,
+    dbg: &'a Debugger<T>,
 }
 
 impl<'a, T: EventHook> Backtrace<'a, T> {
-    pub fn new(debugger: &'a Debugger<'a, T>) -> Self {
+    pub fn new(debugger: &'a Debugger<T>) -> Self {
         Self { dbg: debugger }
     }
 

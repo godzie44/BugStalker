@@ -8,7 +8,7 @@ enum SubCommand {
 }
 
 pub struct Register<'a, T: EventHook> {
-    dbg: &'a Debugger<'a, T>,
+    dbg: &'a Debugger<T>,
     sub_cmd: SubCommand,
 }
 
@@ -20,7 +20,7 @@ pub struct RegisterValue<'a> {
 pub type Response<'a> = Vec<RegisterValue<'a>>;
 
 impl<'a, T: EventHook> Register<'a, T> {
-    pub fn new<'s>(debugger: &'a Debugger<'a, T>, args: Vec<&'s str>) -> command::Result<Self> {
+    pub fn new<'s>(debugger: &'a Debugger<T>, args: Vec<&'s str>) -> command::Result<Self> {
         command::helper::check_args_count(&args, 2)?;
 
         let sub_cmd = match args[1].to_lowercase().as_str() {

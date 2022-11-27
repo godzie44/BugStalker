@@ -3,12 +3,12 @@ use crate::debugger::EventHook;
 use crate::debugger::Place;
 use std::rc::Rc;
 
-pub struct TerminalHook {
+pub(super) struct TerminalHook {
     file_view: Rc<FileView>,
 }
 
 impl TerminalHook {
-    pub fn new(file_view: Rc<FileView>) -> Self {
+    pub(super) fn new(file_view: Rc<FileView>) -> Self {
         Self { file_view }
     }
 }

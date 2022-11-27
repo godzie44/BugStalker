@@ -7,6 +7,7 @@ use crate::debugger::command::{
 };
 use crate::debugger::{command, Debugger};
 use command::{Memory, Register};
+use nix::unistd::Pid;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::borrow::Cow;
@@ -16,11 +17,11 @@ pub mod hook;
 mod variable;
 pub mod view;
 
-pub struct TerminalApplication {
+pub struct AppBuilder {
     file_view: Rc<FileView>,
 }
 
-impl TerminalApplication {
+impl AppBuilder {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
@@ -28,12 +29,24 @@ impl TerminalApplication {
         }
     }
 
-    pub fn make_hook(&self) -> TerminalHook {
-        TerminalHook::new(self.file_view.clone())
+    pub fn build(self, program: impl Into<String>, pid: Pid) -> TerminalApplication {
+        let hook = TerminalHook::new(self.file_view.clone());
+        let debugger = Debugger::new(program, pid, hook);
+        TerminalApplication {
+            file_view: self.file_view,
+            debugger,
+        }
     }
+}
 
-    pub fn run(&self, debugger: Debugger<TerminalHook>) -> anyhow::Result<()> {
-        debugger.on_debugee_start()?;
+pub struct TerminalApplication {
+    file_view: Rc<FileView>,
+    debugger: Debugger<TerminalHook>,
+}
+
+impl TerminalApplication {
+    pub fn run(&self) -> anyhow::Result<()> {
+        self.debugger.on_debugee_start()?;
 
         let mut rl = Editor::<()>::new()?;
         if rl.load_history("history.txt").is_err() {
@@ -46,7 +59,7 @@ impl TerminalApplication {
                 Ok(input) => {
                     rl.add_history_entry(input.as_str());
                     println!("> {}", input);
-                    if let Err(e) = self.handle_cmd(&input, &debugger) {
+                    if let Err(e) = self.handle_cmd(&input, &self.debugger) {
                         println!("Error: {:?}", e);
                     }
                     rl.add_history_entry(input.as_str());

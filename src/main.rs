@@ -1,5 +1,6 @@
 use anyhow::bail;
-use bugstalker::{console, debugger};
+use bugstalker::console::AppBuilder;
+use bugstalker::debugger;
 use clap::Parser;
 use nix::errno::errno;
 use nix::libc::{c_char, execl};
@@ -33,10 +34,8 @@ fn main() {
             match args.ui.as_str() {
                 "cui" => {}
                 _ => {
-                    let app = console::TerminalApplication::new();
-                    let debugger = debugger::Debugger::new(debugee, child, app.make_hook());
-
-                    app.run(debugger).expect("run application fail");
+                    let app = AppBuilder::new().build(debugee, child);
+                    app.run().expect("run application fail");
                 }
             }
         }
