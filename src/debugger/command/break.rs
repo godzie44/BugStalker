@@ -10,7 +10,7 @@ pub enum Type {
 
 pub struct Break<'a, T: EventHook> {
     dbg: &'a Debugger<T>,
-    r#type: Type,
+    pub r#type: Type,
 }
 
 impl<'a, T: EventHook> Break<'a, T> {

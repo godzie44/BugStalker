@@ -1,13 +1,16 @@
 use anyhow::bail;
 use bugstalker::console::AppBuilder;
-use bugstalker::debugger;
+use bugstalker::cui;
 use clap::Parser;
 use nix::errno::errno;
-use nix::libc::{c_char, execl};
+use nix::libc::{c_char, dup2, execl};
 use nix::sys;
 use nix::sys::personality::Persona;
 use nix::unistd::fork;
 use nix::unistd::ForkResult::{Child, Parent};
+use std::fs::File;
+use std::io::{stderr, stdout};
+use std::os::unix::io::AsRawFd;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -26,13 +29,20 @@ fn main() {
 
     match pid.expect("Fork Failed: Unable to create child process!") {
         Child => {
+            if args.ui.as_str() == "cui" {
+                redirect_output_to_dev_null().expect("execute debugee fail");
+            }
+
             execute_debugee(debugee).expect("execute debugee fail");
         }
         Parent { child } => {
             println!("Child pid {:?}", pid);
 
             match args.ui.as_str() {
-                "cui" => {}
+                "cui" => {
+                    let app = cui::AppBuilder::new().build(debugee, child);
+                    app.run().expect("run application fail");
+                }
                 _ => {
                     let app = AppBuilder::new().build(debugee, child);
                     app.run().expect("run application fail");
@@ -54,5 +64,15 @@ fn execute_debugee(path: &str) -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn redirect_output_to_dev_null() -> anyhow::Result<()> {
+    let dev_null = File::open("/dev/null")?;
+    let fd = dev_null.as_raw_fd();
+    unsafe {
+        dup2(fd, stdout().as_raw_fd());
+        dup2(fd, stderr().as_raw_fd());
+    }
     Ok(())
 }

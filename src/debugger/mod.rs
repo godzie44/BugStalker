@@ -128,7 +128,7 @@ impl<T: EventHook> Debugger<T> {
         Ok(self.offset_load_addr(self.get_pc()?))
     }
 
-    pub fn continue_execution(&self) -> anyhow::Result<()> {
+    fn continue_execution(&self) -> anyhow::Result<()> {
         self.step_over_breakpoint()?;
         sys::ptrace::cont(self.pid, None)?;
         self.wait_for_signal()

@@ -17,6 +17,7 @@ pub use frame::Frame;
 pub use memory::Memory;
 pub use quit::Quit;
 pub use r#break::Break;
+pub use r#break::Type as BreakpointType;
 pub use r#continue::Continue;
 pub use register::Register;
 pub use step_instruction::StepI;
