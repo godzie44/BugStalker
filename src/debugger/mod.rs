@@ -4,8 +4,11 @@ mod dwarf;
 mod register;
 mod utils;
 mod uw;
+pub mod variable;
+
 pub use dwarf::parse::Place;
 pub use dwarf::r#type::TypeDeclaration;
+pub use variable::Variable;
 
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::dwarf::{DebugeeContext, EndianRcSlice, Symbol};
@@ -14,7 +17,6 @@ use crate::debugger::register::{
 };
 use crate::debugger::uw::Backtrace;
 use anyhow::anyhow;
-use bytes::Bytes;
 use nix::errno::Errno;
 use nix::libc::{c_void, siginfo_t, uintptr_t};
 use nix::sys::wait::waitpid;
@@ -379,10 +381,4 @@ impl<T: EventHook> Debugger<T> {
             val,
         )?)
     }
-}
-
-pub struct Variable<'a> {
-    pub name: Option<Cow<'a, str>>,
-    pub r#type: Option<TypeDeclaration>,
-    pub value: Option<Bytes>,
 }

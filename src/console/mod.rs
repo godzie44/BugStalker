@@ -1,6 +1,6 @@
 use super::debugger::command::Continue;
 use crate::console::hook::TerminalHook;
-use crate::console::variable::render_variable_value;
+use crate::console::variable::render_variable;
 use crate::console::view::FileView;
 use crate::debugger::command::{
     Backtrace, Break, Frame, Quit, StepI, StepInto, StepOut, StepOver, Symbol, Variables,
@@ -136,7 +136,7 @@ impl TerminalApplication {
                     println!(
                         "{} = {}",
                         var.name.as_ref().unwrap_or(&Cow::Borrowed("unknown")),
-                        render_variable_value(var, debugger.pid)
+                        render_variable(&var.render(debugger.pid)),
                     );
                 });
             }
