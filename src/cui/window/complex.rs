@@ -1,4 +1,5 @@
-use crate::cui::window::{Action, CuiComponent, RenderContext};
+use crate::cui::window::{Action, CuiComponent};
+use crate::cui::AppContext;
 use crossterm::event::KeyEvent;
 use std::collections::{HashMap, HashSet};
 use std::io::StdoutLock;
@@ -33,26 +34,14 @@ impl ComplexComponent {
 }
 
 impl CuiComponent for ComplexComponent {
-    fn render(
-        &self,
-        ctx: RenderContext,
-        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
-        rect: Rect,
-    ) {
+    fn render(&self, ctx: AppContext, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect) {
         let mut rects = (self.layout)(rect);
         self.visible_components.iter().for_each(|c_name| {
             if self.components.get(c_name).is_none() {
-                println!("WTF ?? {c_name} self: {}", self.name);
                 return;
             }
 
             if rects.get(c_name).is_none() {
-                println!(
-                    "rects WTF ?? {c_name} self: {} rects: {:?}",
-                    self.name,
-                    rects.keys().collect::<Vec<_>>()
-                );
-                println!("vis {:?}", self.visible_components);
                 return;
             }
 
@@ -60,17 +49,21 @@ impl CuiComponent for ComplexComponent {
         });
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, ctx: AppContext, e: KeyEvent) -> Vec<Action> {
         self.active_components
             .iter()
             .flat_map(|idx| {
-                let b = self.components.get_mut(idx).unwrap().handle_user_event(e);
+                let b = self
+                    .components
+                    .get_mut(idx)
+                    .unwrap()
+                    .handle_user_event(ctx.clone(), e);
                 b
             })
             .collect()
     }
 
-    fn apply_app_action(&mut self, actions: &[Action]) {
+    fn apply_app_action(&mut self, ctx: AppContext, actions: &[Action]) {
         for action in actions {
             let applicable = action
                 .target()
@@ -107,7 +100,7 @@ impl CuiComponent for ComplexComponent {
 
         self.components
             .iter_mut()
-            .for_each(|(_, component)| component.apply_app_action(actions));
+            .for_each(|(_, component)| component.apply_app_action(ctx.clone(), actions));
     }
 
     fn name(&self) -> &'static str {

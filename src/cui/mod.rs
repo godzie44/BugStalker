@@ -1,13 +1,12 @@
 use crate::cui::file_view::FileView;
 use crate::cui::hook::CuiHook;
-use crate::cui::window::RenderContext;
 use crate::debugger::Debugger;
 use crossterm::event;
 use crossterm::event::EnableMouseCapture;
 use crossterm::terminal::enable_raw_mode;
 use crossterm::terminal::EnterAlternateScreen;
 use nix::unistd::Pid;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::mpsc;
@@ -40,10 +39,13 @@ impl AppBuilder {
     }
 
     pub fn build(self, program: impl Into<String>, pid: Pid) -> CuiApplication {
-        let render_data = SharedRenderData(Rc::new(RenderData::start_screen()));
-        let hook = CuiHook::new(render_data.clone(), self.file_view);
+        let ctx = AppContext(Rc::new(Context {
+            data: RenderData::start_screen(),
+            state: Cell::new(AppState::Initial),
+        }));
+        let hook = CuiHook::new(ctx.clone(), self.file_view);
         let debugger = Debugger::new(program, pid, hook);
-        CuiApplication::new(debugger, render_data)
+        CuiApplication::new(debugger, ctx)
     }
 }
 
@@ -71,28 +73,48 @@ impl RenderData {
     }
 }
 
-#[derive(Clone)]
-pub struct SharedRenderData(Rc<RenderData>);
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum AppState {
+    Initial,
+    DebugeeRun,
+    DebugeeBreak,
+    UserInput,
+}
 
-impl Deref for SharedRenderData {
-    type Target = Rc<RenderData>;
+pub struct Context {
+    pub(super) data: RenderData,
+    pub(super) state: Cell<AppState>,
+}
+
+#[derive(Clone)]
+pub struct AppContext(Rc<Context>);
+
+impl Deref for AppContext {
+    type Target = Rc<Context>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
+impl AppContext {
+    pub(super) fn change_state(&self, state: AppState) {
+        self.state.set(state)
+    }
+
+    pub(super) fn assert_state(&self, state: AppState) -> bool {
+        self.state.get() == state
+    }
+}
+
 pub struct CuiApplication {
     debugger: Debugger<CuiHook>,
-    render_data: SharedRenderData,
+    ctx: AppContext,
 }
 
 impl CuiApplication {
-    pub fn new(debugger: Debugger<CuiHook>, render_data: SharedRenderData) -> Self {
-        Self {
-            debugger,
-            render_data,
-        }
+    pub fn new(debugger: Debugger<CuiHook>, ctx: AppContext) -> Self {
+        Self { debugger, ctx }
     }
 
     pub fn run(self) -> anyhow::Result<()> {
@@ -130,11 +152,6 @@ impl CuiApplication {
         let mut terminal = Terminal::new(backend)?;
         terminal.clear()?;
 
-        window::run(
-            RenderContext::new(self.render_data),
-            terminal,
-            Rc::new(self.debugger),
-            rx,
-        )
+        window::run(self.ctx, terminal, Rc::new(self.debugger), rx)
     }
 }

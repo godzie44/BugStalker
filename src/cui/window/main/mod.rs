@@ -1,5 +1,6 @@
 use crate::cui::hook::CuiHook;
-use crate::cui::window::{Action, CuiComponent, RenderContext};
+use crate::cui::window::{Action, CuiComponent};
+use crate::cui::AppContext;
 use crate::debugger::Debugger;
 use crossterm::event::KeyEvent;
 use std::io::StdoutLock;
@@ -15,12 +16,7 @@ pub(super) mod breakpoint;
 pub(super) struct DebugeeView {}
 
 impl CuiComponent for DebugeeView {
-    fn render(
-        &self,
-        ctx: RenderContext,
-        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
-        rect: Rect,
-    ) {
+    fn render(&self, ctx: AppContext, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect) {
         let home = Paragraph::new(ctx.data.main_text.clone().take())
             .alignment(Alignment::Center)
             .block(
@@ -33,7 +29,7 @@ impl CuiComponent for DebugeeView {
         frame.render_widget(home, rect);
     }
 
-    fn handle_user_event(&mut self, _: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, _: AppContext, _: KeyEvent) -> Vec<Action> {
         vec![]
     }
 
@@ -47,7 +43,7 @@ pub(super) struct MainLogs {}
 impl CuiComponent for MainLogs {
     fn render(
         &self,
-        _ctx: RenderContext,
+        _ctx: AppContext,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
     ) {
@@ -61,7 +57,7 @@ impl CuiComponent for MainLogs {
         frame.render_widget(home, rect);
     }
 
-    fn handle_user_event(&mut self, _: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, _: AppContext, _: KeyEvent) -> Vec<Action> {
         vec![]
     }
 
@@ -83,9 +79,9 @@ impl Variables {
 }
 
 impl CuiComponent for Variables {
-    fn render(&self, _: RenderContext, _: &mut Frame<CrosstermBackend<StdoutLock>>, _: Rect) {}
+    fn render(&self, _: AppContext, _: &mut Frame<CrosstermBackend<StdoutLock>>, _: Rect) {}
 
-    fn handle_user_event(&mut self, _: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, _: AppContext, _: KeyEvent) -> Vec<Action> {
         vec![]
     }
 

@@ -1,4 +1,5 @@
-use crate::cui::window::{Action, CuiComponent, RenderContext};
+use crate::cui::window::{Action, CuiComponent};
+use crate::cui::{AppContext, AppState};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
@@ -33,28 +34,24 @@ impl UserInput {
 }
 
 impl CuiComponent for UserInput {
-    fn render(
-        &self,
-        _: RenderContext,
-        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
-        rect: Rect,
-    ) {
+    fn render(&self, _: AppContext, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect) {
         frame.render_widget(self.textarea.widget(), rect);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, ctx: AppContext, e: KeyEvent) -> Vec<Action> {
         match e.code {
             KeyCode::Esc => {
                 self.clear();
+                //todo state history
+                ctx.change_state(AppState::DebugeeRun);
                 vec![Action::CancelUserInput]
             }
             KeyCode::Enter => {
+                let text = self.textarea.lines()[0].to_string();
                 self.clear();
+                ctx.change_state(AppState::DebugeeRun);
                 vec![
-                    Action::HandleUserInput(
-                        self.input_requested_component,
-                        self.textarea.lines()[0].to_string(),
-                    ),
+                    Action::HandleUserInput(self.input_requested_component, text),
                     Action::CancelUserInput,
                 ]
             }
@@ -65,9 +62,10 @@ impl CuiComponent for UserInput {
         }
     }
 
-    fn apply_app_action(&mut self, behaviour: &[Action]) {
+    fn apply_app_action(&mut self, ctx: AppContext, behaviour: &[Action]) {
         for b in behaviour {
             if let Action::ActivateUserInput(component) = b {
+                ctx.change_state(AppState::UserInput);
                 self.input_requested_component = component;
             }
         }

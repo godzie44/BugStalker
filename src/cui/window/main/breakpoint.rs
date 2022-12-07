@@ -1,5 +1,6 @@
 use crate::cui::hook::CuiHook;
-use crate::cui::window::{Action, CuiComponent, RenderContext};
+use crate::cui::window::{Action, CuiComponent};
+use crate::cui::AppContext;
 use crate::debugger::command::BreakpointType;
 use crate::debugger::{command, Debugger};
 use crossterm::event::{KeyCode, KeyEvent};
@@ -29,7 +30,7 @@ impl Breakpoints {
 impl CuiComponent for Breakpoints {
     fn render(
         &self,
-        _ctx: RenderContext,
+        _ctx: AppContext,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
     ) {
@@ -46,7 +47,7 @@ impl CuiComponent for Breakpoints {
                         format!("{bp_index}. {addr:#016X}")
                     }
                     BreakpointType::Line(file, line) => {
-                        format!("{bp_index}. {file}.{line}")
+                        format!("{bp_index}. {file}:{line}")
                     }
                     BreakpointType::Function(function) => {
                         format!("{bp_index}. {function}")
@@ -64,7 +65,7 @@ impl CuiComponent for Breakpoints {
         frame.render_stateful_widget(list, rect, &mut self.breakpoints.borrow_mut().state);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, _: AppContext, e: KeyEvent) -> Vec<Action> {
         match e.code {
             KeyCode::Char('a') => {
                 vec![Action::ActivateUserInput(self.name())]
@@ -87,7 +88,7 @@ impl CuiComponent for Breakpoints {
         }
     }
 
-    fn apply_app_action(&mut self, actions: &[Action]) {
+    fn apply_app_action(&mut self, _: AppContext, actions: &[Action]) {
         for action in actions {
             match action {
                 Action::HandleUserInput(component, input) if (*component == self.name()) => {

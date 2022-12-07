@@ -4,7 +4,7 @@ use crate::cui::window::help::ContextHelp;
 use crate::cui::window::input::UserInput;
 use crate::cui::window::main::{DebugeeView, MainLogs, Variables};
 use crate::cui::window::tabs::TabVariant;
-use crate::cui::{Event, SharedRenderData};
+use crate::cui::{AppContext, AppState, Event};
 use crate::debugger::command::Continue;
 use crate::debugger::Debugger;
 use crate::tab_switch_action;
@@ -24,27 +24,11 @@ mod input;
 mod main;
 mod tabs;
 
-#[derive(Clone)]
-pub(super) struct RenderContext {
-    data: SharedRenderData,
-}
-
-impl RenderContext {
-    pub(super) fn new(data: SharedRenderData) -> Self {
-        Self { data }
-    }
-}
-
 trait CuiComponent {
-    fn render(
-        &self,
-        ctx: RenderContext,
-        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
-        rect: Rect,
-    );
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action>;
+    fn render(&self, ctx: AppContext, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect);
+    fn handle_user_event(&mut self, ctx: AppContext, e: KeyEvent) -> Vec<Action>;
     #[allow(unused)]
-    fn apply_app_action(&mut self, actions: &[Action]) {}
+    fn apply_app_action(&mut self, ctx: AppContext, actions: &[Action]) {}
     fn name(&self) -> &'static str;
 }
 
@@ -77,7 +61,7 @@ impl Action {
 }
 
 pub(super) fn run(
-    ctx: RenderContext,
+    ctx: AppContext,
     mut terminal: Terminal<CrosstermBackend<StdoutLock>>,
     debugger: Rc<Debugger<CuiHook>>,
     rx: Receiver<Event<KeyEvent>>,
@@ -127,9 +111,10 @@ pub(super) fn run(
                 "Breakpoints",
                 tab_switch_action!("main.left.variables", "main.left.breakpoints"),
             ),
-            TabVariant::new(
+            TabVariant::contextual(
                 "Variables",
                 tab_switch_action!("main.left.breakpoints", "main.left.variables"),
+                AppState::DebugeeBreak,
             ),
         ],
     ));
@@ -219,13 +204,14 @@ pub(super) fn run(
                 KeyEvent {
                     code: KeyCode::Char('c'),
                     ..
-                } => {
+                } if !ctx.assert_state(AppState::UserInput) => {
+                    ctx.change_state(AppState::DebugeeRun);
                     Continue::new(&debugger).run()?;
                 }
                 KeyEvent {
                     code: KeyCode::Char('q'),
                     ..
-                } => {
+                } if !ctx.assert_state(AppState::UserInput) => {
                     disable_raw_mode()?;
                     crossterm::execute!(
                         terminal.backend_mut(),
@@ -236,8 +222,8 @@ pub(super) fn run(
                     return Ok(());
                 }
                 _ => {
-                    let behaviour = app_window.handle_user_event(e);
-                    app_window.apply_app_action(&behaviour);
+                    let behaviour = app_window.handle_user_event(ctx.clone(), e);
+                    app_window.apply_app_action(ctx.clone(), &behaviour);
                 }
             },
             Event::Tick => {}

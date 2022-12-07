@@ -1,4 +1,5 @@
-use crate::cui::window::{Action, CuiComponent, RenderContext};
+use crate::cui::window::{Action, CuiComponent};
+use crate::cui::AppContext;
 use crossterm::event::KeyEvent;
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
@@ -12,7 +13,7 @@ pub(super) struct ContextHelp {}
 impl CuiComponent for ContextHelp {
     fn render(
         &self,
-        _ctx: RenderContext,
+        _ctx: AppContext,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
     ) {
@@ -30,7 +31,7 @@ impl CuiComponent for ContextHelp {
         frame.render_widget(copyright, rect);
     }
 
-    fn handle_user_event(&mut self, _: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, _: AppContext, _: KeyEvent) -> Vec<Action> {
         vec![]
     }
 

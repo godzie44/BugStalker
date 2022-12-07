@@ -1,4 +1,5 @@
-use crate::cui::window::{Action, CuiComponent, RenderContext};
+use crate::cui::window::{Action, CuiComponent};
+use crate::cui::{AppContext, AppState};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::HashMap;
 use std::io::StdoutLock;
@@ -23,6 +24,7 @@ macro_rules! tab_switch_action {
 
 pub(super) struct TabVariant {
     title: &'static str,
+    active_state: Option<AppState>,
     on_select: Box<[Action]>,
 }
 
@@ -31,6 +33,19 @@ impl TabVariant {
         Self {
             title,
             on_select: on_select.into(),
+            active_state: None,
+        }
+    }
+
+    pub(super) fn contextual(
+        title: &'static str,
+        on_select: impl Into<Box<[Action]>>,
+        state: AppState,
+    ) -> Self {
+        Self {
+            title,
+            on_select: on_select.into(),
+            active_state: Some(state),
         }
     }
 }
@@ -63,12 +78,7 @@ impl Tabs {
 }
 
 impl CuiComponent for Tabs {
-    fn render(
-        &self,
-        _: RenderContext,
-        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
-        rect: Rect,
-    ) {
+    fn render(&self, _: AppContext, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect) {
         let titles = self
             .tabs
             .iter()
@@ -96,11 +106,19 @@ impl CuiComponent for Tabs {
         frame.render_widget(tabs, rect);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, ctx: AppContext, e: KeyEvent) -> Vec<Action> {
         if let KeyCode::Char(char_key) = e.code {
             if let Some(tab_idx) = self.hot_keys.get(&char_key) {
-                self.active_tab = *tab_idx;
-                return self.tabs[self.active_tab].on_select.clone().into();
+                let tab = &self.tabs[*tab_idx];
+
+                if tab
+                    .active_state
+                    .map(|expected_state| ctx.assert_state(expected_state))
+                    .unwrap_or(true)
+                {
+                    self.active_tab = *tab_idx;
+                    return tab.on_select.clone().into();
+                }
             }
         }
         vec![]
