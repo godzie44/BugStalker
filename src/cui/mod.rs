@@ -1,10 +1,11 @@
 use crate::cui::file_view::FileView;
 use crate::cui::hook::CuiHook;
 use crate::debugger::Debugger;
+use crossterm::cursor::Show;
 use crossterm::event;
-use crossterm::event::EnableMouseCapture;
-use crossterm::terminal::enable_raw_mode;
-use crossterm::terminal::EnterAlternateScreen;
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use nix::unistd::Pid;
 use std::cell::{Cell, RefCell};
 use std::ops::Deref;
@@ -131,9 +132,7 @@ impl CuiApplication {
                     .unwrap_or_else(|| Duration::from_secs(0));
 
                 if event::poll(timeout).expect("poll works") {
-                    if let crossterm::event::Event::Key(key) =
-                        event::read().expect("can read events")
-                    {
+                    if let event::Event::Key(key) = event::read().expect("can read events") {
                         tx.send(Event::Input(key)).expect("can send events");
                     } else {
                     }
@@ -151,6 +150,14 @@ impl CuiApplication {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         terminal.clear()?;
+
+        let original_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |panic| {
+            disable_raw_mode().unwrap();
+            crossterm::execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture).unwrap();
+            crossterm::execute!(io::stdout(), Show).unwrap();
+            original_hook(panic);
+        }));
 
         window::run(self.ctx, terminal, Rc::new(self.debugger), rx)
     }
