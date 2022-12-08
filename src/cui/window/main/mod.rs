@@ -1,10 +1,7 @@
-use crate::cui::hook::CuiHook;
 use crate::cui::window::{Action, CuiComponent};
 use crate::cui::AppContext;
-use crate::debugger::Debugger;
 use crossterm::event::KeyEvent;
 use std::io::StdoutLock;
-use std::rc::Rc;
 use tui::backend::CrosstermBackend;
 use tui::layout::{Alignment, Rect};
 use tui::style::{Color, Style};
@@ -12,6 +9,7 @@ use tui::widgets::{Block, BorderType, Borders, Paragraph};
 use tui::Frame;
 
 pub(super) mod breakpoint;
+pub(super) mod variable;
 
 pub(super) struct DebugeeView {}
 
@@ -63,29 +61,5 @@ impl CuiComponent for MainLogs {
 
     fn name(&self) -> &'static str {
         "main.right.logs"
-    }
-}
-
-pub(super) struct Variables {
-    debugger: Rc<Debugger<CuiHook>>,
-}
-
-impl Variables {
-    pub(super) fn new(debugger: impl Into<Rc<Debugger<CuiHook>>>) -> Self {
-        Self {
-            debugger: debugger.into(),
-        }
-    }
-}
-
-impl CuiComponent for Variables {
-    fn render(&self, _: AppContext, _: &mut Frame<CrosstermBackend<StdoutLock>>, _: Rect) {}
-
-    fn handle_user_event(&mut self, _: AppContext, _: KeyEvent) -> Vec<Action> {
-        vec![]
-    }
-
-    fn name(&self) -> &'static str {
-        "main.left.variables"
     }
 }

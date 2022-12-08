@@ -2,7 +2,7 @@ use crate::cui::hook::CuiHook;
 use crate::cui::window::complex::ComplexComponent;
 use crate::cui::window::help::ContextHelp;
 use crate::cui::window::input::UserInput;
-use crate::cui::window::main::{DebugeeView, MainLogs, Variables};
+use crate::cui::window::main::{DebugeeView, MainLogs};
 use crate::cui::window::tabs::TabVariant;
 use crate::cui::{AppContext, AppState, Event};
 use crate::debugger::command::Continue;
@@ -120,7 +120,8 @@ pub(super) fn run(
     ));
     let main_left_breakpoints: Box<dyn CuiComponent> =
         Box::new(main::breakpoint::Breakpoints::new(debugger.clone()));
-    let main_left_variables: Box<dyn CuiComponent> = Box::new(Variables::new(debugger.clone()));
+    let main_left_variables: Box<dyn CuiComponent> =
+        Box::new(main::variable::Variables::new(debugger.clone()));
 
     let main_left = ComplexComponent::new(
         "main.left",
