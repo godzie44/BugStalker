@@ -85,7 +85,7 @@ pub(super) fn run(
 
     let main_right = ComplexComponent::new(
         "main.right",
-        |rect| {
+        |_, rect| {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .margin(0)
@@ -125,7 +125,7 @@ pub(super) fn run(
 
     let main_left = ComplexComponent::new(
         "main.left",
-        |rect| {
+        |_, rect| {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .margin(0)
@@ -148,7 +148,7 @@ pub(super) fn run(
 
     let main_window = ComplexComponent::new(
         "main",
-        |rect| {
+        |_, rect| {
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .margin(0)
@@ -165,25 +165,27 @@ pub(super) fn run(
 
     let mut app_window = ComplexComponent::new(
         "app",
-        |rect| {
+        |ctx, rect| {
+            let mut constrains = vec![Constraint::Min(2), Constraint::Length(3)];
+            if ctx.state.get() == AppState::UserInput {
+                constrains.push(Constraint::Length(3));
+            };
+
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .margin(1)
-                .constraints(
-                    [
-                        Constraint::Min(2),
-                        Constraint::Length(3),
-                        Constraint::Length(3),
-                    ]
-                    .as_ref(),
-                )
+                .constraints(constrains.as_ref())
                 .split(rect);
 
-            HashMap::from([
-                ("main", chunks[0]),
-                ("user-input", chunks[1]),
-                ("context-help", chunks[2]),
-            ])
+            if ctx.state.get() == AppState::UserInput {
+                HashMap::from([
+                    ("main", chunks[0]),
+                    ("user-input", chunks[1]),
+                    ("context-help", chunks[2]),
+                ])
+            } else {
+                HashMap::from([("main", chunks[0]), ("context-help", chunks[1])])
+            }
         },
         vec![
             Box::new(main_window),

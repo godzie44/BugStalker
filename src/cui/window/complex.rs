@@ -12,13 +12,13 @@ pub(super) struct ComplexComponent {
     active_components: HashSet<&'static str>,
     visible_components: HashSet<&'static str>,
     components: HashMap<&'static str, Box<dyn CuiComponent>>,
-    layout: fn(Rect) -> HashMap<&'static str, Rect>,
+    layout: fn(AppContext, Rect) -> HashMap<&'static str, Rect>,
 }
 
 impl ComplexComponent {
     pub(super) fn new(
         name: &'static str,
-        layout: fn(Rect) -> HashMap<&'static str, Rect>,
+        layout: fn(AppContext, Rect) -> HashMap<&'static str, Rect>,
         components: Vec<Box<dyn CuiComponent>>,
         active_components: Vec<&'static str>,
         visible_components: Vec<&'static str>,
@@ -35,7 +35,7 @@ impl ComplexComponent {
 
 impl CuiComponent for ComplexComponent {
     fn render(&self, ctx: AppContext, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect) {
-        let mut rects = (self.layout)(rect);
+        let mut rects = (self.layout)(ctx.clone(), rect);
         self.visible_components.iter().for_each(|c_name| {
             if self.components.get(c_name).is_none() {
                 return;
@@ -89,9 +89,11 @@ impl CuiComponent for ComplexComponent {
                 Action::ActivateUserInput(_) => {
                     self.active_components.clear();
                     self.active_components.insert(action.target().unwrap());
+                    self.visible_components.insert(action.target().unwrap());
                 }
                 Action::CancelUserInput => {
                     self.active_components.remove(action.target().unwrap());
+                    self.visible_components.remove(action.target().unwrap());
                     self.active_components.insert("main");
                 }
                 _ => {}
