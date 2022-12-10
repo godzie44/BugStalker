@@ -18,8 +18,10 @@ impl CuiHook {
 impl EventHook for CuiHook {
     fn on_sigtrap(&self, _: usize, place: Option<Place>) -> anyhow::Result<()> {
         if let Some(ref place) = place {
-            let code = self.file_view.render_source(place, 5).unwrap();
-            *self.app_ctx.data.main_text.borrow_mut() = Text::from(code);
+            let (code, pos) = self.file_view.render_source(place).unwrap();
+            *self.app_ctx.data.debugee_file_name.borrow_mut() = place.file.to_string();
+            *self.app_ctx.data.debugee_text.borrow_mut() = Text::from(code);
+            self.app_ctx.data.debugee_text_pos.set(pos);
             self.app_ctx.change_state(AppState::DebugeeBreak);
         }
         Ok(())

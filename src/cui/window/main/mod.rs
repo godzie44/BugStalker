@@ -15,15 +15,16 @@ pub(super) struct DebugeeView {}
 
 impl CuiComponent for DebugeeView {
     fn render(&self, ctx: AppContext, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect) {
-        let home = Paragraph::new(ctx.data.main_text.clone().take())
-            .alignment(Alignment::Center)
+        let home = Paragraph::new(ctx.data.debugee_text.clone().take())
+            .alignment(Alignment::Left)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .style(Style::default().fg(Color::White))
-                    .title("Debugee")
+                    .title(ctx.data.debugee_file_name.borrow().to_string())
                     .border_type(BorderType::Plain),
-            );
+            )
+            .scroll((ctx.data.debugee_text_pos.get() as u16, 0));
         frame.render_widget(home, rect);
     }
 

@@ -16,19 +16,13 @@ impl FileView {
         }
     }
 
-    pub fn render_source(&self, place: &Place, bounds: u64) -> anyhow::Result<String> {
-        const DELIMITER: &str = "--------------------";
+    pub fn render_source(&self, place: &Place) -> anyhow::Result<(String, u64)> {
         let line_number = if place.line_number == 0 {
             1
         } else {
             place.line_number
         };
         let line_pos = line_number - 1;
-        let start = if line_pos < bounds {
-            0
-        } else {
-            line_pos - bounds
-        };
 
         let mut cache = self.cached_lines.borrow_mut();
         let file_lines = match cache.get(place.file) {
@@ -36,7 +30,11 @@ impl FileView {
                 let file = fs::File::open(place.file)?;
                 let lines = io::BufReader::new(file)
                     .lines()
-                    .filter_map(|line| line.ok())
+                    .enumerate()
+                    .filter_map(|(num, line)| {
+                        let line = line.map(|l| format!("{ln} {l}", ln = num + 1));
+                        line.ok()
+                    })
                     .collect::<Vec<_>>();
                 cache.insert(place.file.to_string(), lines.into_boxed_slice());
                 cache.get(place.file).unwrap()
@@ -47,9 +45,7 @@ impl FileView {
         let result = file_lines
             .iter()
             .enumerate()
-            .skip(start as usize)
-            .take((bounds * 2 + 1) as usize)
-            .fold(DELIMITER.to_string(), |acc, (pos, line)| {
+            .fold("".to_string(), |acc, (pos, line)| {
                 if pos as u64 == line_pos {
                     acc + "\n" + ">" + line
                 } else {
@@ -57,6 +53,6 @@ impl FileView {
                 }
             });
 
-        Ok(result + "\n" + DELIMITER)
+        Ok((result, line_pos))
     }
 }

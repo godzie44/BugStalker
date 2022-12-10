@@ -51,13 +51,16 @@ impl AppBuilder {
 }
 
 pub struct RenderData {
-    main_text: RefCell<Text<'static>>,
+    debugee_file_name: RefCell<String>,
+    debugee_text: RefCell<Text<'static>>,
+    debugee_text_pos: Cell<u64>,
 }
 
 impl RenderData {
     fn start_screen() -> Self {
         Self {
-            main_text: RefCell::new(vec![
+            debugee_file_name: RefCell::default(),
+            debugee_text: RefCell::new(vec![
                 Spans::from(vec![Span::raw("")]),
                 Spans::from(vec![Span::raw("Welcome")]),
                 Spans::from(vec![Span::raw("")]),
@@ -69,7 +72,8 @@ impl RenderData {
                 )]),
                 Spans::from(vec![Span::raw("")]),
                 Spans::from(vec![Span::raw("Press 'p' to access pets, 'a' to add random new pets and 'd' to delete the currently selected pet.")]),
-            ].into())
+            ].into()),
+            debugee_text_pos: Cell::new(0),
         }
     }
 }
