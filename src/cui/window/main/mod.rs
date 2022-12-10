@@ -1,6 +1,6 @@
-use crate::cui::window::{Action, CuiComponent};
+use crate::cui::window::{Action, CuiComponent, RenderOpts};
 use crate::cui::AppContext;
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyCode, KeyEvent};
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
 use tui::layout::{Alignment, Rect};
@@ -11,16 +11,36 @@ use tui::Frame;
 pub(super) mod breakpoint;
 pub(super) mod variable;
 
-pub(super) struct DebugeeView {}
+pub(super) struct DebugeeView {
+    scroll_pos: u16,
+}
+
+impl DebugeeView {
+    pub(super) fn new() -> Self {
+        Self { scroll_pos: 0 }
+    }
+}
 
 impl CuiComponent for DebugeeView {
-    fn render(&self, ctx: AppContext, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect) {
+    fn render(
+        &self,
+        ctx: AppContext,
+        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
+        rect: Rect,
+        opts: RenderOpts,
+    ) {
+        let style = if opts.in_focus {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::White)
+        };
+
         let home = Paragraph::new(ctx.data.debugee_text.clone().take())
             .alignment(Alignment::Left)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .style(Style::default().fg(Color::White))
+                    .style(style)
                     .title(ctx.data.debugee_file_name.borrow().to_string())
                     .border_type(BorderType::Plain),
             )
@@ -28,12 +48,21 @@ impl CuiComponent for DebugeeView {
         frame.render_widget(home, rect);
     }
 
-    fn handle_user_event(&mut self, _: AppContext, _: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, _: AppContext, e: KeyEvent) -> Vec<Action> {
+        match e.code {
+            KeyCode::Up => {
+                self.scroll_pos = self.scroll_pos.checked_sub(1).unwrap_or_default();
+            }
+            KeyCode::Down => {
+                self.scroll_pos = self.scroll_pos.checked_add(1).unwrap_or(u16::MAX);
+            }
+            _ => {}
+        };
         vec![]
     }
 
     fn name(&self) -> &'static str {
-        "main.right.debugee"
+        "debugee"
     }
 }
 
@@ -45,11 +74,18 @@ impl CuiComponent for MainLogs {
         _ctx: AppContext,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
+        opts: RenderOpts,
     ) {
+        let style = if opts.in_focus {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::White)
+        };
+
         let home = Paragraph::new("todo").alignment(Alignment::Center).block(
             Block::default()
                 .borders(Borders::ALL)
-                .style(Style::default().fg(Color::White))
+                .style(style)
                 .title("Logs")
                 .border_type(BorderType::Plain),
         );
@@ -61,6 +97,6 @@ impl CuiComponent for MainLogs {
     }
 
     fn name(&self) -> &'static str {
-        "main.right.logs"
+        "logs"
     }
 }

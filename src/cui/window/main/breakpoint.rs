@@ -1,5 +1,5 @@
 use crate::cui::hook::CuiHook;
-use crate::cui::window::{Action, CuiComponent};
+use crate::cui::window::{Action, CuiComponent, RenderOpts};
 use crate::cui::AppContext;
 use crate::debugger::command::BreakpointType;
 use crate::debugger::{command, Debugger};
@@ -33,6 +33,7 @@ impl CuiComponent for Breakpoints {
         _ctx: AppContext,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
+        opts: RenderOpts,
     ) {
         let items: Vec<ListItem> = self
             .breakpoints
@@ -56,9 +57,16 @@ impl CuiComponent for Breakpoints {
                 ListItem::new(view)
             })
             .collect();
+
+        let style = if opts.in_focus {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::White)
+        };
+
         let list = List::new(items)
             .block(Block::default().title("List").borders(Borders::ALL))
-            .style(Style::default().fg(Color::White))
+            .style(style)
             .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
             .highlight_symbol(">>");
 
@@ -92,6 +100,8 @@ impl CuiComponent for Breakpoints {
         for action in actions {
             match action {
                 Action::HandleUserInput(component, input) if (*component == self.name()) => {
+                    println!("got acts {:?}", actions);
+
                     let b = command::Break::new(&self.debugger, vec!["", input]).unwrap();
                     b.run().unwrap();
                     self.breakpoints.borrow_mut().add(b.r#type);
@@ -102,7 +112,7 @@ impl CuiComponent for Breakpoints {
     }
 
     fn name(&self) -> &'static str {
-        "main.left.breakpoints"
+        "breakpoints"
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::cui::window::{Action, CuiComponent};
+use crate::cui::window::{Action, CuiComponent, RenderOpts};
 use crate::cui::{AppContext, AppState};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::HashMap;
@@ -23,27 +23,27 @@ macro_rules! tab_switch_action {
 }
 
 pub(super) struct TabVariant {
-    title: &'static str,
+    title: String,
     active_state: Option<AppState>,
     on_select: Box<[Action]>,
 }
 
 impl TabVariant {
-    pub(super) fn new(title: &'static str, on_select: impl Into<Box<[Action]>>) -> Self {
+    pub(super) fn new(title: impl Into<String>, on_select: impl Into<Box<[Action]>>) -> Self {
         Self {
-            title,
+            title: title.into(),
             on_select: on_select.into(),
             active_state: None,
         }
     }
 
     pub(super) fn contextual(
-        title: &'static str,
+        title: impl Into<String>,
         on_select: impl Into<Box<[Action]>>,
         state: AppState,
     ) -> Self {
         Self {
-            title,
+            title: title.into(),
             on_select: on_select.into(),
             active_state: Some(state),
         }
@@ -78,7 +78,13 @@ impl Tabs {
 }
 
 impl CuiComponent for Tabs {
-    fn render(&self, _: AppContext, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect) {
+    fn render(
+        &self,
+        _: AppContext,
+        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
+        rect: Rect,
+        _: RenderOpts,
+    ) {
         let titles = self
             .tabs
             .iter()
@@ -86,7 +92,7 @@ impl CuiComponent for Tabs {
                 let (first, rest) = t.title.split_at(1);
                 Spans::from(vec![
                     Span::styled(
-                        first,
+                        first.to_uppercase(),
                         Style::default()
                             .fg(Color::Yellow)
                             .add_modifier(Modifier::UNDERLINED),

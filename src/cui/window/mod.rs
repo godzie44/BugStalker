@@ -1,31 +1,36 @@
 use crate::cui::hook::CuiHook;
-use crate::cui::window::complex::ComplexComponent;
-use crate::cui::window::help::ContextHelp;
-use crate::cui::window::input::UserInput;
-use crate::cui::window::main::{DebugeeView, MainLogs};
-use crate::cui::window::tabs::TabVariant;
+use crate::cui::window::app::AppWindow;
 use crate::cui::{AppContext, AppState, Event};
 use crate::debugger::command::Continue;
 use crate::debugger::Debugger;
-use crate::tab_switch_action;
 use crossterm::event::{DisableMouseCapture, KeyCode, KeyEvent};
 use crossterm::terminal::{disable_raw_mode, LeaveAlternateScreen};
-use std::collections::HashMap;
 use std::io::StdoutLock;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use tui::backend::CrosstermBackend;
-use tui::layout::{Constraint, Direction, Layout, Rect};
+use tui::layout::Rect;
 use tui::{Frame, Terminal};
 
-mod complex;
+mod app;
 mod help;
 mod input;
 mod main;
 mod tabs;
 
+#[derive(Default, Clone, Copy)]
+pub struct RenderOpts {
+    pub in_focus: bool,
+}
+
 trait CuiComponent {
-    fn render(&self, ctx: AppContext, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect);
+    fn render(
+        &self,
+        ctx: AppContext,
+        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
+        rect: Rect,
+        opts: RenderOpts,
+    );
     fn handle_user_event(&mut self, ctx: AppContext, e: KeyEvent) -> Vec<Action>;
     #[allow(unused)]
     fn apply_app_action(&mut self, ctx: AppContext, actions: &[Action]) {}
@@ -34,30 +39,11 @@ trait CuiComponent {
 
 #[derive(Clone, Debug)]
 enum Action {
-    #[allow(unused)]
-    Nothing,
     ActivateComponent(&'static str),
-    DeActivateComponent(&'static str),
-    HideComponent(&'static str),
-    ShowComponent(&'static str),
+    FocusOnComponent(&'static str),
     ActivateUserInput(/* activate requester */ &'static str),
     HandleUserInput(/* activate requester */ &'static str, String),
     CancelUserInput,
-}
-
-impl Action {
-    fn target(&self) -> Option<&'static str> {
-        match self {
-            Action::Nothing => None,
-            Action::ActivateComponent(t) => Some(t),
-            Action::DeActivateComponent(t) => Some(t),
-            Action::HideComponent(t) => Some(t),
-            Action::ShowComponent(t) => Some(t),
-            Action::ActivateUserInput(_) => Some("user-input"),
-            Action::CancelUserInput => Some("user-input"),
-            Action::HandleUserInput(t, _) => Some(t),
-        }
-    }
 }
 
 pub(super) fn run(
@@ -66,140 +52,12 @@ pub(super) fn run(
     debugger: Rc<Debugger<CuiHook>>,
     rx: Receiver<Event<KeyEvent>>,
 ) -> anyhow::Result<()> {
-    let main_right_tabs: Box<dyn CuiComponent> = Box::new(tabs::Tabs::new(
-        "main.right.tabs",
-        "Code walker, bug stalker!",
-        vec![
-            TabVariant::new(
-                "Debugee",
-                tab_switch_action!("main.right.logs", "main.right.debugee"),
-            ),
-            TabVariant::new(
-                "Logs",
-                tab_switch_action!("main.right.debugee", "main.right.logs"),
-            ),
-        ],
-    ));
-    let main_right_debugee_view: Box<dyn CuiComponent> = Box::new(DebugeeView {});
-    let main_right_logs: Box<dyn CuiComponent> = Box::new(MainLogs {});
-
-    let main_right = ComplexComponent::new(
-        "main.right",
-        |_, rect| {
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(0)
-                .constraints([Constraint::Length(3), Constraint::Min(2)].as_ref())
-                .split(rect);
-
-            HashMap::from([
-                ("main.right.tabs", chunks[0]),
-                ("main.right.debugee", chunks[1]),
-                ("main.right.logs", chunks[1]),
-            ])
-        },
-        vec![main_right_tabs, main_right_debugee_view, main_right_logs],
-        vec!["main.right.tabs", "main.right.debugee"],
-        vec!["main.right.tabs", "main.right.debugee"],
-    );
-
-    let main_left_tabs: Box<dyn CuiComponent> = Box::new(tabs::Tabs::new(
-        "main.left.tabs",
-        "DDD",
-        vec![
-            TabVariant::new(
-                "Breakpoints",
-                tab_switch_action!("main.left.variables", "main.left.breakpoints"),
-            ),
-            TabVariant::contextual(
-                "Variables",
-                tab_switch_action!("main.left.breakpoints", "main.left.variables"),
-                AppState::DebugeeBreak,
-            ),
-        ],
-    ));
-    let main_left_breakpoints: Box<dyn CuiComponent> =
-        Box::new(main::breakpoint::Breakpoints::new(debugger.clone()));
-    let main_left_variables: Box<dyn CuiComponent> =
-        Box::new(main::variable::Variables::new(debugger.clone()));
-
-    let main_left = ComplexComponent::new(
-        "main.left",
-        |_, rect| {
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(0)
-                .constraints([Constraint::Length(3), Constraint::Min(2)].as_ref())
-                .split(rect);
-
-            HashMap::from([
-                ("main.left.tabs", chunks[0]),
-                ("main.left.breakpoints", chunks[1]),
-                ("main.left.variables", chunks[1]),
-            ])
-        },
-        vec![main_left_tabs, main_left_breakpoints, main_left_variables],
-        vec!["main.left.tabs", "main.left.breakpoints"],
-        vec!["main.left.tabs", "main.left.breakpoints"],
-    );
-
-    let main_right: Box<dyn CuiComponent> = Box::new(main_right);
-    let main_left: Box<dyn CuiComponent> = Box::new(main_left);
-
-    let main_window = ComplexComponent::new(
-        "main",
-        |_, rect| {
-            let chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .margin(0)
-                .constraints([Constraint::Percentage(25), Constraint::Percentage(75)].as_ref())
-                .split(rect);
-            HashMap::from([("main.left", chunks[0]), ("main.right", chunks[1])])
-        },
-        vec![main_left, main_right],
-        vec!["main.left", "main.right"],
-        vec!["main.left", "main.right"],
-    );
-
-    let user_input = UserInput::new();
-
-    let mut app_window = ComplexComponent::new(
-        "app",
-        |ctx, rect| {
-            let mut constrains = vec![Constraint::Min(2), Constraint::Length(3)];
-            if ctx.state.get() == AppState::UserInput {
-                constrains.push(Constraint::Length(3));
-            };
-
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(1)
-                .constraints(constrains.as_ref())
-                .split(rect);
-
-            if ctx.state.get() == AppState::UserInput {
-                HashMap::from([
-                    ("main", chunks[0]),
-                    ("user-input", chunks[1]),
-                    ("context-help", chunks[2]),
-                ])
-            } else {
-                HashMap::from([("main", chunks[0]), ("context-help", chunks[1])])
-            }
-        },
-        vec![
-            Box::new(main_window),
-            Box::new(user_input),
-            Box::new(ContextHelp {}),
-        ],
-        vec!["main"],
-        vec!["main", "user-input", "context-help"],
-    );
+    let mut app_window = AppWindow::new(debugger.clone());
 
     loop {
         terminal.draw(|frame| {
             let rect = frame.size();
-            app_window.render(ctx.clone(), frame, rect);
+            app_window.render(ctx.clone(), frame, rect, RenderOpts::default());
         })?;
 
         match rx.recv()? {
@@ -225,8 +83,7 @@ pub(super) fn run(
                     return Ok(());
                 }
                 _ => {
-                    let behaviour = app_window.handle_user_event(ctx.clone(), e);
-                    app_window.apply_app_action(ctx.clone(), &behaviour);
+                    app_window.handle_user_event(ctx.clone(), e);
                 }
             },
             Event::Tick => {}

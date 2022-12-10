@@ -1,5 +1,5 @@
 use crate::cui::hook::CuiHook;
-use crate::cui::window::{Action, CuiComponent};
+use crate::cui::window::{Action, CuiComponent, RenderOpts};
 use crate::cui::AppContext;
 use crate::debugger::variable::RenderView;
 use crate::debugger::{command, Debugger};
@@ -28,7 +28,13 @@ impl Variables {
 }
 
 impl CuiComponent for Variables {
-    fn render(&self, _: AppContext, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect) {
+    fn render(
+        &self,
+        _: AppContext,
+        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
+        rect: Rect,
+        opts: RenderOpts,
+    ) {
         self.variables.borrow_mut().update(&self.debugger);
         let list_items = self
             .variables
@@ -51,9 +57,15 @@ impl CuiComponent for Variables {
             })
             .collect::<Vec<_>>();
 
+        let style = if opts.in_focus {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::White)
+        };
+
         let list = List::new(list_items)
             .block(Block::default().title("Variables").borders(Borders::ALL))
-            .style(Style::default().fg(Color::White))
+            .style(style)
             .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
             .highlight_symbol(">>");
 
@@ -77,7 +89,7 @@ impl CuiComponent for Variables {
     }
 
     fn name(&self) -> &'static str {
-        "main.left.variables"
+        "variables"
     }
 }
 

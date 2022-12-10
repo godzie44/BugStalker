@@ -1,4 +1,4 @@
-use crate::cui::window::{Action, CuiComponent};
+use crate::cui::window::{Action, CuiComponent, RenderOpts};
 use crate::cui::{AppContext, AppState};
 use crossterm::event::KeyEvent;
 use std::io::StdoutLock;
@@ -11,7 +11,13 @@ use tui::Frame;
 pub(super) struct ContextHelp {}
 
 impl CuiComponent for ContextHelp {
-    fn render(&self, ctx: AppContext, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect) {
+    fn render(
+        &self,
+        ctx: AppContext,
+        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
+        rect: Rect,
+        _: RenderOpts,
+    ) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(80), Constraint::Percentage(20)].as_ref())
