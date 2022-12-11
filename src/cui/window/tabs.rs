@@ -7,7 +7,7 @@ use tui::backend::CrosstermBackend;
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
-use tui::widgets::{Block, Borders};
+use tui::widgets::{Block, BorderType, Borders};
 use tui::Frame;
 
 #[macro_export]
@@ -31,7 +31,7 @@ pub(super) struct TabVariant {
 impl TabVariant {
     pub(super) fn new(title: impl Into<String>, on_select: impl Into<Box<[Action]>>) -> Self {
         Self {
-            title: title.into(),
+            title: title.into().to_uppercase(),
             on_select: on_select.into(),
             active_state: None,
         }
@@ -43,7 +43,7 @@ impl TabVariant {
         state: AppState,
     ) -> Self {
         Self {
-            title: title.into(),
+            title: title.into().to_uppercase(),
             on_select: on_select.into(),
             active_state: Some(state),
         }
@@ -80,7 +80,7 @@ impl Tabs {
 impl CuiComponent for Tabs {
     fn render(
         &self,
-        _: AppContext,
+        ctx: AppContext,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         _: RenderOpts,
@@ -89,22 +89,40 @@ impl CuiComponent for Tabs {
             .tabs
             .iter()
             .map(|t| {
-                let (first, rest) = t.title.split_at(1);
-                Spans::from(vec![
+                let inactive_tab = t
+                    .active_state
+                    .map(|s| !ctx.assert_state(s))
+                    .unwrap_or(false);
+
+                if inactive_tab {
                     Span::styled(
-                        first.to_uppercase(),
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::UNDERLINED),
-                    ),
-                    Span::styled(rest, Style::default().fg(Color::White)),
-                ])
+                        t.title.as_str().to_uppercase(),
+                        Style::default().fg(Color::Gray),
+                    )
+                    .into()
+                } else {
+                    let (first, rest) = t.title.split_at(1);
+                    Spans::from(vec![
+                        Span::styled(
+                            first.to_uppercase(),
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::UNDERLINED),
+                        ),
+                        Span::styled(rest, Style::default().fg(Color::White)),
+                    ])
+                }
             })
             .collect();
 
         let tabs = tui::widgets::Tabs::new(titles)
             .select(self.active_tab)
-            .block(Block::default().title(self.title).borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title(self.title)
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded),
+            )
             .style(Style::default().fg(Color::White))
             .highlight_style(Style::default().fg(Color::Yellow))
             .divider(Span::raw("|"));

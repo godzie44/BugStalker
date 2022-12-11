@@ -10,7 +10,7 @@ use std::rc::Rc;
 use tui::backend::CrosstermBackend;
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
-use tui::widgets::{Block, Borders, List, ListItem, ListState};
+use tui::widgets::{Block, BorderType, Borders, List, ListItem, ListState};
 use tui::Frame;
 
 pub struct Breakpoints {
@@ -58,15 +58,21 @@ impl CuiComponent for Breakpoints {
             })
             .collect();
 
-        let style = if opts.in_focus {
+        let border_style = if opts.in_focus {
             Style::default().fg(Color::Yellow)
         } else {
             Style::default().fg(Color::White)
         };
 
         let list = List::new(items)
-            .block(Block::default().title("List").borders(Borders::ALL))
-            .style(style)
+            .block(
+                Block::default()
+                    .title("Breakpoints")
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(border_style),
+            )
+            .style(Style::default().fg(Color::White))
             .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
             .highlight_symbol(">>");
 

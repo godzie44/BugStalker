@@ -35,15 +35,15 @@ impl CuiComponent for ContextHelp {
             );
 
         let state_text = match ctx.state.get() {
-            AppState::Initial => "Application start",
-            AppState::DebugeeRun => "Application run",
-            AppState::DebugeeBreak => "Application break",
+            AppState::Initial => "Prepare to run",
+            AppState::DebugeeRun => "Application running",
+            AppState::DebugeeBreak => "Application paused",
             AppState::UserInput => "Wait for input",
         };
 
         let app_state = Paragraph::new(state_text)
             .style(Style::default().fg(Color::Red))
-            .alignment(Alignment::Left)
+            .alignment(Alignment::Center)
             .block(
                 Block::default()
                     .borders(tui::widgets::Borders::ALL)

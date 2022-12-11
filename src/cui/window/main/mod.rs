@@ -27,7 +27,7 @@ impl CuiComponent for DebugeeView {
         rect: Rect,
         opts: RenderOpts,
     ) {
-        let style = if opts.in_focus {
+        let border_style = if opts.in_focus {
             Style::default().fg(Color::Yellow)
         } else {
             Style::default().fg(Color::White)
@@ -38,9 +38,10 @@ impl CuiComponent for DebugeeView {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .style(style)
-                    .title(ctx.data.debugee_file_name.borrow().to_string())
-                    .border_type(BorderType::Plain),
+                    .border_type(BorderType::Rounded)
+                    .border_style(border_style)
+                    .style(Style::default().fg(Color::White))
+                    .title(ctx.data.debugee_file_name.borrow().to_string()),
             )
             .scroll((ctx.data.debugee_text_pos.get() as u16, 0));
         frame.render_widget(home, rect);
@@ -82,7 +83,7 @@ impl CuiComponent for MainLogs {
         rect: Rect,
         opts: RenderOpts,
     ) {
-        let style = if opts.in_focus {
+        let border_style = if opts.in_focus {
             Style::default().fg(Color::Yellow)
         } else {
             Style::default().fg(Color::White)
@@ -91,9 +92,10 @@ impl CuiComponent for MainLogs {
         let home = Paragraph::new("todo").alignment(Alignment::Center).block(
             Block::default()
                 .borders(Borders::ALL)
-                .style(style)
-                .title("Logs")
-                .border_type(BorderType::Plain),
+                .border_type(BorderType::Rounded)
+                .border_style(border_style)
+                .style(Style::default().fg(Color::White))
+                .title("Logs"),
         );
         frame.render_widget(home, rect);
     }
