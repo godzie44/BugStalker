@@ -11,13 +11,11 @@ use tui::Frame;
 pub(super) mod breakpoint;
 pub(super) mod variable;
 
-pub(super) struct DebugeeView {
-    scroll_pos: u16,
-}
+pub(super) struct DebugeeView {}
 
 impl DebugeeView {
     pub(super) fn new() -> Self {
-        Self { scroll_pos: 0 }
+        Self {}
     }
 }
 
@@ -48,14 +46,22 @@ impl CuiComponent for DebugeeView {
         frame.render_widget(home, rect);
     }
 
-    fn handle_user_event(&mut self, _: AppContext, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, ctx: AppContext, e: KeyEvent) -> Vec<Action> {
         match e.code {
-            KeyCode::Up => {
-                self.scroll_pos = self.scroll_pos.checked_sub(1).unwrap_or_default();
-            }
-            KeyCode::Down => {
-                self.scroll_pos = self.scroll_pos.checked_add(1).unwrap_or(u16::MAX);
-            }
+            KeyCode::Up => ctx.data.debugee_text_pos.set(
+                ctx.data
+                    .debugee_text_pos
+                    .get()
+                    .checked_sub(1)
+                    .unwrap_or_default(),
+            ),
+            KeyCode::Down => ctx.data.debugee_text_pos.set(
+                ctx.data
+                    .debugee_text_pos
+                    .get()
+                    .checked_add(1)
+                    .unwrap_or_default(),
+            ),
             _ => {}
         };
         vec![]
