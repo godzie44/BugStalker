@@ -2,10 +2,10 @@ use crate::cui::hook::CuiHook;
 use crate::cui::window::app::AppMode::Default as DefaultMode;
 use crate::cui::window::help::ContextHelp;
 use crate::cui::window::input::UserInput;
-use crate::cui::window::main::{DebugeeView, MainLogs};
+use crate::cui::window::main::{DebugeeOut, DebugeeView, Logs};
 use crate::cui::window::tabs::{TabVariant, Tabs};
 use crate::cui::window::{main, tabs, Action, CuiComponent, RenderOpts};
-use crate::cui::{AppContext, AppState};
+use crate::cui::{AppContext, AppState, DebugeeStreamBuffer};
 use crate::debugger::Debugger;
 use crossterm::event::KeyEvent;
 use std::collections::HashMap;
@@ -132,17 +132,22 @@ pub(super) struct AppWindow {
 }
 
 impl AppWindow {
-    pub fn new(debugger: Rc<Debugger<CuiHook>>) -> Self {
+    pub fn new(debugger: Rc<Debugger<CuiHook>>, stream_buff: DebugeeStreamBuffer) -> Self {
         let breakpoints: Box<dyn CuiComponent> =
             Box::new(main::breakpoint::Breakpoints::new(debugger.clone()));
         let variables: Box<dyn CuiComponent> = Box::new(main::variable::Variables::new(debugger));
         let debugee_view: Box<dyn CuiComponent> = Box::new(DebugeeView::new());
-        let logs: Box<dyn CuiComponent> = Box::new(MainLogs {});
+        let logs: Box<dyn CuiComponent> = Box::new(Logs {});
+        let debugee_out: Box<dyn CuiComponent> = Box::new(DebugeeOut::new(stream_buff));
 
         let left_deck_states = HashMap::from([(variables.name(), AppState::DebugeeBreak)]);
         Self {
             left_deck: WindowDeck::new("left_deck", vec![breakpoints, variables], left_deck_states),
-            right_deck: WindowDeck::new("right_deck", vec![debugee_view, logs], HashMap::default()),
+            right_deck: WindowDeck::new(
+                "right_deck",
+                vec![debugee_view, debugee_out, logs],
+                HashMap::default(),
+            ),
             context_help: ContextHelp {},
             user_input: UserInput::new(),
             mode: DefaultMode,

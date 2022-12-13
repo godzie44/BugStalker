@@ -1,6 +1,6 @@
 use crate::cui::hook::CuiHook;
 use crate::cui::window::app::AppWindow;
-use crate::cui::{AppContext, AppState, Event};
+use crate::cui::{AppContext, AppState, DebugeeStreamBuffer, Event};
 use crate::debugger::command::Continue;
 use crate::debugger::Debugger;
 use crossterm::event::{DisableMouseCapture, KeyCode, KeyEvent};
@@ -50,9 +50,10 @@ pub(super) fn run(
     ctx: AppContext,
     mut terminal: Terminal<CrosstermBackend<StdoutLock>>,
     debugger: Rc<Debugger<CuiHook>>,
-    rx: Receiver<Event<KeyEvent>>,
+    event_chan: Receiver<Event<KeyEvent>>,
+    stream_buff: DebugeeStreamBuffer,
 ) -> anyhow::Result<()> {
-    let mut app_window = AppWindow::new(debugger.clone());
+    let mut app_window = AppWindow::new(debugger.clone(), stream_buff);
 
     loop {
         terminal.draw(|frame| {
@@ -60,7 +61,7 @@ pub(super) fn run(
             app_window.render(ctx.clone(), frame, rect, RenderOpts::default());
         })?;
 
-        match rx.recv()? {
+        match event_chan.recv()? {
             Event::Input(e) => match e {
                 KeyEvent {
                     code: KeyCode::Char('c'),

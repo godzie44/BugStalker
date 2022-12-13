@@ -8,9 +8,11 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use nix::unistd::Pid;
 use std::cell::{Cell, RefCell};
+use std::io::{BufRead, BufReader, Read};
 use std::ops::Deref;
+use std::process::{ChildStderr, ChildStdout};
 use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{io, thread};
 use tui::backend::CrosstermBackend;
@@ -29,12 +31,15 @@ pub(super) enum Event<I> {
 
 pub struct AppBuilder {
     file_view: Rc<FileView>,
+    debugee_out: ChildStdout,
+    debugee_err: ChildStderr,
 }
 
 impl AppBuilder {
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub fn new(debugee_out: ChildStdout, debugee_err: ChildStderr) -> Self {
         Self {
+            debugee_out,
+            debugee_err,
             file_view: Rc::new(FileView::new()),
         }
     }
@@ -46,7 +51,7 @@ impl AppBuilder {
         }));
         let hook = CuiHook::new(ctx.clone(), self.file_view);
         let debugger = Debugger::new(program, pid, hook);
-        CuiApplication::new(debugger, ctx)
+        CuiApplication::new(debugger, ctx, self.debugee_out, self.debugee_err)
     }
 }
 
@@ -112,17 +117,71 @@ impl AppContext {
     }
 }
 
+#[derive(Default, Clone)]
+struct DebugeeStreamBuffer {
+    data: Arc<Mutex<Vec<StreamLine>>>,
+}
+
+enum StreamLine {
+    Out(String),
+    Err(String),
+}
+
 pub struct CuiApplication {
     debugger: Debugger<CuiHook>,
     ctx: AppContext,
+    debugee_out: ChildStdout,
+    debugee_err: ChildStderr,
 }
 
 impl CuiApplication {
-    pub fn new(debugger: Debugger<CuiHook>, ctx: AppContext) -> Self {
-        Self { debugger, ctx }
+    pub fn new(
+        debugger: Debugger<CuiHook>,
+        ctx: AppContext,
+        debugee_out: ChildStdout,
+        debugee_err: ChildStderr,
+    ) -> Self {
+        Self {
+            debugger,
+            ctx,
+            debugee_out,
+            debugee_err,
+        }
     }
 
     pub fn run(self) -> anyhow::Result<()> {
+        let stream_buff = DebugeeStreamBuffer::default();
+        enum StreamType {
+            StdErr,
+            StdOut,
+        }
+        fn stream_to_buffer(
+            stream: impl Read,
+            buffer: Arc<Mutex<Vec<StreamLine>>>,
+            stream_type: StreamType,
+        ) {
+            let mut stream = BufReader::new(stream);
+            loop {
+                let mut line = String::new();
+                let size = stream.read_line(&mut line).unwrap();
+                if size == 0 {
+                    return;
+                }
+                let line = match stream_type {
+                    StreamType::StdErr => StreamLine::Err(line),
+                    StreamType::StdOut => StreamLine::Out(line),
+                };
+                buffer.lock().unwrap().push(line);
+            }
+        }
+
+        {
+            let out_buff = stream_buff.data.clone();
+            thread::spawn(move || stream_to_buffer(self.debugee_out, out_buff, StreamType::StdOut));
+            let err_buff = stream_buff.data.clone();
+            thread::spawn(move || stream_to_buffer(self.debugee_err, err_buff, StreamType::StdErr));
+        }
+
         self.debugger.on_debugee_start()?;
         enable_raw_mode()?;
 
@@ -138,7 +197,6 @@ impl CuiApplication {
                 if event::poll(timeout).expect("poll works") {
                     if let event::Event::Key(key) = event::read().expect("can read events") {
                         tx.send(Event::Input(key)).expect("can send events");
-                    } else {
                     }
                 }
 
@@ -163,6 +221,6 @@ impl CuiApplication {
             original_hook(panic);
         }));
 
-        window::run(self.ctx, terminal, Rc::new(self.debugger), rx)
+        window::run(self.ctx, terminal, Rc::new(self.debugger), rx, stream_buff)
     }
 }
