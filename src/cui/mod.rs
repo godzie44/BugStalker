@@ -59,6 +59,7 @@ pub struct RenderData {
     debugee_file_name: RefCell<String>,
     debugee_text: RefCell<Text<'static>>,
     debugee_text_pos: Cell<u64>,
+    alert: RefCell<Option<Text<'static>>>,
 }
 
 impl RenderData {
@@ -79,7 +80,12 @@ impl RenderData {
                 Spans::from(vec![Span::raw("Press 'p' to access pets, 'a' to add random new pets and 'd' to delete the currently selected pet.")]),
             ].into()),
             debugee_text_pos: Cell::new(0),
+            alert: RefCell::default(),
         }
+    }
+
+    fn set_alert(&self, text: Text<'static>) {
+        *self.alert.borrow_mut() = Some(text);
     }
 }
 

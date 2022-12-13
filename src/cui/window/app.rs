@@ -1,4 +1,5 @@
 use crate::cui::hook::CuiHook;
+use crate::cui::window::alert::Alert;
 use crate::cui::window::app::AppMode::Default as DefaultMode;
 use crate::cui::window::help::ContextHelp;
 use crate::cui::window::input::UserInput;
@@ -128,6 +129,7 @@ pub(super) struct AppWindow {
     right_deck: WindowDeck,
     user_input: UserInput,
     context_help: ContextHelp,
+    alert: Alert,
     mode: AppMode,
 }
 
@@ -149,6 +151,7 @@ impl AppWindow {
                 HashMap::default(),
             ),
             context_help: ContextHelp {},
+            alert: Alert::default(),
             user_input: UserInput::new(),
             mode: DefaultMode,
         }
@@ -195,10 +198,14 @@ impl CuiComponent for AppWindow {
 
         if self.mode == AppMode::UserInput {
             self.user_input.render(ctx.clone(), frame, chunks[1], opts);
-            self.context_help.render(ctx, frame, chunks[2], opts);
+            self.context_help
+                .render(ctx.clone(), frame, chunks[2], opts);
         } else {
-            self.context_help.render(ctx, frame, chunks[1], opts);
+            self.context_help
+                .render(ctx.clone(), frame, chunks[1], opts);
         }
+
+        self.alert.render(ctx, frame, rect, opts);
     }
 
     fn handle_user_event(&mut self, ctx: AppContext, e: KeyEvent) -> Vec<Action> {
@@ -208,9 +215,10 @@ impl CuiComponent for AppWindow {
                 self.apply_app_action(ctx, &ui_actions);
             }
             AppMode::Default => {
+                self.alert.handle_user_event(ctx.clone(), e);
+
                 let left_actions = self.left_deck.handle_user_event(ctx.clone(), e);
                 let right_actions = self.right_deck.handle_user_event(ctx.clone(), e);
-
                 self.apply_app_action(ctx.clone(), &left_actions);
                 self.apply_app_action(ctx, &right_actions);
             }

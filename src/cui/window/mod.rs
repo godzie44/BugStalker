@@ -17,6 +17,7 @@ mod help;
 mod input;
 mod main;
 mod tabs;
+mod alert;
 
 #[derive(Default, Clone, Copy)]
 pub struct RenderOpts {

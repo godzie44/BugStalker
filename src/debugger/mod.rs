@@ -18,7 +18,7 @@ use crate::debugger::register::{
 use crate::debugger::uw::Backtrace;
 use anyhow::anyhow;
 use nix::errno::Errno;
-use nix::libc::{c_void, siginfo_t, uintptr_t};
+use nix::libc::{c_int, c_void, siginfo_t, uintptr_t};
 use nix::sys::wait::waitpid;
 use nix::unistd::Pid;
 use nix::{libc, sys};
@@ -35,7 +35,8 @@ pub struct FrameInfo {
 }
 
 pub trait EventHook {
-    fn on_sigtrap(&self, pc: usize, place: Option<Place>) -> anyhow::Result<()>;
+    fn on_trap(&self, pc: usize, place: Option<Place>) -> anyhow::Result<()>;
+    fn on_signal(&self, signo: c_int, code: c_int);
 }
 
 pub struct Debugger<T: EventHook> {
@@ -45,7 +46,7 @@ pub struct Debugger<T: EventHook> {
     breakpoints: RefCell<HashMap<usize, Breakpoint>>,
     obj_kind: object::ObjectKind,
     dwarf: DebugeeContext<EndianRcSlice>,
-    event_hooks: T,
+    hooks: T,
 }
 
 impl<T: EventHook> Debugger<T> {
@@ -62,7 +63,7 @@ impl<T: EventHook> Debugger<T> {
             breakpoints: Default::default(),
             dwarf: DebugeeContext::new(&object).unwrap(),
             obj_kind: object.kind(),
-            event_hooks: hooks,
+            hooks,
         }
     }
 
@@ -194,8 +195,7 @@ impl<T: EventHook> Debugger<T> {
 
         match info.si_signo {
             libc::SIGTRAP => self.handle_sigtrap(info)?,
-            libc::SIGSEGV => println!("Segfault! Reason: {}", info.si_code),
-            _ => println!("Receive signal: {}", info.si_signo),
+            _ => self.hooks.on_signal(info.si_signo, info.si_code),
         }
         Ok(())
     }
@@ -206,8 +206,8 @@ impl<T: EventHook> Debugger<T> {
                 self.set_pc(self.get_pc()? - 1)?;
                 let current_pc = self.get_pc()?;
                 let offset_pc = self.offset_load_addr(current_pc);
-                self.event_hooks
-                    .on_sigtrap(current_pc, self.dwarf.find_place_from_pc(offset_pc))?;
+                self.hooks
+                    .on_trap(current_pc, self.dwarf.find_place_from_pc(offset_pc))?;
 
                 Ok(())
             }
