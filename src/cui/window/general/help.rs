@@ -8,7 +8,7 @@ use tui::style::{Color, Style};
 use tui::widgets::{Block, BorderType, Paragraph};
 use tui::Frame;
 
-pub(super) struct ContextHelp {}
+pub(in crate::cui::window) struct ContextHelp {}
 
 impl CuiComponent for ContextHelp {
     fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, _: RenderOpts) {

@@ -11,7 +11,7 @@ use tui::text::{Span, Spans};
 use tui::widgets::{Block, BorderType, Borders};
 use tui::Frame;
 
-pub(super) struct TabVariant {
+pub(in crate::cui::window) struct TabVariant {
     title: String,
     active_state: Option<AppState>,
     on_select: message::ActionMessage,
@@ -19,7 +19,7 @@ pub(super) struct TabVariant {
 }
 
 impl TabVariant {
-    pub(super) fn new(
+    pub(in crate::cui::window) fn new(
         title: impl Into<String>,
         on_select: message::ActionMessage,
         message_recipient: &'static str,
@@ -32,7 +32,7 @@ impl TabVariant {
         }
     }
 
-    pub(super) fn contextual(
+    pub(in crate::cui::window) fn contextual(
         title: impl Into<String>,
         on_select: message::ActionMessage,
         state: AppState,
@@ -47,7 +47,7 @@ impl TabVariant {
     }
 }
 
-pub(super) struct Tabs {
+pub(in crate::cui::window) struct Tabs {
     name: &'static str,
     title: &'static str,
     tabs: Vec<TabVariant>,
@@ -56,7 +56,11 @@ pub(super) struct Tabs {
 }
 
 impl Tabs {
-    pub(super) fn new(name: &'static str, title: &'static str, tabs: Vec<TabVariant>) -> Self {
+    pub(in crate::cui::window) fn new(
+        name: &'static str,
+        title: &'static str,
+        tabs: Vec<TabVariant>,
+    ) -> Self {
         Self {
             name,
             title,

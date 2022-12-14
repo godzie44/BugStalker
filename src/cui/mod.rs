@@ -49,7 +49,7 @@ impl AppBuilder {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub(super) enum AppState {
+pub enum AppState {
     Initial,
     DebugeeRun,
     DebugeeBreak,
@@ -57,7 +57,7 @@ pub(super) enum AppState {
 }
 
 #[derive(Default, Clone)]
-struct DebugeeStreamBuffer {
+pub struct DebugeeStreamBuffer {
     data: Arc<Mutex<Vec<StreamLine>>>,
 }
 

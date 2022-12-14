@@ -9,7 +9,7 @@ use tui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use tui::Frame;
 
 #[derive(Default)]
-pub(super) struct Alert {}
+pub struct Alert {}
 
 impl CuiComponent for Alert {
     fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, _: RenderOpts) {

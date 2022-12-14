@@ -1,13 +1,17 @@
+use super::specialized::logs::Logs;
 use crate::cui::hook::CuiHook;
-use crate::cui::window::alert::Alert;
 use crate::cui::window::app::AppMode::Default as DefaultMode;
-use crate::cui::window::help::ContextHelp;
-use crate::cui::window::input::UserInput;
-use crate::cui::window::main::{DebugeeOut, DebugeeView, Logs};
+use crate::cui::window::general::alert::Alert;
+use crate::cui::window::general::deck::WindowDeck;
+use crate::cui::window::general::help::ContextHelp;
+use crate::cui::window::general::input::UserInput;
 use crate::cui::window::message::{ActionMessage, Exchanger};
-use crate::cui::window::tabs::{TabVariant, Tabs};
-use crate::cui::window::{main, tabs, CuiComponent, RenderOpts};
-use crate::cui::{context, AppState, DebugeeStreamBuffer};
+use crate::cui::window::specialized::breakpoint::Breakpoints;
+use crate::cui::window::specialized::debugee_out::DebugeeOut;
+use crate::cui::window::specialized::debugee_view::DebugeeView;
+use crate::cui::window::specialized::variable::Variables;
+use crate::cui::window::{CuiComponent, RenderOpts};
+use crate::cui::{AppState, DebugeeStreamBuffer};
 use crate::debugger::Debugger;
 use crate::fire;
 use crossterm::event::KeyEvent;
@@ -18,113 +22,6 @@ use std::rc::Rc;
 use tui::backend::CrosstermBackend;
 use tui::layout::{Constraint, Direction, Layout, Rect};
 use tui::Frame;
-
-struct WindowDeck {
-    name: &'static str,
-    visible_window: &'static str,
-    in_focus_window: Option<&'static str>,
-    tabs: Tabs,
-    windows: HashMap<&'static str, Box<dyn CuiComponent>>,
-}
-
-impl WindowDeck {
-    fn new(
-        name: &'static str,
-        windows: Vec<Box<dyn CuiComponent>>,
-        state_asserts: HashMap<&'static str, AppState>,
-    ) -> Self {
-        let tab_variants = windows
-            .iter()
-            .map(|component| {
-                let c_name = component.name();
-
-                if let Some(state) = state_asserts.get(c_name) {
-                    TabVariant::contextual(
-                        c_name,
-                        ActionMessage::ActivateComponent { activate: c_name },
-                        *state,
-                        name,
-                    )
-                } else {
-                    TabVariant::new(
-                        c_name,
-                        ActionMessage::ActivateComponent { activate: c_name },
-                        name,
-                    )
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let tabs = tabs::Tabs::new("deck_tabs", "", tab_variants);
-
-        Self {
-            name,
-            visible_window: windows[0].name(),
-            in_focus_window: None,
-            tabs,
-            windows: windows.into_iter().map(|c| (c.name(), c)).collect(),
-        }
-    }
-
-    fn drop_focus(&mut self) {
-        self.in_focus_window = None
-    }
-}
-
-impl CuiComponent for WindowDeck {
-    fn render(
-        &self,
-        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
-        rect: Rect,
-        mut opts: RenderOpts,
-    ) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .margin(0)
-            .constraints([Constraint::Length(3), Constraint::Min(2)])
-            .split(rect);
-
-        if self.in_focus_window.is_some() {
-            opts.in_focus = true;
-        }
-
-        self.tabs.render(frame, chunks[0], opts);
-        self.windows[self.visible_window].render(frame, chunks[1], opts);
-    }
-
-    fn handle_user_event(&mut self, e: KeyEvent) {
-        self.tabs.handle_user_event(e);
-        if let Some(in_focus_component) = self.in_focus_window {
-            self.windows
-                .get_mut(in_focus_component)
-                .unwrap()
-                .handle_user_event(e);
-        }
-    }
-
-    fn update(&mut self) -> anyhow::Result<()> {
-        for msg in Exchanger::current().pop(self.name) {
-            match msg {
-                ActionMessage::ActivateComponent { activate } => {
-                    self.visible_window = activate;
-                    fire!(ActionMessage::FocusOnComponent {focus_on: activate} => "app_window");
-                }
-                ActionMessage::FocusOnComponent { focus_on } => {
-                    if self.windows.get(focus_on).is_some() {
-                        self.in_focus_window = Some(focus_on);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        self.windows.iter_mut().try_for_each(|(_, w)| w.update())
-    }
-
-    fn name(&self) -> &'static str {
-        self.name
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum AppMode {
@@ -143,11 +40,10 @@ pub(super) struct AppWindow {
 
 impl AppWindow {
     pub fn new(debugger: Rc<Debugger<CuiHook>>, stream_buff: DebugeeStreamBuffer) -> Self {
-        let breakpoints: Box<dyn CuiComponent> =
-            Box::new(main::breakpoint::Breakpoints::new(debugger.clone()));
-        let variables: Box<dyn CuiComponent> = Box::new(main::variable::Variables::new(debugger));
-        let debugee_view: Box<dyn CuiComponent> = Box::new(DebugeeView::new());
-        let logs: Box<dyn CuiComponent> = Box::new(Logs {});
+        let breakpoints: Box<dyn CuiComponent> = Box::new(Breakpoints::new(debugger.clone()));
+        let variables: Box<dyn CuiComponent> = Box::new(Variables::new(debugger));
+        let debugee_view: Box<dyn CuiComponent> = Box::new(DebugeeView::default());
+        let logs: Box<dyn CuiComponent> = Box::new(Logs::default());
         let debugee_out: Box<dyn CuiComponent> = Box::new(DebugeeOut::new(stream_buff));
 
         let left_deck_states = HashMap::from([(variables.name(), AppState::DebugeeBreak)]);

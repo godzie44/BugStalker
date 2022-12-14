@@ -13,20 +13,17 @@ use tui::backend::CrosstermBackend;
 use tui::layout::Rect;
 use tui::{Frame, Terminal};
 
-mod alert;
 mod app;
-mod help;
-mod input;
-mod main;
+mod general;
 mod message;
-mod tabs;
+mod specialized;
 
 #[derive(Default, Clone, Copy)]
 pub struct RenderOpts {
     pub in_focus: bool,
 }
 
-trait CuiComponent {
+pub trait CuiComponent {
     fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, opts: RenderOpts);
     fn handle_user_event(&mut self, e: KeyEvent);
     #[allow(unused)]

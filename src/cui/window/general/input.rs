@@ -11,13 +11,13 @@ use tui::widgets::{Block, Borders};
 use tui::Frame;
 use tui_textarea::TextArea;
 
-pub(super) struct UserInput {
+pub(in crate::cui::window) struct UserInput {
     textarea: TextArea<'static>,
     input_recipient_component: &'static str,
 }
 
 impl UserInput {
-    pub(super) fn new() -> Self {
+    pub(in crate::cui::window) fn new() -> Self {
         let mut textarea = TextArea::default();
         textarea.set_cursor_line_style(Style::default());
         textarea.set_style(Style::default().fg(Color::LightGreen));
