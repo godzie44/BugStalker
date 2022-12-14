@@ -1,5 +1,5 @@
 use crate::cui::window::{Action, CuiComponent, RenderOpts};
-use crate::cui::{AppContext, DebugeeStreamBuffer, StreamLine};
+use crate::cui::{context, DebugeeStreamBuffer, StreamLine};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
@@ -23,7 +23,6 @@ impl DebugeeView {
 impl CuiComponent for DebugeeView {
     fn render(
         &self,
-        ctx: AppContext,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         opts: RenderOpts,
@@ -33,8 +32,8 @@ impl CuiComponent for DebugeeView {
         } else {
             Style::default().fg(Color::White)
         };
-
-        let home = Paragraph::new(ctx.data.debugee_text.clone().take())
+        let ctx = context::Context::current();
+        let home = Paragraph::new(ctx.render_text())
             .alignment(Alignment::Left)
             .block(
                 Block::default()
@@ -42,28 +41,26 @@ impl CuiComponent for DebugeeView {
                     .border_type(BorderType::Rounded)
                     .border_style(border_style)
                     .style(Style::default().fg(Color::White))
-                    .title(ctx.data.debugee_file_name.borrow().to_string()),
+                    .title(ctx.render_file_name()),
             )
-            .scroll((ctx.data.debugee_text_pos.get() as u16, 0));
+            .scroll((ctx.render_text_pos() as u16, 0));
         frame.render_widget(home, rect);
     }
 
-    fn handle_user_event(&mut self, ctx: AppContext, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
         match e.code {
-            KeyCode::Up => ctx.data.debugee_text_pos.set(
-                ctx.data
-                    .debugee_text_pos
-                    .get()
-                    .checked_sub(1)
-                    .unwrap_or_default(),
-            ),
-            KeyCode::Down => ctx.data.debugee_text_pos.set(
-                ctx.data
-                    .debugee_text_pos
-                    .get()
-                    .checked_add(1)
-                    .unwrap_or_default(),
-            ),
+            KeyCode::Up => {
+                let ctx = context::Context::current();
+                let current_pos = ctx.render_text_pos();
+
+                ctx.set_render_text_pos(current_pos.checked_sub(1).unwrap_or_default())
+            }
+            KeyCode::Down => {
+                let ctx = context::Context::current();
+                let current_pos = ctx.render_text_pos();
+
+                ctx.set_render_text_pos(current_pos.checked_add(1).unwrap_or_default());
+            }
             _ => {}
         };
         vec![]
@@ -79,7 +76,6 @@ pub(super) struct Logs {}
 impl CuiComponent for Logs {
     fn render(
         &self,
-        _ctx: AppContext,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         opts: RenderOpts,
@@ -101,7 +97,7 @@ impl CuiComponent for Logs {
         frame.render_widget(home, rect);
     }
 
-    fn handle_user_event(&mut self, _: AppContext, _: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, _: KeyEvent) -> Vec<Action> {
         vec![]
     }
 
@@ -123,7 +119,6 @@ impl DebugeeOut {
 impl CuiComponent for DebugeeOut {
     fn render(
         &self,
-        _: AppContext,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         opts: RenderOpts,
@@ -162,7 +157,7 @@ impl CuiComponent for DebugeeOut {
         frame.render_widget(home, rect);
     }
 
-    fn handle_user_event(&mut self, _: AppContext, _: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, _: KeyEvent) -> Vec<Action> {
         vec![]
     }
 

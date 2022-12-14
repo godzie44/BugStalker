@@ -7,19 +7,16 @@ use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use nix::unistd::Pid;
-use std::cell::{Cell, RefCell};
 use std::io::{BufRead, BufReader, Read};
-use std::ops::Deref;
 use std::process::{ChildStderr, ChildStdout};
 use std::rc::Rc;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{io, thread};
 use tui::backend::CrosstermBackend;
-use tui::style::{Color, Style};
-use tui::text::{Span, Spans, Text};
 use tui::Terminal;
 
+mod context;
 pub mod file_view;
 pub mod hook;
 pub mod window;
@@ -45,47 +42,9 @@ impl AppBuilder {
     }
 
     pub fn build(self, program: impl Into<String>, pid: Pid) -> CuiApplication {
-        let ctx = AppContext(Rc::new(Context {
-            data: RenderData::start_screen(),
-            state: Cell::new(AppState::Initial),
-        }));
-        let hook = CuiHook::new(ctx.clone(), self.file_view);
+        let hook = CuiHook::new(self.file_view);
         let debugger = Debugger::new(program, pid, hook);
-        CuiApplication::new(debugger, ctx, self.debugee_out, self.debugee_err)
-    }
-}
-
-pub struct RenderData {
-    debugee_file_name: RefCell<String>,
-    debugee_text: RefCell<Text<'static>>,
-    debugee_text_pos: Cell<u64>,
-    alert: RefCell<Option<Text<'static>>>,
-}
-
-impl RenderData {
-    fn start_screen() -> Self {
-        Self {
-            debugee_file_name: RefCell::default(),
-            debugee_text: RefCell::new(vec![
-                Spans::from(vec![Span::raw("")]),
-                Spans::from(vec![Span::raw("Welcome")]),
-                Spans::from(vec![Span::raw("")]),
-                Spans::from(vec![Span::raw("to")]),
-                Spans::from(vec![Span::raw("")]),
-                Spans::from(vec![Span::styled(
-                    "pet-CLI",
-                    Style::default().fg(Color::LightBlue),
-                )]),
-                Spans::from(vec![Span::raw("")]),
-                Spans::from(vec![Span::raw("Press 'p' to access pets, 'a' to add random new pets and 'd' to delete the currently selected pet.")]),
-            ].into()),
-            debugee_text_pos: Cell::new(0),
-            alert: RefCell::default(),
-        }
-    }
-
-    fn set_alert(&self, text: Text<'static>) {
-        *self.alert.borrow_mut() = Some(text);
+        CuiApplication::new(debugger, self.debugee_out, self.debugee_err)
     }
 }
 
@@ -95,32 +54,6 @@ pub(super) enum AppState {
     DebugeeRun,
     DebugeeBreak,
     UserInput,
-}
-
-pub struct Context {
-    pub(super) data: RenderData,
-    pub(super) state: Cell<AppState>,
-}
-
-#[derive(Clone)]
-pub struct AppContext(Rc<Context>);
-
-impl Deref for AppContext {
-    type Target = Rc<Context>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl AppContext {
-    pub(super) fn change_state(&self, state: AppState) {
-        self.state.set(state)
-    }
-
-    pub(super) fn assert_state(&self, state: AppState) -> bool {
-        self.state.get() == state
-    }
 }
 
 #[derive(Default, Clone)]
@@ -135,7 +68,6 @@ enum StreamLine {
 
 pub struct CuiApplication {
     debugger: Debugger<CuiHook>,
-    ctx: AppContext,
     debugee_out: ChildStdout,
     debugee_err: ChildStderr,
 }
@@ -143,13 +75,11 @@ pub struct CuiApplication {
 impl CuiApplication {
     pub fn new(
         debugger: Debugger<CuiHook>,
-        ctx: AppContext,
         debugee_out: ChildStdout,
         debugee_err: ChildStderr,
     ) -> Self {
         Self {
             debugger,
-            ctx,
             debugee_out,
             debugee_err,
         }
@@ -227,6 +157,6 @@ impl CuiApplication {
             original_hook(panic);
         }));
 
-        window::run(self.ctx, terminal, Rc::new(self.debugger), rx, stream_buff)
+        window::run(terminal, Rc::new(self.debugger), rx, stream_buff)
     }
 }

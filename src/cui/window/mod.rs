@@ -1,6 +1,6 @@
 use crate::cui::hook::CuiHook;
 use crate::cui::window::app::AppWindow;
-use crate::cui::{AppContext, AppState, DebugeeStreamBuffer, Event};
+use crate::cui::{context, AppState, DebugeeStreamBuffer, Event};
 use crate::debugger::command::Continue;
 use crate::debugger::Debugger;
 use crossterm::event::{DisableMouseCapture, KeyCode, KeyEvent};
@@ -12,12 +12,12 @@ use tui::backend::CrosstermBackend;
 use tui::layout::Rect;
 use tui::{Frame, Terminal};
 
+mod alert;
 mod app;
 mod help;
 mod input;
 mod main;
 mod tabs;
-mod alert;
 
 #[derive(Default, Clone, Copy)]
 pub struct RenderOpts {
@@ -25,16 +25,10 @@ pub struct RenderOpts {
 }
 
 trait CuiComponent {
-    fn render(
-        &self,
-        ctx: AppContext,
-        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
-        rect: Rect,
-        opts: RenderOpts,
-    );
-    fn handle_user_event(&mut self, ctx: AppContext, e: KeyEvent) -> Vec<Action>;
+    fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, opts: RenderOpts);
+    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action>;
     #[allow(unused)]
-    fn apply_app_action(&mut self, ctx: AppContext, actions: &[Action]) {}
+    fn apply_app_action(&mut self, actions: &[Action]) {}
     fn name(&self) -> &'static str;
 }
 
@@ -48,7 +42,6 @@ enum Action {
 }
 
 pub(super) fn run(
-    ctx: AppContext,
     mut terminal: Terminal<CrosstermBackend<StdoutLock>>,
     debugger: Rc<Debugger<CuiHook>>,
     event_chan: Receiver<Event<KeyEvent>>,
@@ -59,9 +52,10 @@ pub(super) fn run(
     loop {
         terminal.draw(|frame| {
             let rect = frame.size();
-            app_window.render(ctx.clone(), frame, rect, RenderOpts::default());
+            app_window.render(frame, rect, RenderOpts::default());
         })?;
 
+        let ctx = context::Context::current();
         match event_chan.recv()? {
             Event::Input(e) => match e {
                 KeyEvent {
@@ -85,7 +79,7 @@ pub(super) fn run(
                     return Ok(());
                 }
                 _ => {
-                    app_window.handle_user_event(ctx.clone(), e);
+                    app_window.handle_user_event(e);
                 }
             },
             Event::Tick => {}

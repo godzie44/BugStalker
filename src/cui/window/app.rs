@@ -6,7 +6,7 @@ use crate::cui::window::input::UserInput;
 use crate::cui::window::main::{DebugeeOut, DebugeeView, Logs};
 use crate::cui::window::tabs::{TabVariant, Tabs};
 use crate::cui::window::{main, tabs, Action, CuiComponent, RenderOpts};
-use crate::cui::{AppContext, AppState, DebugeeStreamBuffer};
+use crate::cui::{AppState, DebugeeStreamBuffer};
 use crate::debugger::Debugger;
 use crossterm::event::KeyEvent;
 use std::collections::HashMap;
@@ -63,7 +63,6 @@ impl WindowDeck {
 impl CuiComponent for WindowDeck {
     fn render(
         &self,
-        ctx: AppContext,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         mut opts: RenderOpts,
@@ -78,12 +77,12 @@ impl CuiComponent for WindowDeck {
             opts.in_focus = true;
         }
 
-        self.tabs.render(ctx.clone(), frame, chunks[0], opts);
-        self.windows[self.visible_window].render(ctx, frame, chunks[1], opts);
+        self.tabs.render(frame, chunks[0], opts);
+        self.windows[self.visible_window].render(frame, chunks[1], opts);
     }
 
-    fn handle_user_event(&mut self, ctx: AppContext, e: KeyEvent) -> Vec<Action> {
-        let tab_actions = self.tabs.handle_user_event(ctx.clone(), e);
+    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
+        let tab_actions = self.tabs.handle_user_event(e);
         if let Some(Action::ActivateComponent(component_name)) = tab_actions.get(0) {
             self.visible_window = component_name;
             return vec![Action::FocusOnComponent(component_name)];
@@ -94,12 +93,12 @@ impl CuiComponent for WindowDeck {
                 .windows
                 .get_mut(in_focus_component)
                 .unwrap()
-                .handle_user_event(ctx, e);
+                .handle_user_event(e);
         }
         vec![]
     }
 
-    fn apply_app_action(&mut self, ctx: AppContext, actions: &[Action]) {
+    fn apply_app_action(&mut self, actions: &[Action]) {
         actions.iter().for_each(|act| {
             if let Action::FocusOnComponent(cmp) = act {
                 if self.windows.get(cmp).is_some() {
@@ -110,7 +109,7 @@ impl CuiComponent for WindowDeck {
 
         self.windows
             .iter_mut()
-            .for_each(|(_, w)| w.apply_app_action(ctx.clone(), actions));
+            .for_each(|(_, w)| w.apply_app_action(actions));
     }
 
     fn name(&self) -> &'static str {
@@ -159,7 +158,6 @@ impl AppWindow {
 
     fn render_work_windows(
         &self,
-        ctx: AppContext,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         opts: RenderOpts,
@@ -170,15 +168,14 @@ impl AppWindow {
             .constraints([Constraint::Percentage(25), Constraint::Percentage(75)].as_ref())
             .split(rect);
 
-        self.left_deck.render(ctx.clone(), frame, chunks[0], opts);
-        self.right_deck.render(ctx, frame, chunks[1], opts);
+        self.left_deck.render(frame, chunks[0], opts);
+        self.right_deck.render(frame, chunks[1], opts);
     }
 }
 
 impl CuiComponent for AppWindow {
     fn render(
         &self,
-        ctx: AppContext,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         opts: RenderOpts,
@@ -194,40 +191,38 @@ impl CuiComponent for AppWindow {
             .constraints(constrains.as_ref())
             .split(rect);
 
-        self.render_work_windows(ctx.clone(), frame, chunks[0], opts);
+        self.render_work_windows(frame, chunks[0], opts);
 
         if self.mode == AppMode::UserInput {
-            self.user_input.render(ctx.clone(), frame, chunks[1], opts);
-            self.context_help
-                .render(ctx.clone(), frame, chunks[2], opts);
+            self.user_input.render(frame, chunks[1], opts);
+            self.context_help.render(frame, chunks[2], opts);
         } else {
-            self.context_help
-                .render(ctx.clone(), frame, chunks[1], opts);
+            self.context_help.render(frame, chunks[1], opts);
         }
 
-        self.alert.render(ctx, frame, rect, opts);
+        self.alert.render(frame, rect, opts);
     }
 
-    fn handle_user_event(&mut self, ctx: AppContext, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
         match self.mode {
             AppMode::UserInput => {
-                let ui_actions = self.user_input.handle_user_event(ctx.clone(), e);
-                self.apply_app_action(ctx, &ui_actions);
+                let ui_actions = self.user_input.handle_user_event(e);
+                self.apply_app_action(&ui_actions);
             }
             AppMode::Default => {
-                self.alert.handle_user_event(ctx.clone(), e);
+                self.alert.handle_user_event(e);
 
-                let left_actions = self.left_deck.handle_user_event(ctx.clone(), e);
-                let right_actions = self.right_deck.handle_user_event(ctx.clone(), e);
-                self.apply_app_action(ctx.clone(), &left_actions);
-                self.apply_app_action(ctx, &right_actions);
+                let left_actions = self.left_deck.handle_user_event(e);
+                let right_actions = self.right_deck.handle_user_event(e);
+                self.apply_app_action(&left_actions);
+                self.apply_app_action(&right_actions);
             }
         }
 
         vec![]
     }
 
-    fn apply_app_action(&mut self, ctx: AppContext, actions: &[Action]) {
+    fn apply_app_action(&mut self, actions: &[Action]) {
         actions.iter().for_each(|act| match act {
             Action::FocusOnComponent(_) => {
                 self.right_deck.drop_focus();
@@ -237,9 +232,9 @@ impl CuiComponent for AppWindow {
             Action::CancelUserInput => self.mode = AppMode::Default,
             _ => {}
         });
-        self.left_deck.apply_app_action(ctx.clone(), actions);
-        self.right_deck.apply_app_action(ctx.clone(), actions);
-        self.user_input.apply_app_action(ctx, actions);
+        self.left_deck.apply_app_action(actions);
+        self.right_deck.apply_app_action(actions);
+        self.user_input.apply_app_action(actions);
     }
 
     fn name(&self) -> &'static str {

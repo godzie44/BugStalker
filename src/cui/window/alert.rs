@@ -1,5 +1,5 @@
+use crate::cui::context;
 use crate::cui::window::{Action, CuiComponent, RenderOpts};
-use crate::cui::AppContext;
 use crossterm::event::{KeyCode, KeyEvent};
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
@@ -12,19 +12,13 @@ use tui::Frame;
 pub(super) struct Alert {}
 
 impl CuiComponent for Alert {
-    fn render(
-        &self,
-        ctx: AppContext,
-        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
-        rect: Rect,
-        _: RenderOpts,
-    ) {
-        if let Some(ref txt) = *ctx.data.alert.borrow() {
+    fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, _: RenderOpts) {
+        if let Some(txt) = context::Context::current().alert() {
             let block = Block::default()
                 .title("Alert!")
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded);
-            let paragraph = Paragraph::new(txt.clone())
+            let paragraph = Paragraph::new(txt)
                 .style(Style::default().bg(Color::Black))
                 .block(block)
                 .alignment(Alignment::Center);
@@ -58,10 +52,10 @@ impl CuiComponent for Alert {
         }
     }
 
-    fn handle_user_event(&mut self, ctx: AppContext, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
         match e.code {
             KeyCode::Esc | KeyCode::Enter => {
-                ctx.data.alert.borrow_mut().take();
+                context::Context::current().drop_alert();
             }
             _ => {}
         }

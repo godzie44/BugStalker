@@ -1,5 +1,5 @@
 use crate::cui::window::{Action, CuiComponent, RenderOpts};
-use crate::cui::{AppContext, AppState};
+use crate::cui::{context, AppState};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::HashMap;
 use std::io::StdoutLock;
@@ -78,20 +78,14 @@ impl Tabs {
 }
 
 impl CuiComponent for Tabs {
-    fn render(
-        &self,
-        ctx: AppContext,
-        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
-        rect: Rect,
-        _: RenderOpts,
-    ) {
+    fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, _: RenderOpts) {
         let titles = self
             .tabs
             .iter()
             .map(|t| {
                 let inactive_tab = t
                     .active_state
-                    .map(|s| !ctx.assert_state(s))
+                    .map(|s| !context::Context::current().assert_state(s))
                     .unwrap_or(false);
 
                 if inactive_tab {
@@ -130,14 +124,14 @@ impl CuiComponent for Tabs {
         frame.render_widget(tabs, rect);
     }
 
-    fn handle_user_event(&mut self, ctx: AppContext, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
         if let KeyCode::Char(char_key) = e.code {
             if let Some(tab_idx) = self.hot_keys.get(&char_key) {
                 let tab = &self.tabs[*tab_idx];
 
                 if tab
                     .active_state
-                    .map(|expected_state| ctx.assert_state(expected_state))
+                    .map(|expected_state| context::Context::current().assert_state(expected_state))
                     .unwrap_or(true)
                 {
                     self.active_tab = *tab_idx;

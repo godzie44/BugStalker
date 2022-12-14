@@ -1,5 +1,5 @@
 use crate::cui::window::{Action, CuiComponent, RenderOpts};
-use crate::cui::{AppContext, AppState};
+use crate::cui::{context, AppState};
 use crossterm::event::KeyEvent;
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
@@ -11,13 +11,7 @@ use tui::Frame;
 pub(super) struct ContextHelp {}
 
 impl CuiComponent for ContextHelp {
-    fn render(
-        &self,
-        ctx: AppContext,
-        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
-        rect: Rect,
-        _: RenderOpts,
-    ) {
+    fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, _: RenderOpts) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(80), Constraint::Percentage(20)].as_ref())
@@ -34,7 +28,7 @@ impl CuiComponent for ContextHelp {
                     .border_type(BorderType::Plain),
             );
 
-        let state_text = match ctx.state.get() {
+        let state_text = match context::Context::current().state() {
             AppState::Initial => "Prepare to run",
             AppState::DebugeeRun => "Application running",
             AppState::DebugeeBreak => "Application paused",
@@ -56,7 +50,7 @@ impl CuiComponent for ContextHelp {
         frame.render_widget(app_state, chunks[1]);
     }
 
-    fn handle_user_event(&mut self, _: AppContext, _: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, _: KeyEvent) -> Vec<Action> {
         vec![]
     }
 

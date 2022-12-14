@@ -1,6 +1,5 @@
 use crate::cui::hook::CuiHook;
 use crate::cui::window::{Action, CuiComponent, RenderOpts};
-use crate::cui::AppContext;
 use crate::debugger::variable::RenderView;
 use crate::debugger::{command, Debugger};
 use crossterm::event::{KeyCode, KeyEvent};
@@ -30,7 +29,6 @@ impl Variables {
 impl CuiComponent for Variables {
     fn render(
         &self,
-        _: AppContext,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         opts: RenderOpts,
@@ -78,7 +76,7 @@ impl CuiComponent for Variables {
         frame.render_stateful_widget(list, rect, &mut self.variables.borrow_mut().state)
     }
 
-    fn handle_user_event(&mut self, _: AppContext, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
         match e.code {
             KeyCode::Up => {
                 self.variables.borrow_mut().previous();
