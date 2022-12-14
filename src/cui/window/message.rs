@@ -32,6 +32,10 @@ impl Exchanger {
             .unwrap_or_default()
     }
 
+    pub(crate) fn clear(&self) {
+        (*self.buff).borrow_mut().clear();
+    }
+
     pub(super) fn is_empty(&self) -> bool {
         self.buff.borrow().is_empty()
     }

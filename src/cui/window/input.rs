@@ -63,7 +63,7 @@ impl CuiComponent for UserInput {
         }
     }
 
-    fn update(&mut self) {
+    fn update(&mut self) -> anyhow::Result<()> {
         message::Exchanger::current()
             .pop(self.name())
             .into_iter()
@@ -73,6 +73,8 @@ impl CuiComponent for UserInput {
                     self.input_recipient_component = sender;
                 }
             });
+
+        Ok(())
     }
 
     fn name(&self) -> &'static str {

@@ -97,14 +97,15 @@ impl CuiComponent for Breakpoints {
         }
     }
 
-    fn update(&mut self) {
+    fn update(&mut self) -> anyhow::Result<()> {
         for action in Exchanger::current().pop(self.name()) {
             if let ActionMessage::HandleUserInput { input } = action {
-                let b = command::Break::new(&self.debugger, vec!["", &input]).unwrap();
-                b.run().unwrap();
+                let b = command::Break::new(&self.debugger, vec!["", &input])?;
+                b.run()?;
                 self.breakpoints.borrow_mut().add(b.r#type);
             }
         }
+        Ok(())
     }
 
     fn name(&self) -> &'static str {

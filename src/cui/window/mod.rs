@@ -30,7 +30,9 @@ trait CuiComponent {
     fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, opts: RenderOpts);
     fn handle_user_event(&mut self, e: KeyEvent);
     #[allow(unused)]
-    fn update(&mut self) {}
+    fn update(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
     fn name(&self) -> &'static str;
 }
 
@@ -56,7 +58,10 @@ pub(super) fn run(
                     ..
                 } if !ctx.assert_state(AppState::UserInput) => {
                     ctx.change_state(AppState::DebugeeRun);
-                    Continue::new(&debugger).run()?;
+                    if let Err(e) = Continue::new(&debugger).run() {
+                        context::Context::current()
+                            .set_alert(format!("An error occurred: {e}").into());
+                    }
                 }
                 KeyEvent {
                     code: KeyCode::Char('q'),
@@ -79,7 +84,11 @@ pub(super) fn run(
         }
 
         while !Exchanger::current().is_empty() {
-            app_window.update();
+            if let Err(e) = app_window.update() {
+                context::Context::current().set_alert(format!("An error occurred: {e}").into());
+                Exchanger::current().clear();
+                break;
+            }
         }
     }
 }

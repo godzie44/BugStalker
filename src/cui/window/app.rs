@@ -7,7 +7,7 @@ use crate::cui::window::main::{DebugeeOut, DebugeeView, Logs};
 use crate::cui::window::message::{ActionMessage, Exchanger};
 use crate::cui::window::tabs::{TabVariant, Tabs};
 use crate::cui::window::{main, tabs, CuiComponent, RenderOpts};
-use crate::cui::{AppState, DebugeeStreamBuffer};
+use crate::cui::{context, AppState, DebugeeStreamBuffer};
 use crate::debugger::Debugger;
 use crate::fire;
 use crossterm::event::KeyEvent;
@@ -102,7 +102,7 @@ impl CuiComponent for WindowDeck {
         }
     }
 
-    fn update(&mut self) {
+    fn update(&mut self) -> anyhow::Result<()> {
         for msg in Exchanger::current().pop(self.name) {
             match msg {
                 ActionMessage::ActivateComponent { activate } => {
@@ -118,7 +118,7 @@ impl CuiComponent for WindowDeck {
             }
         }
 
-        self.windows.iter_mut().for_each(|(_, w)| w.update());
+        self.windows.iter_mut().try_for_each(|(_, w)| w.update())
     }
 
     fn name(&self) -> &'static str {
@@ -225,7 +225,7 @@ impl CuiComponent for AppWindow {
         }
     }
 
-    fn update(&mut self) {
+    fn update(&mut self) -> anyhow::Result<()> {
         Exchanger::current()
             .pop(self.name())
             .into_iter()
@@ -244,9 +244,11 @@ impl CuiComponent for AppWindow {
                 _ => {}
             });
 
-        self.left_deck.update();
-        self.right_deck.update();
-        self.user_input.update();
+        self.left_deck.update()?;
+        self.right_deck.update()?;
+        self.user_input.update()?;
+
+        Ok(())
     }
 
     fn name(&self) -> &'static str {
