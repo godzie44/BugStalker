@@ -1,5 +1,5 @@
 use crate::cui::context;
-use crate::cui::window::{Action, CuiComponent, RenderOpts};
+use crate::cui::window::{CuiComponent, RenderOpts};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
@@ -52,14 +52,13 @@ impl CuiComponent for Alert {
         }
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, e: KeyEvent) {
         match e.code {
             KeyCode::Esc | KeyCode::Enter => {
                 context::Context::current().drop_alert();
             }
             _ => {}
         }
-        vec![]
     }
 
     fn name(&self) -> &'static str {

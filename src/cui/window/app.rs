@@ -4,10 +4,12 @@ use crate::cui::window::app::AppMode::Default as DefaultMode;
 use crate::cui::window::help::ContextHelp;
 use crate::cui::window::input::UserInput;
 use crate::cui::window::main::{DebugeeOut, DebugeeView, Logs};
+use crate::cui::window::message::{ActionMessage, Exchanger};
 use crate::cui::window::tabs::{TabVariant, Tabs};
-use crate::cui::window::{main, tabs, Action, CuiComponent, RenderOpts};
+use crate::cui::window::{main, tabs, CuiComponent, RenderOpts};
 use crate::cui::{AppState, DebugeeStreamBuffer};
 use crate::debugger::Debugger;
+use crate::fire;
 use crossterm::event::KeyEvent;
 use std::collections::HashMap;
 use std::default::Default;
@@ -37,9 +39,18 @@ impl WindowDeck {
                 let c_name = component.name();
 
                 if let Some(state) = state_asserts.get(c_name) {
-                    TabVariant::contextual(c_name, [Action::ActivateComponent(c_name)], *state)
+                    TabVariant::contextual(
+                        c_name,
+                        ActionMessage::ActivateComponent { activate: c_name },
+                        *state,
+                        name,
+                    )
                 } else {
-                    TabVariant::new(c_name, [Action::ActivateComponent(c_name)])
+                    TabVariant::new(
+                        c_name,
+                        ActionMessage::ActivateComponent { activate: c_name },
+                        name,
+                    )
                 }
             })
             .collect::<Vec<_>>();
@@ -81,35 +92,33 @@ impl CuiComponent for WindowDeck {
         self.windows[self.visible_window].render(frame, chunks[1], opts);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
-        let tab_actions = self.tabs.handle_user_event(e);
-        if let Some(Action::ActivateComponent(component_name)) = tab_actions.get(0) {
-            self.visible_window = component_name;
-            return vec![Action::FocusOnComponent(component_name)];
-        }
-
+    fn handle_user_event(&mut self, e: KeyEvent) {
+        self.tabs.handle_user_event(e);
         if let Some(in_focus_component) = self.in_focus_window {
-            return self
-                .windows
+            self.windows
                 .get_mut(in_focus_component)
                 .unwrap()
                 .handle_user_event(e);
         }
-        vec![]
     }
 
-    fn apply_app_action(&mut self, actions: &[Action]) {
-        actions.iter().for_each(|act| {
-            if let Action::FocusOnComponent(cmp) = act {
-                if self.windows.get(cmp).is_some() {
-                    self.in_focus_window = Some(cmp);
+    fn update(&mut self) {
+        for msg in Exchanger::current().pop(self.name) {
+            match msg {
+                ActionMessage::ActivateComponent { activate } => {
+                    self.visible_window = activate;
+                    fire!(ActionMessage::FocusOnComponent {focus_on: activate} => "app_window");
                 }
+                ActionMessage::FocusOnComponent { focus_on } => {
+                    if self.windows.get(focus_on).is_some() {
+                        self.in_focus_window = Some(focus_on);
+                    }
+                }
+                _ => {}
             }
-        });
+        }
 
-        self.windows
-            .iter_mut()
-            .for_each(|(_, w)| w.apply_app_action(actions));
+        self.windows.iter_mut().for_each(|(_, w)| w.update());
     }
 
     fn name(&self) -> &'static str {
@@ -203,38 +212,41 @@ impl CuiComponent for AppWindow {
         self.alert.render(frame, rect, opts);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, e: KeyEvent) {
         match self.mode {
             AppMode::UserInput => {
-                let ui_actions = self.user_input.handle_user_event(e);
-                self.apply_app_action(&ui_actions);
+                self.user_input.handle_user_event(e);
             }
             AppMode::Default => {
                 self.alert.handle_user_event(e);
-
-                let left_actions = self.left_deck.handle_user_event(e);
-                let right_actions = self.right_deck.handle_user_event(e);
-                self.apply_app_action(&left_actions);
-                self.apply_app_action(&right_actions);
+                self.left_deck.handle_user_event(e);
+                self.right_deck.handle_user_event(e);
             }
         }
-
-        vec![]
     }
 
-    fn apply_app_action(&mut self, actions: &[Action]) {
-        actions.iter().for_each(|act| match act {
-            Action::FocusOnComponent(_) => {
-                self.right_deck.drop_focus();
-                self.left_deck.drop_focus();
-            }
-            Action::ActivateUserInput(_) => self.mode = AppMode::UserInput,
-            Action::CancelUserInput => self.mode = AppMode::Default,
-            _ => {}
-        });
-        self.left_deck.apply_app_action(actions);
-        self.right_deck.apply_app_action(actions);
-        self.user_input.apply_app_action(actions);
+    fn update(&mut self) {
+        Exchanger::current()
+            .pop(self.name())
+            .into_iter()
+            .for_each(|act| match act {
+                ActionMessage::FocusOnComponent { focus_on } => {
+                    self.right_deck.drop_focus();
+                    self.left_deck.drop_focus();
+                    fire!(ActionMessage::FocusOnComponent {focus_on} => self.left_deck.name());
+                    fire!(ActionMessage::FocusOnComponent {focus_on} => self.right_deck.name());
+                }
+                ActionMessage::ActivateUserInput { sender } => {
+                    self.mode = AppMode::UserInput;
+                    fire!(ActionMessage::ActivateUserInput {sender} => self.user_input.name());
+                }
+                ActionMessage::CancelUserInput { .. } => self.mode = AppMode::Default,
+                _ => {}
+            });
+
+        self.left_deck.update();
+        self.right_deck.update();
+        self.user_input.update();
     }
 
     fn name(&self) -> &'static str {

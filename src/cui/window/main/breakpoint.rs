@@ -1,7 +1,9 @@
 use crate::cui::hook::CuiHook;
-use crate::cui::window::{Action, CuiComponent, RenderOpts};
+use crate::cui::window::message::{ActionMessage, Exchanger};
+use crate::cui::window::{CuiComponent, RenderOpts};
 use crate::debugger::command::BreakpointType;
 use crate::debugger::{command, Debugger};
+use crate::fire;
 use crossterm::event::{KeyCode, KeyEvent};
 use std::cell::RefCell;
 use std::io::StdoutLock;
@@ -77,40 +79,30 @@ impl CuiComponent for Breakpoints {
         frame.render_stateful_widget(list, rect, &mut self.breakpoints.borrow_mut().state);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, e: KeyEvent) {
         match e.code {
             KeyCode::Char('a') => {
-                vec![Action::ActivateUserInput(self.name())]
+                fire!(ActionMessage::ActivateUserInput {sender: self.name()} => "app_window")
             }
             KeyCode::Char('r') => {
                 self.breakpoints.borrow_mut().remove_selected();
-                vec![]
             }
             KeyCode::Up => {
                 self.breakpoints.borrow_mut().previous();
-                vec![]
             }
             KeyCode::Down => {
                 self.breakpoints.borrow_mut().next();
-                vec![]
             }
-            _ => {
-                vec![]
-            }
+            _ => {}
         }
     }
 
-    fn apply_app_action(&mut self, actions: &[Action]) {
-        for action in actions {
-            match action {
-                Action::HandleUserInput(component, input) if (*component == self.name()) => {
-                    println!("got acts {:?}", actions);
-
-                    let b = command::Break::new(&self.debugger, vec!["", input]).unwrap();
-                    b.run().unwrap();
-                    self.breakpoints.borrow_mut().add(b.r#type);
-                }
-                _ => {}
+    fn update(&mut self) {
+        for action in Exchanger::current().pop(self.name()) {
+            if let ActionMessage::HandleUserInput { input } = action {
+                let b = command::Break::new(&self.debugger, vec!["", &input]).unwrap();
+                b.run().unwrap();
+                self.breakpoints.borrow_mut().add(b.r#type);
             }
         }
     }

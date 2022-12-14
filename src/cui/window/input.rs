@@ -1,5 +1,7 @@
-use crate::cui::window::{Action, CuiComponent, RenderOpts};
+use crate::cui::window::message::ActionMessage;
+use crate::cui::window::{message, CuiComponent, RenderOpts};
 use crate::cui::{context, AppState};
+use crate::fire;
 use crossterm::event::{KeyCode, KeyEvent};
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
@@ -11,7 +13,7 @@ use tui_textarea::TextArea;
 
 pub(super) struct UserInput {
     textarea: TextArea<'static>,
-    input_requested_component: &'static str,
+    input_recipient_component: &'static str,
 }
 
 impl UserInput {
@@ -23,7 +25,7 @@ impl UserInput {
 
         Self {
             textarea,
-            input_requested_component: "",
+            input_recipient_component: "",
         }
     }
 
@@ -38,38 +40,39 @@ impl CuiComponent for UserInput {
         frame.render_widget(self.textarea.widget(), rect);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, e: KeyEvent) {
         match e.code {
             KeyCode::Esc => {
                 self.clear();
                 //todo state history
                 context::Context::current().change_state(AppState::DebugeeRun);
-                vec![Action::CancelUserInput]
+                fire!(message::ActionMessage::CancelUserInput {} => "app_window");
             }
             KeyCode::Enter => {
-                let text = self.textarea.lines()[0].to_string();
+                let handle_action = message::ActionMessage::HandleUserInput {
+                    input: self.textarea.lines()[0].to_string(),
+                };
                 self.clear();
                 context::Context::current().change_state(AppState::DebugeeRun);
-
-                vec![
-                    Action::HandleUserInput(self.input_requested_component, text),
-                    Action::CancelUserInput,
-                ]
+                fire!(handle_action => self.input_recipient_component);
+                fire!(message::ActionMessage::CancelUserInput {} => "app_window");
             }
             _ => {
                 self.textarea.input(e);
-                vec![]
             }
         }
     }
 
-    fn apply_app_action(&mut self, behaviour: &[Action]) {
-        for b in behaviour {
-            if let Action::ActivateUserInput(component) = b {
-                context::Context::current().change_state(AppState::UserInput);
-                self.input_requested_component = component;
-            }
-        }
+    fn update(&mut self) {
+        message::Exchanger::current()
+            .pop(self.name())
+            .into_iter()
+            .for_each(|act| {
+                if let ActionMessage::ActivateUserInput { sender } = act {
+                    context::Context::current().change_state(AppState::UserInput);
+                    self.input_recipient_component = sender;
+                }
+            });
     }
 
     fn name(&self) -> &'static str {

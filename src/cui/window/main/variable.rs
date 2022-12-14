@@ -1,5 +1,5 @@
 use crate::cui::hook::CuiHook;
-use crate::cui::window::{Action, CuiComponent, RenderOpts};
+use crate::cui::window::{CuiComponent, RenderOpts};
 use crate::debugger::variable::RenderView;
 use crate::debugger::{command, Debugger};
 use crossterm::event::{KeyCode, KeyEvent};
@@ -76,19 +76,15 @@ impl CuiComponent for Variables {
         frame.render_stateful_widget(list, rect, &mut self.variables.borrow_mut().state)
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, e: KeyEvent) {
         match e.code {
             KeyCode::Up => {
                 self.variables.borrow_mut().previous();
-                vec![]
             }
             KeyCode::Down => {
                 self.variables.borrow_mut().next();
-                vec![]
             }
-            _ => {
-                vec![]
-            }
+            _ => {}
         }
     }
 

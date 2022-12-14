@@ -1,4 +1,4 @@
-use crate::cui::window::{Action, CuiComponent, RenderOpts};
+use crate::cui::window::{CuiComponent, RenderOpts};
 use crate::cui::{context, AppState};
 use crossterm::event::KeyEvent;
 use std::io::StdoutLock;
@@ -50,9 +50,7 @@ impl CuiComponent for ContextHelp {
         frame.render_widget(app_state, chunks[1]);
     }
 
-    fn handle_user_event(&mut self, _: KeyEvent) -> Vec<Action> {
-        vec![]
-    }
+    fn handle_user_event(&mut self, _: KeyEvent) {}
 
     fn name(&self) -> &'static str {
         "context-help"

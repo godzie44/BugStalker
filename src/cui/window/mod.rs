@@ -1,5 +1,6 @@
 use crate::cui::hook::CuiHook;
 use crate::cui::window::app::AppWindow;
+use crate::cui::window::message::Exchanger;
 use crate::cui::{context, AppState, DebugeeStreamBuffer, Event};
 use crate::debugger::command::Continue;
 use crate::debugger::Debugger;
@@ -17,6 +18,7 @@ mod app;
 mod help;
 mod input;
 mod main;
+mod message;
 mod tabs;
 
 #[derive(Default, Clone, Copy)]
@@ -26,19 +28,10 @@ pub struct RenderOpts {
 
 trait CuiComponent {
     fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, opts: RenderOpts);
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action>;
+    fn handle_user_event(&mut self, e: KeyEvent);
     #[allow(unused)]
-    fn apply_app_action(&mut self, actions: &[Action]) {}
+    fn update(&mut self) {}
     fn name(&self) -> &'static str;
-}
-
-#[derive(Clone, Debug)]
-enum Action {
-    ActivateComponent(&'static str),
-    FocusOnComponent(&'static str),
-    ActivateUserInput(/* activate requester */ &'static str),
-    HandleUserInput(/* activate requester */ &'static str, String),
-    CancelUserInput,
 }
 
 pub(super) fn run(
@@ -83,6 +76,10 @@ pub(super) fn run(
                 }
             },
             Event::Tick => {}
+        }
+
+        while !Exchanger::current().is_empty() {
+            app_window.update();
         }
     }
 }

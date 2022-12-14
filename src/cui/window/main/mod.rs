@@ -1,4 +1,4 @@
-use crate::cui::window::{Action, CuiComponent, RenderOpts};
+use crate::cui::window::{CuiComponent, RenderOpts};
 use crate::cui::{context, DebugeeStreamBuffer, StreamLine};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::io::StdoutLock;
@@ -47,7 +47,7 @@ impl CuiComponent for DebugeeView {
         frame.render_widget(home, rect);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, e: KeyEvent) {
         match e.code {
             KeyCode::Up => {
                 let ctx = context::Context::current();
@@ -63,7 +63,6 @@ impl CuiComponent for DebugeeView {
             }
             _ => {}
         };
-        vec![]
     }
 
     fn name(&self) -> &'static str {
@@ -97,9 +96,7 @@ impl CuiComponent for Logs {
         frame.render_widget(home, rect);
     }
 
-    fn handle_user_event(&mut self, _: KeyEvent) -> Vec<Action> {
-        vec![]
-    }
+    fn handle_user_event(&mut self, _: KeyEvent) {}
 
     fn name(&self) -> &'static str {
         "logs"
@@ -157,9 +154,7 @@ impl CuiComponent for DebugeeOut {
         frame.render_widget(home, rect);
     }
 
-    fn handle_user_event(&mut self, _: KeyEvent) -> Vec<Action> {
-        vec![]
-    }
+    fn handle_user_event(&mut self, _: KeyEvent) {}
 
     fn name(&self) -> &'static str {
         "output"

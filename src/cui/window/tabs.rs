@@ -1,5 +1,6 @@
-use crate::cui::window::{Action, CuiComponent, RenderOpts};
+use crate::cui::window::{message, CuiComponent, RenderOpts};
 use crate::cui::{context, AppState};
+use crate::fire;
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::HashMap;
 use std::io::StdoutLock;
@@ -10,42 +11,38 @@ use tui::text::{Span, Spans};
 use tui::widgets::{Block, BorderType, Borders};
 use tui::Frame;
 
-#[macro_export]
-macro_rules! tab_switch_action {
-    ($from: expr, $to: expr) => {
-        vec![
-            $crate::cui::window::Action::DeActivateComponent($from),
-            $crate::cui::window::Action::HideComponent($from),
-            $crate::cui::window::Action::ActivateComponent($to),
-            $crate::cui::window::Action::ShowComponent($to),
-        ]
-    };
-}
-
 pub(super) struct TabVariant {
     title: String,
     active_state: Option<AppState>,
-    on_select: Box<[Action]>,
+    on_select: message::ActionMessage,
+    message_recipient: &'static str,
 }
 
 impl TabVariant {
-    pub(super) fn new(title: impl Into<String>, on_select: impl Into<Box<[Action]>>) -> Self {
+    pub(super) fn new(
+        title: impl Into<String>,
+        on_select: message::ActionMessage,
+        message_recipient: &'static str,
+    ) -> Self {
         Self {
             title: title.into().to_uppercase(),
-            on_select: on_select.into(),
+            on_select,
             active_state: None,
+            message_recipient,
         }
     }
 
     pub(super) fn contextual(
         title: impl Into<String>,
-        on_select: impl Into<Box<[Action]>>,
+        on_select: message::ActionMessage,
         state: AppState,
+        message_recipient: &'static str,
     ) -> Self {
         Self {
             title: title.into().to_uppercase(),
-            on_select: on_select.into(),
+            on_select,
             active_state: Some(state),
+            message_recipient,
         }
     }
 }
@@ -124,7 +121,7 @@ impl CuiComponent for Tabs {
         frame.render_widget(tabs, rect);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) -> Vec<Action> {
+    fn handle_user_event(&mut self, e: KeyEvent) {
         if let KeyCode::Char(char_key) = e.code {
             if let Some(tab_idx) = self.hot_keys.get(&char_key) {
                 let tab = &self.tabs[*tab_idx];
@@ -135,11 +132,10 @@ impl CuiComponent for Tabs {
                     .unwrap_or(true)
                 {
                     self.active_tab = *tab_idx;
-                    return tab.on_select.clone().into();
+                    fire!(tab.on_select.clone() => tab.message_recipient);
                 }
             }
         }
-        vec![]
     }
 
     fn name(&self) -> &'static str {
