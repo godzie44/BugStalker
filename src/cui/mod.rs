@@ -1,4 +1,3 @@
-use crate::cui::file_view::FileView;
 use crate::cui::hook::CuiHook;
 use crate::debugger::Debugger;
 use crossterm::cursor::Show;
@@ -17,7 +16,6 @@ use tui::backend::CrosstermBackend;
 use tui::Terminal;
 
 mod context;
-pub mod file_view;
 pub mod hook;
 pub mod window;
 
@@ -27,7 +25,6 @@ pub(super) enum Event<I> {
 }
 
 pub struct AppBuilder {
-    file_view: Rc<FileView>,
     debugee_out: ChildStdout,
     debugee_err: ChildStderr,
 }
@@ -37,12 +34,11 @@ impl AppBuilder {
         Self {
             debugee_out,
             debugee_err,
-            file_view: Rc::new(FileView::new()),
         }
     }
 
     pub fn build(self, program: impl Into<String>, pid: Pid) -> CuiApplication {
-        let hook = CuiHook::new(self.file_view);
+        let hook = CuiHook::new();
         let debugger = Debugger::new(program, pid, hook);
         CuiApplication::new(debugger, self.debugee_out, self.debugee_err)
     }

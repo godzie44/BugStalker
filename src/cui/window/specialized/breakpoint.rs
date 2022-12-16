@@ -73,8 +73,11 @@ impl CuiComponent for Breakpoints {
                     .border_style(border_style),
             )
             .style(Style::default().fg(Color::White))
-            .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
-            .highlight_symbol(">>");
+            .highlight_style(
+                Style::default()
+                    .bg(Color::LightRed)
+                    .add_modifier(Modifier::ITALIC),
+            );
 
         frame.render_stateful_widget(list, rect, &mut self.breakpoints.borrow_mut().state);
     }

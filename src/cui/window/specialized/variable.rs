@@ -70,8 +70,11 @@ impl CuiComponent for Variables {
                     .border_type(BorderType::Rounded),
             )
             .style(Style::default().fg(Color::White))
-            .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
-            .highlight_symbol(">>");
+            .highlight_style(
+                Style::default()
+                    .bg(Color::LightRed)
+                    .add_modifier(Modifier::ITALIC),
+            );
 
         frame.render_stateful_widget(list, rect, &mut self.variables.borrow_mut().state)
     }

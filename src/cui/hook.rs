@@ -1,29 +1,23 @@
-use crate::cui::file_view::FileView;
 use crate::cui::{context, AppState};
 use crate::debugger::{EventHook, Place};
 use nix::libc::c_int;
-use std::rc::Rc;
 use tui::style::{Color, Style};
-use tui::text::{Span, Spans, Text};
+use tui::text::{Span, Spans};
 
-pub struct CuiHook {
-    file_view: Rc<FileView>,
-}
+pub struct CuiHook {}
 
 impl CuiHook {
-    pub fn new(file_view: Rc<FileView>) -> Self {
-        Self { file_view }
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
 impl EventHook for CuiHook {
     fn on_trap(&self, _: usize, place: Option<Place>) -> anyhow::Result<()> {
         if let Some(ref place) = place {
-            let (code, pos) = self.file_view.render_source(place).unwrap();
             let ctx = context::Context::current();
-            ctx.set_render_file_name(place.file.to_string());
-            ctx.set_render_text(Text::from(code));
-            ctx.set_render_text_pos(pos);
+            ctx.set_trap_file_name(place.file.to_string());
+            ctx.set_trap_text_pos(place.line_number);
             ctx.change_state(AppState::DebugeeBreak);
         }
         Ok(())

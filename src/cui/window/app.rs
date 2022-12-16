@@ -42,7 +42,7 @@ impl AppWindow {
     pub fn new(debugger: Rc<Debugger<CuiHook>>, stream_buff: DebugeeStreamBuffer) -> Self {
         let breakpoints: Box<dyn CuiComponent> = Box::new(Breakpoints::new(debugger.clone()));
         let variables: Box<dyn CuiComponent> = Box::new(Variables::new(debugger));
-        let debugee_view: Box<dyn CuiComponent> = Box::new(DebugeeView::default());
+        let debugee_view: Box<dyn CuiComponent> = Box::new(DebugeeView::new());
         let logs: Box<dyn CuiComponent> = Box::new(Logs::default());
         let debugee_out: Box<dyn CuiComponent> = Box::new(DebugeeOut::new(stream_buff));
 
