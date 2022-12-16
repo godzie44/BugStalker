@@ -95,7 +95,7 @@ impl CuiApplication {
             let mut stream = BufReader::new(stream);
             loop {
                 let mut line = String::new();
-                let size = stream.read_line(&mut line).unwrap();
+                let size = stream.read_line(&mut line).unwrap_or(0);
                 if size == 0 {
                     return;
                 }

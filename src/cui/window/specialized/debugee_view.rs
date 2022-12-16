@@ -60,21 +60,24 @@ impl CuiComponent for DebugeeView {
                 let lines = match cache.entry(file.clone()) {
                     Entry::Occupied(o) => o.into_mut(),
                     Entry::Vacant(v) => {
-                        let file = fs::File::open(file.clone()).unwrap();
-                        let lines = io::BufReader::new(file)
-                            .lines()
-                            .enumerate()
-                            .filter_map(|(num, line)| {
-                                let line = line.map(|l| format!("{ln} {l}", ln = num + 1));
-                                line.ok()
+                        let lines = fs::File::open(file.clone())
+                            .map(|file| {
+                                io::BufReader::new(file)
+                                    .lines()
+                                    .enumerate()
+                                    .filter_map(|(num, line)| {
+                                        let line = line.map(|l| format!("{ln} {l}", ln = num + 1));
+                                        line.ok()
+                                    })
+                                    .collect::<Vec<_>>()
                             })
-                            .collect::<Vec<_>>();
+                            .unwrap_or_else(|_| vec!["Failed to open file".to_string()]);
 
                         v.insert(lines)
                     }
                 };
 
-                let line_number = ctx.trap_text_pos().saturating_sub(1);
+                let break_line_number = ctx.trap_text_pos().saturating_sub(1);
 
                 // update current_scroll_pos when viewing new file
                 if self
@@ -84,8 +87,9 @@ impl CuiComponent for DebugeeView {
                     .map(|f| f != &file)
                     .unwrap_or(true)
                 {
-                    self.current_scroll_pos
-                        .set(line_number.saturating_sub((frame.size().height - 6) as u64 / 2));
+                    self.current_scroll_pos.set(
+                        break_line_number.saturating_sub((frame.size().height - 6) as u64 / 2),
+                    );
                     *self.current_file.borrow_mut() = Some(file);
                 };
 
@@ -95,7 +99,7 @@ impl CuiComponent for DebugeeView {
                     .iter_mut()
                     .enumerate()
                     .map(|(i, l)| {
-                        if i == line_number as usize {
+                        if i == break_line_number as usize {
                             Spans::from(Span::styled(
                                 l.as_str(),
                                 Style::default().bg(Color::LightRed),

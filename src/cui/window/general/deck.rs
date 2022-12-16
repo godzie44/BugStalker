@@ -88,10 +88,9 @@ impl CuiComponent for WindowDeck {
     fn handle_user_event(&mut self, e: KeyEvent) {
         self.tabs.handle_user_event(e);
         if let Some(in_focus_component) = self.in_focus_window {
-            self.windows
-                .get_mut(in_focus_component)
-                .unwrap()
-                .handle_user_event(e);
+            if let Some(component) = self.windows.get_mut(in_focus_component) {
+                component.handle_user_event(e);
+            }
         }
     }
 
