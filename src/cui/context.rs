@@ -6,7 +6,7 @@ use tui::text::Text;
 #[derive(Default)]
 pub struct TrapData {
     debugee_file_name: Option<String>,
-    debugee_text_pos: u64,
+    debugee_text_pos: Option<u64>,
 }
 
 thread_local! {
@@ -55,12 +55,12 @@ impl Context {
         (*self.trap).borrow_mut().debugee_file_name = Some(name)
     }
 
-    pub(super) fn trap_text_pos(&self) -> u64 {
-        self.trap.borrow().debugee_text_pos
+    pub(super) fn take_trap_text_pos(&self) -> Option<u64> {
+        (*self.trap).borrow_mut().debugee_text_pos.take()
     }
 
     pub(super) fn set_trap_text_pos(&self, pos: u64) {
-        (*self.trap).borrow_mut().debugee_text_pos = pos
+        (*self.trap).borrow_mut().debugee_text_pos = Some(pos)
     }
 
     pub(super) fn alert(&self) -> Option<Text<'static>> {

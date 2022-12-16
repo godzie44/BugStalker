@@ -16,9 +16,9 @@ use tui::Frame;
 #[derive(Default)]
 pub struct DebugeeView {
     file_cache: RefCell<HashMap<String, Vec<String>>>,
-    current_file: RefCell<Option<String>>,
     current_file_len: Cell<u64>,
     current_scroll_pos: Cell<u64>,
+    current_break_line: Cell<Option<u64>>,
 }
 
 impl DebugeeView {
@@ -27,7 +27,7 @@ impl DebugeeView {
             file_cache: RefCell::default(),
             current_file_len: Cell::default(),
             current_scroll_pos: Cell::default(),
-            current_file: RefCell::default(),
+            current_break_line: Cell::default(),
         }
     }
 }
@@ -77,21 +77,13 @@ impl CuiComponent for DebugeeView {
                     }
                 };
 
-                let break_line_number = ctx.trap_text_pos().saturating_sub(1);
-
-                // update current_scroll_pos when viewing new file
-                if self
-                    .current_file
-                    .borrow()
-                    .as_ref()
-                    .map(|f| f != &file)
-                    .unwrap_or(true)
-                {
+                if let Some(break_line_number) = ctx.take_trap_text_pos() {
+                    let break_line_number = break_line_number.saturating_sub(1);
+                    self.current_break_line.set(Some(break_line_number));
                     self.current_scroll_pos.set(
                         break_line_number.saturating_sub((frame.size().height - 6) as u64 / 2),
                     );
-                    *self.current_file.borrow_mut() = Some(file);
-                };
+                }
 
                 self.current_file_len.set(lines.len() as u64);
 
@@ -99,7 +91,7 @@ impl CuiComponent for DebugeeView {
                     .iter_mut()
                     .enumerate()
                     .map(|(i, l)| {
-                        if i == break_line_number as usize {
+                        if self.current_break_line.get() == Some(i as u64) {
                             Spans::from(Span::styled(
                                 l.as_str(),
                                 Style::default().bg(Color::LightRed),
