@@ -2,10 +2,11 @@ use crate::debugger::Place;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::BufRead;
+use std::path::PathBuf;
 use std::{fs, io};
 
 pub struct FileView {
-    cached_lines: RefCell<HashMap<String, Box<[String]>>>,
+    cached_lines: RefCell<HashMap<PathBuf, Box<[String]>>>,
 }
 
 impl FileView {
@@ -38,7 +39,7 @@ impl FileView {
                     .lines()
                     .filter_map(|line| line.ok())
                     .collect::<Vec<_>>();
-                cache.insert(place.file.to_string(), lines.into_boxed_slice());
+                cache.insert(place.file.to_path_buf(), lines.into_boxed_slice());
                 cache.get(place.file).unwrap()
             }
             Some(lines) => lines,

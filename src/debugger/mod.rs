@@ -2,6 +2,7 @@ mod breakpoint;
 pub mod command;
 mod dwarf;
 mod register;
+pub mod rust;
 mod utils;
 mod uw;
 pub mod variable;

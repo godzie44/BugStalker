@@ -1,6 +1,7 @@
 use crate::debugger::dwarf::eval::{EvalOption, ExpressionEvaluator};
 use crate::debugger::dwarf::r#type::TypeDeclaration;
 use crate::debugger::dwarf::{parse, EndianRcSlice};
+use crate::debugger::rust::Environment;
 use crate::weak_error;
 use anyhow::anyhow;
 use bytes::Bytes;
@@ -13,6 +14,7 @@ use gimli::{
 use nix::unistd::Pid;
 use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroU64;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 #[derive(PartialEq, Debug)]
@@ -32,7 +34,7 @@ pub struct DieRange {
 
 #[derive(Debug)]
 pub struct Unit {
-    files: Vec<String>,
+    files: Vec<PathBuf>,
     lines: Vec<LineRow>,
     pub ranges: Vec<Range>,
     pub(super) entries: Vec<Entry>,
@@ -224,7 +226,6 @@ impl Unit {
             file: self
                 .files
                 .get(line.file_index as usize)
-                .map(|s| s.as_str())
                 .expect("parse error"),
             address: line.address,
             line_number: line.line,
@@ -297,7 +298,7 @@ impl Unit {
 }
 
 pub struct Place<'a> {
-    pub file: &'a str,
+    pub file: &'a Path,
     pub address: u64,
     pub line_number: u64,
     pub pos_in_unit: usize,
@@ -563,7 +564,7 @@ fn parse_files<R, Offset>(
     dwarf: &gimli::Dwarf<R>,
     unit: &gimli::Unit<R>,
     rows: &gimli::LineRows<R, gimli::IncompleteLineProgram<R, Offset>, Offset>,
-) -> gimli::Result<Vec<String>>
+) -> gimli::Result<Vec<PathBuf>>
 where
     R: gimli::Reader<Offset = Offset>,
     Offset: gimli::ReaderOffset,
@@ -572,7 +573,7 @@ where
     let header = rows.header();
     match header.file(0) {
         Some(file) => files.push(render_file_path(unit, file, header, dwarf)?),
-        None => files.push(String::from("")),
+        None => files.push(PathBuf::from("")),
     }
     let mut index = 1;
     while let Some(file) = header.file(index) {
@@ -588,17 +589,16 @@ fn render_file_path<R: Reader>(
     file: &gimli::FileEntry<R, R::Offset>,
     header: &gimli::LineProgramHeader<R, R::Offset>,
     sections: &gimli::Dwarf<R>,
-) -> Result<String, gimli::Error> {
+) -> Result<PathBuf, gimli::Error> {
     let mut path = if let Some(ref comp_dir) = dw_unit.comp_dir {
-        comp_dir.to_string_lossy()?.into_owned()
+        PathBuf::from(comp_dir.to_string_lossy()?.as_ref())
     } else {
-        String::new()
+        PathBuf::new()
     };
 
     if file.directory_index() != 0 {
         if let Some(directory) = file.directory(header) {
-            path_push(
-                &mut path,
+            path.push(
                 sections
                     .attr_string(dw_unit, directory)?
                     .to_string_lossy()?
@@ -607,8 +607,18 @@ fn render_file_path<R: Reader>(
         }
     }
 
-    path_push(
-        &mut path,
+    if path.starts_with("/rustc/") {
+        let rust_env = Environment::current();
+        if let Some(ref std_lib_path) = rust_env.std_lib_path {
+            let mut new_path = std_lib_path.clone();
+            path.iter().skip(3).for_each(|part| {
+                new_path.push(part);
+            });
+            path = new_path;
+        }
+    }
+
+    path.push(
         sections
             .attr_string(dw_unit, file.path_name())?
             .to_string_lossy()?
@@ -616,16 +626,4 @@ fn render_file_path<R: Reader>(
     );
 
     Ok(path)
-}
-
-fn path_push(path: &mut String, p: &str) {
-    if p.starts_with('/') {
-        *path = p.to_string();
-    } else {
-        let dir_separator = '/';
-        if !path.is_empty() && !path.ends_with(dir_separator) {
-            path.push(dir_separator);
-        }
-        *path += p;
-    }
 }

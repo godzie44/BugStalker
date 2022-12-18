@@ -17,7 +17,7 @@ impl EventHook for CuiHook {
     fn on_trap(&self, _: usize, place: Option<Place>) -> anyhow::Result<()> {
         if let Some(ref place) = place {
             let ctx = context::Context::current();
-            ctx.set_trap_file_name(place.file.to_string());
+            ctx.set_trap_file_name(place.file.to_path_buf().to_string_lossy().to_string());
             ctx.set_trap_text_pos(place.line_number);
             ctx.change_state(AppState::DebugeeBreak);
         }
