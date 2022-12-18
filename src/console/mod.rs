@@ -11,36 +11,31 @@ use nix::unistd::Pid;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::borrow::Cow;
-use std::rc::Rc;
 
 pub mod hook;
 mod variable;
 pub mod view;
 
 pub struct AppBuilder {
-    file_view: Rc<FileView>,
+    file_view: FileView,
 }
 
 impl AppBuilder {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
-            file_view: Rc::new(FileView::new()),
+            file_view: FileView::new(),
         }
     }
 
     pub fn build(self, program: impl Into<String>, pid: Pid) -> TerminalApplication {
-        let hook = TerminalHook::new(self.file_view.clone());
+        let hook = TerminalHook::new(self.file_view);
         let debugger = Debugger::new(program, pid, hook);
-        TerminalApplication {
-            file_view: self.file_view,
-            debugger,
-        }
+        TerminalApplication { debugger }
     }
 }
 
 pub struct TerminalApplication {
-    file_view: Rc<FileView>,
     debugger: Debugger<TerminalHook>,
 }
 
@@ -113,22 +108,8 @@ impl TerminalApplication {
                     }
                 })
             }
-            "stepi" => {
-                let cmd = StepI::new(debugger);
-                let mb_place = cmd.run()?;
-                if let Some(place) = mb_place {
-                    println!("{}:{}", place.file, place.line_number);
-                    println!("{}", self.file_view.render_source(&place, 1)?);
-                }
-            }
-            "step" | "stepinto" => {
-                let cmd = StepInto::new(debugger);
-                let mb_place = cmd.run()?;
-                if let Some(place) = mb_place {
-                    println!("{}:{}", place.file, place.line_number);
-                    println!("{}", self.file_view.render_source(&place, 1)?);
-                }
-            }
+            "stepi" => StepI::new(debugger).run()?,
+            "step" | "stepinto" => StepInto::new(debugger).run()?,
             "next" | "stepover" => StepOver::new(debugger).run()?,
             "finish" | "stepout" => StepOut::new(debugger).run()?,
             "vars" => {

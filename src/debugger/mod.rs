@@ -108,15 +108,20 @@ impl<T: EventHook> Debugger<T> {
         })
     }
 
-    fn step_into(&self) -> anyhow::Result<Option<Place>> {
+    fn step_into(&self) -> anyhow::Result<()> {
         self.step_in()?;
-        Ok(self.dwarf.find_place_from_pc(self.offset_pc()?))
+        self.hooks.on_trap(
+            self.offset_pc()?,
+            self.dwarf.find_place_from_pc(self.offset_pc()?),
+        )
     }
 
-    fn stepi(&self) -> anyhow::Result<Option<Place>> {
+    fn stepi(&self) -> anyhow::Result<()> {
         self.single_step_instruction()?;
-        let offset_pc = self.offset_pc()?;
-        Ok(self.dwarf.find_place_from_pc(offset_pc))
+        self.hooks.on_trap(
+            self.offset_pc()?,
+            self.dwarf.find_place_from_pc(self.offset_pc()?),
+        )
     }
 
     fn backtrace(&self) -> anyhow::Result<Backtrace> {

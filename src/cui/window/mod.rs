@@ -2,7 +2,7 @@ use crate::cui::hook::CuiHook;
 use crate::cui::window::app::AppWindow;
 use crate::cui::window::message::Exchanger;
 use crate::cui::{context, AppState, DebugeeStreamBuffer, Event};
-use crate::debugger::command::Continue;
+use crate::debugger::command::{Continue, StepInto, StepOut, StepOver};
 use crate::debugger::Debugger;
 use crossterm::event::{DisableMouseCapture, KeyCode, KeyEvent};
 use crossterm::terminal::{disable_raw_mode, LeaveAlternateScreen};
@@ -33,6 +33,14 @@ pub trait CuiComponent {
     fn name(&self) -> &'static str;
 }
 
+macro_rules! try_else_alert {
+    ($e: expr) => {
+        if let Err(e) = $e {
+            context::Context::current().set_alert(format!("An error occurred: {e}").into());
+        }
+    };
+}
+
 pub(super) fn run(
     mut terminal: Terminal<CrosstermBackend<StdoutLock>>,
     debugger: Rc<Debugger<CuiHook>>,
@@ -48,36 +56,58 @@ pub(super) fn run(
         })?;
 
         let ctx = context::Context::current();
-        match event_chan.recv()? {
-            Event::Input(e) => match e {
-                KeyEvent {
-                    code: KeyCode::Char('c'),
-                    ..
-                } if !ctx.assert_state(AppState::UserInput) => {
-                    ctx.change_state(AppState::DebugeeRun);
-                    if let Err(e) = Continue::new(&debugger).run() {
-                        context::Context::current()
-                            .set_alert(format!("An error occurred: {e}").into());
+        if ctx.assert_state(AppState::UserInput) {
+            match event_chan.recv()? {
+                Event::Input(e) => app_window.handle_user_event(e),
+                Event::Tick => {}
+            }
+        } else {
+            match event_chan.recv()? {
+                Event::Input(e) => match e {
+                    KeyEvent {
+                        code: KeyCode::Char('c'),
+                        ..
+                    } => {
+                        ctx.change_state(AppState::DebugeeRun);
+                        try_else_alert!(Continue::new(&debugger).run());
                     }
-                }
-                KeyEvent {
-                    code: KeyCode::Char('q'),
-                    ..
-                } if !ctx.assert_state(AppState::UserInput) => {
-                    disable_raw_mode()?;
-                    crossterm::execute!(
-                        terminal.backend_mut(),
-                        LeaveAlternateScreen,
-                        DisableMouseCapture,
-                    )?;
-                    terminal.show_cursor()?;
-                    return Ok(());
-                }
-                _ => {
-                    app_window.handle_user_event(e);
-                }
-            },
-            Event::Tick => {}
+                    KeyEvent {
+                        code: KeyCode::Char('q'),
+                        ..
+                    } => {
+                        disable_raw_mode()?;
+                        crossterm::execute!(
+                            terminal.backend_mut(),
+                            LeaveAlternateScreen,
+                            DisableMouseCapture,
+                        )?;
+                        terminal.show_cursor()?;
+                        return Ok(());
+                    }
+                    KeyEvent {
+                        code: KeyCode::F(8),
+                        ..
+                    } => {
+                        try_else_alert!(StepOver::new(&debugger).run());
+                    }
+                    KeyEvent {
+                        code: KeyCode::F(7),
+                        ..
+                    } => {
+                        try_else_alert!(StepInto::new(&debugger).run());
+                    }
+                    KeyEvent {
+                        code: KeyCode::F(6),
+                        ..
+                    } => {
+                        try_else_alert!(StepOut::new(&debugger).run());
+                    }
+                    _ => {
+                        app_window.handle_user_event(e);
+                    }
+                },
+                Event::Tick => {}
+            }
         }
 
         while !Exchanger::current().is_empty() {

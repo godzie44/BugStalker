@@ -4,6 +4,7 @@ use nix::libc::c_int;
 use tui::style::{Color, Style};
 use tui::text::{Span, Spans};
 
+#[derive(Default)]
 pub struct CuiHook {}
 
 impl CuiHook {

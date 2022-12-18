@@ -2,14 +2,13 @@ use crate::console::view::FileView;
 use crate::debugger::EventHook;
 use crate::debugger::Place;
 use nix::libc::c_int;
-use std::rc::Rc;
 
 pub(super) struct TerminalHook {
-    file_view: Rc<FileView>,
+    file_view: FileView,
 }
 
 impl TerminalHook {
-    pub(super) fn new(file_view: Rc<FileView>) -> Self {
+    pub(super) fn new(file_view: FileView) -> Self {
         Self { file_view }
     }
 }

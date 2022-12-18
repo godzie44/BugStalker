@@ -1,4 +1,3 @@
-use crate::debugger::dwarf::parse::Place;
 use crate::debugger::{command, Debugger, EventHook};
 
 /// Step on next instruction
@@ -11,7 +10,7 @@ impl<'a, T: EventHook> StepI<'a, T> {
         Self { dbg: debugger }
     }
 
-    pub fn run(&self) -> command::Result<Option<Place>> {
+    pub fn run(&self) -> command::Result<()> {
         Ok(self.dbg.stepi()?)
     }
 }
