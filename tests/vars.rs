@@ -8,8 +8,8 @@ fn test_read_scalar_variables() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break vars.rs:31").unwrap();
-    session.exp_string("break vars.rs:31").unwrap();
+    session.send_line("break vars.rs:32").unwrap();
+    session.exp_string("break vars.rs:32").unwrap();
 
     session.send_line("continue").unwrap();
     session
@@ -44,8 +44,8 @@ fn test_read_scalar_variables_at_place() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break vars.rs:12").unwrap();
-    session.exp_string("break vars.rs:12").unwrap();
+    session.send_line("break vars.rs:13").unwrap();
+    session.exp_string("break vars.rs:13").unwrap();
 
     session.send_line("continue").unwrap();
     session.exp_string(">    let int128 = 3_i128;").unwrap();
@@ -63,8 +63,8 @@ fn test_read_struct() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break vars.rs:54").unwrap();
-    session.exp_string("break vars.rs:54").unwrap();
+    session.send_line("break vars.rs:55").unwrap();
+    session.exp_string("break vars.rs:55").unwrap();
 
     session.send_line("continue").unwrap();
     session
@@ -100,9 +100,53 @@ fn test_read_struct() {
     session.exp_string("}").unwrap();
 }
 
+#[test]
+fn test_read_array() {
+    let mut session = setup_vars_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break vars.rs:64").unwrap();
+    session.exp_string("break vars.rs:64").unwrap();
+
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars").unwrap();
+    session.exp_string("arr_1 = [i32] {").unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(-1)").unwrap();
+    session.exp_string("2: i32(2)").unwrap();
+    session.exp_string("3: i32(-2)").unwrap();
+    session.exp_string("4: i32(3)").unwrap();
+    session.exp_string("}").unwrap();
+
+    session.exp_string("arr_2 = [[i32]] {").unwrap();
+    session.exp_string("0: [i32] {").unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(-1)").unwrap();
+    session.exp_string("2: i32(2)").unwrap();
+    session.exp_string("4: i32(3)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("1: [i32] {").unwrap();
+    session.exp_string("0: i32(0)").unwrap();
+    session.exp_string("2: i32(2)").unwrap();
+    session.exp_string("3: i32(3)").unwrap();
+    session.exp_string("4: i32(4)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("2: [i32] {").unwrap();
+    session.exp_string("0: i32(0)").unwrap();
+    session.exp_string("1: i32(-1)").unwrap();
+    session.exp_string("2: i32(-2)").unwrap();
+    session.exp_string("3: i32(-3)").unwrap();
+    session.exp_string("4: i32(-4)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+}
+
 fn setup_vars_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
-    // cmd.arg("../hello-world/target/debug/hello-world");
     cmd.arg("./target/debug/vars");
     let program = cmd.get_program().to_string_lossy().to_string()
         + cmd

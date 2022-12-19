@@ -363,11 +363,13 @@ impl<T: EventHook> Debugger<T> {
             .iter()
             .map(|var| {
                 let mb_type = var.r#type();
-                let value = var.read_value_at_location(current_func, self.pid);
+                let mb_value = mb_type.as_ref().and_then(|type_decl| {
+                    var.read_value_at_location(type_decl, current_func, self.pid)
+                });
                 Ok(Variable {
                     r#type: mb_type,
+                    value: mb_value,
                     name: var.die.base_attributes.name.clone().map(Cow::Owned),
-                    value,
                 })
             })
             .collect::<anyhow::Result<Vec<_>>>()

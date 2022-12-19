@@ -21,6 +21,13 @@ pub struct RenderItem {
 }
 
 impl<'a> Variable<'a> {
+    fn name_cloned(&self) -> String {
+        self.name
+            .clone()
+            .map(Into::into)
+            .unwrap_or_else(|| "unknown".to_string())
+    }
+
     pub fn render(&self, pid: Pid) -> RenderView {
         fn render_scalar<T: Copy + Display>(var: &Variable) -> (String, String) {
             let type_view = var
@@ -64,11 +71,7 @@ impl<'a> Variable<'a> {
                         _ => ("unknown".to_string(), "unknown".to_string()),
                     };
                     RenderItem {
-                        name: var
-                            .name
-                            .clone()
-                            .map(Into::into)
-                            .unwrap_or_else(|| "unknown".to_string()),
+                        name: var.name_cloned(),
                         r#type: type_view,
                         value: Some(value_view),
                         children: vec![],
@@ -76,11 +79,7 @@ impl<'a> Variable<'a> {
                 }
                 Some(TypeDeclaration::Structure { name, members, .. }) => {
                     let mut item = RenderItem {
-                        name: var
-                            .name
-                            .clone()
-                            .map(Into::into)
-                            .unwrap_or_else(|| "unknown".to_string()),
+                        name: var.name_cloned(),
                         r#type: name.as_deref().unwrap_or("unknown").to_string(),
                         value: None,
                         children: Vec::with_capacity(members.len()),
@@ -102,6 +101,32 @@ impl<'a> Variable<'a> {
                     }
 
                     item
+                }
+                Some(TypeDeclaration::Array(arr)) => {
+                    let bounds = arr.bounds(pid).unwrap();
+                    let el_count = bounds.1 - bounds.0;
+                    let el_size = arr.size_in_bytes(pid).unwrap() / el_count as u64;
+                    let bytes = var.value.as_ref().unwrap();
+                    let children = bytes
+                        .chunks(el_size as usize)
+                        .enumerate()
+                        .map(|(i, chunk)| Variable {
+                            name: Some(Cow::Owned(format!("{}", bounds.0 + i as i64))),
+                            r#type: arr.element_type.as_ref().map(|et| *et.clone()),
+                            value: Some(bytes.slice_ref(chunk)),
+                        })
+                        .map(|var| var.render(pid))
+                        .collect::<Vec<_>>();
+                    RenderItem {
+                        name: var.name_cloned(),
+                        r#type: var
+                            .r#type
+                            .as_ref()
+                            .and_then(|ty| ty.name())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                        value: None,
+                        children,
+                    }
                 }
                 _ => {
                     unreachable!()

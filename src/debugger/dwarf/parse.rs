@@ -7,9 +7,9 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use gimli::{
-    Attribute, AttributeValue, DW_AT_byte_size, DW_AT_data_member_location, DW_AT_encoding,
-    DW_AT_frame_base, DW_AT_location, DW_AT_name, DW_AT_type, DwAte, DwTag, Range, Reader,
-    Unit as DwarfUnit, UnitOffset,
+    Attribute, AttributeValue, DW_AT_byte_size, DW_AT_count, DW_AT_data_member_location,
+    DW_AT_encoding, DW_AT_frame_base, DW_AT_location, DW_AT_lower_bound, DW_AT_name, DW_AT_type,
+    DW_AT_upper_bound, DwAte, DwTag, Range, Reader, Unit as DwarfUnit, UnitOffset,
 };
 use nix::unistd::Pid;
 use std::collections::{HashMap, VecDeque};
@@ -187,6 +187,17 @@ impl Unit {
                         .collect::<Vec<Range>>()?
                         .into(),
                 }),
+                gimli::DW_TAG_array_type => DieVariant::ArrayType(ArrayDie {
+                    base_attributes: base_attrs,
+                    type_addr: die.attr(DW_AT_type)?,
+                    byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
+                }),
+                gimli::DW_TAG_subrange_type => DieVariant::ArraySubrange(ArraySubrangeDie {
+                    base_attributes: base_attrs,
+                    lower_bound: die.attr(DW_AT_lower_bound)?,
+                    upper_bound: die.attr(DW_AT_upper_bound)?,
+                    count: die.attr(DW_AT_count)?,
+                }),
                 _ => DieVariant::Default(base_attrs),
             };
 
@@ -359,6 +370,21 @@ pub struct BaseTypeDie {
 }
 
 #[derive(Debug)]
+pub struct ArrayDie {
+    pub base_attributes: DieAttributes,
+    pub(super) type_addr: Option<Attribute<EndianRcSlice>>,
+    pub(super) byte_size: Option<u64>,
+}
+
+#[derive(Debug)]
+pub struct ArraySubrangeDie {
+    pub base_attributes: DieAttributes,
+    pub(super) lower_bound: Option<Attribute<EndianRcSlice>>,
+    pub(super) upper_bound: Option<Attribute<EndianRcSlice>>,
+    pub(super) count: Option<Attribute<EndianRcSlice>>,
+}
+
+#[derive(Debug)]
 pub struct StructTypeDie {
     pub base_attributes: DieAttributes,
     #[allow(unused)]
@@ -382,6 +408,8 @@ pub enum DieVariant {
     BaseType(BaseTypeDie),
     StructType(StructTypeDie),
     TypeMember(TypeMemberDie),
+    ArrayType(ArrayDie),
+    ArraySubrange(ArraySubrangeDie),
     Default(DieAttributes),
 }
 
@@ -474,13 +502,12 @@ impl<'a> ContextualDieRef<'a, FunctionDie> {
 impl<'a> ContextualDieRef<'a, VariableDie> {
     pub fn read_value_at_location(
         &self,
+        type_decl: &TypeDeclaration,
         parent_fn: ContextualDieRef<FunctionDie>,
         pid: Pid,
     ) -> Option<Bytes> {
         self.die.location.as_ref().and_then(|loc| {
             let expr = loc.exprloc_value()?;
-
-            let type_decl = self.r#type()?;
             let fb = weak_error!(parent_fn.frame_base_addr(pid))?;
             let eval_result = weak_error!(self.context.expr_evaluator.evaluate_with_opts(
                 expr,
@@ -488,7 +515,7 @@ impl<'a> ContextualDieRef<'a, VariableDie> {
                 EvalOption::new().with_base_frame(fb),
             ))?;
             let bytes =
-                weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes()? as usize))?;
+                weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(pid)? as usize))?;
             Some(bytes)
         })
     }
@@ -504,6 +531,13 @@ impl<'a> ContextualDieRef<'a, VariableDie> {
                         die: type_die,
                     }),
                     DieVariant::StructType(ref type_die) => {
+                        TypeDeclaration::from(ContextualDieRef {
+                            context: self.context,
+                            node: &entry.node,
+                            die: type_die,
+                        })
+                    }
+                    DieVariant::ArrayType(ref type_die) => {
                         TypeDeclaration::from(ContextualDieRef {
                             context: self.context,
                             node: &entry.node,

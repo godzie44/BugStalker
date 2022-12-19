@@ -1,6 +1,7 @@
 pub fn main() {
     scalar_types();
     compound_types();
+    array();
 }
 
 #[allow(unused)]
@@ -50,6 +51,15 @@ fn compound_types() {
         foo,
         additional: true,
     };
+
+    let nop: Option<u8> = None;
+}
+
+#[allow(unused)]
+fn array() {
+    let arr_1 = [1, -1, 2, -2, 3];
+
+    let arr_2 = [[1, -1, 2, -2, 3], [0, 1, 2, 3, 4], [0, -1, -2, -3, -4]];
 
     let nop: Option<u8> = None;
 }
