@@ -1,14 +1,27 @@
 use crate::debugger::variable::RenderView;
 
-pub fn render_variable(view: &RenderView) -> String {
+pub fn render_variable(view: &RenderView, depth: usize) -> String {
+    const TAB: &str = "\t";
+
     if view.children.is_empty() {
-        format!("{}({})", view.r#type, view.value.as_ref().unwrap())
+        format!(
+            "{}({})",
+            view.r#type,
+            view.value.as_deref().unwrap_or("unknown")
+        )
     } else {
         let mut str_view = format!("{} {{", view.r#type);
+        let tabs = TAB.repeat(depth + 1);
+
         for v in &view.children {
             str_view = format!("{str_view}\n");
-            str_view = format!("{str_view}{}: {}", v.name, render_variable(v));
+            str_view = format!(
+                "{str_view}{tabs}{}: {}",
+                v.name,
+                render_variable(v, depth + 1)
+            );
         }
-        format!("{str_view}\n}}")
+
+        format!("{str_view}\n{}}}", TAB.repeat(depth))
     }
 }
