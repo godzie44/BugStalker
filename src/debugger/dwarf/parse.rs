@@ -258,20 +258,13 @@ impl Unit {
 
     pub fn find_stmt_line(&self, file: &str, line: u64) -> Option<Place<'_>> {
         let found = self
-            .name
-            .as_ref()
-            .map(|name| {
-                // TODO find file substring look weird
-                name.contains(file)
-            })
-            .unwrap_or_default();
-
-        if !found {
-            return None;
-        }
+            .files
+            .iter()
+            .enumerate()
+            .find(|(_, file_path)| file_path.ends_with(file))?;
 
         for (pos, line_row) in self.lines.iter().enumerate() {
-            if line_row.line == line {
+            if line_row.line == line && line_row.file_index == found.0 as u64 {
                 return self.find_place(pos);
             }
         }
