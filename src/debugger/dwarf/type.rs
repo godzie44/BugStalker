@@ -193,7 +193,7 @@ pub enum TypeDeclaration {
         name: Option<String>,
         byte_size: Option<u64>,
         discr_type: Option<Box<StructureMember>>,
-        /// None key - default enumerator
+        /// key `None` is default enumerator
         enumerators: HashMap<Option<i64>, StructureMember>,
     },
 }

@@ -43,7 +43,7 @@ impl<'a> Variable<'a> {
     }
 
     pub fn render(&self, pid: Pid) -> RenderView {
-        fn render_scalar<T: Copy + Display>(var: &Variable) -> (String, String) {
+        fn render_scalar<T: Copy + Display>(var: &Variable) -> (String, Option<String>) {
             let type_view = var
                 .r#type
                 .as_ref()
@@ -59,7 +59,7 @@ impl<'a> Variable<'a> {
                 })
                 .unwrap_or_else(|| "unknown".to_string());
 
-            (type_view, value_view)
+            (type_view, Some(value_view))
         }
 
         fn make_render_item(var: &Variable, pid: Pid) -> RenderItem {
@@ -82,12 +82,13 @@ impl<'a> Variable<'a> {
                         Some("f64") => render_scalar::<f64>(var),
                         Some("bool") => render_scalar::<bool>(var),
                         Some("char") => render_scalar::<char>(var),
-                        _ => ("unknown".to_string(), "unknown".to_string()),
+                        Some("()") => ("()".to_string(), None),
+                        _ => ("unknown".to_string(), None),
                     };
                     RenderItem {
                         name: var.name_cloned(),
                         r#type: type_view,
-                        value: Some(value_view),
+                        value: value_view,
                         children: vec![],
                     }
                 }

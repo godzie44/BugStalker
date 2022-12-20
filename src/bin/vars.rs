@@ -28,6 +28,7 @@ fn scalar_types() {
 
 #[allow(unused)]
 fn compound_types() {
+    let tuple_0 = ();
     let tuple_1 = (0f64, 1.1f64);
     let tuple_2 = (1u64, -1i64, 'a', false);
 

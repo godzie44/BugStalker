@@ -63,8 +63,8 @@ fn test_read_struct() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break vars.rs:49").unwrap();
-    session.exp_string("break vars.rs:49").unwrap();
+    session.send_line("break vars.rs:50").unwrap();
+    session.exp_string("break vars.rs:50").unwrap();
 
     session.send_line("continue").unwrap();
     session
@@ -72,6 +72,7 @@ fn test_read_struct() {
         .unwrap();
 
     session.send_line("vars").unwrap();
+    session.exp_string("tuple_0 = ()").unwrap();
     session.exp_string("tuple_1 = (f64, f64) {").unwrap();
     session.exp_string("__0: f64(0)").unwrap();
     session.exp_string("__1: f64(1.1)").unwrap();
@@ -105,8 +106,8 @@ fn test_read_array() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break vars.rs:58").unwrap();
-    session.exp_string("break vars.rs:58").unwrap();
+    session.send_line("break vars.rs:59").unwrap();
+    session.exp_string("break vars.rs:59").unwrap();
 
     session.send_line("continue").unwrap();
     session
@@ -150,8 +151,8 @@ fn test_read_enum() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break vars.rs:91").unwrap();
-    session.exp_string("break vars.rs:91").unwrap();
+    session.send_line("break vars.rs:92").unwrap();
+    session.exp_string("break vars.rs:92").unwrap();
 
     session.send_line("continue").unwrap();
     session
@@ -175,7 +176,7 @@ fn test_read_enum() {
     session.exp_string("}").unwrap();
 
     session.exp_string("enum_4 = EnumC {").unwrap();
-    session.exp_string("E: E()").unwrap();
+    session.exp_string("E: E").unwrap();
     session.exp_string("}").unwrap();
 
     session.exp_string("enum_5 = EnumF {").unwrap();
