@@ -4,11 +4,7 @@ pub fn render_variable(view: &RenderView, depth: usize) -> String {
     const TAB: &str = "\t";
 
     if view.children.is_empty() {
-        format!(
-            "{}({})",
-            view.r#type,
-            view.value.as_deref().unwrap_or("unknown")
-        )
+        format!("{}({})", view.r#type, view.value.as_deref().unwrap_or(""))
     } else {
         let mut str_view = format!("{} {{", view.r#type);
         let tabs = TAB.repeat(depth + 1);

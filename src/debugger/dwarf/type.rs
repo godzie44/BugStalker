@@ -1,6 +1,6 @@
 use crate::debugger::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::dwarf::parse::{
-    ArrayDie, BaseTypeDie, ContextualDieRef, DieVariant, StructTypeDie,
+    ArrayDie, BaseTypeDie, ContextualDieRef, DieVariant, EnumTypeDie, StructTypeDie, TypeMemberDie,
 };
 use crate::debugger::dwarf::{eval, EndianRcSlice};
 use crate::weak_error;
@@ -43,6 +43,34 @@ pub struct StructureMember {
     pub in_struct_location: Option<MemberLocation>,
     pub name: Option<String>,
     pub r#type: Option<TypeDeclaration>,
+}
+
+impl From<ContextualDieRef<'_, TypeMemberDie>> for StructureMember {
+    fn from(ctx_die: ContextualDieRef<'_, TypeMemberDie>) -> Self {
+        let loc = ctx_die.die.location.as_ref().map(|attr| attr.value());
+        let in_struct_location = if let Some(offset) = loc.as_ref().and_then(|l| l.sdata_value()) {
+            Some(MemberLocation::Offset(offset))
+        } else if let Some(AttributeValue::Exprloc(ref expr)) = loc {
+            Some(MemberLocation::Expr(MemberLocationExpression {
+                evaluator: Rc::clone(&ctx_die.context.expr_evaluator),
+                expr: expr.clone(),
+            }))
+        } else {
+            None
+        };
+
+        let type_decl = ctx_die
+            .die
+            .type_addr
+            .as_ref()
+            .and_then(|addr| TypeDeclaration::from_type_addr_attr(ctx_die, addr));
+
+        StructureMember {
+            in_struct_location,
+            name: ctx_die.die.base_attributes.name.clone(),
+            r#type: type_decl,
+        }
+    }
 }
 
 impl StructureMember {
@@ -155,6 +183,19 @@ pub enum TypeDeclaration {
         byte_size: Option<u64>,
         members: Vec<StructureMember>,
     },
+    CStyleEnum {
+        name: Option<String>,
+        byte_size: Option<u64>,
+        discr_type: Option<Box<TypeDeclaration>>,
+        enumerators: HashMap<i64, String>,
+    },
+    RustEnum {
+        name: Option<String>,
+        byte_size: Option<u64>,
+        discr_type: Option<Box<StructureMember>>,
+        /// None key - default enumerator
+        enumerators: HashMap<Option<i64>, StructureMember>,
+    },
 }
 
 impl TypeDeclaration {
@@ -163,6 +204,8 @@ impl TypeDeclaration {
             TypeDeclaration::Scalar { byte_size, .. } => *byte_size,
             TypeDeclaration::Structure { byte_size, .. } => *byte_size,
             TypeDeclaration::Array(arr) => arr.size_in_bytes(pid),
+            TypeDeclaration::CStyleEnum { byte_size, .. } => *byte_size,
+            TypeDeclaration::RustEnum { byte_size, .. } => *byte_size,
         }
     }
 
@@ -178,6 +221,8 @@ impl TypeDeclaration {
                     .as_deref()
                     .unwrap_or("unknown")
             )),
+            TypeDeclaration::CStyleEnum { name, .. } => name.clone(),
+            TypeDeclaration::RustEnum { name, .. } => name.clone(),
         }
     }
 
@@ -185,7 +230,7 @@ impl TypeDeclaration {
         ctx_die: ContextualDieRef<'_, T>,
         attr: &Attribute<EndianRcSlice>,
     ) -> Option<Self> {
-        if let gimli::AttributeValue::UnitRef(unit_offset) = attr.value() {
+        if let AttributeValue::UnitRef(unit_offset) = attr.value() {
             let mb_type_die = ctx_die.context.find_die(unit_offset);
             mb_type_die.and_then(|entry| match &entry.die {
                 DieVariant::BaseType(die) => Some(TypeDeclaration::from(ContextualDieRef {
@@ -203,10 +248,113 @@ impl TypeDeclaration {
                     node: &entry.node,
                     die,
                 })),
+                DieVariant::EnumType(die) => Some(TypeDeclaration::from(ContextualDieRef {
+                    context: ctx_die.context,
+                    node: &entry.node,
+                    die,
+                })),
                 _ => None,
             })
         } else {
             None
+        }
+    }
+
+    fn from_struct_type(ctx_die: ContextualDieRef<'_, StructTypeDie>) -> Self {
+        let name = ctx_die.die.base_attributes.name.clone();
+        let members = ctx_die
+            .node
+            .children
+            .iter()
+            .filter_map(|child_idx| {
+                let entry = &ctx_die.context.entries[*child_idx];
+                if let DieVariant::TypeMember(member) = &entry.die {
+                    return Some(StructureMember::from(ContextualDieRef {
+                        context: ctx_die.context,
+                        node: &entry.node,
+                        die: member,
+                    }));
+                }
+                None
+            })
+            .collect::<Vec<_>>();
+
+        TypeDeclaration::Structure {
+            name,
+            byte_size: ctx_die.die.byte_size,
+            members,
+        }
+    }
+
+    fn from_struct_enum_type(ctx_die: ContextualDieRef<'_, StructTypeDie>) -> Self {
+        let name = ctx_die.die.base_attributes.name.clone();
+
+        let (variant_part, node) = ctx_die
+            .node
+            .children
+            .iter()
+            .find_map(|c_idx| {
+                if let DieVariant::VariantPart(ref v) = ctx_die.context.entries[*c_idx].die {
+                    Some((v, &ctx_die.context.entries[*c_idx].node))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+
+        let member_from_addr = |attr: &Attribute<EndianRcSlice>| -> Option<StructureMember> {
+            if let AttributeValue::UnitRef(unit_offset) = attr.value() {
+                let entry = ctx_die.context.find_die(unit_offset)?;
+                if let DieVariant::TypeMember(ref member) = &entry.die {
+                    return Some(StructureMember::from(ContextualDieRef {
+                        context: ctx_die.context,
+                        node: &entry.node,
+                        die: member,
+                    }));
+                }
+            }
+            None
+        };
+
+        let discr_type = variant_part
+            .discr_addr
+            .as_ref()
+            .and_then(member_from_addr)
+            .or_else(|| variant_part.type_addr.as_ref().and_then(member_from_addr));
+
+        let variants = node
+            .children
+            .iter()
+            .filter_map(|idx| {
+                if let DieVariant::Variant(ref v) = ctx_die.context.entries[*idx].die {
+                    return Some((v, &ctx_die.context.entries[*idx].node));
+                }
+                None
+            })
+            .collect::<Vec<_>>();
+
+        let enumerators = variants
+            .iter()
+            .filter_map(|&(variant, node)| {
+                let member = node.children.iter().find_map(|&c_idx| {
+                    if let DieVariant::TypeMember(ref member) = ctx_die.context.entries[c_idx].die {
+                        return Some(StructureMember::from(ContextualDieRef {
+                            context: ctx_die.context,
+                            node: &ctx_die.context.entries[c_idx].node,
+                            die: member,
+                        }));
+                    }
+                    None
+                })?;
+                Some((variant.discr_value, member))
+            })
+            .collect::<HashMap<_, _>>();
+
+        TypeDeclaration::RustEnum {
+            name,
+            byte_size: ctx_die.die.byte_size,
+            discr_type: discr_type.map(Box::new),
+            enumerators,
         }
     }
 }
@@ -223,49 +371,20 @@ impl From<ContextualDieRef<'_, BaseTypeDie>> for TypeDeclaration {
 }
 
 impl From<ContextualDieRef<'_, StructTypeDie>> for TypeDeclaration {
+    /// Convert DW_TAG_structure_type into TypeDeclaration.
+    /// For rust DW_TAG_structure_type DIE can be interpreter as enum, see https://github.com/rust-lang/rust/issues/32920
     fn from(ctx_die: ContextualDieRef<'_, StructTypeDie>) -> Self {
-        let name = ctx_die.die.base_attributes.name.clone();
-        let members = ctx_die
-            .node
-            .children
-            .iter()
-            .filter_map(|child_idx| {
-                let entry = &ctx_die.context.entries[*child_idx];
+        let is_enum = ctx_die.node.children.iter().any(|c_idx| {
+            matches!(
+                ctx_die.context.entries[*c_idx].die,
+                DieVariant::VariantPart(_)
+            )
+        });
 
-                if let DieVariant::TypeMember(member) = &entry.die {
-                    let loc = member.location.as_ref().map(|attr| attr.value());
-                    let in_struct_location =
-                        if let Some(offset) = loc.as_ref().and_then(|l| l.sdata_value()) {
-                            Some(MemberLocation::Offset(offset))
-                        } else if let Some(AttributeValue::Exprloc(ref expr)) = loc {
-                            Some(MemberLocation::Expr(MemberLocationExpression {
-                                evaluator: Rc::clone(&ctx_die.context.expr_evaluator),
-                                expr: expr.clone(),
-                            }))
-                        } else {
-                            None
-                        };
-
-                    let type_decl = member
-                        .type_addr
-                        .as_ref()
-                        .and_then(|addr| TypeDeclaration::from_type_addr_attr(ctx_die, addr));
-
-                    Some(StructureMember {
-                        in_struct_location,
-                        name: member.base_attributes.name.clone(),
-                        r#type: type_decl,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-
-        TypeDeclaration::Structure {
-            name,
-            byte_size: ctx_die.die.byte_size,
-            members,
+        if is_enum {
+            TypeDeclaration::from_struct_enum_type(ctx_die)
+        } else {
+            TypeDeclaration::from_struct_type(ctx_die)
         }
     }
 }
@@ -346,5 +465,41 @@ impl From<ContextualDieRef<'_, ArrayDie>> for TypeDeclaration {
             byte_size_memo: Cell::new(None),
             bounds_memo: Cell::new(None),
         })
+    }
+}
+
+impl From<ContextualDieRef<'_, EnumTypeDie>> for TypeDeclaration {
+    fn from(ctx_die: ContextualDieRef<'_, EnumTypeDie>) -> Self {
+        let name = ctx_die.die.base_attributes.name.clone();
+
+        let discr_type = ctx_die
+            .die
+            .type_addr
+            .as_ref()
+            .and_then(|addr| TypeDeclaration::from_type_addr_attr(ctx_die, addr));
+
+        let enumerators = ctx_die
+            .node
+            .children
+            .iter()
+            .filter_map(|&child_idx| {
+                let entry = &ctx_die.context.entries[child_idx];
+                if let DieVariant::Enumerator(ref enumerator) = entry.die {
+                    Some((
+                        enumerator.const_value?,
+                        enumerator.base_attributes.name.as_ref()?.to_string(),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect::<HashMap<_, _>>();
+
+        TypeDeclaration::CStyleEnum {
+            name,
+            byte_size: ctx_die.die.byte_size,
+            discr_type: discr_type.map(Box::new),
+            enumerators,
+        }
     }
 }

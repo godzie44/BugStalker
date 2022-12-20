@@ -7,9 +7,10 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use gimli::{
-    Attribute, AttributeValue, DW_AT_byte_size, DW_AT_count, DW_AT_data_member_location,
-    DW_AT_encoding, DW_AT_frame_base, DW_AT_location, DW_AT_lower_bound, DW_AT_name, DW_AT_type,
-    DW_AT_upper_bound, DwAte, DwTag, Range, Reader, Unit as DwarfUnit, UnitOffset,
+    Attribute, AttributeValue, DW_AT_byte_size, DW_AT_const_value, DW_AT_count,
+    DW_AT_data_member_location, DW_AT_discr, DW_AT_discr_value, DW_AT_encoding, DW_AT_frame_base,
+    DW_AT_location, DW_AT_lower_bound, DW_AT_name, DW_AT_type, DW_AT_upper_bound, DwAte, DwTag,
+    Range, Reader, Unit as DwarfUnit, UnitOffset,
 };
 use nix::unistd::Pid;
 use std::collections::{HashMap, VecDeque};
@@ -40,6 +41,7 @@ pub struct Unit {
     pub(super) entries: Vec<Entry>,
     die_ranges: Vec<DieRange>,
     die_offsets: HashMap<UnitOffset, usize>,
+    #[allow(unused)]
     name: Option<String>,
     pub(super) expr_evaluator: Rc<ExpressionEvaluator>,
 }
@@ -62,6 +64,7 @@ impl Unit {
             die_ranges: vec![],
             die_offsets: HashMap::new(),
             expr_evaluator: Rc::new(ExpressionEvaluator::new(unit.encoding())),
+            #[allow(unused)]
             name,
         };
 
@@ -197,6 +200,28 @@ impl Unit {
                     lower_bound: die.attr(DW_AT_lower_bound)?,
                     upper_bound: die.attr(DW_AT_upper_bound)?,
                     count: die.attr(DW_AT_count)?,
+                }),
+                gimli::DW_TAG_enumeration_type => DieVariant::EnumType(EnumTypeDie {
+                    base_attributes: base_attrs,
+                    type_addr: die.attr(DW_AT_type)?,
+                    byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
+                }),
+                gimli::DW_TAG_enumerator => DieVariant::Enumerator(EnumeratorDie {
+                    base_attributes: base_attrs,
+                    const_value: die
+                        .attr(DW_AT_const_value)?
+                        .and_then(|val| val.sdata_value()),
+                }),
+                gimli::DW_TAG_variant_part => DieVariant::VariantPart(VariantPart {
+                    base_attributes: base_attrs,
+                    discr_addr: die.attr(DW_AT_discr)?,
+                    type_addr: die.attr(DW_AT_type)?,
+                }),
+                gimli::DW_TAG_variant => DieVariant::Variant(Variant {
+                    base_attributes: base_attrs,
+                    discr_value: die
+                        .attr(DW_AT_discr_value)?
+                        .and_then(|val| val.sdata_value()),
                 }),
                 _ => DieVariant::Default(base_attrs),
             };
@@ -394,6 +419,32 @@ pub struct TypeMemberDie {
 }
 
 #[derive(Debug)]
+pub struct EnumTypeDie {
+    pub base_attributes: DieAttributes,
+    pub(super) type_addr: Option<Attribute<EndianRcSlice>>,
+    pub(super) byte_size: Option<u64>,
+}
+
+#[derive(Debug)]
+pub struct EnumeratorDie {
+    pub base_attributes: DieAttributes,
+    pub const_value: Option<i64>,
+}
+
+#[derive(Debug)]
+pub struct VariantPart {
+    pub base_attributes: DieAttributes,
+    pub(super) discr_addr: Option<Attribute<EndianRcSlice>>,
+    pub(super) type_addr: Option<Attribute<EndianRcSlice>>,
+}
+
+#[derive(Debug)]
+pub struct Variant {
+    pub base_attributes: DieAttributes,
+    pub(super) discr_value: Option<i64>,
+}
+
+#[derive(Debug)]
 pub enum DieVariant {
     Function(FunctionDie),
     LexicalBlock(LexicalBlockDie),
@@ -404,6 +455,10 @@ pub enum DieVariant {
     ArrayType(ArrayDie),
     ArraySubrange(ArraySubrangeDie),
     Default(DieAttributes),
+    EnumType(EnumTypeDie),
+    Enumerator(EnumeratorDie),
+    VariantPart(VariantPart),
+    Variant(Variant),
 }
 
 #[derive(Debug)]
@@ -537,6 +592,11 @@ impl<'a> ContextualDieRef<'a, VariableDie> {
                             die: type_die,
                         })
                     }
+                    DieVariant::EnumType(ref type_die) => TypeDeclaration::from(ContextualDieRef {
+                        context: self.context,
+                        node: &entry.node,
+                        die: type_die,
+                    }),
                     _ => None?,
                 };
                 Some(type_decl)

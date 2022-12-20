@@ -1,9 +1,3 @@
-pub fn main() {
-    scalar_types();
-    compound_types();
-    array();
-}
-
 #[allow(unused)]
 fn scalar_types() {
     let int8 = 1_i8;
@@ -62,4 +56,44 @@ fn array() {
     let arr_2 = [[1, -1, 2, -2, 3], [0, 1, 2, 3, 4], [0, -1, -2, -3, -4]];
 
     let nop: Option<u8> = None;
+}
+
+#[allow(unused)]
+fn enums() {
+    enum EnumA {
+        A,
+        B,
+    }
+    let enum_1 = EnumA::B;
+
+    enum EnumC {
+        C(char),
+        D(f64, f32),
+        E,
+    }
+    let enum_2 = EnumC::C('b');
+    let enum_3 = EnumC::D(1.1, 1.2);
+    let enum_4 = EnumC::E;
+
+    struct Foo {
+        a: i32,
+        b: char,
+    }
+    enum EnumF {
+        F(EnumC),
+        G(Foo),
+        J(EnumA),
+    }
+    let enum_5 = EnumF::F(EnumC::C('f'));
+    let enum_6 = EnumF::G(Foo { a: 1, b: '1' });
+    let enum_7 = EnumF::J(EnumA::A);
+
+    let nop: Option<u8> = None;
+}
+
+pub fn main() {
+    scalar_types();
+    compound_types();
+    array();
+    enums();
 }

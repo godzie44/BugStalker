@@ -8,8 +8,8 @@ fn test_read_scalar_variables() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break vars.rs:32").unwrap();
-    session.exp_string("break vars.rs:32").unwrap();
+    session.send_line("break vars.rs:26").unwrap();
+    session.exp_string("break vars.rs:26").unwrap();
 
     session.send_line("continue").unwrap();
     session
@@ -44,8 +44,8 @@ fn test_read_scalar_variables_at_place() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break vars.rs:13").unwrap();
-    session.exp_string("break vars.rs:13").unwrap();
+    session.send_line("break vars.rs:7").unwrap();
+    session.exp_string("break vars.rs:7").unwrap();
 
     session.send_line("continue").unwrap();
     session.exp_string(">    let int128 = 3_i128;").unwrap();
@@ -63,8 +63,8 @@ fn test_read_struct() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break vars.rs:55").unwrap();
-    session.exp_string("break vars.rs:55").unwrap();
+    session.send_line("break vars.rs:49").unwrap();
+    session.exp_string("break vars.rs:49").unwrap();
 
     session.send_line("continue").unwrap();
     session
@@ -105,8 +105,8 @@ fn test_read_array() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break vars.rs:64").unwrap();
-    session.exp_string("break vars.rs:64").unwrap();
+    session.send_line("break vars.rs:58").unwrap();
+    session.exp_string("break vars.rs:58").unwrap();
 
     session.send_line("continue").unwrap();
     session
@@ -141,6 +141,65 @@ fn test_read_array() {
     session.exp_string("2: i32(-2)").unwrap();
     session.exp_string("3: i32(-3)").unwrap();
     session.exp_string("4: i32(-4)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+}
+
+#[test]
+fn test_read_enum() {
+    let mut session = setup_vars_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break vars.rs:91").unwrap();
+    session.exp_string("break vars.rs:91").unwrap();
+
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars").unwrap();
+    session.exp_string("enum_1 = EnumA(B)").unwrap();
+
+    session.exp_string("enum_2 = EnumC {").unwrap();
+    session.exp_string("C: C {").unwrap();
+    session.exp_string("__0: char(b)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+
+    session.exp_string("enum_3 = EnumC {").unwrap();
+    session.exp_string("D: D {").unwrap();
+    session.exp_string("__0: f64(1.1)").unwrap();
+    session.exp_string("__1: f32(1.2)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+
+    session.exp_string("enum_4 = EnumC {").unwrap();
+    session.exp_string("E: E()").unwrap();
+    session.exp_string("}").unwrap();
+
+    session.exp_string("enum_5 = EnumF {").unwrap();
+    session.exp_string("F: F {").unwrap();
+    session.exp_string("__0: EnumC {").unwrap();
+    session.exp_string("C: C {").unwrap();
+    session.exp_string("__0: char(f)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+
+    session.exp_string("enum_6 = EnumF {").unwrap();
+    session.exp_string("G: G {").unwrap();
+    session.exp_string("__0: Foo {").unwrap();
+    session.exp_string("a: i32(1)").unwrap();
+    session.exp_string("b: char(1)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+
+    session.exp_string("enum_7 = EnumF {").unwrap();
+    session.exp_string("J: J {").unwrap();
+    session.exp_string("__0: EnumA(A)").unwrap();
     session.exp_string("}").unwrap();
     session.exp_string("}").unwrap();
 }

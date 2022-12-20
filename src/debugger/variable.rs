@@ -1,3 +1,4 @@
+use crate::debugger::dwarf::r#type::StructureMember;
 use crate::debugger::TypeDeclaration;
 use bytes::Bytes;
 use nix::unistd::Pid;
@@ -26,6 +27,19 @@ impl<'a> Variable<'a> {
             .clone()
             .map(Into::into)
             .unwrap_or_else(|| "unknown".to_string())
+    }
+
+    fn split_by_member(&self, member: &'a StructureMember, pid: Pid) -> Self {
+        let member_val = self
+            .value
+            .as_ref()
+            .and_then(|val| member.value(val.as_ptr() as usize, pid));
+
+        Variable {
+            name: member.name.as_ref().map(|n| Cow::Borrowed(n.as_str())),
+            r#type: member.r#type.clone(),
+            value: member_val,
+        }
     }
 
     pub fn render(&self, pid: Pid) -> RenderView {
@@ -86,17 +100,7 @@ impl<'a> Variable<'a> {
                     };
 
                     for member in members {
-                        let member_val = match var.value.as_ref() {
-                            None => None,
-                            Some(var_value) => member.value(var_value.as_ptr() as usize, pid),
-                        };
-
-                        let member_as_var = Variable {
-                            name: member.name.as_ref().map(|n| Cow::Borrowed(n.as_str())),
-                            r#type: member.r#type.clone(),
-                            value: member_val,
-                        };
-
+                        let member_as_var = var.split_by_member(member, pid);
                         item.children.push(make_render_item(&member_as_var, pid));
                     }
 
@@ -128,6 +132,52 @@ impl<'a> Variable<'a> {
                         children,
                     }
                 }
+                Some(TypeDeclaration::CStyleEnum {
+                    name,
+                    discr_type,
+                    enumerators,
+                    ..
+                }) => {
+                    let discr = Variable {
+                        name: None,
+                        r#type: discr_type.clone().map(|t| *t),
+                        value: var.value.clone(),
+                    };
+                    let value = discr.as_discriminator();
+
+                    RenderItem {
+                        name: var.name_cloned(),
+                        r#type: name.as_deref().unwrap_or("unknown").to_string(),
+                        value: value.and_then(|val| enumerators.get(&(val as i64)).cloned()),
+                        children: vec![],
+                    }
+                }
+                Some(TypeDeclaration::RustEnum {
+                    name,
+                    discr_type: discr_member,
+                    enumerators,
+                    ..
+                }) => {
+                    let value = discr_member.as_ref().and_then(|member| {
+                        let discr_as_var = var.split_by_member(member, pid);
+                        discr_as_var.as_discriminator()
+                    });
+
+                    let enumerator = value
+                        .and_then(|v| enumerators.get(&Some(v)).or_else(|| enumerators.get(&None)));
+
+                    let enumerator = enumerator.map(|member| {
+                        let member_as_var = var.split_by_member(member, pid);
+                        make_render_item(&member_as_var, pid)
+                    });
+
+                    RenderItem {
+                        name: var.name_cloned(),
+                        r#type: name.as_deref().unwrap_or("unknown").to_string(),
+                        value: None,
+                        children: enumerator.map(|item| vec![item]).unwrap_or_default(),
+                    }
+                }
                 _ => {
                     unreachable!()
                 }
@@ -135,6 +185,32 @@ impl<'a> Variable<'a> {
         }
 
         make_render_item(self, pid)
+    }
+
+    fn as_discriminator(&self) -> Option<i64> {
+        if let Some(TypeDeclaration::Scalar { name, .. }) = self.r#type.as_ref() {
+            match name.as_deref() {
+                Some("u8") => self
+                    .value
+                    .as_ref()
+                    .map(|v| *scalar_from_bytes::<u8>(v) as i64),
+                Some("u16") => self
+                    .value
+                    .as_ref()
+                    .map(|v| *scalar_from_bytes::<u16>(v) as i64),
+                Some("u32") => self
+                    .value
+                    .as_ref()
+                    .map(|v| *scalar_from_bytes::<u32>(v) as i64),
+                Some("u64") => self
+                    .value
+                    .as_ref()
+                    .map(|v| *scalar_from_bytes::<u64>(v) as i64),
+                _ => None,
+            }
+        } else {
+            None
+        }
     }
 }
 
