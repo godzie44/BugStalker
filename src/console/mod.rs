@@ -117,7 +117,7 @@ impl TerminalApplication {
                     println!(
                         "{} = {}",
                         var.name.as_ref().unwrap_or(&Cow::Borrowed("unknown")),
-                        render_variable(&var.render(debugger.pid), 0),
+                        render_variable(&var.render(debugger), 0),
                     );
                 });
             }

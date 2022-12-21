@@ -108,7 +108,7 @@ impl VariableList {
         let variables = cmd.run().unwrap_or_default();
         let views = variables
             .iter()
-            .map(|v| v.render(debugger.pid))
+            .map(|v| v.render(debugger))
             .collect::<Vec<_>>();
         self.items = views;
     }

@@ -205,6 +205,71 @@ fn test_read_enum() {
     session.exp_string("}").unwrap();
 }
 
+#[test]
+fn test_read_pointers() {
+    let mut session = setup_vars_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break vars.rs:118").unwrap();
+    session.exp_string("break vars.rs:118").unwrap();
+
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars").unwrap();
+    session.exp_string("a = i32(2)").unwrap();
+    session.exp_string("ref_a = &i32 {").unwrap();
+    session.exp_string("__0: i32(2)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("ptr_a = *const i32 {").unwrap();
+    session.exp_string("__0: i32(2)").unwrap();
+    session.exp_string("}").unwrap();
+
+    session.exp_string("b = i32(2)").unwrap();
+    session.exp_string("mut_ref_b = &mut i32 {").unwrap();
+    session.exp_string("__0: i32(2)").unwrap();
+    session.exp_string("}").unwrap();
+
+    session.exp_string("c = i32(2)").unwrap();
+    session.exp_string("mut_ptr_c = *mut i32 {").unwrap();
+    session.exp_string("__0: i32(2)").unwrap();
+    session.exp_string("}").unwrap();
+
+    session
+        .exp_string("box_d = alloc::boxed::Box<i32, alloc::alloc::Global> {")
+        .unwrap();
+    session.exp_string("__0: i32(2)").unwrap();
+    session.exp_string("}").unwrap();
+
+    session.exp_string("f = Foo {").unwrap();
+    session.exp_string("bar: i32(1)").unwrap();
+    session.exp_string("baz: [i32] {").unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(2)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("foo: &i32 {").unwrap();
+    session.exp_string("__0: i32(2)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+
+    session
+        .exp_string("ref_f = &vars::references::Foo {")
+        .unwrap();
+    session.exp_string("__0: Foo {").unwrap();
+    session.exp_string("bar: i32(1)").unwrap();
+    session.exp_string("baz: [i32] {").unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(2)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("foo: &i32 {").unwrap();
+    session.exp_string("__0: i32(2)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+}
+
 fn setup_vars_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
     cmd.arg("./target/debug/vars");

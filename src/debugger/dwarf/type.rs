@@ -1,6 +1,7 @@
 use crate::debugger::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::dwarf::parse::{
-    ArrayDie, BaseTypeDie, ContextualDieRef, DieVariant, EnumTypeDie, StructTypeDie, TypeMemberDie,
+    ArrayDie, BaseTypeDie, ContextualDieRef, DieVariant, EnumTypeDie, PointerType, StructTypeDie,
+    TypeMemberDie,
 };
 use crate::debugger::dwarf::{eval, EndianRcSlice};
 use crate::weak_error;
@@ -9,6 +10,7 @@ use gimli::{Attribute, AttributeValue, DwAte, Expression};
 use nix::unistd::Pid;
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::mem;
 use std::rc::Rc;
 
 pub(super) type TypeDeclarationCache = HashMap<(usize, usize), TypeDeclaration>;
@@ -196,6 +198,10 @@ pub enum TypeDeclaration {
         /// key `None` is default enumerator
         enumerators: HashMap<Option<i64>, StructureMember>,
     },
+    Pointer {
+        name: Option<String>,
+        target_type: Option<Box<TypeDeclaration>>,
+    },
 }
 
 impl TypeDeclaration {
@@ -206,6 +212,7 @@ impl TypeDeclaration {
             TypeDeclaration::Array(arr) => arr.size_in_bytes(pid),
             TypeDeclaration::CStyleEnum { byte_size, .. } => *byte_size,
             TypeDeclaration::RustEnum { byte_size, .. } => *byte_size,
+            TypeDeclaration::Pointer { .. } => Some(mem::size_of::<usize>() as u64),
         }
     }
 
@@ -223,6 +230,7 @@ impl TypeDeclaration {
             )),
             TypeDeclaration::CStyleEnum { name, .. } => name.clone(),
             TypeDeclaration::RustEnum { name, .. } => name.clone(),
+            TypeDeclaration::Pointer { name, .. } => name.clone(),
         }
     }
 
@@ -249,6 +257,11 @@ impl TypeDeclaration {
                     die,
                 })),
                 DieVariant::EnumType(die) => Some(TypeDeclaration::from(ContextualDieRef {
+                    context: ctx_die.context,
+                    node: &entry.node,
+                    die,
+                })),
+                DieVariant::PointerType(die) => Some(TypeDeclaration::from(ContextualDieRef {
                     context: ctx_die.context,
                     node: &entry.node,
                     die,
@@ -500,6 +513,22 @@ impl From<ContextualDieRef<'_, EnumTypeDie>> for TypeDeclaration {
             byte_size: ctx_die.die.byte_size,
             discr_type: discr_type.map(Box::new),
             enumerators,
+        }
+    }
+}
+
+impl From<ContextualDieRef<'_, PointerType>> for TypeDeclaration {
+    fn from(ctx_die: ContextualDieRef<'_, PointerType>) -> Self {
+        let name = ctx_die.die.base_attributes.name.clone();
+        let type_decl = ctx_die
+            .die
+            .type_addr
+            .as_ref()
+            .and_then(|addr| TypeDeclaration::from_type_addr_attr(ctx_die, addr));
+
+        TypeDeclaration::Pointer {
+            name,
+            target_type: type_decl.map(Box::new),
         }
     }
 }

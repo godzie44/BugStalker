@@ -7,10 +7,10 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use gimli::{
-    Attribute, AttributeValue, DW_AT_byte_size, DW_AT_const_value, DW_AT_count,
-    DW_AT_data_member_location, DW_AT_discr, DW_AT_discr_value, DW_AT_encoding, DW_AT_frame_base,
-    DW_AT_location, DW_AT_lower_bound, DW_AT_name, DW_AT_type, DW_AT_upper_bound, DwAte, DwTag,
-    Range, Reader, Unit as DwarfUnit, UnitOffset,
+    Attribute, AttributeValue, DW_AT_address_class, DW_AT_byte_size, DW_AT_const_value,
+    DW_AT_count, DW_AT_data_member_location, DW_AT_discr, DW_AT_discr_value, DW_AT_encoding,
+    DW_AT_frame_base, DW_AT_location, DW_AT_lower_bound, DW_AT_name, DW_AT_type, DW_AT_upper_bound,
+    DwAte, DwTag, Range, Reader, Unit as DwarfUnit, UnitOffset,
 };
 use nix::unistd::Pid;
 use std::collections::{HashMap, VecDeque};
@@ -222,6 +222,11 @@ impl Unit {
                     discr_value: die
                         .attr(DW_AT_discr_value)?
                         .and_then(|val| val.sdata_value()),
+                }),
+                gimli::DW_TAG_pointer_type => DieVariant::PointerType(PointerType {
+                    base_attributes: base_attrs,
+                    type_addr: die.attr(DW_AT_type)?,
+                    address_class: die.attr(DW_AT_address_class)?.and_then(|v| v.udata_value()),
                 }),
                 _ => DieVariant::Default(base_attrs),
             };
@@ -445,6 +450,14 @@ pub struct Variant {
 }
 
 #[derive(Debug)]
+pub struct PointerType {
+    pub base_attributes: DieAttributes,
+    pub(super) type_addr: Option<Attribute<EndianRcSlice>>,
+    #[allow(unused)]
+    pub(super) address_class: Option<u64>,
+}
+
+#[derive(Debug)]
 pub enum DieVariant {
     Function(FunctionDie),
     LexicalBlock(LexicalBlockDie),
@@ -459,6 +472,7 @@ pub enum DieVariant {
     Enumerator(EnumeratorDie),
     VariantPart(VariantPart),
     Variant(Variant),
+    PointerType(PointerType),
 }
 
 #[derive(Debug)]
@@ -597,6 +611,13 @@ impl<'a> ContextualDieRef<'a, VariableDie> {
                         node: &entry.node,
                         die: type_die,
                     }),
+                    DieVariant::PointerType(ref type_die) => {
+                        TypeDeclaration::from(ContextualDieRef {
+                            context: self.context,
+                            node: &entry.node,
+                            die: type_die,
+                        })
+                    }
                     _ => None?,
                 };
                 Some(type_decl)

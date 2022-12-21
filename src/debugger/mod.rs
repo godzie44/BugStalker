@@ -27,8 +27,9 @@ use object::{Object, ObjectKind};
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::ffi::c_long;
 use std::str::from_utf8;
-use std::{fs, u64};
+use std::{fs, mem, u64};
 
 pub struct FrameInfo {
     pub base_addr: usize,
@@ -160,8 +161,25 @@ impl<T: EventHook> Debugger<T> {
         Ok(())
     }
 
-    fn read_memory(&self, addr: usize) -> nix::Result<uintptr_t> {
-        sys::ptrace::read(self.pid, addr as *mut c_void).map(|v| v as uintptr_t)
+    /// Read N bytes from debugee process.
+    fn read_memory(&self, addr: usize, read_n: usize) -> nix::Result<Vec<u8>> {
+        let mut read_reminder = read_n as isize;
+        let mut result = Vec::with_capacity(read_n);
+
+        let single_read_size = mem::size_of::<c_long>();
+
+        let mut addr = addr as *mut c_long;
+        while read_reminder > 0 {
+            let value = sys::ptrace::read(self.pid, addr as *mut c_void)?;
+            result.extend(value.to_ne_bytes().into_iter().take(read_reminder as usize));
+
+            read_reminder -= single_read_size as isize;
+            addr = unsafe { addr.offset(1) };
+        }
+
+        debug_assert!(result.len() == read_n);
+
+        Ok(result)
     }
 
     fn write_memory(&self, addr: uintptr_t, value: uintptr_t) -> nix::Result<()> {

@@ -92,9 +92,36 @@ fn enums() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn references() {
+    let a = 2;
+    let ref_a = &a;
+    let ptr_a: *const i32 = &a;
+    let mut b = 2;
+    let mut_ref_b = &mut b;
+    let mut c = 2;
+    let mut_ptr_c: *mut i32 = &mut b;
+    let box_d = Box::new(2);
+
+    struct Foo<'a> {
+        bar: i32,
+        baz: [i32; 2],
+        foo: &'a i32,
+    }
+    let f = Foo {
+        bar: 1,
+        baz: [1, 2],
+        foo: &a,
+    };
+    let ref_f = &f;
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
     array();
     enums();
+    references();
 }

@@ -1,5 +1,5 @@
 use crate::debugger::dwarf::r#type::StructureMember;
-use crate::debugger::TypeDeclaration;
+use crate::debugger::{Debugger, EventHook, TypeDeclaration};
 use bytes::Bytes;
 use nix::unistd::Pid;
 use std::borrow::Cow;
@@ -42,7 +42,7 @@ impl<'a> Variable<'a> {
         }
     }
 
-    pub fn render(&self, pid: Pid) -> RenderView {
+    pub fn render<T: EventHook>(&self, debugger: &Debugger<T>) -> RenderView {
         fn render_scalar<T: Copy + Display>(var: &Variable) -> (String, Option<String>) {
             let type_view = var
                 .r#type
@@ -62,7 +62,7 @@ impl<'a> Variable<'a> {
             (type_view, Some(value_view))
         }
 
-        fn make_render_item(var: &Variable, pid: Pid) -> RenderItem {
+        fn make_render_item<T: EventHook>(var: &Variable, debugger: &Debugger<T>) -> RenderItem {
             match &var.r#type {
                 Some(TypeDeclaration::Scalar { name, .. }) => {
                     let (type_view, value_view) = match name.as_deref() {
@@ -101,16 +101,17 @@ impl<'a> Variable<'a> {
                     };
 
                     for member in members {
-                        let member_as_var = var.split_by_member(member, pid);
-                        item.children.push(make_render_item(&member_as_var, pid));
+                        let member_as_var = var.split_by_member(member, debugger.pid);
+                        item.children
+                            .push(make_render_item(&member_as_var, debugger));
                     }
 
                     item
                 }
                 Some(TypeDeclaration::Array(arr)) => {
-                    let bounds = arr.bounds(pid).unwrap();
+                    let bounds = arr.bounds(debugger.pid).unwrap();
                     let el_count = bounds.1 - bounds.0;
-                    let el_size = arr.size_in_bytes(pid).unwrap() / el_count as u64;
+                    let el_size = arr.size_in_bytes(debugger.pid).unwrap() / el_count as u64;
                     let bytes = var.value.as_ref().unwrap();
                     let children = bytes
                         .chunks(el_size as usize)
@@ -120,7 +121,7 @@ impl<'a> Variable<'a> {
                             r#type: arr.element_type.as_ref().map(|et| *et.clone()),
                             value: Some(bytes.slice_ref(chunk)),
                         })
-                        .map(|var| var.render(pid))
+                        .map(|var| var.render(debugger))
                         .collect::<Vec<_>>();
                     RenderItem {
                         name: var.name_cloned(),
@@ -160,7 +161,7 @@ impl<'a> Variable<'a> {
                     ..
                 }) => {
                     let value = discr_member.as_ref().and_then(|member| {
-                        let discr_as_var = var.split_by_member(member, pid);
+                        let discr_as_var = var.split_by_member(member, debugger.pid);
                         discr_as_var.as_discriminator()
                     });
 
@@ -168,8 +169,8 @@ impl<'a> Variable<'a> {
                         .and_then(|v| enumerators.get(&Some(v)).or_else(|| enumerators.get(&None)));
 
                     let enumerator = enumerator.map(|member| {
-                        let member_as_var = var.split_by_member(member, pid);
-                        make_render_item(&member_as_var, pid)
+                        let member_as_var = var.split_by_member(member, debugger.pid);
+                        make_render_item(&member_as_var, debugger)
                     });
 
                     RenderItem {
@@ -179,13 +180,43 @@ impl<'a> Variable<'a> {
                         children: enumerator.map(|item| vec![item]).unwrap_or_default(),
                     }
                 }
+                Some(TypeDeclaration::Pointer { name, target_type }) => {
+                    let mb_ptr = var
+                        .value
+                        .as_ref()
+                        .map(scalar_from_bytes::<*const ()>)
+                        .copied();
+
+                    let deref_var = mb_ptr.map(|ptr| {
+                        let read_size = target_type
+                            .as_ref()
+                            .and_then(|t| t.size_in_bytes(debugger.pid));
+
+                        let val = read_size
+                            .and_then(|sz| debugger.read_memory(ptr as usize, sz as usize).ok());
+
+                        Variable {
+                            name: Some(Cow::from("__0")),
+                            value: val.map(Bytes::from),
+                            r#type: target_type.clone().map(|t| *t),
+                        }
+                    });
+                    let target_item = deref_var.map(|var| make_render_item(&var, debugger));
+
+                    RenderItem {
+                        name: var.name_cloned(),
+                        r#type: name.as_deref().unwrap_or("unknown").to_string(),
+                        value: mb_ptr.map(|ptr| format!("{:#016x}", ptr as usize)),
+                        children: target_item.map(|item| vec![item]).unwrap_or_default(),
+                    }
+                }
                 _ => {
                     unreachable!()
                 }
             }
         }
 
-        make_render_item(self, pid)
+        make_render_item(self, debugger)
     }
 
     fn as_discriminator(&self) -> Option<i64> {

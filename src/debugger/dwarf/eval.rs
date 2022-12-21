@@ -102,14 +102,8 @@ impl ExpressionEvaluator {
                     );
                     result = eval.resume_with_at_location(buf)?;
                 }
-                EvaluationResult::RequiresMemory {
-                    address,
-                    size,
-                    space: _,
-                    base_type: _,
-                } => {
-                    println!("req mem {address} {size} ");
-                    break;
+                EvaluationResult::RequiresMemory { .. } => {
+                    todo!();
                 }
                 _ => return Err(UnsupportedRequire(result)),
             };

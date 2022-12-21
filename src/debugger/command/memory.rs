@@ -1,6 +1,8 @@
 use crate::debugger::command::CommandError;
 use crate::debugger::{command, Debugger, EventHook};
+use anyhow::anyhow;
 use nix::libc::uintptr_t;
+use std::mem;
 
 enum SubCommand {
     Read(usize),
@@ -43,7 +45,13 @@ impl<'a, T: EventHook> Memory<'a, T> {
 
     pub fn run(&self) -> command::Result<uintptr_t> {
         let result = match &self.sub_cmd {
-            SubCommand::Read(addr) => self.dbg.read_memory(*addr).map_err(anyhow::Error::from)?,
+            SubCommand::Read(addr) => {
+                let bytes = self
+                    .dbg
+                    .read_memory(*addr, mem::size_of::<usize>())
+                    .map_err(anyhow::Error::from)?;
+                uintptr_t::from_ne_bytes(bytes.try_into().map_err(|e| anyhow!("{e:?}"))?)
+            }
             SubCommand::Write(addr, ptr) => {
                 self.dbg
                     .write_memory(*addr, *ptr)
