@@ -178,20 +178,13 @@ impl CompletedResult {
     }
 }
 
-fn u64_to_bytes(val: u64) -> [u8; 8] {
-    #[cfg(target_endian = "big")]
-    return val.to_be_bytes();
-    #[cfg(target_endian = "little")]
-    val.to_le_bytes()
-}
-
 fn read_memory(pid: Pid, address: usize, size_in_bytes: usize) -> Result<Bytes> {
     let mut buff = BytesMut::with_capacity(size_in_bytes);
     let mut address = address;
     let mut bytes_to_write = size_in_bytes;
     while bytes_to_write > 0 {
         let mem = sys::ptrace::read(pid, address as AddressType).map_err(EvalError::Nix)?;
-        let bytes = u64_to_bytes(mem as u64);
+        let bytes = (mem as u64).to_ne_bytes();
 
         let write_size = min(bytes_to_write, std::mem::size_of::<u64>());
         buff.put_slice(&bytes[..write_size]);
@@ -204,7 +197,7 @@ fn read_memory(pid: Pid, address: usize, size_in_bytes: usize) -> Result<Bytes> 
 
 fn read_register(pid: Pid, reg_num: i32, size_in_bytes: usize, offset: u64) -> Result<Bytes> {
     let register_value = get_register_value_dwarf(pid, reg_num)?;
-    let bytes = u64_to_bytes(register_value >> offset);
+    let bytes = (register_value >> offset).to_ne_bytes();
     let write_size = min(size_in_bytes, std::mem::size_of::<u64>());
     Ok(Bytes::copy_from_slice(&bytes[..write_size]))
 }

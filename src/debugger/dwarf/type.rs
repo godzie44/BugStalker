@@ -28,7 +28,7 @@ impl MemberLocationExpression {
             .evaluate_with_opts(
                 self.expr.clone(),
                 pid,
-                eval::EvalOption::new().with_at_location(entity_addr.to_le_bytes()),
+                eval::EvalOption::new().with_at_location(entity_addr.to_ne_bytes()),
             )?
             .into_scalar::<usize>()?)
     }
