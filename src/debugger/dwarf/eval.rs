@@ -1,8 +1,11 @@
 use crate::debugger::dwarf::eval::EvalError::{OptionRequired, UnsupportedRequire};
+use crate::debugger::dwarf::parser::unit::{DieVariant, Unit};
 use crate::debugger::dwarf::EndianRcSlice;
 use crate::debugger::register::get_register_value_dwarf;
 use bytes::{BufMut, Bytes, BytesMut};
-use gimli::{Encoding, EvaluationResult, Expression, Location, Piece, RunTimeEndian, Value};
+use gimli::{
+    Encoding, EvaluationResult, Expression, Location, Piece, RunTimeEndian, Value, ValueType,
+};
 use nix::sys;
 use nix::sys::ptrace::AddressType;
 use nix::unistd::Pid;
@@ -56,13 +59,14 @@ impl EvalOption {
 }
 
 #[derive(Debug)]
-pub struct ExpressionEvaluator {
+pub struct ExpressionEvaluator<'a> {
     encoding: Encoding,
+    unit: &'a Unit,
 }
 
-impl ExpressionEvaluator {
-    pub fn new(encoding: Encoding) -> Self {
-        Self { encoding }
+impl<'a> ExpressionEvaluator<'a> {
+    pub fn new(unit: &'a Unit, encoding: Encoding) -> Self {
+        Self { encoding, unit }
     }
 
     pub fn evaluate(&self, expr: Expression<EndianRcSlice>, pid: Pid) -> Result<CompletedResult> {
@@ -101,6 +105,20 @@ impl ExpressionEvaluator {
                         RunTimeEndian::Little,
                     );
                     result = eval.resume_with_at_location(buf)?;
+                }
+                EvaluationResult::RequiresBaseType(offset) => {
+                    let mb_entry = self.unit.find_die(offset);
+
+                    let base_type = mb_entry
+                        .and_then(|entry| {
+                            if let DieVariant::BaseType(die) = &entry.die {
+                                return ValueType::from_encoding(die.encoding?, die.byte_size?);
+                            }
+                            None
+                        })
+                        .unwrap_or(ValueType::Generic);
+
+                    result = eval.resume_with_base_type(base_type)?;
                 }
                 EvaluationResult::RequiresMemory { .. } => {
                     todo!();

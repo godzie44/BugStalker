@@ -39,7 +39,7 @@ pub struct Unit {
 
 impl Unit {
     pub fn evaluator(&self) -> ExpressionEvaluator {
-        ExpressionEvaluator::new(self.encoding)
+        ExpressionEvaluator::new(self, self.encoding)
     }
 
     pub fn find_function_by_name(&self, name: &str) -> Option<ContextualDieRef<FunctionDie>> {
