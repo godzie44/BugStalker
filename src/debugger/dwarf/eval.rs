@@ -20,15 +20,12 @@ pub enum EvalError {
     #[error("eval option {0} required")]
     OptionRequired(&'static str),
     #[error("unsupported evaluation require {0:?}")]
-    UnsupportedRequire(EvaluationResult<EndianRcSlice>),
+    UnsupportedRequire(String),
     #[error("nix error {0}")]
     Nix(nix::Error),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
-
-unsafe impl Send for EvalError {}
-unsafe impl Sync for EvalError {}
 
 pub type Result<T> = result::Result<T, EvalError>;
 
@@ -123,7 +120,7 @@ impl<'a> ExpressionEvaluator<'a> {
                 EvaluationResult::RequiresMemory { .. } => {
                     todo!();
                 }
-                _ => return Err(UnsupportedRequire(result)),
+                _ => return Err(UnsupportedRequire(format!("{:?}", result))),
             };
         }
 
