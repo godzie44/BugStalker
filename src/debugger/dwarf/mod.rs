@@ -1,8 +1,8 @@
 pub mod eval;
-pub mod parse;
+pub mod parser;
 pub mod r#type;
 
-use crate::debugger::dwarf::parse::{ContextualDieRef, FunctionDie};
+use crate::debugger::dwarf::parser::unit::{ContextualDieRef, FunctionDie};
 use fallible_iterator::FallibleIterator;
 use gimli::{Dwarf, RunTimeEndian};
 use object::{Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, SymbolKind};
@@ -13,52 +13,66 @@ use std::rc::Rc;
 
 pub type EndianRcSlice = gimli::EndianRcSlice<gimli::RunTimeEndian>;
 
-pub struct DebugeeContext<R: gimli::Reader = EndianRcSlice> {
-    _inner: Dwarf<R>,
-    units: Vec<parse::Unit>,
-    symbol_table: Option<SymbolTab>,
-}
+#[derive(Default)]
+pub struct DebugeeContextBuilder();
 
-impl DebugeeContext {
-    pub fn new<'a: 'b, 'b, OBJ: Object<'a, 'b>>(obj_file: &'a OBJ) -> anyhow::Result<Self> {
+impl DebugeeContextBuilder {
+    fn load_section<'a: 'b, 'b, OBJ, Endian>(
+        id: gimli::SectionId,
+        file: &'a OBJ,
+        endian: Endian,
+    ) -> anyhow::Result<gimli::EndianRcSlice<Endian>>
+    where
+        OBJ: object::Object<'a, 'b>,
+        Endian: gimli::Endianity,
+    {
+        let data = file
+            .section_by_name(id.name())
+            .and_then(|section| section.uncompressed_data().ok())
+            .unwrap_or(Cow::Borrowed(&[]));
+        Ok(gimli::EndianRcSlice::new(Rc::from(&*data), endian))
+    }
+
+    pub fn build<'a, 'b, OBJ>(
+        &self,
+        obj_file: &'a OBJ,
+    ) -> anyhow::Result<DebugeeContext<EndianRcSlice>>
+    where
+        'a: 'b,
+        OBJ: Object<'a, 'b>,
+    {
         let endian = if obj_file.is_little_endian() {
             RunTimeEndian::Little
         } else {
             RunTimeEndian::Big
         };
 
-        fn load_section<'a: 'b, 'b, OBJ, Endian>(
-            id: gimli::SectionId,
-            file: &'a OBJ,
-            endian: Endian,
-        ) -> anyhow::Result<gimli::EndianRcSlice<Endian>>
-        where
-            OBJ: object::Object<'a, 'b>,
-            Endian: gimli::Endianity,
-        {
-            let data = file
-                .section_by_name(id.name())
-                .and_then(|section| section.uncompressed_data().ok())
-                .unwrap_or(Cow::Borrowed(&[]));
-            Ok(gimli::EndianRcSlice::new(Rc::from(&*data), endian))
-        }
-
-        let dwarf = gimli::Dwarf::load(|id| load_section(id, obj_file, endian))?;
+        let dwarf = gimli::Dwarf::load(|id| Self::load_section(id, obj_file, endian))?;
         let symbol_table = SymbolTab::new(obj_file);
+
+        let parser = parser::DwarfUnitParser::new(&dwarf);
 
         let units = dwarf
             .units()
-            .map(|header| parse::Unit::from_unit(&dwarf, dwarf.unit(header)?))
+            .map(|header| parser.parse(dwarf.unit(header)?))
             .collect::<Vec<_>>()?;
 
-        Ok(Self {
+        Ok(DebugeeContext {
+            _inner: dwarf,
             units,
             symbol_table,
-            _inner: dwarf,
         })
     }
+}
 
-    fn find_unit_by_pc(&self, pc: u64) -> Option<&parse::Unit> {
+pub struct DebugeeContext<R: gimli::Reader = EndianRcSlice> {
+    _inner: Dwarf<R>,
+    units: Vec<parser::unit::Unit>,
+    symbol_table: Option<SymbolTab>,
+}
+
+impl DebugeeContext {
+    fn find_unit_by_pc(&self, pc: u64) -> Option<&parser::unit::Unit> {
         self.units.iter().find(
             |&unit| match unit.ranges.binary_search_by_key(&pc, |r| r.begin) {
                 Ok(_) => true,
@@ -73,7 +87,7 @@ impl DebugeeContext {
         )
     }
 
-    pub fn find_place_from_pc(&self, pc: usize) -> Option<parse::Place> {
+    pub fn find_place_from_pc(&self, pc: usize) -> Option<parser::unit::Place> {
         let pc = pc as u64;
         let unit = self.find_unit_by_pc(pc)?;
         unit.find_place_by_pc(pc)
@@ -91,7 +105,7 @@ impl DebugeeContext {
             .find_map(|unit| unit.find_function_by_name(fn_name))
     }
 
-    pub fn find_stmt_line(&self, file: &str, line: u64) -> Option<parse::Place<'_>> {
+    pub fn find_stmt_line(&self, file: &str, line: u64) -> Option<parser::unit::Place<'_>> {
         self.units
             .iter()
             .find_map(|unit| unit.find_stmt_line(file, line))
@@ -120,9 +134,11 @@ impl Deref for SymbolTab {
 }
 
 impl SymbolTab {
-    pub fn new<'data: 'file, 'file, OBJ: Object<'data, 'file>>(
-        object_file: &'data OBJ,
-    ) -> Option<Self> {
+    pub fn new<'data, 'file, OBJ>(object_file: &'data OBJ) -> Option<Self>
+    where
+        'data: 'file,
+        OBJ: Object<'data, 'file>,
+    {
         object_file.symbol_table().as_ref().map(|sym_table| {
             SymbolTab(
                 sym_table

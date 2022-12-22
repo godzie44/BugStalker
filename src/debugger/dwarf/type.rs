@@ -1,7 +1,6 @@
-use crate::debugger::dwarf::eval::ExpressionEvaluator;
-use crate::debugger::dwarf::parse::{
+use crate::debugger::dwarf::parser::unit::{
     ArrayDie, BaseTypeDie, ContextualDieRef, DieVariant, EnumTypeDie, PointerType, StructTypeDie,
-    TypeMemberDie,
+    TypeMemberDie, Unit,
 };
 use crate::debugger::dwarf::{eval, EndianRcSlice};
 use crate::weak_error;
@@ -11,20 +10,20 @@ use nix::unistd::Pid;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::mem;
-use std::rc::Rc;
 
-pub(super) type TypeDeclarationCache = HashMap<(usize, usize), TypeDeclaration>;
+pub(super) type TypeDeclarationCache<'a> = HashMap<(usize, usize), TypeDeclaration<'a>>;
 
 #[derive(Clone)]
-pub struct MemberLocationExpression {
-    evaluator: Rc<ExpressionEvaluator>,
+pub struct MemberLocationExpression<'a> {
+    unit: &'a Unit,
     expr: Expression<EndianRcSlice>,
 }
 
-impl MemberLocationExpression {
+impl<'a> MemberLocationExpression<'a> {
     fn base_addr(&self, entity_addr: usize, pid: Pid) -> anyhow::Result<usize> {
         Ok(self
-            .evaluator
+            .unit
+            .evaluator()
             .evaluate_with_opts(
                 self.expr.clone(),
                 pid,
@@ -35,26 +34,26 @@ impl MemberLocationExpression {
 }
 
 #[derive(Clone)]
-pub enum MemberLocation {
+pub enum MemberLocation<'a> {
     Offset(i64),
-    Expr(MemberLocationExpression),
+    Expr(MemberLocationExpression<'a>),
 }
 
 #[derive(Clone)]
-pub struct StructureMember {
-    pub in_struct_location: Option<MemberLocation>,
+pub struct StructureMember<'a> {
+    pub in_struct_location: Option<MemberLocation<'a>>,
     pub name: Option<String>,
-    pub r#type: Option<TypeDeclaration>,
+    pub r#type: Option<TypeDeclaration<'a>>,
 }
 
-impl From<ContextualDieRef<'_, TypeMemberDie>> for StructureMember {
-    fn from(ctx_die: ContextualDieRef<'_, TypeMemberDie>) -> Self {
+impl<'a> From<ContextualDieRef<'a, TypeMemberDie>> for StructureMember<'a> {
+    fn from(ctx_die: ContextualDieRef<'a, TypeMemberDie>) -> Self {
         let loc = ctx_die.die.location.as_ref().map(|attr| attr.value());
         let in_struct_location = if let Some(offset) = loc.as_ref().and_then(|l| l.sdata_value()) {
             Some(MemberLocation::Offset(offset))
         } else if let Some(AttributeValue::Exprloc(ref expr)) = loc {
             Some(MemberLocation::Expr(MemberLocationExpression {
-                evaluator: Rc::clone(&ctx_die.context.expr_evaluator),
+                unit: ctx_die.context,
                 expr: expr.clone(),
             }))
         } else {
@@ -75,7 +74,7 @@ impl From<ContextualDieRef<'_, TypeMemberDie>> for StructureMember {
     }
 }
 
-impl StructureMember {
+impl<'a> StructureMember<'a> {
     pub fn value(&self, base_entity_addr: usize, pid: Pid) -> Option<Bytes> {
         let type_size = self.r#type.as_ref()?.size_in_bytes(pid)? as usize;
 
@@ -93,27 +92,28 @@ impl StructureMember {
 }
 
 #[derive(Clone)]
-pub struct ArrayBoundValueExpression {
-    evaluator: Rc<ExpressionEvaluator>,
+pub struct ArrayBoundValueExpression<'a> {
+    unit: &'a Unit,
     expr: Expression<EndianRcSlice>,
 }
 
-impl ArrayBoundValueExpression {
+impl<'a> ArrayBoundValueExpression<'a> {
     fn bound(&self, pid: Pid) -> anyhow::Result<i64> {
         Ok(self
-            .evaluator
+            .unit
+            .evaluator()
             .evaluate_with_opts(self.expr.clone(), pid, eval::EvalOption::new())?
             .into_scalar::<i64>()?)
     }
 }
 
 #[derive(Clone)]
-pub enum ArrayBoundValue {
+pub enum ArrayBoundValue<'a> {
     Const(i64),
-    Expr(ArrayBoundValueExpression),
+    Expr(ArrayBoundValueExpression<'a>),
 }
 
-impl ArrayBoundValue {
+impl<'a> ArrayBoundValue<'a> {
     pub fn value(&self, pid: Pid) -> anyhow::Result<i64> {
         match self {
             ArrayBoundValue::Const(v) => Ok(*v),
@@ -123,22 +123,22 @@ impl ArrayBoundValue {
 }
 
 #[derive(Clone)]
-pub enum UpperBound {
-    UpperBound(ArrayBoundValue),
-    Count(ArrayBoundValue),
+pub enum UpperBound<'a> {
+    UpperBound(ArrayBoundValue<'a>),
+    Count(ArrayBoundValue<'a>),
 }
 
 #[derive(Clone)]
-pub struct ArrayDeclaration {
+pub struct ArrayDeclaration<'a> {
     byte_size: Option<u64>,
-    pub element_type: Option<Box<TypeDeclaration>>,
-    lower_bound: ArrayBoundValue,
-    upper_bound: Option<UpperBound>,
+    pub element_type: Option<Box<TypeDeclaration<'a>>>,
+    lower_bound: ArrayBoundValue<'a>,
+    upper_bound: Option<UpperBound<'a>>,
     byte_size_memo: Cell<Option<u64>>,
     bounds_memo: Cell<Option<(i64, i64)>>,
 }
 
-impl ArrayDeclaration {
+impl<'a> ArrayDeclaration<'a> {
     fn lower_bound(&self, pid: Pid) -> i64 {
         self.lower_bound.value(pid).unwrap_or(0)
     }
@@ -173,38 +173,38 @@ impl ArrayDeclaration {
 }
 
 #[derive(Clone)]
-pub enum TypeDeclaration {
+pub enum TypeDeclaration<'a> {
     Scalar {
         name: Option<String>,
         byte_size: Option<u64>,
         encoding: Option<DwAte>,
     },
-    Array(ArrayDeclaration),
+    Array(ArrayDeclaration<'a>),
     Structure {
         name: Option<String>,
         byte_size: Option<u64>,
-        members: Vec<StructureMember>,
+        members: Vec<StructureMember<'a>>,
     },
     CStyleEnum {
         name: Option<String>,
         byte_size: Option<u64>,
-        discr_type: Option<Box<TypeDeclaration>>,
+        discr_type: Option<Box<TypeDeclaration<'a>>>,
         enumerators: HashMap<i64, String>,
     },
     RustEnum {
         name: Option<String>,
         byte_size: Option<u64>,
-        discr_type: Option<Box<StructureMember>>,
+        discr_type: Option<Box<StructureMember<'a>>>,
         /// key `None` is default enumerator
-        enumerators: HashMap<Option<i64>, StructureMember>,
+        enumerators: HashMap<Option<i64>, StructureMember<'a>>,
     },
     Pointer {
         name: Option<String>,
-        target_type: Option<Box<TypeDeclaration>>,
+        target_type: Option<Box<TypeDeclaration<'a>>>,
     },
 }
 
-impl TypeDeclaration {
+impl<'a> TypeDeclaration<'a> {
     pub fn size_in_bytes(&self, pid: Pid) -> Option<u64> {
         match self {
             TypeDeclaration::Scalar { byte_size, .. } => *byte_size,
@@ -235,7 +235,7 @@ impl TypeDeclaration {
     }
 
     fn from_type_addr_attr<T>(
-        ctx_die: ContextualDieRef<'_, T>,
+        ctx_die: ContextualDieRef<'a, T>,
         attr: &Attribute<EndianRcSlice>,
     ) -> Option<Self> {
         if let AttributeValue::UnitRef(unit_offset) = attr.value() {
@@ -273,7 +273,7 @@ impl TypeDeclaration {
         }
     }
 
-    fn from_struct_type(ctx_die: ContextualDieRef<'_, StructTypeDie>) -> Self {
+    fn from_struct_type(ctx_die: ContextualDieRef<'a, StructTypeDie>) -> Self {
         let name = ctx_die.die.base_attributes.name.clone();
         let members = ctx_die
             .node
@@ -299,7 +299,7 @@ impl TypeDeclaration {
         }
     }
 
-    fn from_struct_enum_type(ctx_die: ContextualDieRef<'_, StructTypeDie>) -> Self {
+    fn from_struct_enum_type(ctx_die: ContextualDieRef<'a, StructTypeDie>) -> Self {
         let name = ctx_die.die.base_attributes.name.clone();
 
         let (variant_part, node) = ctx_die
@@ -372,7 +372,7 @@ impl TypeDeclaration {
     }
 }
 
-impl From<ContextualDieRef<'_, BaseTypeDie>> for TypeDeclaration {
+impl From<ContextualDieRef<'_, BaseTypeDie>> for TypeDeclaration<'_> {
     fn from(ctx_die: ContextualDieRef<'_, BaseTypeDie>) -> Self {
         let name = ctx_die.die.base_attributes.name.clone();
         TypeDeclaration::Scalar {
@@ -383,10 +383,10 @@ impl From<ContextualDieRef<'_, BaseTypeDie>> for TypeDeclaration {
     }
 }
 
-impl From<ContextualDieRef<'_, StructTypeDie>> for TypeDeclaration {
+impl<'a> From<ContextualDieRef<'a, StructTypeDie>> for TypeDeclaration<'a> {
     /// Convert DW_TAG_structure_type into TypeDeclaration.
     /// For rust DW_TAG_structure_type DIE can be interpreter as enum, see https://github.com/rust-lang/rust/issues/32920
-    fn from(ctx_die: ContextualDieRef<'_, StructTypeDie>) -> Self {
+    fn from(ctx_die: ContextualDieRef<'a, StructTypeDie>) -> Self {
         let is_enum = ctx_die.node.children.iter().any(|c_idx| {
             matches!(
                 ctx_die.context.entries[*c_idx].die,
@@ -402,8 +402,8 @@ impl From<ContextualDieRef<'_, StructTypeDie>> for TypeDeclaration {
     }
 }
 
-impl From<ContextualDieRef<'_, ArrayDie>> for TypeDeclaration {
-    fn from(ctx_die: ContextualDieRef<'_, ArrayDie>) -> Self {
+impl<'a> From<ContextualDieRef<'a, ArrayDie>> for TypeDeclaration<'a> {
+    fn from(ctx_die: ContextualDieRef<'a, ArrayDie>) -> Self {
         let type_decl = ctx_die
             .die
             .type_addr
@@ -427,7 +427,7 @@ impl From<ContextualDieRef<'_, ArrayDie>> for TypeDeclaration {
                         ArrayBoundValue::Const(bound)
                     } else if let Some(AttributeValue::Exprloc(ref expr)) = lower_bound {
                         ArrayBoundValue::Expr(ArrayBoundValueExpression {
-                            evaluator: Rc::clone(&ctx_die.context.expr_evaluator),
+                            unit: &ctx_die.context,
                             expr: expr.clone(),
                         })
                     } else {
@@ -445,7 +445,7 @@ impl From<ContextualDieRef<'_, ArrayDie>> for TypeDeclaration {
                 } else if let AttributeValue::Exprloc(ref expr) = count.value() {
                     Some(UpperBound::Count(ArrayBoundValue::Expr(
                         ArrayBoundValueExpression {
-                            evaluator: Rc::clone(&ctx_die.context.expr_evaluator),
+                            unit: ctx_die.context,
                             expr: expr.clone(),
                         },
                     )))
@@ -460,7 +460,7 @@ impl From<ContextualDieRef<'_, ArrayDie>> for TypeDeclaration {
                 } else if let AttributeValue::Exprloc(ref expr) = bound.value() {
                     return Some(UpperBound::UpperBound(ArrayBoundValue::Expr(
                         ArrayBoundValueExpression {
-                            evaluator: Rc::clone(&ctx_die.context.expr_evaluator),
+                            unit: ctx_die.context,
                             expr: expr.clone(),
                         },
                     )));
@@ -481,8 +481,8 @@ impl From<ContextualDieRef<'_, ArrayDie>> for TypeDeclaration {
     }
 }
 
-impl From<ContextualDieRef<'_, EnumTypeDie>> for TypeDeclaration {
-    fn from(ctx_die: ContextualDieRef<'_, EnumTypeDie>) -> Self {
+impl<'a> From<ContextualDieRef<'a, EnumTypeDie>> for TypeDeclaration<'a> {
+    fn from(ctx_die: ContextualDieRef<'a, EnumTypeDie>) -> Self {
         let name = ctx_die.die.base_attributes.name.clone();
 
         let discr_type = ctx_die
@@ -517,8 +517,8 @@ impl From<ContextualDieRef<'_, EnumTypeDie>> for TypeDeclaration {
     }
 }
 
-impl From<ContextualDieRef<'_, PointerType>> for TypeDeclaration {
-    fn from(ctx_die: ContextualDieRef<'_, PointerType>) -> Self {
+impl<'a> From<ContextualDieRef<'a, PointerType>> for TypeDeclaration<'a> {
+    fn from(ctx_die: ContextualDieRef<'a, PointerType>) -> Self {
         let name = ctx_die.die.base_attributes.name.clone();
         let type_decl = ctx_die
             .die

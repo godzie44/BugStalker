@@ -7,7 +7,7 @@ mod utils;
 mod uw;
 pub mod variable;
 
-pub use dwarf::parse::Place;
+pub use dwarf::parser::unit::Place;
 pub use dwarf::r#type::TypeDeclaration;
 pub use variable::Variable;
 
@@ -58,12 +58,14 @@ impl<T: EventHook> Debugger<T> {
         let mmap = unsafe { memmap2::Mmap::map(&file).unwrap() };
         let object = object::File::parse(&*mmap).unwrap();
 
+        let dwarf_builder = dwarf::DebugeeContextBuilder::default();
+
         Self {
             load_addr: Cell::new(0),
             _program: program,
             pid,
             breakpoints: Default::default(),
-            dwarf: DebugeeContext::new(&object).unwrap(),
+            dwarf: dwarf_builder.build(&object).unwrap(),
             obj_kind: object.kind(),
             hooks,
         }
@@ -376,9 +378,9 @@ impl<T: EventHook> Debugger<T> {
             .find_function_by_pc(pc)
             .ok_or_else(|| anyhow!("not in function"))?;
 
-        current_func
-            .find_variables(pc)
-            .iter()
+        let vars = current_func.find_variables(pc);
+
+        vars.into_iter()
             .map(|var| {
                 let mb_type = var.r#type();
                 let mb_value = mb_type.as_ref().and_then(|type_decl| {

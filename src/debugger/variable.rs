@@ -8,7 +8,7 @@ use std::mem;
 
 pub struct Variable<'a> {
     pub name: Option<Cow<'a, str>>,
-    pub r#type: Option<TypeDeclaration>,
+    pub r#type: Option<TypeDeclaration<'a>>,
     pub value: Option<Bytes>,
 }
 
