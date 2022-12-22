@@ -270,6 +270,42 @@ fn test_read_pointers() {
     session.exp_string("}").unwrap();
 }
 
+#[test]
+fn test_read_type_alias() {
+    let mut session = setup_vars_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break vars.rs:126").unwrap();
+    session.exp_string("break vars.rs:126").unwrap();
+
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars").unwrap();
+    session.exp_string("a_alias = i32(1)").unwrap();
+}
+
+#[test]
+fn test_type_parameters() {
+    let mut session = setup_vars_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break vars.rs:136").unwrap();
+    session.exp_string("break vars.rs:136").unwrap();
+
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars").unwrap();
+    session.exp_string("a = Foo<i32> {").unwrap();
+    session.exp_string("bar: i32(1)").unwrap();
+    session.exp_string("}").unwrap();
+}
+
 fn setup_vars_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
     cmd.arg("./target/debug/vars");

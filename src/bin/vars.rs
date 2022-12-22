@@ -118,10 +118,30 @@ fn references() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn type_alias() {
+    type I32Alias = i32;
+    let a_alias: I32Alias = 1;
+
+    let nop: Option<u8> = None;
+}
+
+#[allow(unused)]
+fn type_params() {
+    struct Foo<T> {
+        bar: T,
+    };
+    let a = Foo { bar: 1 };
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
     array();
     enums();
     references();
+    type_alias();
+    type_params();
 }
