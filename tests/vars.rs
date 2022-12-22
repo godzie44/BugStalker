@@ -74,17 +74,17 @@ fn test_read_struct() {
     session.send_line("vars").unwrap();
     session.exp_string("tuple_0 = ()").unwrap();
     session.exp_string("tuple_1 = (f64, f64) {").unwrap();
-    session.exp_string("__0: f64(0)").unwrap();
-    session.exp_string("__1: f64(1.1)").unwrap();
+    session.exp_string("0: f64(0)").unwrap();
+    session.exp_string("1: f64(1.1)").unwrap();
     session.exp_string("}").unwrap();
 
     session
         .exp_string("tuple_2 = (u64, i64, char, bool) {")
         .unwrap();
-    session.exp_string("__0: u64(1)").unwrap();
-    session.exp_string("__1: i64(-1)").unwrap();
-    session.exp_string("__2: char(a)").unwrap();
-    session.exp_string("__3: bool(false)").unwrap();
+    session.exp_string("0: u64(1)").unwrap();
+    session.exp_string("1: i64(-1)").unwrap();
+    session.exp_string("2: char(a)").unwrap();
+    session.exp_string("3: bool(false)").unwrap();
     session.exp_string("}").unwrap();
 
     session.exp_string("foo = Foo {").unwrap();
@@ -160,48 +160,34 @@ fn test_read_enum() {
         .unwrap();
 
     session.send_line("vars").unwrap();
-    session.exp_string("enum_1 = EnumA(B)").unwrap();
+    session.exp_string("enum_1 = EnumA::B").unwrap();
 
-    session.exp_string("enum_2 = EnumC {").unwrap();
-    session.exp_string("C: C {").unwrap();
-    session.exp_string("__0: char(b)").unwrap();
-    session.exp_string("}").unwrap();
+    session.exp_string("enum_2 = EnumC::C {").unwrap();
+    session.exp_string("0: char(b)").unwrap();
     session.exp_string("}").unwrap();
 
-    session.exp_string("enum_3 = EnumC {").unwrap();
-    session.exp_string("D: D {").unwrap();
-    session.exp_string("__0: f64(1.1)").unwrap();
-    session.exp_string("__1: f32(1.2)").unwrap();
-    session.exp_string("}").unwrap();
+    session.exp_string("enum_3 = EnumC::D {").unwrap();
+    session.exp_string("0: f64(1.1)").unwrap();
+    session.exp_string("1: f32(1.2)").unwrap();
     session.exp_string("}").unwrap();
 
-    session.exp_string("enum_4 = EnumC {").unwrap();
-    session.exp_string("E: E").unwrap();
-    session.exp_string("}").unwrap();
+    session.exp_string("enum_4 = EnumC::E()").unwrap();
 
-    session.exp_string("enum_5 = EnumF {").unwrap();
-    session.exp_string("F: F {").unwrap();
-    session.exp_string("__0: EnumC {").unwrap();
-    session.exp_string("C: C {").unwrap();
-    session.exp_string("__0: char(f)").unwrap();
-    session.exp_string("}").unwrap();
-    session.exp_string("}").unwrap();
+    session.exp_string("enum_5 = EnumF::F {").unwrap();
+    session.exp_string("0: EnumC::C {").unwrap();
+    session.exp_string("0: char(f)").unwrap();
     session.exp_string("}").unwrap();
     session.exp_string("}").unwrap();
 
-    session.exp_string("enum_6 = EnumF {").unwrap();
-    session.exp_string("G: G {").unwrap();
-    session.exp_string("__0: Foo {").unwrap();
+    session.exp_string("enum_6 = EnumF::G {").unwrap();
+    session.exp_string("0: Foo {").unwrap();
     session.exp_string("a: i32(1)").unwrap();
     session.exp_string("b: char(1)").unwrap();
     session.exp_string("}").unwrap();
     session.exp_string("}").unwrap();
-    session.exp_string("}").unwrap();
 
-    session.exp_string("enum_7 = EnumF {").unwrap();
-    session.exp_string("J: J {").unwrap();
-    session.exp_string("__0: EnumA(A)").unwrap();
-    session.exp_string("}").unwrap();
+    session.exp_string("enum_7 = EnumF::J {").unwrap();
+    session.exp_string("0: EnumA::A").unwrap();
     session.exp_string("}").unwrap();
 }
 
@@ -210,8 +196,8 @@ fn test_read_pointers() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break vars.rs:118").unwrap();
-    session.exp_string("break vars.rs:118").unwrap();
+    session.send_line("break vars.rs:119").unwrap();
+    session.exp_string("break vars.rs:119").unwrap();
 
     session.send_line("continue").unwrap();
     session
@@ -220,28 +206,21 @@ fn test_read_pointers() {
 
     session.send_line("vars").unwrap();
     session.exp_string("a = i32(2)").unwrap();
-    session.exp_string("ref_a = &i32 {").unwrap();
-    session.exp_string("__0: i32(2)").unwrap();
-    session.exp_string("}").unwrap();
-    session.exp_string("ptr_a = *const i32 {").unwrap();
-    session.exp_string("__0: i32(2)").unwrap();
-    session.exp_string("}").unwrap();
+    session.exp_string("ref_a = &i32(i32(2))").unwrap();
+    session.exp_string("ptr_a = *const i32(i32(2))").unwrap();
+    session
+        .exp_string("ptr_ptr_a = *const *const i32(*const i32(i32(2)))")
+        .unwrap();
 
     session.exp_string("b = i32(2)").unwrap();
-    session.exp_string("mut_ref_b = &mut i32 {").unwrap();
-    session.exp_string("__0: i32(2)").unwrap();
-    session.exp_string("}").unwrap();
+    session.exp_string("mut_ref_b = &mut i32(i32(2))").unwrap();
 
     session.exp_string("c = i32(2)").unwrap();
-    session.exp_string("mut_ptr_c = *mut i32 {").unwrap();
-    session.exp_string("__0: i32(2)").unwrap();
-    session.exp_string("}").unwrap();
+    session.exp_string("mut_ptr_c = *mut i32(i32(2))").unwrap();
 
     session
-        .exp_string("box_d = alloc::boxed::Box<i32, alloc::alloc::Global> {")
+        .exp_string("box_d = alloc::boxed::Box<i32, alloc::alloc::Global>(i32(2))")
         .unwrap();
-    session.exp_string("__0: i32(2)").unwrap();
-    session.exp_string("}").unwrap();
 
     session.exp_string("f = Foo {").unwrap();
     session.exp_string("bar: i32(1)").unwrap();
@@ -249,25 +228,19 @@ fn test_read_pointers() {
     session.exp_string("0: i32(1)").unwrap();
     session.exp_string("1: i32(2)").unwrap();
     session.exp_string("}").unwrap();
-    session.exp_string("foo: &i32 {").unwrap();
-    session.exp_string("__0: i32(2)").unwrap();
-    session.exp_string("}").unwrap();
+    session.exp_string("foo: &i32(i32(2))").unwrap();
     session.exp_string("}").unwrap();
 
     session
-        .exp_string("ref_f = &vars::references::Foo {")
+        .exp_string("ref_f = &vars::references::Foo(Foo {")
         .unwrap();
-    session.exp_string("__0: Foo {").unwrap();
     session.exp_string("bar: i32(1)").unwrap();
     session.exp_string("baz: [i32] {").unwrap();
     session.exp_string("0: i32(1)").unwrap();
     session.exp_string("1: i32(2)").unwrap();
     session.exp_string("}").unwrap();
-    session.exp_string("foo: &i32 {").unwrap();
-    session.exp_string("__0: i32(2)").unwrap();
-    session.exp_string("}").unwrap();
-    session.exp_string("}").unwrap();
-    session.exp_string("}").unwrap();
+    session.exp_string("foo: &i32(i32(2))").unwrap();
+    session.exp_string("})").unwrap();
 }
 
 #[test]
@@ -275,8 +248,8 @@ fn test_read_type_alias() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break vars.rs:126").unwrap();
-    session.exp_string("break vars.rs:126").unwrap();
+    session.send_line("break vars.rs:127").unwrap();
+    session.exp_string("break vars.rs:127").unwrap();
 
     session.send_line("continue").unwrap();
     session
@@ -292,8 +265,8 @@ fn test_type_parameters() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("break vars.rs:136").unwrap();
-    session.exp_string("break vars.rs:136").unwrap();
+    session.send_line("break vars.rs:137").unwrap();
+    session.exp_string("break vars.rs:137").unwrap();
 
     session.send_line("continue").unwrap();
     session

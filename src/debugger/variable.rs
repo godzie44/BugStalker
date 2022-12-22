@@ -1,4 +1,5 @@
 use crate::debugger::dwarf::r#type::StructureMember;
+use crate::debugger::variable::RenderHint::{Array, Enum, Pointer, Scalar, Structure};
 use crate::debugger::{Debugger, EventHook, TypeDeclaration};
 use bytes::Bytes;
 use nix::unistd::Pid;
@@ -15,10 +16,35 @@ pub struct Variable<'a> {
 pub type RenderView = RenderItem;
 
 pub struct RenderItem {
-    pub name: String,
+    name: String,
     pub r#type: String,
     pub value: Option<String>,
     pub children: Vec<RenderItem>,
+    pub hint: RenderHint,
+}
+
+impl RenderItem {
+    /// Return item name, prettify if name is a position in tuple.
+    pub fn name(&self) -> String {
+        if self.name.starts_with("__") {
+            let mb_num = self.name.trim_start_matches('_');
+            if mb_num.parse::<u32>().is_ok() {
+                return mb_num.to_string();
+            }
+        }
+        self.name.clone()
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum RenderHint {
+    Scalar,
+    Array,
+    Structure,
+    Pointer,
+    Enum,
+    #[allow(unused)]
+    Specialized(),
 }
 
 impl<'a> Variable<'a> {
@@ -90,6 +116,7 @@ impl<'a> Variable<'a> {
                         r#type: type_view,
                         value: value_view,
                         children: vec![],
+                        hint: Scalar,
                     }
                 }
                 Some(TypeDeclaration::Structure { name, members, .. }) => {
@@ -98,6 +125,7 @@ impl<'a> Variable<'a> {
                         r#type: name.as_deref().unwrap_or("unknown").to_string(),
                         value: None,
                         children: Vec::with_capacity(members.len()),
+                        hint: Structure,
                     };
 
                     for member in members {
@@ -131,6 +159,7 @@ impl<'a> Variable<'a> {
                             .and_then(|ty| ty.name())
                             .unwrap_or_else(|| "unknown".to_string()),
                         value: None,
+                        hint: Array,
                         children,
                     }
                 }
@@ -152,6 +181,7 @@ impl<'a> Variable<'a> {
                         r#type: name.as_deref().unwrap_or("unknown").to_string(),
                         value: value.and_then(|val| enumerators.get(&(val as i64)).cloned()),
                         children: vec![],
+                        hint: Enum,
                     }
                 }
                 Some(TypeDeclaration::RustEnum {
@@ -178,6 +208,7 @@ impl<'a> Variable<'a> {
                         r#type: name.as_deref().unwrap_or("unknown").to_string(),
                         value: None,
                         children: enumerator.map(|item| vec![item]).unwrap_or_default(),
+                        hint: Enum,
                     }
                 }
                 Some(TypeDeclaration::Pointer { name, target_type }) => {
@@ -208,10 +239,11 @@ impl<'a> Variable<'a> {
                         r#type: name.as_deref().unwrap_or("unknown").to_string(),
                         value: mb_ptr.map(|ptr| format!("{:#016x}", ptr as usize)),
                         children: target_item.map(|item| vec![item]).unwrap_or_default(),
+                        hint: Pointer,
                     }
                 }
                 _ => {
-                    unreachable!()
+                    todo!()
                 }
             }
         }

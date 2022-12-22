@@ -97,6 +97,7 @@ fn references() {
     let a = 2;
     let ref_a = &a;
     let ptr_a: *const i32 = &a;
+    let ptr_ptr_a: *const *const i32 = &ptr_a;
     let mut b = 2;
     let mut_ref_b = &mut b;
     let mut c = 2;

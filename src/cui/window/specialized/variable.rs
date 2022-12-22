@@ -43,12 +43,12 @@ impl CuiComponent for Variables {
                 let as_text = if view.children.is_empty() {
                     format!(
                         "{}: {}({})",
-                        view.name,
+                        view.name(),
                         view.r#type,
                         view.value.as_deref().unwrap_or_default()
                     )
                 } else {
-                    format!("{}: {}(...)", view.name, view.r#type)
+                    format!("{}: {}(...)", view.name(), view.r#type)
                 };
 
                 ListItem::new(as_text)
