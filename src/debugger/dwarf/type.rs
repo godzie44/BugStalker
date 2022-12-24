@@ -139,6 +139,22 @@ pub struct ArrayDeclaration<'a> {
 }
 
 impl<'a> ArrayDeclaration<'a> {
+    pub fn new(
+        byte_size: Option<u64>,
+        element_type: Option<Box<TypeDeclaration<'a>>>,
+        lower_bound: ArrayBoundValue<'a>,
+        upper_bound: Option<UpperBound<'a>>,
+    ) -> Self {
+        Self {
+            byte_size,
+            element_type,
+            lower_bound,
+            upper_bound,
+            byte_size_memo: Cell::new(None),
+            bounds_memo: Cell::new(None),
+        }
+    }
+
     fn lower_bound(&self, pid: Pid) -> i64 {
         self.lower_bound.value(pid).unwrap_or(0)
     }
@@ -427,7 +443,7 @@ impl<'a> From<ContextualDieRef<'a, ArrayDie>> for TypeDeclaration<'a> {
                         ArrayBoundValue::Const(bound)
                     } else if let Some(AttributeValue::Exprloc(ref expr)) = lower_bound {
                         ArrayBoundValue::Expr(ArrayBoundValueExpression {
-                            unit: &ctx_die.context,
+                            unit: ctx_die.context,
                             expr: expr.clone(),
                         })
                     } else {
@@ -470,14 +486,12 @@ impl<'a> From<ContextualDieRef<'a, ArrayDie>> for TypeDeclaration<'a> {
             None
         });
 
-        TypeDeclaration::Array(ArrayDeclaration {
-            byte_size: ctx_die.die.byte_size,
-            element_type: type_decl.map(Box::new),
+        TypeDeclaration::Array(ArrayDeclaration::new(
+            ctx_die.die.byte_size,
+            type_decl.map(Box::new),
             lower_bound,
             upper_bound,
-            byte_size_memo: Cell::new(None),
-            bounds_memo: Cell::new(None),
-        })
+        ))
     }
 }
 

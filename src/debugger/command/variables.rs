@@ -1,4 +1,4 @@
-use crate::debugger::{command, Debugger, EventHook, Variable};
+use crate::debugger::{command, Debugger, EventHook, GenericVariable};
 
 pub struct Variables<'a, T: EventHook> {
     dbg: &'a Debugger<T>,
@@ -9,7 +9,7 @@ impl<'a, T: EventHook> Variables<'a, T> {
         Self { dbg: debugger }
     }
 
-    pub fn run(&self) -> command::Result<Vec<Variable>> {
+    pub fn run(&self) -> command::Result<Vec<GenericVariable<T>>> {
         Ok(self.dbg.read_variables()?)
     }
 }

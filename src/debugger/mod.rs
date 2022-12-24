@@ -9,7 +9,7 @@ pub mod variable;
 
 pub use dwarf::parser::unit::Place;
 pub use dwarf::r#type::TypeDeclaration;
-pub use variable::Variable;
+pub use variable::GenericVariable;
 
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::dwarf::{DebugeeContext, EndianRcSlice, Symbol};
@@ -370,7 +370,7 @@ impl<T: EventHook> Debugger<T> {
         addr + self.load_addr.get()
     }
 
-    fn read_variables(&self) -> anyhow::Result<Vec<Variable>> {
+    fn read_variables(&self) -> anyhow::Result<Vec<GenericVariable<T>>> {
         let pc = self.offset_pc()?;
 
         let current_func = self
@@ -386,7 +386,8 @@ impl<T: EventHook> Debugger<T> {
                 let mb_value = mb_type.as_ref().and_then(|type_decl| {
                     var.read_value_at_location(type_decl, current_func, self.pid)
                 });
-                Ok(Variable {
+                Ok(GenericVariable {
+                    debugger: self,
                     r#type: mb_type,
                     value: mb_value,
                     name: var.die.base_attributes.name.clone().map(Cow::Owned),

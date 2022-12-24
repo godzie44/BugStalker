@@ -1,6 +1,6 @@
 use crate::cui::hook::CuiHook;
 use crate::cui::window::{CuiComponent, RenderOpts};
-use crate::debugger::variable::RenderView;
+use crate::debugger::variable::{IRValueRepr, VariableIR};
 use crate::debugger::{command, Debugger};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::cell::RefCell;
@@ -36,19 +36,27 @@ impl CuiComponent for Variables {
         self.variables.borrow_mut().update(&self.debugger);
         let list_items = self
             .variables
-            .borrow()
+            .borrow_mut()
             .items
-            .iter()
+            .iter_mut()
             .map(|view| {
-                let as_text = if view.children.is_empty() {
-                    format!(
-                        "{}: {}({})",
-                        view.name(),
-                        view.r#type,
-                        view.value.as_deref().unwrap_or_default()
-                    )
-                } else {
-                    format!("{}: {}(...)", view.name(), view.r#type)
+                let val = match view.value() {
+                    None => String::default(),
+                    Some(ref val) => match val {
+                        IRValueRepr::Rendered(r) => r.to_string(),
+                        IRValueRepr::Referential { addr, .. } => {
+                            format!("{addr:p} (...)")
+                        }
+                        IRValueRepr::Wrapped(_) => "(...)".to_string(),
+                        IRValueRepr::Nested(_) => "(...)".to_string(),
+                    },
+                };
+
+                let as_text = match view {
+                    VariableIR::CEnum(_) | VariableIR::RustEnum(_) => {
+                        format!("{}: {}::{}", view.name(), view.r#type(), val)
+                    }
+                    _ => format!("{}: {}({})", view.name(), view.r#type(), val),
                 };
 
                 ListItem::new(as_text)
@@ -98,7 +106,7 @@ impl CuiComponent for Variables {
 
 #[derive(Default)]
 struct VariableList {
-    items: Vec<RenderView>,
+    items: Vec<VariableIR>,
     state: ListState,
 }
 
@@ -106,10 +114,7 @@ impl VariableList {
     fn update(&mut self, debugger: &Debugger<CuiHook>) {
         let cmd = command::Variables::new(debugger);
         let variables = cmd.run().unwrap_or_default();
-        let views = variables
-            .iter()
-            .map(|v| v.render(debugger))
-            .collect::<Vec<_>>();
+        let views = variables.iter().map(|v| v.as_ir()).collect::<Vec<_>>();
         self.items = views;
     }
 

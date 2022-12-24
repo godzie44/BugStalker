@@ -171,7 +171,8 @@ fn test_read_enum() {
     session.exp_string("1: f32(1.2)").unwrap();
     session.exp_string("}").unwrap();
 
-    session.exp_string("enum_4 = EnumC::E()").unwrap();
+    session.exp_string("enum_4 = EnumC::E {").unwrap();
+    session.exp_string("}").unwrap();
 
     session.exp_string("enum_5 = EnumF::F {").unwrap();
     session.exp_string("0: EnumC::C {").unwrap();
@@ -206,20 +207,30 @@ fn test_read_pointers() {
 
     session.send_line("vars").unwrap();
     session.exp_string("a = i32(2)").unwrap();
-    session.exp_string("ref_a = &i32(i32(2))").unwrap();
-    session.exp_string("ptr_a = *const i32(i32(2))").unwrap();
     session
-        .exp_string("ptr_ptr_a = *const *const i32(*const i32(i32(2)))")
+        .exp_regex(r"ref_a = &i32 \[0x.*\] \(i32\(2\)\)")
+        .unwrap();
+    session
+        .exp_regex(r"ptr_a = \*const i32 \[0x.*\] \(i32\(2\)\)")
+        .unwrap();
+    session
+        .exp_regex(
+            r"ptr_ptr_a = \*const \*const i32 \[0x.*\] \(\*const i32 \[0x.*\] \(i32\(2\)\)\)",
+        )
         .unwrap();
 
     session.exp_string("b = i32(2)").unwrap();
-    session.exp_string("mut_ref_b = &mut i32(i32(2))").unwrap();
+    session
+        .exp_regex(r"mut_ref_b = &mut i32 \[0x.*\] \(i32\(2\)\)")
+        .unwrap();
 
     session.exp_string("c = i32(2)").unwrap();
-    session.exp_string("mut_ptr_c = *mut i32(i32(2))").unwrap();
+    session
+        .exp_regex(r"mut_ptr_c = \*mut i32 \[0x.*\] \(i32\(2\)\)")
+        .unwrap();
 
     session
-        .exp_string("box_d = alloc::boxed::Box<i32, alloc::alloc::Global>(i32(2))")
+        .exp_regex(r"box_d = alloc::boxed::Box<i32, alloc::alloc::Global> \[0x.*\] \(i32\(2\)\)")
         .unwrap();
 
     session.exp_string("f = Foo {").unwrap();
@@ -228,18 +239,22 @@ fn test_read_pointers() {
     session.exp_string("0: i32(1)").unwrap();
     session.exp_string("1: i32(2)").unwrap();
     session.exp_string("}").unwrap();
-    session.exp_string("foo: &i32(i32(2))").unwrap();
+    session
+        .exp_regex(r"foo: &i32 \[0x.*\] \(i32\(2\)\)")
+        .unwrap();
     session.exp_string("}").unwrap();
 
     session
-        .exp_string("ref_f = &vars::references::Foo(Foo {")
+        .exp_regex(r"ref_f = &vars::references::Foo \[0x.*\] \(Foo \{")
         .unwrap();
     session.exp_string("bar: i32(1)").unwrap();
     session.exp_string("baz: [i32] {").unwrap();
     session.exp_string("0: i32(1)").unwrap();
     session.exp_string("1: i32(2)").unwrap();
     session.exp_string("}").unwrap();
-    session.exp_string("foo: &i32(i32(2))").unwrap();
+    session
+        .exp_regex(r"foo: &i32 \[0x.*\] \(i32\(2\)\)")
+        .unwrap();
     session.exp_string("})").unwrap();
 }
 
