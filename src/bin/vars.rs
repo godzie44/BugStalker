@@ -137,6 +137,28 @@ fn type_params() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn vec_types() {
+    let vec1 = vec![1, 2, 3, 4];
+    let slice1 = &[1, 2, 3, 4];
+
+    struct Foo {
+        foo: i32,
+    }
+    let vec2 = vec![Foo { foo: 1 }, Foo { foo: 2 }];
+
+    let hm1 = std::collections::HashMap::from([("1", 2), ("3", 4)]);
+
+    let nop: Option<u8> = None;
+}
+
+#[allow(unused)]
+fn string_types() {
+    let s1 = "hello world".to_string();
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -145,4 +167,6 @@ pub fn main() {
     references();
     type_alias();
     type_params();
+    vec_types();
+    string_types();
 }

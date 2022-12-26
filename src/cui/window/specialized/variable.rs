@@ -1,6 +1,7 @@
 use crate::cui::hook::CuiHook;
 use crate::cui::window::{CuiComponent, RenderOpts};
-use crate::debugger::variable::{IRValueRepr, VariableIR};
+use crate::debugger::variable::render::{RenderRepr, ValueRepr};
+use crate::debugger::variable::VariableIR;
 use crate::debugger::{command, Debugger};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::cell::RefCell;
@@ -43,12 +44,12 @@ impl CuiComponent for Variables {
                 let val = match view.value() {
                     None => String::default(),
                     Some(ref val) => match val {
-                        IRValueRepr::Rendered(r) => r.to_string(),
-                        IRValueRepr::Referential { addr, .. } => {
+                        ValueRepr::PreRendered(r) => r.to_string(),
+                        ValueRepr::Referential { addr, .. } => {
                             format!("{addr:p} (...)")
                         }
-                        IRValueRepr::Wrapped(_) => "(...)".to_string(),
-                        IRValueRepr::Nested(_) => "(...)".to_string(),
+                        ValueRepr::Wrapped(_) => "(...)".to_string(),
+                        ValueRepr::Nested(_) => "(...)".to_string(),
                     },
                 };
 
@@ -114,8 +115,7 @@ impl VariableList {
     fn update(&mut self, debugger: &Debugger<CuiHook>) {
         let cmd = command::Variables::new(debugger);
         let variables = cmd.run().unwrap_or_default();
-        let views = variables.iter().map(|v| v.as_ir()).collect::<Vec<_>>();
-        self.items = views;
+        self.items = variables.into_iter().collect::<Vec<_>>();
     }
 
     fn next(&mut self) {

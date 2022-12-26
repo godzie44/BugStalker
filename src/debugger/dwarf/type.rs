@@ -189,12 +189,15 @@ impl<'a> ArrayDeclaration<'a> {
 }
 
 #[derive(Clone)]
+pub struct ScalarType {
+    pub name: Option<String>,
+    pub byte_size: Option<u64>,
+    pub encoding: Option<DwAte>,
+}
+
+#[derive(Clone)]
 pub enum TypeDeclaration<'a> {
-    Scalar {
-        name: Option<String>,
-        byte_size: Option<u64>,
-        encoding: Option<DwAte>,
-    },
+    Scalar(ScalarType),
     Array(ArrayDeclaration<'a>),
     Structure {
         name: Option<String>,
@@ -223,7 +226,7 @@ pub enum TypeDeclaration<'a> {
 impl<'a> TypeDeclaration<'a> {
     pub fn size_in_bytes(&self, pid: Pid) -> Option<u64> {
         match self {
-            TypeDeclaration::Scalar { byte_size, .. } => *byte_size,
+            TypeDeclaration::Scalar(s) => s.byte_size,
             TypeDeclaration::Structure { byte_size, .. } => *byte_size,
             TypeDeclaration::Array(arr) => arr.size_in_bytes(pid),
             TypeDeclaration::CStyleEnum { byte_size, .. } => *byte_size,
@@ -234,7 +237,7 @@ impl<'a> TypeDeclaration<'a> {
 
     pub fn name(&self) -> Option<String> {
         match self {
-            TypeDeclaration::Scalar { name, .. } => name.clone(),
+            TypeDeclaration::Scalar(s) => s.name.clone(),
             TypeDeclaration::Structure { name, .. } => name.clone(),
             TypeDeclaration::Array(arr) => Some(format!(
                 "[{}]",
@@ -391,11 +394,11 @@ impl<'a> TypeDeclaration<'a> {
 impl From<ContextualDieRef<'_, BaseTypeDie>> for TypeDeclaration<'_> {
     fn from(ctx_die: ContextualDieRef<'_, BaseTypeDie>) -> Self {
         let name = ctx_die.die.base_attributes.name.clone();
-        TypeDeclaration::Scalar {
+        TypeDeclaration::Scalar(ScalarType {
             name,
             byte_size: ctx_die.die.byte_size,
             encoding: ctx_die.die.encoding,
-        }
+        })
     }
 }
 

@@ -9,7 +9,6 @@ pub mod variable;
 
 pub use dwarf::parser::unit::Place;
 pub use dwarf::r#type::TypeDeclaration;
-pub use variable::GenericVariable;
 
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::dwarf::{DebugeeContext, EndianRcSlice, Symbol};
@@ -17,6 +16,7 @@ use crate::debugger::register::{
     get_register_from_name, get_register_value, set_register_value, Register,
 };
 use crate::debugger::uw::Backtrace;
+use crate::debugger::variable::VariableIR;
 use anyhow::anyhow;
 use nix::errno::Errno;
 use nix::libc::{c_int, c_void, siginfo_t, uintptr_t};
@@ -24,7 +24,6 @@ use nix::sys::wait::waitpid;
 use nix::unistd::Pid;
 use nix::{libc, sys};
 use object::{Object, ObjectKind};
-use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::c_long;
@@ -165,23 +164,7 @@ impl<T: EventHook> Debugger<T> {
 
     /// Read N bytes from debugee process.
     fn read_memory(&self, addr: usize, read_n: usize) -> nix::Result<Vec<u8>> {
-        let mut read_reminder = read_n as isize;
-        let mut result = Vec::with_capacity(read_n);
-
-        let single_read_size = mem::size_of::<c_long>();
-
-        let mut addr = addr as *mut c_long;
-        while read_reminder > 0 {
-            let value = sys::ptrace::read(self.pid, addr as *mut c_void)?;
-            result.extend(value.to_ne_bytes().into_iter().take(read_reminder as usize));
-
-            read_reminder -= single_read_size as isize;
-            addr = unsafe { addr.offset(1) };
-        }
-
-        debug_assert!(result.len() == read_n);
-
-        Ok(result)
+        read_memory_by_pid(self.pid, addr, read_n)
     }
 
     fn write_memory(&self, addr: uintptr_t, value: uintptr_t) -> nix::Result<()> {
@@ -370,7 +353,7 @@ impl<T: EventHook> Debugger<T> {
         addr + self.load_addr.get()
     }
 
-    fn read_variables(&self) -> anyhow::Result<Vec<GenericVariable<T>>> {
+    fn read_variables(&self) -> anyhow::Result<Vec<VariableIR>> {
         let pc = self.offset_pc()?;
 
         let current_func = self
@@ -386,12 +369,12 @@ impl<T: EventHook> Debugger<T> {
                 let mb_value = mb_type.as_ref().and_then(|type_decl| {
                     var.read_value_at_location(type_decl, current_func, self.pid)
                 });
-                Ok(GenericVariable {
-                    debugger: self,
-                    r#type: mb_type,
-                    value: mb_value,
-                    name: var.die.base_attributes.name.clone().map(Cow::Owned),
-                })
+                Ok(VariableIR::new(
+                    self.pid,
+                    var.die.base_attributes.name.clone(),
+                    mb_value,
+                    mb_type.as_ref(),
+                ))
             })
             .collect::<anyhow::Result<Vec<_>>>()
     }
@@ -410,4 +393,25 @@ impl<T: EventHook> Debugger<T> {
             val,
         )?)
     }
+}
+
+/// Read N bytes from `PID` process.
+pub fn read_memory_by_pid(pid: Pid, addr: usize, read_n: usize) -> nix::Result<Vec<u8>> {
+    let mut read_reminder = read_n as isize;
+    let mut result = Vec::with_capacity(read_n);
+
+    let single_read_size = mem::size_of::<c_long>();
+
+    let mut addr = addr as *mut c_long;
+    while read_reminder > 0 {
+        let value = sys::ptrace::read(pid, addr as *mut c_void)?;
+        result.extend(value.to_ne_bytes().into_iter().take(read_reminder as usize));
+
+        read_reminder -= single_read_size as isize;
+        addr = unsafe { addr.offset(1) };
+    }
+
+    debug_assert!(result.len() == read_n);
+
+    Ok(result)
 }
