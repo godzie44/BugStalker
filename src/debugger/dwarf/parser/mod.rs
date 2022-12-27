@@ -3,7 +3,7 @@ pub mod unit;
 use crate::debugger::dwarf::parser::unit::{
     ArrayDie, ArraySubrangeDie, BaseTypeDie, DieAttributes, DieRange, DieVariant, Entry,
     EnumTypeDie, EnumeratorDie, FunctionDie, LexicalBlockDie, LineRow, PointerType, StructTypeDie,
-    TypeMemberDie, Unit, VariableDie, Variant, VariantPart,
+    TemplateTypeParameter, TypeMemberDie, Unit, VariableDie, Variant, VariantPart,
 };
 use crate::debugger::dwarf::EndianRcSlice;
 use crate::debugger::rust::Environment;
@@ -206,6 +206,12 @@ impl<'a> DwarfUnitParser<'a> {
                     type_addr: die.attr(DW_AT_type)?,
                     address_class: die.attr(DW_AT_address_class)?.and_then(|v| v.udata_value()),
                 }),
+                gimli::DW_TAG_template_type_parameter => {
+                    DieVariant::TemplateType(TemplateTypeParameter {
+                        base_attributes: base_attrs,
+                        type_addr: die.attr(DW_AT_type)?,
+                    })
+                }
                 _ => DieVariant::Default(base_attrs),
             };
 

@@ -1,14 +1,21 @@
-use crate::debugger;
 use crate::debugger::dwarf::r#type::{ArrayDeclaration, StructureMember};
+use crate::debugger::variable::render::RenderRepr;
+use crate::debugger::variable::specialized::{
+    SpecializedVariableIR, StrVariable, StringVariable, VecVariable,
+};
 use crate::debugger::TypeDeclaration;
+use crate::{debugger, weak_error};
+use anyhow::Context;
 use bytes::Bytes;
 use nix::unistd::Pid;
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::mem;
 
 pub mod render;
+pub mod specialized;
 
+#[derive(Clone)]
 pub enum SupportedScalar {
     I8(i8),
     I16(i16),
@@ -53,6 +60,7 @@ impl Display for SupportedScalar {
     }
 }
 
+#[derive(Clone)]
 pub struct ScalarVariable {
     name: Option<String>,
     type_name: Option<String>,
@@ -112,6 +120,7 @@ impl ScalarVariable {
     }
 }
 
+#[derive(Clone)]
 pub struct StructVariable {
     pub name: Option<String>,
     pub type_name: Option<String>,
@@ -133,12 +142,13 @@ impl StructVariable {
 
         StructVariable {
             name,
-            r#type_name,
+            type_name,
             members: children,
         }
     }
 }
 
+#[derive(Clone)]
 pub struct ArrayVariable {
     pub name: Option<String>,
     pub type_name: Option<String>,
@@ -181,6 +191,7 @@ impl ArrayVariable {
     }
 }
 
+#[derive(Clone)]
 pub struct CEnumVariable {
     pub name: Option<String>,
     pub type_name: Option<String>,
@@ -211,6 +222,7 @@ impl CEnumVariable {
     }
 }
 
+#[derive(Clone)]
 pub struct RustEnumVariable {
     pub name: Option<String>,
     pub type_name: Option<String>,
@@ -229,10 +241,9 @@ impl RustEnumVariable {
         let discr_value = discr_member.and_then(|member| {
             let discr = VariableIR::from_member(pid, member, value.as_ref());
             if let VariableIR::Scalar(scalar) = discr {
-                scalar.try_as_number()
-            } else {
-                None
+                return scalar.try_as_number();
             }
+            None
         });
 
         let enumerator =
@@ -249,6 +260,7 @@ impl RustEnumVariable {
     }
 }
 
+#[derive(Clone)]
 pub struct PointerVariable {
     name: Option<String>,
     type_name: Option<String>,
@@ -263,7 +275,7 @@ impl PointerVariable {
         type_name: Option<String>,
         target_type: Option<&TypeDeclaration>,
         value: Option<Bytes>,
-    ) -> PointerVariable {
+    ) -> Self {
         let mb_ptr = value.as_ref().map(scalar_from_bytes::<*const ()>).copied();
         let deref_size = target_type.as_ref().and_then(|t| t.size_in_bytes(pid));
 
@@ -288,6 +300,7 @@ impl PointerVariable {
     }
 }
 
+#[derive(Clone)]
 pub enum VariableIR {
     Scalar(ScalarVariable),
     Struct(StructVariable),
@@ -295,6 +308,13 @@ pub enum VariableIR {
     CEnum(CEnumVariable),
     RustEnum(RustEnumVariable),
     Pointer(PointerVariable),
+    Specialized(SpecializedVariableIR),
+}
+
+impl Debug for VariableIR {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
 }
 
 impl VariableIR {
@@ -305,12 +325,58 @@ impl VariableIR {
         r#type: Option<&TypeDeclaration>,
     ) -> Self {
         let type_name = r#type.as_ref().and_then(|t| t.name());
+
         match r#type {
             Some(TypeDeclaration::Scalar { .. }) => {
                 VariableIR::Scalar(ScalarVariable::new(name, r#type, value))
             }
-            Some(TypeDeclaration::Structure { members, .. }) => {
-                VariableIR::Struct(StructVariable::new(pid, name, type_name, members, value))
+            Some(TypeDeclaration::Structure {
+                members,
+                type_params,
+                name: struct_name,
+                ..
+            }) => {
+                let struct_var = StructVariable::new(pid, name, type_name, members, value);
+
+                // Reinterpret structure if underline data type is:
+                // - Vector
+                // - String
+                // - &str
+                if struct_name.as_deref() == Some("&str") {
+                    return VariableIR::Specialized(SpecializedVariableIR::Str {
+                        string: weak_error!(StrVariable::from_struct_ir(
+                            VariableIR::Struct(struct_var.clone()),
+                            pid,
+                        )
+                        .context("&str interpretation")),
+                        original: struct_var,
+                    });
+                };
+
+                if struct_name.as_deref() == Some("String") {
+                    return VariableIR::Specialized(SpecializedVariableIR::String {
+                        string: weak_error!(StringVariable::from_struct_ir(
+                            VariableIR::Struct(struct_var.clone()),
+                            pid,
+                        )
+                        .context("string interpretation")),
+                        original: struct_var,
+                    });
+                };
+
+                if struct_name.as_ref().map(|name| name.starts_with("Vec")) == Some(true) {
+                    return VariableIR::Specialized(SpecializedVariableIR::Vector {
+                        vec: weak_error!(VecVariable::from_struct_ir(
+                            VariableIR::Struct(struct_var.clone()),
+                            pid,
+                            type_params,
+                        )
+                        .context("vec interpretation")),
+                        original: struct_var,
+                    });
+                };
+
+                VariableIR::Struct(struct_var)
             }
             Some(TypeDeclaration::Array(decl)) => {
                 VariableIR::Array(ArrayVariable::new(pid, name, type_name, decl, value))
@@ -363,6 +429,44 @@ impl VariableIR {
     fn dfs_iterator(&self) -> DfsIterator {
         DfsIterator { stack: vec![self] }
     }
+
+    fn assume_field_as_scalar_number(&self, field_name: &'static str) -> Result<i64, AssumeError> {
+        let ir = self
+            .dfs_iterator()
+            .find(|child| child.name() == field_name)
+            .ok_or(AssumeError::FieldNotFound(field_name))?;
+        if let VariableIR::Scalar(s) = ir {
+            Ok(s.try_as_number()
+                .ok_or(AssumeError::FieldNotANumber(field_name))?)
+        } else {
+            Err(AssumeError::FieldNotANumber(field_name))
+        }
+    }
+
+    fn assume_field_as_pointer(&self, field_name: &'static str) -> Result<*const (), AssumeError> {
+        self.dfs_iterator()
+            .find_map(|child| {
+                if let VariableIR::Pointer(pointer) = child {
+                    if pointer.name.as_deref() != Some(field_name) {
+                        return None;
+                    }
+
+                    return pointer.value;
+                }
+                None
+            })
+            .ok_or(AssumeError::IncompleteInterp("pointer"))
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum AssumeError {
+    #[error("field `{0}` not found")]
+    FieldNotFound(&'static str),
+    #[error("field `{0}` not a number")]
+    FieldNotANumber(&'static str),
+    #[error("incomplete interpretation of `{0}`")]
+    IncompleteInterp(&'static str),
 }
 
 struct DfsIterator<'a> {
@@ -398,6 +502,29 @@ impl<'a> Iterator for DfsIterator<'a> {
                     self.stack.push(val)
                 }
             }
+            VariableIR::Specialized(spec) => match spec {
+                SpecializedVariableIR::Vector { original, .. } => {
+                    original
+                        .members
+                        .iter()
+                        .rev()
+                        .for_each(|member| self.stack.push(member));
+                }
+                SpecializedVariableIR::String { original, .. } => {
+                    original
+                        .members
+                        .iter()
+                        .rev()
+                        .for_each(|member| self.stack.push(member));
+                }
+                SpecializedVariableIR::Str { original, .. } => {
+                    original
+                        .members
+                        .iter()
+                        .rev()
+                        .for_each(|member| self.stack.push(member));
+                }
+            },
             _ => {}
         }
 
@@ -534,6 +661,9 @@ mod test {
                     VariableIR::CEnum(e) => e.name.as_deref().unwrap(),
                     VariableIR::RustEnum(e) => e.name.as_deref().unwrap(),
                     VariableIR::Pointer(p) => p.name.as_deref().unwrap(),
+                    _ => {
+                        unreachable!()
+                    }
                 })
                 .collect();
             assert_eq!(tc.expected_order, names);

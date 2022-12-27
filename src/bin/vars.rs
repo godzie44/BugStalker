@@ -138,16 +138,18 @@ fn type_params() {
 }
 
 #[allow(unused)]
-fn vec_types() {
-    let vec1 = vec![1, 2, 3, 4];
-    let slice1 = &[1, 2, 3, 4];
+fn vec_and_slice_types() {
+    let vec1 = vec![1, 2, 3];
 
     struct Foo {
         foo: i32,
     }
     let vec2 = vec![Foo { foo: 1 }, Foo { foo: 2 }];
 
-    let hm1 = std::collections::HashMap::from([("1", 2), ("3", 4)]);
+    let vec3 = vec![vec1.clone(), vec1.clone()];
+
+    let slice1 = &[1, 2, 3];
+    let slice2 = &[slice1, slice1];
 
     let nop: Option<u8> = None;
 }
@@ -155,6 +157,8 @@ fn vec_types() {
 #[allow(unused)]
 fn string_types() {
     let s1 = "hello world".to_string();
+    let s2 = s1.as_str();
+    let s3 = "hello world";
 
     let nop: Option<u8> = None;
 }
@@ -167,6 +171,6 @@ pub fn main() {
     references();
     type_alias();
     type_params();
-    vec_types();
+    vec_and_slice_types();
     string_types();
 }

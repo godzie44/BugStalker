@@ -260,6 +260,12 @@ pub struct PointerType {
 }
 
 #[derive(Debug)]
+pub struct TemplateTypeParameter {
+    pub base_attributes: DieAttributes,
+    pub type_addr: Option<Attribute<EndianRcSlice>>,
+}
+
+#[derive(Debug)]
 pub enum DieVariant {
     Function(FunctionDie),
     LexicalBlock(LexicalBlockDie),
@@ -275,6 +281,7 @@ pub enum DieVariant {
     VariantPart(VariantPart),
     Variant(Variant),
     PointerType(PointerType),
+    TemplateType(TemplateTypeParameter),
 }
 
 #[derive(Debug)]

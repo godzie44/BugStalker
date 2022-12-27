@@ -203,6 +203,7 @@ pub enum TypeDeclaration<'a> {
         name: Option<String>,
         byte_size: Option<u64>,
         members: Vec<StructureMember<'a>>,
+        type_params: HashMap<String, Option<TypeDeclaration<'a>>>,
     },
     CStyleEnum {
         name: Option<String>,
@@ -311,10 +312,27 @@ impl<'a> TypeDeclaration<'a> {
             })
             .collect::<Vec<_>>();
 
+        let type_params = ctx_die
+            .node
+            .children
+            .iter()
+            .filter_map(|child_idx| {
+                let entry = &ctx_die.context.entries[*child_idx];
+                if let DieVariant::TemplateType(param) = &entry.die {
+                    let name = param.base_attributes.name.clone()?;
+                    let mb_type_decl =
+                        TypeDeclaration::from_type_addr_attr(ctx_die, param.type_addr.as_ref()?);
+                    return Some((name, mb_type_decl));
+                }
+                None
+            })
+            .collect::<HashMap<_, _>>();
+
         TypeDeclaration::Structure {
             name,
             byte_size: ctx_die.die.byte_size,
             members,
+            type_params,
         }
     }
 

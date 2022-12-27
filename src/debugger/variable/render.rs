@@ -1,3 +1,4 @@
+use crate::debugger::variable::specialized::SpecializedVariableIR;
 use crate::debugger::variable::VariableIR;
 use std::borrow::Cow;
 
@@ -25,7 +26,21 @@ impl RenderRepr for VariableIR {
             VariableIR::Array(a) => &a.name,
             VariableIR::CEnum(e) => &e.name,
             VariableIR::RustEnum(e) => &e.name,
-            VariableIR::Pointer(p) => &p.name,
+            VariableIR::Pointer(p) => return &p.name.as_deref().unwrap_or("anon"),
+            VariableIR::Specialized(spec) => match spec {
+                SpecializedVariableIR::Vector { vec, original } => match vec {
+                    None => &original.name,
+                    Some(v) => &v.structure.name,
+                },
+                SpecializedVariableIR::String { string, original } => match string {
+                    None => &original.name,
+                    Some(s) => &s.name,
+                },
+                SpecializedVariableIR::Str { string, original } => match string {
+                    None => &original.name,
+                    Some(s) => &s.name,
+                },
+            },
         };
 
         let name = name.as_deref().unwrap_or("unknown");
@@ -46,6 +61,14 @@ impl RenderRepr for VariableIR {
             VariableIR::CEnum(e) => &e.type_name,
             VariableIR::RustEnum(e) => &e.type_name,
             VariableIR::Pointer(p) => &p.type_name,
+            VariableIR::Specialized(spec) => match spec {
+                SpecializedVariableIR::Vector { vec, original } => match vec {
+                    None => &original.type_name,
+                    Some(v) => &v.structure.type_name,
+                },
+                SpecializedVariableIR::String { .. } => return "String",
+                SpecializedVariableIR::Str { .. } => return "&str",
+            },
         };
         r#type.as_deref().unwrap_or("unknown")
     }
@@ -66,6 +89,20 @@ impl RenderRepr for VariableIR {
                 let val = pointer.deref.as_ref()?;
                 ValueRepr::Referential { addr: ptr, val }
             }
+            VariableIR::Specialized(spec) => match spec {
+                SpecializedVariableIR::Vector { vec, original } => match vec {
+                    None => ValueRepr::Nested(original.members.as_ref()),
+                    Some(v) => ValueRepr::Nested(v.structure.members.as_ref()),
+                },
+                SpecializedVariableIR::String { string, original } => match string {
+                    None => ValueRepr::Nested(original.members.as_ref()),
+                    Some(s) => ValueRepr::PreRendered(Cow::Borrowed(&s.value)),
+                },
+                SpecializedVariableIR::Str { string, original } => match string {
+                    None => ValueRepr::Nested(original.members.as_ref()),
+                    Some(s) => ValueRepr::PreRendered(Cow::Borrowed(&s.value)),
+                },
+            },
         };
         Some(value_repr)
     }

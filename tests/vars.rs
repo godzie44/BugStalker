@@ -294,6 +294,122 @@ fn test_type_parameters() {
     session.exp_string("}").unwrap();
 }
 
+#[test]
+fn test_read_vec_and_slice() {
+    let mut session = setup_vars_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break vars.rs:154").unwrap();
+    session.exp_string("break vars.rs:154").unwrap();
+
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars").unwrap();
+    session
+        .exp_string("vec1 = Vec<i32, alloc::alloc::Global> {")
+        .unwrap();
+    session.exp_string("buf:  {").unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(2)").unwrap();
+    session.exp_string("2: i32(3)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("cap: usize(3)").unwrap();
+    session.exp_string("}").unwrap();
+
+    session
+        .exp_string("vec2 = Vec<vars::vec_and_slice_types::Foo, alloc::alloc::Global> {")
+        .unwrap();
+    session.exp_string("buf:  {").unwrap();
+    session.exp_string("0: Foo {").unwrap();
+    session.exp_string("foo: i32(1)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("1: Foo {").unwrap();
+    session.exp_string("foo: i32(2)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("cap: usize(2)").unwrap();
+    session.exp_string("}").unwrap();
+
+    session
+        .exp_string(
+            "vec3 = Vec<alloc::vec::Vec<i32, alloc::alloc::Global>, alloc::alloc::Global> {",
+        )
+        .unwrap();
+    session.exp_string("buf:  {").unwrap();
+    session
+        .exp_string("0: Vec<i32, alloc::alloc::Global> {")
+        .unwrap();
+    session.exp_string("buf:  {").unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(2)").unwrap();
+    session.exp_string("2: i32(3)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("cap: usize(3)").unwrap();
+    session.exp_string("}").unwrap();
+    session
+        .exp_string("1: Vec<i32, alloc::alloc::Global> {")
+        .unwrap();
+    session.exp_string("buf:  {").unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(2)").unwrap();
+    session.exp_string("2: i32(3)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("cap: usize(3)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("cap: usize(3)").unwrap();
+    session.exp_string("}").unwrap();
+
+    session
+        .exp_string("slice1 = &[i32; 3] [0x555555595018] ([i32] {")
+        .unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(2)").unwrap();
+    session.exp_string("2: i32(3)").unwrap();
+    session.exp_string("})").unwrap();
+
+    session
+        .exp_string("slice2 = &[&[i32; 3]; 2] [0x7fffffffde90] ([&[i32; 3]] {")
+        .unwrap();
+    session
+        .exp_string("0: &[i32; 3] [0x555555595018] ([i32] {")
+        .unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(2)").unwrap();
+    session.exp_string("2: i32(3)").unwrap();
+    session.exp_string("})").unwrap();
+    session
+        .exp_string("1: &[i32; 3] [0x555555595018] ([i32] {")
+        .unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(2)").unwrap();
+    session.exp_string("2: i32(3)").unwrap();
+    session.exp_string("})").unwrap();
+    session.exp_string("})").unwrap();
+}
+
+#[test]
+fn test_read_strings() {
+    let mut session = setup_vars_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break vars.rs:163").unwrap();
+    session.exp_string("break vars.rs:163").unwrap();
+
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars").unwrap();
+    session.exp_string("s1 = String(hello world)").unwrap();
+    session.exp_string("s2 = &str(hello world)").unwrap();
+    session.exp_string("s3 = &str(hello world)").unwrap();
+}
+
 fn setup_vars_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
     cmd.arg("./target/debug/vars");

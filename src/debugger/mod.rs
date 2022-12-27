@@ -17,6 +17,7 @@ use crate::debugger::register::{
 };
 use crate::debugger::uw::Backtrace;
 use crate::debugger::variable::VariableIR;
+use crate::weak_error;
 use anyhow::anyhow;
 use nix::errno::Errno;
 use nix::libc::{c_int, c_void, siginfo_t, uintptr_t};
@@ -363,20 +364,22 @@ impl<T: EventHook> Debugger<T> {
 
         let vars = current_func.find_variables(pc);
 
-        vars.into_iter()
+        let vars = vars
+            .into_iter()
             .map(|var| {
                 let mb_type = var.r#type();
                 let mb_value = mb_type.as_ref().and_then(|type_decl| {
                     var.read_value_at_location(type_decl, current_func, self.pid)
                 });
-                Ok(VariableIR::new(
+                VariableIR::new(
                     self.pid,
                     var.die.base_attributes.name.clone(),
                     mb_value,
                     mb_type.as_ref(),
-                ))
+                )
             })
-            .collect::<anyhow::Result<Vec<_>>>()
+            .collect::<Vec<_>>();
+        Ok(vars)
     }
 
     pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {
