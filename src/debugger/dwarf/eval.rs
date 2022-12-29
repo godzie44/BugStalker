@@ -109,7 +109,7 @@ impl<'a> ExpressionEvaluator<'a> {
                     result = eval.resume_with_at_location(buf)?;
                 }
                 EvaluationResult::RequiresBaseType(offset) => {
-                    let mb_entry = self.unit.find_die(offset);
+                    let mb_entry = self.unit.find_entry(offset);
 
                     let base_type = mb_entry
                         .and_then(|entry| {

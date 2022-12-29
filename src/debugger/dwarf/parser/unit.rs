@@ -1,13 +1,11 @@
-use crate::debugger::dwarf::eval::{EvalOption, ExpressionEvaluator};
-use crate::debugger::dwarf::r#type::{EvaluationContext, TypeDeclaration};
+use crate::debugger::dwarf::eval::ExpressionEvaluator;
+use crate::debugger::dwarf::parser::DieRef;
 use crate::debugger::dwarf::EndianRcSlice;
-use crate::weak_error;
-use anyhow::anyhow;
-use bytes::Bytes;
-use gimli::{Attribute, DwAte, DwTag, Encoding, Range, UnitOffset};
+use gimli::{Attribute, DebugInfoOffset, DwAte, DwTag, Encoding, Range, UnitOffset};
 use nix::unistd::Pid;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 #[derive(PartialEq, Debug)]
 pub(super) struct LineRow {
@@ -26,41 +24,22 @@ pub struct DieRange {
 
 #[derive(Debug)]
 pub struct Unit {
+    pub id: Uuid,
     pub(super) files: Vec<PathBuf>,
     pub(super) lines: Vec<LineRow>,
     pub ranges: Vec<Range>,
     pub entries: Vec<Entry>,
-    pub(super) die_ranges: Vec<DieRange>,
+    pub die_ranges: Vec<DieRange>,
     pub(super) die_offsets: HashMap<UnitOffset, usize>,
     #[allow(unused)]
     pub(super) name: Option<String>,
     pub(super) encoding: Encoding,
+    pub offset: Option<DebugInfoOffset>,
 }
 
 impl Unit {
     pub fn evaluator(&self, pid: Pid) -> ExpressionEvaluator {
         ExpressionEvaluator::new(self, self.encoding, pid)
-    }
-
-    pub fn find_function_by_name(&self, name: &str) -> Option<ContextualDieRef<FunctionDie>> {
-        self.entries.iter().find_map(|det_die| {
-            if let DieVariant::Function(func) = &det_die.die {
-                if func
-                    .base_attributes
-                    .name
-                    .as_ref()
-                    .map(|fn_name| fn_name == name)
-                    .unwrap_or(false)
-                {
-                    return Some(ContextualDieRef {
-                        context: self,
-                        node: &det_die.node,
-                        die: func,
-                    });
-                }
-            }
-            None
-        })
     }
 
     pub fn find_place(&self, line_pos: usize) -> Option<Place> {
@@ -104,30 +83,7 @@ impl Unit {
         None
     }
 
-    pub fn find_function_by_pc(&self, pc: u64) -> Option<ContextualDieRef<FunctionDie>> {
-        let find_pos = match self
-            .die_ranges
-            .binary_search_by_key(&pc, |dr| dr.range.begin)
-        {
-            Ok(pos) => pos + 1,
-            Err(pos) => pos,
-        };
-
-        self.die_ranges[..find_pos].iter().rev().find_map(|dr| {
-            if let DieVariant::Function(ref func) = self.entries[dr.die_idx].die {
-                if dr.range.begin <= pc && pc <= dr.range.end {
-                    return Some(ContextualDieRef {
-                        node: &self.entries[dr.die_idx].node,
-                        context: self,
-                        die: func,
-                    });
-                }
-            };
-            None
-        })
-    }
-
-    pub fn find_die(&self, offset: UnitOffset) -> Option<&Entry> {
+    pub fn find_entry(&self, offset: UnitOffset) -> Option<&Entry> {
         let die_idx = self.die_offsets.get(&offset)?;
         Some(&self.entries[*die_idx])
     }
@@ -169,7 +125,7 @@ pub struct DieAttributes {
 #[derive(Debug)]
 pub struct FunctionDie {
     pub base_attributes: DieAttributes,
-    pub(super) fb_addr: Option<Attribute<EndianRcSlice>>,
+    pub fb_addr: Option<Attribute<EndianRcSlice>>,
 }
 
 #[derive(Debug)]
@@ -181,9 +137,9 @@ pub struct LexicalBlockDie {
 #[derive(Debug)]
 pub struct VariableDie {
     pub base_attributes: DieAttributes,
-    pub(super) type_addr: Option<Attribute<EndianRcSlice>>,
-    pub(super) location: Option<Attribute<EndianRcSlice>>,
-    pub(super) lexical_block_idx: Option<usize>,
+    pub type_ref: Option<DieRef>,
+    pub location: Option<Attribute<EndianRcSlice>>,
+    pub lexical_block_idx: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -197,7 +153,7 @@ pub struct BaseTypeDie {
 #[derive(Debug)]
 pub struct ArrayDie {
     pub base_attributes: DieAttributes,
-    pub type_addr: Option<Attribute<EndianRcSlice>>,
+    pub type_ref: Option<DieRef>,
     pub byte_size: Option<u64>,
 }
 
@@ -222,13 +178,13 @@ pub struct TypeMemberDie {
     #[allow(unused)]
     pub byte_size: Option<u64>,
     pub location: Option<Attribute<EndianRcSlice>>,
-    pub type_addr: Option<Attribute<EndianRcSlice>>,
+    pub type_ref: Option<DieRef>,
 }
 
 #[derive(Debug)]
 pub struct EnumTypeDie {
     pub base_attributes: DieAttributes,
-    pub type_addr: Option<Attribute<EndianRcSlice>>,
+    pub type_ref: Option<DieRef>,
     pub byte_size: Option<u64>,
 }
 
@@ -241,8 +197,8 @@ pub struct EnumeratorDie {
 #[derive(Debug)]
 pub struct VariantPart {
     pub base_attributes: DieAttributes,
-    pub discr_addr: Option<Attribute<EndianRcSlice>>,
-    pub type_addr: Option<Attribute<EndianRcSlice>>,
+    pub discr_ref: Option<DieRef>,
+    pub type_ref: Option<DieRef>,
 }
 
 #[derive(Debug)]
@@ -254,7 +210,7 @@ pub struct Variant {
 #[derive(Debug)]
 pub struct PointerType {
     pub base_attributes: DieAttributes,
-    pub type_addr: Option<Attribute<EndianRcSlice>>,
+    pub type_ref: Option<DieRef>,
     #[allow(unused)]
     pub address_class: Option<u64>,
 }
@@ -262,7 +218,7 @@ pub struct PointerType {
 #[derive(Debug)]
 pub struct TemplateTypeParameter {
     pub base_attributes: DieAttributes,
-    pub type_addr: Option<Attribute<EndianRcSlice>>,
+    pub type_ref: Option<DieRef>,
 }
 
 #[derive(Debug)]
@@ -305,155 +261,5 @@ impl Entry {
                 children: vec![],
             },
         }
-    }
-}
-
-pub struct ContextualDieRef<'a, T> {
-    pub context: &'a Unit,
-    pub node: &'a Node,
-    pub die: &'a T,
-}
-
-impl<'a, T> Clone for ContextualDieRef<'a, T> {
-    fn clone(&self) -> Self {
-        Self {
-            context: self.context,
-            node: self.node,
-            die: self.die,
-        }
-    }
-}
-
-impl<'a, T> Copy for ContextualDieRef<'a, T> {}
-
-impl<'unit> ContextualDieRef<'unit, FunctionDie> {
-    pub fn frame_base_addr(&self, pid: Pid) -> anyhow::Result<usize> {
-        let attr = self
-            .die
-            .fb_addr
-            .as_ref()
-            .ok_or_else(|| anyhow!("no frame base attr"))?;
-        let expr = attr
-            .exprloc_value()
-            .ok_or_else(|| anyhow!("frame base attribute not an expression"))?;
-
-        let result = self
-            .context
-            .evaluator(pid)
-            .evaluate(expr)?
-            .into_scalar::<usize>()?;
-        Ok(result)
-    }
-
-    pub fn find_variables<'this>(
-        &'this self,
-        pc: usize,
-    ) -> Vec<ContextualDieRef<'unit, VariableDie>> {
-        let mut result = vec![];
-        let mut queue = VecDeque::from(self.node.children.clone());
-        while let Some(idx) = queue.pop_front() {
-            if let DieVariant::Variable(ref var) = self.context.entries[idx].die {
-                let var_ref = ContextualDieRef {
-                    context: self.context,
-                    node: &self.context.entries[idx].node,
-                    die: var,
-                };
-
-                if var_ref.valid_at(pc) {
-                    result.push(var_ref);
-                }
-            }
-            self.context.entries[idx]
-                .node
-                .children
-                .iter()
-                .for_each(|i| queue.push_back(*i));
-        }
-        result
-    }
-}
-
-impl<'unit> ContextualDieRef<'unit, VariableDie> {
-    pub fn read_value_at_location(
-        &self,
-        type_decl: &TypeDeclaration,
-        parent_fn: ContextualDieRef<FunctionDie>,
-        pid: Pid,
-    ) -> Option<Bytes> {
-        self.die.location.as_ref().and_then(|loc| {
-            let expr = loc.exprloc_value()?;
-            let fb = weak_error!(parent_fn.frame_base_addr(pid))?;
-            let eval_result = weak_error!(self
-                .context
-                .evaluator(pid)
-                .evaluate_with_opts(expr, EvalOption::new().with_base_frame(fb),))?;
-            let bytes = weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
-                &EvaluationContext {
-                    unit: self.context,
-                    pid,
-                }
-            )? as usize))?;
-            Some(bytes)
-        })
-    }
-
-    pub fn r#type(&self) -> Option<TypeDeclaration> {
-        self.die.type_addr.as_ref().and_then(|addr| {
-            if let gimli::AttributeValue::UnitRef(unit_offset) = addr.value() {
-                let entry = &self.context.find_die(unit_offset)?;
-                let type_decl = match entry.die {
-                    DieVariant::BaseType(ref type_die) => TypeDeclaration::from(ContextualDieRef {
-                        context: self.context,
-                        node: &entry.node,
-                        die: type_die,
-                    }),
-                    DieVariant::StructType(ref type_die) => {
-                        TypeDeclaration::from(ContextualDieRef {
-                            context: self.context,
-                            node: &entry.node,
-                            die: type_die,
-                        })
-                    }
-                    DieVariant::ArrayType(ref type_die) => {
-                        TypeDeclaration::from(ContextualDieRef {
-                            context: self.context,
-                            node: &entry.node,
-                            die: type_die,
-                        })
-                    }
-                    DieVariant::EnumType(ref type_die) => TypeDeclaration::from(ContextualDieRef {
-                        context: self.context,
-                        node: &entry.node,
-                        die: type_die,
-                    }),
-                    DieVariant::PointerType(ref type_die) => {
-                        TypeDeclaration::from(ContextualDieRef {
-                            context: self.context,
-                            node: &entry.node,
-                            die: type_die,
-                        })
-                    }
-                    _ => None?,
-                };
-                Some(type_decl)
-            } else {
-                None
-            }
-        })
-    }
-
-    pub fn valid_at(&self, pc: usize) -> bool {
-        self.die
-            .lexical_block_idx
-            .map(|lb_idx| {
-                let DieVariant::LexicalBlock(lb) = &self.context.entries[lb_idx].die else {
-                    unreachable!();
-                };
-
-                lb.ranges
-                    .iter()
-                    .any(|r| pc >= r.begin as usize && pc <= r.end as usize)
-            })
-            .unwrap_or(true)
     }
 }

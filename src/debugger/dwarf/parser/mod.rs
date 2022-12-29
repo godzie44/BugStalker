@@ -9,14 +9,15 @@ use crate::debugger::dwarf::EndianRcSlice;
 use crate::debugger::rust::Environment;
 use fallible_iterator::FallibleIterator;
 use gimli::{
-    AttributeValue, DW_AT_address_class, DW_AT_byte_size, DW_AT_const_value, DW_AT_count,
-    DW_AT_data_member_location, DW_AT_discr, DW_AT_discr_value, DW_AT_encoding, DW_AT_frame_base,
-    DW_AT_location, DW_AT_lower_bound, DW_AT_name, DW_AT_type, DW_AT_upper_bound, Range, Reader,
-    Unit as DwarfUnit,
+    Attribute, AttributeValue, DW_AT_address_class, DW_AT_byte_size, DW_AT_const_value,
+    DW_AT_count, DW_AT_data_member_location, DW_AT_discr, DW_AT_discr_value, DW_AT_encoding,
+    DW_AT_frame_base, DW_AT_location, DW_AT_lower_bound, DW_AT_name, DW_AT_type, DW_AT_upper_bound,
+    DebugInfoOffset, Range, Reader, Unit as DwarfUnit, UnitOffset,
 };
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
+use uuid::Uuid;
 
 pub struct DwarfUnitParser<'a> {
     dwarf: &'a gimli::Dwarf<EndianRcSlice>,
@@ -34,6 +35,7 @@ impl<'a> DwarfUnitParser<'a> {
             .and_then(|n| n.to_string_lossy().ok().map(|s| s.to_string()));
 
         let mut parsed_unit = Unit {
+            id: Uuid::new_v4(),
             entries: vec![],
             files: vec![],
             lines: vec![],
@@ -41,6 +43,7 @@ impl<'a> DwarfUnitParser<'a> {
             die_ranges: vec![],
             die_offsets: HashMap::new(),
             encoding: unit.encoding(),
+            offset: unit.header.offset().as_debug_info_offset(),
             name,
         };
 
@@ -130,7 +133,7 @@ impl<'a> DwarfUnitParser<'a> {
 
                     DieVariant::Variable(VariableDie {
                         base_attributes: base_attrs,
-                        type_addr: die.attr(DW_AT_type)?,
+                        type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
                         location: die.attr(DW_AT_location)?,
                         lexical_block_idx,
                     })
@@ -158,7 +161,7 @@ impl<'a> DwarfUnitParser<'a> {
                     base_attributes: base_attrs,
                     byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
                     location: die.attr(DW_AT_data_member_location)?,
-                    type_addr: die.attr(DW_AT_type)?,
+                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
                 }),
                 gimli::DW_TAG_lexical_block => DieVariant::LexicalBlock(LexicalBlockDie {
                     base_attributes: base_attrs,
@@ -170,7 +173,7 @@ impl<'a> DwarfUnitParser<'a> {
                 }),
                 gimli::DW_TAG_array_type => DieVariant::ArrayType(ArrayDie {
                     base_attributes: base_attrs,
-                    type_addr: die.attr(DW_AT_type)?,
+                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
                     byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
                 }),
                 gimli::DW_TAG_subrange_type => DieVariant::ArraySubrange(ArraySubrangeDie {
@@ -181,7 +184,7 @@ impl<'a> DwarfUnitParser<'a> {
                 }),
                 gimli::DW_TAG_enumeration_type => DieVariant::EnumType(EnumTypeDie {
                     base_attributes: base_attrs,
-                    type_addr: die.attr(DW_AT_type)?,
+                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
                     byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
                 }),
                 gimli::DW_TAG_enumerator => DieVariant::Enumerator(EnumeratorDie {
@@ -192,8 +195,8 @@ impl<'a> DwarfUnitParser<'a> {
                 }),
                 gimli::DW_TAG_variant_part => DieVariant::VariantPart(VariantPart {
                     base_attributes: base_attrs,
-                    discr_addr: die.attr(DW_AT_discr)?,
-                    type_addr: die.attr(DW_AT_type)?,
+                    discr_ref: die.attr(DW_AT_discr)?.and_then(DieRef::from_attr),
+                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
                 }),
                 gimli::DW_TAG_variant => DieVariant::Variant(Variant {
                     base_attributes: base_attrs,
@@ -203,13 +206,13 @@ impl<'a> DwarfUnitParser<'a> {
                 }),
                 gimli::DW_TAG_pointer_type => DieVariant::PointerType(PointerType {
                     base_attributes: base_attrs,
-                    type_addr: die.attr(DW_AT_type)?,
+                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
                     address_class: die.attr(DW_AT_address_class)?.and_then(|v| v.udata_value()),
                 }),
                 gimli::DW_TAG_template_type_parameter => {
                     DieVariant::TemplateType(TemplateTypeParameter {
                         base_attributes: base_attrs,
-                        type_addr: die.attr(DW_AT_type)?,
+                        type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
                     })
                 }
                 _ => DieVariant::Default(base_attrs),
@@ -222,6 +225,22 @@ impl<'a> DwarfUnitParser<'a> {
         parsed_unit.die_ranges.sort_by_key(|dr| dr.range.begin);
 
         Ok(parsed_unit)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum DieRef {
+    Unit(UnitOffset),
+    Global(DebugInfoOffset),
+}
+
+impl DieRef {
+    fn from_attr(attr: Attribute<EndianRcSlice>) -> Option<DieRef> {
+        match attr.value() {
+            AttributeValue::DebugInfoRef(offset) => Some(DieRef::Global(offset)),
+            AttributeValue::UnitRef(offset) => Some(DieRef::Unit(offset)),
+            _ => None,
+        }
     }
 }
 

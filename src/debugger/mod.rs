@@ -68,6 +68,7 @@ impl<T: EventHook> Debugger<T> {
             dwarf: dwarf_builder.build(&object).unwrap(),
             obj_kind: object.kind(),
             hooks,
+            type_cache: TypeDeclarationCache::default(),
         }
     }
 
@@ -373,7 +374,7 @@ impl<T: EventHook> Debugger<T> {
                 });
                 VariableIR::new(
                     &EvaluationContext {
-                        unit: var.context,
+                        unit: var.unit,
                         pid: self.pid,
                     },
                     var.die.base_attributes.name.clone(),
