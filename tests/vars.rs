@@ -364,7 +364,7 @@ fn test_read_vec_and_slice() {
     session.exp_string("}").unwrap();
 
     session
-        .exp_string("slice1 = &[i32; 3] [0x555555595018] ([i32] {")
+        .exp_regex(r"slice1 = &\[i32; 3\] \[0x.*] \(\[i32\] \{")
         .unwrap();
     session.exp_string("0: i32(1)").unwrap();
     session.exp_string("1: i32(2)").unwrap();
@@ -372,17 +372,17 @@ fn test_read_vec_and_slice() {
     session.exp_string("})").unwrap();
 
     session
-        .exp_string("slice2 = &[&[i32; 3]; 2] [0x7fffffffde80] ([&[i32; 3]] {")
+        .exp_regex(r"slice2 = &\[&\[i32; 3\]; 2\] \[0x.*\] \(\[&\[i32; 3\]\] \{")
         .unwrap();
     session
-        .exp_string("0: &[i32; 3] [0x555555595018] ([i32] {")
+        .exp_regex(r"0: &\[i32; 3\] \[0x.*\] \(\[i32\] \{")
         .unwrap();
     session.exp_string("0: i32(1)").unwrap();
     session.exp_string("1: i32(2)").unwrap();
     session.exp_string("2: i32(3)").unwrap();
     session.exp_string("})").unwrap();
     session
-        .exp_string("1: &[i32; 3] [0x555555595018] ([i32] {")
+        .exp_regex(r"1: &\[i32; 3\] \[0x.*\] \(\[i32\] \{")
         .unwrap();
     session.exp_string("0: i32(1)").unwrap();
     session.exp_string("1: i32(2)").unwrap();
