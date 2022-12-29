@@ -228,7 +228,7 @@ impl<'a> DwarfUnitParser<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum DieRef {
     Unit(UnitOffset),
     Global(DebugInfoOffset),

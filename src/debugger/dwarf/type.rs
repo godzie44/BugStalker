@@ -10,8 +10,9 @@ use nix::unistd::Pid;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::mem;
+use uuid::Uuid;
 
-pub(super) type TypeDeclarationCache = HashMap<(usize, usize), TypeDeclaration>;
+pub type TypeDeclarationCache = HashMap<(Uuid, DieRef), TypeDeclaration>;
 
 #[derive(Clone)]
 pub struct MemberLocationExpression {

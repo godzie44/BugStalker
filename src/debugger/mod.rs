@@ -11,7 +11,7 @@ pub use dwarf::parser::unit::Place;
 pub use dwarf::r#type::TypeDeclaration;
 
 use crate::debugger::breakpoint::Breakpoint;
-use crate::debugger::dwarf::r#type::EvaluationContext;
+use crate::debugger::dwarf::r#type::{EvaluationContext, TypeDeclarationCache};
 use crate::debugger::dwarf::{DebugeeContext, EndianRcSlice, Symbol};
 use crate::debugger::register::{
     get_register_from_name, get_register_value, set_register_value, Register,
@@ -26,6 +26,7 @@ use nix::unistd::Pid;
 use nix::{libc, sys};
 use object::{Object, ObjectKind};
 use std::cell::{Cell, RefCell};
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ffi::c_long;
 use std::str::from_utf8;
@@ -49,6 +50,7 @@ pub struct Debugger<T: EventHook> {
     obj_kind: object::ObjectKind,
     dwarf: DebugeeContext<EndianRcSlice>,
     hooks: T,
+    type_cache: RefCell<TypeDeclarationCache>,
 }
 
 impl<T: EventHook> Debugger<T> {
@@ -68,7 +70,7 @@ impl<T: EventHook> Debugger<T> {
             dwarf: dwarf_builder.build(&object).unwrap(),
             obj_kind: object.kind(),
             hooks,
-            type_cache: TypeDeclarationCache::default(),
+            type_cache: RefCell::default(),
         }
     }
 
@@ -364,14 +366,22 @@ impl<T: EventHook> Debugger<T> {
             .ok_or_else(|| anyhow!("not in function"))?;
 
         let vars = current_func.find_variables(pc);
+        let mut type_cache = self.type_cache.borrow_mut();
 
         let vars = vars
             .into_iter()
             .map(|var| {
-                let mb_type = var.r#type();
+                let mb_type = var.die.type_ref.and_then(|type_ref| {
+                    match type_cache.entry((var.unit.id, type_ref)) {
+                        Entry::Occupied(o) => Some(&*o.into_mut()),
+                        Entry::Vacant(v) => var.r#type().map(|t| &*v.insert(t)),
+                    }
+                });
+
                 let mb_value = mb_type.as_ref().and_then(|type_decl| {
                     var.read_value_at_location(type_decl, current_func, self.pid)
                 });
+
                 VariableIR::new(
                     &EvaluationContext {
                         unit: var.unit,
@@ -379,7 +389,7 @@ impl<T: EventHook> Debugger<T> {
                     },
                     var.die.base_attributes.name.clone(),
                     mb_value,
-                    mb_type.as_ref(),
+                    mb_type,
                 )
             })
             .collect::<Vec<_>>();

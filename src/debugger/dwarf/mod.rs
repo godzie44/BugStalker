@@ -15,7 +15,7 @@ use crate::weak_error;
 use anyhow::anyhow;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
-use gimli::{Dwarf, RunTimeEndian, UnitOffset};
+use gimli::{DebugInfoOffset, Dwarf, RunTimeEndian, UnitOffset};
 use nix::unistd::Pid;
 use object::{Object, ObjectSection};
 use std::borrow::Cow;
