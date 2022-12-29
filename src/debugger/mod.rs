@@ -11,13 +11,13 @@ pub use dwarf::parser::unit::Place;
 pub use dwarf::r#type::TypeDeclaration;
 
 use crate::debugger::breakpoint::Breakpoint;
+use crate::debugger::dwarf::r#type::EvaluationContext;
 use crate::debugger::dwarf::{DebugeeContext, EndianRcSlice, Symbol};
 use crate::debugger::register::{
     get_register_from_name, get_register_value, set_register_value, Register,
 };
 use crate::debugger::uw::Backtrace;
 use crate::debugger::variable::VariableIR;
-use crate::weak_error;
 use anyhow::anyhow;
 use nix::errno::Errno;
 use nix::libc::{c_int, c_void, siginfo_t, uintptr_t};
@@ -372,7 +372,10 @@ impl<T: EventHook> Debugger<T> {
                     var.read_value_at_location(type_decl, current_func, self.pid)
                 });
                 VariableIR::new(
-                    self.pid,
+                    &EvaluationContext {
+                        unit: var.context,
+                        pid: self.pid,
+                    },
                     var.die.base_attributes.name.clone(),
                     mb_value,
                     mb_type.as_ref(),

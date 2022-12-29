@@ -1,4 +1,4 @@
-use crate::debugger::dwarf::r#type::{ArrayDeclaration, StructureMember};
+use crate::debugger::dwarf::r#type::{ArrayType, EvaluationContext, ScalarType, StructureMember};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::specialized::{
     SpecializedVariableIR, StrVariable, StringVariable, VecVariable,
@@ -7,8 +7,7 @@ use crate::debugger::TypeDeclaration;
 use crate::{debugger, weak_error};
 use anyhow::Context;
 use bytes::Bytes;
-use nix::unistd::Pid;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Display, Formatter};
 use std::mem;
 
@@ -68,37 +67,35 @@ pub struct ScalarVariable {
 }
 
 impl ScalarVariable {
-    fn new(name: Option<String>, r#type: Option<&TypeDeclaration>, value: Option<Bytes>) -> Self {
+    fn new(name: Option<String>, value: Option<Bytes>, r#type: &ScalarType) -> Self {
         fn render_scalar<S: Copy + Display>(data: Option<Bytes>) -> Option<S> {
             data.as_ref().map(|v| *scalar_from_bytes::<S>(v))
         }
 
-        let type_name = r#type.as_ref().and_then(|ty| ty.name());
-        let data = value.clone();
-        let value_view = match type_name.as_deref() {
-            Some("i8") => render_scalar::<i8>(data).map(SupportedScalar::I8),
-            Some("i16") => render_scalar::<i16>(data).map(SupportedScalar::I16),
-            Some("i32") => render_scalar::<i32>(data).map(SupportedScalar::I32),
-            Some("i64") => render_scalar::<i64>(data).map(SupportedScalar::I64),
-            Some("i128") => render_scalar::<i128>(data).map(SupportedScalar::I128),
-            Some("isize") => render_scalar::<isize>(data).map(SupportedScalar::Isize),
-            Some("u8") => render_scalar::<u8>(data).map(SupportedScalar::U8),
-            Some("u16") => render_scalar::<u16>(data).map(SupportedScalar::U16),
-            Some("u32") => render_scalar::<u32>(data).map(SupportedScalar::U32),
-            Some("u64") => render_scalar::<u64>(data).map(SupportedScalar::U64),
-            Some("u128") => render_scalar::<u128>(data).map(SupportedScalar::U128),
-            Some("usize") => render_scalar::<usize>(data).map(SupportedScalar::Usize),
-            Some("f32") => render_scalar::<f32>(data).map(SupportedScalar::F32),
-            Some("f64") => render_scalar::<f64>(data).map(SupportedScalar::F64),
-            Some("bool") => render_scalar::<bool>(data).map(SupportedScalar::Bool),
-            Some("char") => render_scalar::<char>(data).map(SupportedScalar::Char),
+        let value_view = match r#type.name.as_deref() {
+            Some("i8") => render_scalar::<i8>(value).map(SupportedScalar::I8),
+            Some("i16") => render_scalar::<i16>(value).map(SupportedScalar::I16),
+            Some("i32") => render_scalar::<i32>(value).map(SupportedScalar::I32),
+            Some("i64") => render_scalar::<i64>(value).map(SupportedScalar::I64),
+            Some("i128") => render_scalar::<i128>(value).map(SupportedScalar::I128),
+            Some("isize") => render_scalar::<isize>(value).map(SupportedScalar::Isize),
+            Some("u8") => render_scalar::<u8>(value).map(SupportedScalar::U8),
+            Some("u16") => render_scalar::<u16>(value).map(SupportedScalar::U16),
+            Some("u32") => render_scalar::<u32>(value).map(SupportedScalar::U32),
+            Some("u64") => render_scalar::<u64>(value).map(SupportedScalar::U64),
+            Some("u128") => render_scalar::<u128>(value).map(SupportedScalar::U128),
+            Some("usize") => render_scalar::<usize>(value).map(SupportedScalar::Usize),
+            Some("f32") => render_scalar::<f32>(value).map(SupportedScalar::F32),
+            Some("f64") => render_scalar::<f64>(value).map(SupportedScalar::F64),
+            Some("bool") => render_scalar::<bool>(value).map(SupportedScalar::Bool),
+            Some("char") => render_scalar::<char>(value).map(SupportedScalar::Char),
             Some("()") => Some(SupportedScalar::Empty()),
             _ => None,
         };
 
         ScalarVariable {
             name,
-            type_name,
+            type_name: r#type.name.clone(),
             value: value_view,
         }
     }
@@ -129,15 +126,15 @@ pub struct StructVariable {
 
 impl StructVariable {
     fn new(
-        pid: Pid,
+        eval_ctx: &EvaluationContext,
         name: Option<String>,
+        value: Option<Bytes>,
         type_name: Option<String>,
         members: &[StructureMember],
-        value: Option<Bytes>,
     ) -> Self {
         let children = members
             .iter()
-            .map(|member| VariableIR::from_member(pid, member, value.as_ref()))
+            .map(|member| VariableIR::from_member(eval_ctx, member, value.as_ref()))
             .collect();
 
         StructVariable {
@@ -157,15 +154,15 @@ pub struct ArrayVariable {
 
 impl ArrayVariable {
     fn new(
-        pid: Pid,
+        eval_ctx: &EvaluationContext,
         name: Option<String>,
-        type_name: Option<String>,
-        array_decl: &ArrayDeclaration,
         value: Option<Bytes>,
+        type_name: Option<String>,
+        array_decl: &ArrayType,
     ) -> Self {
-        let items = array_decl.bounds(pid).and_then(|bounds| {
+        let items = array_decl.bounds(eval_ctx).and_then(|bounds| {
             let len = bounds.1 - bounds.0;
-            let el_size = array_decl.size_in_bytes(pid)? / len as u64;
+            let el_size = array_decl.size_in_bytes(eval_ctx)? / len as u64;
             let bytes = value.as_ref()?;
             Some(
                 bytes
@@ -173,7 +170,7 @@ impl ArrayVariable {
                     .enumerate()
                     .map(|(i, chunk)| {
                         VariableIR::new(
-                            pid,
+                            eval_ctx,
                             Some(format!("{}", bounds.0 + i as i64)),
                             Some(bytes.slice_ref(chunk)),
                             array_decl.element_type.as_ref().map(|t| t.as_ref()),
@@ -200,14 +197,14 @@ pub struct CEnumVariable {
 
 impl CEnumVariable {
     fn new(
-        pid: Pid,
+        eval_ctx: &EvaluationContext,
         name: Option<String>,
+        value: Option<Bytes>,
         type_name: Option<String>,
         discr_type: Option<&TypeDeclaration>,
         enumerators: &HashMap<i64, String>,
-        value: Option<Bytes>,
     ) -> Self {
-        let discr = VariableIR::new(pid, None, value, discr_type);
+        let discr = VariableIR::new(eval_ctx, None, value, discr_type);
         let value = if let VariableIR::Scalar(scalar) = discr {
             scalar.try_as_number()
         } else {
@@ -231,15 +228,15 @@ pub struct RustEnumVariable {
 
 impl RustEnumVariable {
     fn new(
-        pid: Pid,
+        eval_ctx: &EvaluationContext,
         name: Option<String>,
+        value: Option<Bytes>,
         type_name: Option<String>,
         discr_member: Option<&StructureMember>,
         enumerators: &HashMap<Option<i64>, StructureMember>,
-        value: Option<Bytes>,
     ) -> Self {
         let discr_value = discr_member.and_then(|member| {
-            let discr = VariableIR::from_member(pid, member, value.as_ref());
+            let discr = VariableIR::from_member(eval_ctx, member, value.as_ref());
             if let VariableIR::Scalar(scalar) = discr {
                 return scalar.try_as_number();
             }
@@ -249,8 +246,8 @@ impl RustEnumVariable {
         let enumerator =
             discr_value.and_then(|v| enumerators.get(&Some(v)).or_else(|| enumerators.get(&None)));
 
-        let enumerator =
-            enumerator.map(|member| Box::new(VariableIR::from_member(pid, member, value.as_ref())));
+        let enumerator = enumerator
+            .map(|member| Box::new(VariableIR::from_member(eval_ctx, member, value.as_ref())));
 
         RustEnumVariable {
             name,
@@ -270,21 +267,24 @@ pub struct PointerVariable {
 
 impl PointerVariable {
     fn new(
-        pid: Pid,
+        eval_ctx: &EvaluationContext,
         name: Option<String>,
+        value: Option<Bytes>,
         type_name: Option<String>,
         target_type: Option<&TypeDeclaration>,
-        value: Option<Bytes>,
     ) -> Self {
         let mb_ptr = value.as_ref().map(scalar_from_bytes::<*const ()>).copied();
-        let deref_size = target_type.as_ref().and_then(|t| t.size_in_bytes(pid));
+        let deref_size = target_type
+            .as_ref()
+            .and_then(|&t| t.size_in_bytes(eval_ctx));
 
         let deref_var = mb_ptr.map(|ptr| {
-            let val = deref_size
-                .and_then(|sz| debugger::read_memory_by_pid(pid, ptr as usize, sz as usize).ok());
+            let val = deref_size.and_then(|sz| {
+                debugger::read_memory_by_pid(eval_ctx.pid, ptr as usize, sz as usize).ok()
+            });
 
             Box::new(VariableIR::new(
-                pid,
+                eval_ctx,
                 Some(String::from("*")),
                 val.map(Bytes::from),
                 target_type,
@@ -319,7 +319,7 @@ impl Debug for VariableIR {
 
 impl VariableIR {
     pub fn new(
-        pid: Pid,
+        eval_ctx: &EvaluationContext,
         name: Option<String>,
         value: Option<Bytes>,
         r#type: Option<&TypeDeclaration>,
@@ -327,102 +327,113 @@ impl VariableIR {
         let type_name = r#type.as_ref().and_then(|t| t.name());
 
         match r#type {
-            Some(TypeDeclaration::Scalar { .. }) => {
-                VariableIR::Scalar(ScalarVariable::new(name, r#type, value))
-            }
-            Some(TypeDeclaration::Structure {
-                members,
-                type_params,
-                name: struct_name,
-                ..
-            }) => {
-                let struct_var = StructVariable::new(pid, name, type_name, members, value);
+            Some(type_decl) => match type_decl {
+                TypeDeclaration::Scalar(scalar_type) => {
+                    VariableIR::Scalar(ScalarVariable::new(name, value, scalar_type))
+                }
+                TypeDeclaration::Structure {
+                    members,
+                    type_params,
+                    name: struct_name,
+                    ..
+                } => {
+                    let struct_var = StructVariable::new(eval_ctx, name, value, type_name, members);
 
-                // Reinterpret structure if underline data type is:
-                // - Vector
-                // - String
-                // - &str
-                if struct_name.as_deref() == Some("&str") {
-                    return VariableIR::Specialized(SpecializedVariableIR::Str {
-                        string: weak_error!(StrVariable::from_struct_ir(
-                            VariableIR::Struct(struct_var.clone()),
-                            pid,
-                        )
-                        .context("&str interpretation")),
-                        original: struct_var,
-                    });
-                };
+                    // Reinterpret structure if underline data type is:
+                    // - Vector
+                    // - String
+                    // - &str
+                    if struct_name.as_deref() == Some("&str") {
+                        return VariableIR::Specialized(SpecializedVariableIR::Str {
+                            string: weak_error!(StrVariable::from_struct_ir(
+                                eval_ctx,
+                                VariableIR::Struct(struct_var.clone()),
+                            )
+                            .context("&str interpretation")),
+                            original: struct_var,
+                        });
+                    };
 
-                if struct_name.as_deref() == Some("String") {
-                    return VariableIR::Specialized(SpecializedVariableIR::String {
-                        string: weak_error!(StringVariable::from_struct_ir(
-                            VariableIR::Struct(struct_var.clone()),
-                            pid,
-                        )
-                        .context("string interpretation")),
-                        original: struct_var,
-                    });
-                };
+                    if struct_name.as_deref() == Some("String") {
+                        return VariableIR::Specialized(SpecializedVariableIR::String {
+                            string: weak_error!(StringVariable::from_struct_ir(
+                                eval_ctx,
+                                VariableIR::Struct(struct_var.clone()),
+                            )
+                            .context("string interpretation")),
+                            original: struct_var,
+                        });
+                    };
 
-                if struct_name.as_ref().map(|name| name.starts_with("Vec")) == Some(true) {
-                    return VariableIR::Specialized(SpecializedVariableIR::Vector {
-                        vec: weak_error!(VecVariable::from_struct_ir(
-                            VariableIR::Struct(struct_var.clone()),
-                            pid,
-                            type_params,
-                        )
-                        .context("vec interpretation")),
-                        original: struct_var,
-                    });
-                };
+                    if struct_name.as_ref().map(|name| name.starts_with("Vec")) == Some(true) {
+                        return VariableIR::Specialized(SpecializedVariableIR::Vector {
+                            vec: weak_error!(VecVariable::from_struct_ir(
+                                eval_ctx,
+                                VariableIR::Struct(struct_var.clone()),
+                                type_params,
+                            )
+                            .context("vec interpretation")),
+                            original: struct_var,
+                        });
+                    };
 
-                VariableIR::Struct(struct_var)
-            }
-            Some(TypeDeclaration::Array(decl)) => {
-                VariableIR::Array(ArrayVariable::new(pid, name, type_name, decl, value))
-            }
-            Some(TypeDeclaration::CStyleEnum {
-                discr_type,
-                enumerators,
-                ..
-            }) => VariableIR::CEnum(CEnumVariable::new(
-                pid,
-                name,
-                type_name,
-                discr_type.as_ref().map(|t| t.as_ref()),
-                enumerators,
-                value,
-            )),
-            Some(TypeDeclaration::RustEnum {
-                discr_type,
-                enumerators,
-                ..
-            }) => VariableIR::RustEnum(RustEnumVariable::new(
-                pid,
-                name,
-                type_name,
-                discr_type.as_ref().map(|t| t.as_ref()),
-                enumerators,
-                value,
-            )),
-            Some(TypeDeclaration::Pointer { target_type, .. }) => {
-                VariableIR::Pointer(PointerVariable::new(
-                    pid,
+                    VariableIR::Struct(struct_var)
+                }
+                TypeDeclaration::Array(decl) => {
+                    VariableIR::Array(ArrayVariable::new(eval_ctx, name, value, type_name, decl))
+                }
+                TypeDeclaration::CStyleEnum {
+                    discr_type,
+                    enumerators,
+                    ..
+                } => VariableIR::CEnum(CEnumVariable::new(
+                    eval_ctx,
                     name,
-                    type_name,
-                    target_type.as_ref().map(|t| t.as_ref()),
                     value,
-                ))
-            }
+                    type_name,
+                    discr_type.as_ref().map(|t| t.as_ref()),
+                    enumerators,
+                )),
+                TypeDeclaration::RustEnum {
+                    discr_type,
+                    enumerators,
+                    ..
+                } => VariableIR::RustEnum(RustEnumVariable::new(
+                    eval_ctx,
+                    name,
+                    value,
+                    type_name,
+                    discr_type.as_ref().map(|t| t.as_ref()),
+                    enumerators,
+                )),
+                TypeDeclaration::Pointer { target_type, .. } => {
+                    VariableIR::Pointer(PointerVariable::new(
+                        eval_ctx,
+                        name,
+                        value,
+                        type_name,
+                        target_type.as_ref().map(|t| t.as_ref()),
+                    ))
+                }
+            },
             _ => {
                 todo!()
             }
         }
     }
 
-    fn from_member(pid: Pid, member: &StructureMember, parent_value: Option<&Bytes>) -> Self {
-        let member_val = parent_value.and_then(|val| member.value(val.as_ptr() as usize, pid));
-        Self::new(pid, member.name.clone(), member_val, member.r#type.as_ref())
+    fn from_member(
+        eval_ctx: &EvaluationContext,
+        member: &StructureMember,
+        parent_value: Option<&Bytes>,
+    ) -> Self {
+        let member_val = parent_value.and_then(|val| member.value(eval_ctx, val.as_ptr() as usize));
+        Self::new(
+            eval_ctx,
+            member.name.clone(),
+            member_val,
+            member.r#type.as_ref(),
+        )
     }
 
     /// Visit variable children in bfs order.

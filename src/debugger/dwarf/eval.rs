@@ -59,21 +59,25 @@ impl EvalOption {
 pub struct ExpressionEvaluator<'a> {
     encoding: Encoding,
     unit: &'a Unit,
+    pid: Pid,
 }
 
 impl<'a> ExpressionEvaluator<'a> {
-    pub fn new(unit: &'a Unit, encoding: Encoding) -> Self {
-        Self { encoding, unit }
+    pub fn new(unit: &'a Unit, encoding: Encoding, pid: Pid) -> Self {
+        Self {
+            encoding,
+            unit,
+            pid,
+        }
     }
 
-    pub fn evaluate(&self, expr: Expression<EndianRcSlice>, pid: Pid) -> Result<CompletedResult> {
-        self.evaluate_with_opts(expr, pid, EvalOption::default())
+    pub fn evaluate(&self, expr: Expression<EndianRcSlice>) -> Result<CompletedResult> {
+        self.evaluate_with_opts(expr, EvalOption::default())
     }
 
     pub fn evaluate_with_opts(
         &self,
         expr: Expression<EndianRcSlice>,
-        pid: Pid,
         mut opts: EvalOption,
     ) -> Result<CompletedResult> {
         let mut eval = expr.evaluation(self.encoding);
@@ -85,7 +89,8 @@ impl<'a> ExpressionEvaluator<'a> {
                     register,
                     base_type: _base_type,
                 } => {
-                    let val = Value::Generic(get_register_value_dwarf(pid, register.0 as i32)?);
+                    let val =
+                        Value::Generic(get_register_value_dwarf(self.pid, register.0 as i32)?);
                     result = eval.resume_with_register(val)?;
                 }
                 EvaluationResult::RequiresFrameBase => {
@@ -126,7 +131,7 @@ impl<'a> ExpressionEvaluator<'a> {
 
         Ok(CompletedResult {
             inner: eval.result(),
-            pid,
+            pid: self.pid,
         })
     }
 }

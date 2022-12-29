@@ -1,5 +1,5 @@
 use crate::debugger::dwarf::eval::{EvalOption, ExpressionEvaluator};
-use crate::debugger::dwarf::r#type::TypeDeclaration;
+use crate::debugger::dwarf::r#type::{EvaluationContext, TypeDeclaration};
 use crate::debugger::dwarf::EndianRcSlice;
 use crate::weak_error;
 use anyhow::anyhow;
@@ -38,8 +38,8 @@ pub struct Unit {
 }
 
 impl Unit {
-    pub fn evaluator(&self) -> ExpressionEvaluator {
-        ExpressionEvaluator::new(self, self.encoding)
+    pub fn evaluator(&self, pid: Pid) -> ExpressionEvaluator {
+        ExpressionEvaluator::new(self, self.encoding, pid)
     }
 
     pub fn find_function_by_name(&self, name: &str) -> Option<ContextualDieRef<FunctionDie>> {
@@ -339,8 +339,8 @@ impl<'unit> ContextualDieRef<'unit, FunctionDie> {
 
         let result = self
             .context
-            .evaluator()
-            .evaluate(expr, pid)?
+            .evaluator(pid)
+            .evaluate(expr)?
             .into_scalar::<usize>()?;
         Ok(result)
     }
@@ -383,18 +383,21 @@ impl<'unit> ContextualDieRef<'unit, VariableDie> {
         self.die.location.as_ref().and_then(|loc| {
             let expr = loc.exprloc_value()?;
             let fb = weak_error!(parent_fn.frame_base_addr(pid))?;
-            let eval_result = weak_error!(self.context.evaluator().evaluate_with_opts(
-                expr,
-                pid,
-                EvalOption::new().with_base_frame(fb),
-            ))?;
-            let bytes =
-                weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(pid)? as usize))?;
+            let eval_result = weak_error!(self
+                .context
+                .evaluator(pid)
+                .evaluate_with_opts(expr, EvalOption::new().with_base_frame(fb),))?;
+            let bytes = weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
+                &EvaluationContext {
+                    unit: self.context,
+                    pid,
+                }
+            )? as usize))?;
             Some(bytes)
         })
     }
 
-    pub fn r#type<'this>(&'this self) -> Option<TypeDeclaration<'unit>> {
+    pub fn r#type(&self) -> Option<TypeDeclaration> {
         self.die.type_addr.as_ref().and_then(|addr| {
             if let gimli::AttributeValue::UnitRef(unit_offset) = addr.value() {
                 let entry = &self.context.find_die(unit_offset)?;

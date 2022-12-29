@@ -1,12 +1,12 @@
+use crate::debugger;
+use crate::debugger::dwarf::r#type::EvaluationContext;
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::{
     ArrayVariable, ScalarVariable, StructVariable, SupportedScalar, VariableIR,
 };
 use crate::debugger::TypeDeclaration;
-use crate::{debugger, weak_error};
 use anyhow::anyhow;
 use bytes::Bytes;
-use nix::unistd::Pid;
 use std::collections::HashMap;
 
 #[derive(Clone)]
@@ -16,8 +16,8 @@ pub struct VecVariable {
 
 impl VecVariable {
     pub fn from_struct_ir(
+        eval_ctx: &EvaluationContext,
         ir: VariableIR,
-        pid: Pid,
         type_params: &HashMap<String, Option<TypeDeclaration>>,
     ) -> anyhow::Result<Self> {
         let inner_type = type_params
@@ -31,11 +31,11 @@ impl VecVariable {
         let data_ptr = ir.assume_field_as_pointer("pointer")?;
 
         let el_type_size = inner_type
-            .size_in_bytes(pid)
+            .size_in_bytes(eval_ctx)
             .ok_or_else(|| anyhow!("unknown element size"))?;
 
         let data = debugger::read_memory_by_pid(
-            pid,
+            eval_ctx.pid,
             data_ptr as usize,
             len as usize * el_type_size as usize,
         )
@@ -46,7 +46,7 @@ impl VecVariable {
             .enumerate()
             .map(|(i, chunk)| {
                 VariableIR::new(
-                    pid,
+                    eval_ctx,
                     Some(format!("{}", i as i64)),
                     Some(data.slice_ref(chunk)),
                     Some(inner_type),
@@ -82,12 +82,12 @@ pub struct StringVariable {
 }
 
 impl StringVariable {
-    pub fn from_struct_ir(ir: VariableIR, pid: Pid) -> anyhow::Result<Self> {
+    pub fn from_struct_ir(eval_ctx: &EvaluationContext, ir: VariableIR) -> anyhow::Result<Self> {
         let len = ir.assume_field_as_scalar_number("len")?;
         let data_ptr = ir.assume_field_as_pointer("pointer")?;
 
-        let data =
-            debugger::read_memory_by_pid(pid, data_ptr as usize, len as usize).map(Bytes::from)?;
+        let data = debugger::read_memory_by_pid(eval_ctx.pid, data_ptr as usize, len as usize)
+            .map(Bytes::from)?;
 
         Ok(Self {
             name: Some(ir.name().to_owned()),
@@ -115,12 +115,12 @@ pub struct StrVariable {
 }
 
 impl StrVariable {
-    pub fn from_struct_ir(ir: VariableIR, pid: Pid) -> anyhow::Result<Self> {
+    pub fn from_struct_ir(eval_ctx: &EvaluationContext, ir: VariableIR) -> anyhow::Result<Self> {
         let len = ir.assume_field_as_scalar_number("length")?;
         let data_ptr = ir.assume_field_as_pointer("data_ptr")?;
 
-        let data =
-            debugger::read_memory_by_pid(pid, data_ptr as usize, len as usize).map(Bytes::from)?;
+        let data = debugger::read_memory_by_pid(eval_ctx.pid, data_ptr as usize, len as usize)
+            .map(Bytes::from)?;
 
         Ok(Self {
             name: Some(ir.name().to_owned()),
