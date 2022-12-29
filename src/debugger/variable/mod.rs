@@ -425,14 +425,16 @@ impl VariableIR {
         Self::new(pid, member.name.clone(), member_val, member.r#type.as_ref())
     }
 
-    /// Visit variable children in dfs order.
-    fn dfs_iterator(&self) -> DfsIterator {
-        DfsIterator { stack: vec![self] }
+    /// Visit variable children in bfs order.
+    fn bfs_iterator(&self) -> BfsIterator {
+        BfsIterator {
+            queue: VecDeque::from([self]),
+        }
     }
 
     fn assume_field_as_scalar_number(&self, field_name: &'static str) -> Result<i64, AssumeError> {
         let ir = self
-            .dfs_iterator()
+            .bfs_iterator()
             .find(|child| child.name() == field_name)
             .ok_or(AssumeError::FieldNotFound(field_name))?;
         if let VariableIR::Scalar(s) = ir {
@@ -444,7 +446,7 @@ impl VariableIR {
     }
 
     fn assume_field_as_pointer(&self, field_name: &'static str) -> Result<*const (), AssumeError> {
-        self.dfs_iterator()
+        self.bfs_iterator()
             .find_map(|child| {
                 if let VariableIR::Pointer(pointer) = child {
                     if pointer.name.as_deref() != Some(field_name) {
@@ -469,37 +471,36 @@ enum AssumeError {
     IncompleteInterp(&'static str),
 }
 
-struct DfsIterator<'a> {
-    stack: Vec<&'a VariableIR>,
+struct BfsIterator<'a> {
+    queue: VecDeque<&'a VariableIR>,
 }
 
-impl<'a> Iterator for DfsIterator<'a> {
+impl<'a> Iterator for BfsIterator<'a> {
     type Item = &'a VariableIR;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let next_item = self.stack.pop()?;
+        let next_item = self.queue.pop_front()?;
 
         match next_item {
             VariableIR::Struct(r#struct) => {
                 r#struct
                     .members
                     .iter()
-                    .rev()
-                    .for_each(|member| self.stack.push(member));
+                    .for_each(|member| self.queue.push_back(member));
             }
             VariableIR::Array(array) => {
                 if let Some(items) = array.items.as_ref() {
-                    items.iter().rev().for_each(|item| self.stack.push(item))
+                    items.iter().for_each(|item| self.queue.push_back(item))
                 }
             }
             VariableIR::RustEnum(r#enum) => {
                 if let Some(enumerator) = r#enum.value.as_ref() {
-                    self.stack.push(enumerator)
+                    self.queue.push_back(enumerator)
                 }
             }
             VariableIR::Pointer(pointer) => {
                 if let Some(val) = pointer.deref.as_ref() {
-                    self.stack.push(val)
+                    self.queue.push_back(val)
                 }
             }
             VariableIR::Specialized(spec) => match spec {
@@ -507,22 +508,19 @@ impl<'a> Iterator for DfsIterator<'a> {
                     original
                         .members
                         .iter()
-                        .rev()
-                        .for_each(|member| self.stack.push(member));
+                        .for_each(|member| self.queue.push_back(member));
                 }
                 SpecializedVariableIR::String { original, .. } => {
                     original
                         .members
                         .iter()
-                        .rev()
-                        .for_each(|member| self.stack.push(member));
+                        .for_each(|member| self.queue.push_back(member));
                 }
                 SpecializedVariableIR::Str { original, .. } => {
                     original
                         .members
                         .iter()
-                        .rev()
-                        .for_each(|member| self.stack.push(member));
+                        .for_each(|member| self.queue.push_back(member));
                 }
             },
             _ => {}
@@ -545,7 +543,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_dfs_iterator() {
+    fn test_bfs_iterator() {
         struct TestCase {
             variable: VariableIR,
             expected_order: Vec<&'static str>,
@@ -592,7 +590,7 @@ mod test {
                     ],
                 }),
                 expected_order: vec![
-                    "struct_1", "array_1", "scalar_1", "scalar_2", "array_2", "scalar_3",
+                    "struct_1", "array_1", "array_2", "scalar_1", "scalar_2", "scalar_3",
                     "scalar_4",
                 ],
             },
@@ -641,18 +639,18 @@ mod test {
                 expected_order: vec![
                     "struct_1",
                     "struct_2",
+                    "pointer_1",
                     "scalar_1",
                     "enum_1",
-                    "scalar_2",
                     "scalar_3",
-                    "pointer_1",
                     "scalar_4",
+                    "scalar_2",
                 ],
             },
         ];
 
         for tc in test_cases {
-            let iter = tc.variable.dfs_iterator();
+            let iter = tc.variable.bfs_iterator();
             let names: Vec<_> = iter
                 .map(|g| match g {
                     VariableIR::Scalar(s) => s.name.as_deref().unwrap(),

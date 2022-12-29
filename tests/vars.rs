@@ -360,7 +360,7 @@ fn test_read_vec_and_slice() {
     session.exp_string("cap: usize(3)").unwrap();
     session.exp_string("}").unwrap();
     session.exp_string("}").unwrap();
-    session.exp_string("cap: usize(3)").unwrap();
+    session.exp_string("cap: usize(2)").unwrap();
     session.exp_string("}").unwrap();
 
     session
@@ -372,7 +372,7 @@ fn test_read_vec_and_slice() {
     session.exp_string("})").unwrap();
 
     session
-        .exp_string("slice2 = &[&[i32; 3]; 2] [0x7fffffffde90] ([&[i32; 3]] {")
+        .exp_string("slice2 = &[&[i32; 3]; 2] [0x7fffffffde80] ([&[i32; 3]] {")
         .unwrap();
     session
         .exp_string("0: &[i32; 3] [0x555555595018] ([i32] {")
