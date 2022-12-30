@@ -61,7 +61,7 @@ impl<'a> From<ContextualDieRef<'a, TypeMemberDie>> for StructureMember {
         let type_decl = ctx_die
             .die
             .type_ref
-            .and_then(|addr| TypeDeclaration::from_type_ref(ctx_die, addr));
+            .and_then(|reference| TypeDeclaration::from_type_ref(ctx_die, reference));
 
         StructureMember {
             in_struct_location,
@@ -335,20 +335,14 @@ impl TypeDeclaration {
     fn from_struct_enum_type(ctx_die: ContextualDieRef<'_, StructTypeDie>) -> Self {
         let name = ctx_die.die.base_attributes.name.clone();
 
-        let (variant_part, node) = ctx_die
-            .node
-            .children
-            .iter()
-            .find_map(|c_idx| {
-                if let DieVariant::VariantPart(ref v) = ctx_die.unit.entries[*c_idx].die {
-                    Some((v, &ctx_die.unit.entries[*c_idx].node))
-                } else {
-                    None
-                }
-            })
-            .unwrap();
+        let variant_part = ctx_die.node.children.iter().find_map(|c_idx| {
+            if let DieVariant::VariantPart(ref v) = ctx_die.unit.entries[*c_idx].die {
+                return Some((v, &ctx_die.unit.entries[*c_idx].node));
+            }
+            None
+        });
 
-        let member_from_addr = |type_ref: DieRef| -> Option<StructureMember> {
+        let member_from_ref = |type_ref: DieRef| -> Option<StructureMember> {
             let entry = ctx_die.context.deref_die(ctx_die.unit, type_ref)?;
             if let DieVariant::TypeMember(ref member) = &entry.die {
                 return Some(StructureMember::from(ContextualDieRef {
@@ -361,21 +355,28 @@ impl TypeDeclaration {
             None
         };
 
-        let discr_type = variant_part
-            .discr_ref
-            .and_then(member_from_addr)
-            .or_else(|| variant_part.type_ref.and_then(member_from_addr));
+        let discr_type = variant_part.and_then(|vp| {
+            let variant = vp.0;
+            variant
+                .discr_ref
+                .and_then(member_from_ref)
+                .or_else(|| variant.type_ref.and_then(member_from_ref))
+        });
 
-        let variants = node
-            .children
-            .iter()
-            .filter_map(|idx| {
-                if let DieVariant::Variant(ref v) = ctx_die.unit.entries[*idx].die {
-                    return Some((v, &ctx_die.unit.entries[*idx].node));
-                }
-                None
+        let variants = variant_part
+            .map(|vp| {
+                let node = vp.1;
+                node.children
+                    .iter()
+                    .filter_map(|idx| {
+                        if let DieVariant::Variant(ref v) = ctx_die.unit.entries[*idx].die {
+                            return Some((v, &ctx_die.unit.entries[*idx].node));
+                        }
+                        None
+                    })
+                    .collect::<Vec<_>>()
             })
-            .collect::<Vec<_>>();
+            .unwrap_or_default();
 
         let enumerators = variants
             .iter()
@@ -437,7 +438,7 @@ impl<'a> From<ContextualDieRef<'a, ArrayDie>> for TypeDeclaration {
         let type_decl = ctx_die
             .die
             .type_ref
-            .and_then(|addr| TypeDeclaration::from_type_ref(ctx_die, addr));
+            .and_then(|reference| TypeDeclaration::from_type_ref(ctx_die, reference));
 
         let subrange = ctx_die.node.children.iter().find_map(|&child_idx| {
             let entry = &ctx_die.unit.entries[child_idx];
@@ -506,7 +507,7 @@ impl<'a> From<ContextualDieRef<'a, EnumTypeDie>> for TypeDeclaration {
         let discr_type = ctx_die
             .die
             .type_ref
-            .and_then(|addr| TypeDeclaration::from_type_ref(ctx_die, addr));
+            .and_then(|reference| TypeDeclaration::from_type_ref(ctx_die, reference));
 
         let enumerators = ctx_die
             .node
@@ -540,7 +541,7 @@ impl<'a> From<ContextualDieRef<'a, PointerType>> for TypeDeclaration {
         let type_decl = ctx_die
             .die
             .type_ref
-            .and_then(|addr| TypeDeclaration::from_type_ref(ctx_die, addr));
+            .and_then(|reference| TypeDeclaration::from_type_ref(ctx_die, reference));
 
         TypeDeclaration::Pointer {
             name,

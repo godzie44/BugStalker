@@ -54,24 +54,24 @@ pub struct Debugger<T: EventHook> {
 }
 
 impl<T: EventHook> Debugger<T> {
-    pub fn new(program: impl Into<String>, pid: Pid, hooks: T) -> Self {
+    pub fn new(program: impl Into<String>, pid: Pid, hooks: T) -> anyhow::Result<Self> {
         let program = program.into();
-        let file = fs::File::open(&program).unwrap();
-        let mmap = unsafe { memmap2::Mmap::map(&file).unwrap() };
-        let object = object::File::parse(&*mmap).unwrap();
+        let file = fs::File::open(&program)?;
+        let mmap = unsafe { memmap2::Mmap::map(&file)? };
+        let object = object::File::parse(&*mmap)?;
 
         let dwarf_builder = dwarf::DebugeeContextBuilder::default();
 
-        Self {
+        Ok(Self {
             load_addr: Cell::new(0),
             _program: program,
             pid,
             breakpoints: Default::default(),
-            dwarf: dwarf_builder.build(&object).unwrap(),
+            dwarf: dwarf_builder.build(&object)?,
             obj_kind: object.kind(),
             hooks,
             type_cache: RefCell::default(),
-        }
+        })
     }
 
     fn init_load_addr(&self) -> anyhow::Result<()> {

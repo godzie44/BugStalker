@@ -28,10 +28,14 @@ impl AppBuilder {
         }
     }
 
-    pub fn build(self, program: impl Into<String>, pid: Pid) -> TerminalApplication {
+    pub fn build(
+        self,
+        program: impl Into<String>,
+        pid: Pid,
+    ) -> anyhow::Result<TerminalApplication> {
         let hook = TerminalHook::new(self.file_view);
-        let debugger = Debugger::new(program, pid, hook);
-        TerminalApplication { debugger }
+        let debugger = Debugger::new(program, pid, hook)?;
+        Ok(TerminalApplication { debugger })
     }
 }
 

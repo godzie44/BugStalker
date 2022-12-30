@@ -37,10 +37,14 @@ impl AppBuilder {
         }
     }
 
-    pub fn build(self, program: impl Into<String>, pid: Pid) -> CuiApplication {
+    pub fn build(self, program: impl Into<String>, pid: Pid) -> anyhow::Result<CuiApplication> {
         let hook = CuiHook::new();
-        let debugger = Debugger::new(program, pid, hook);
-        CuiApplication::new(debugger, self.debugee_out, self.debugee_err)
+        let debugger = Debugger::new(program, pid, hook)?;
+        Ok(CuiApplication::new(
+            debugger,
+            self.debugee_out,
+            self.debugee_err,
+        ))
     }
 }
 

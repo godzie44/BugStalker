@@ -54,11 +54,14 @@ fn main() {
                 handle.stdout.take().expect("take debugee stdout fail"),
                 handle.stderr.take().expect("take debugee stderr fail"),
             )
-            .build(debugee, Pid::from_raw(pid));
+            .build(debugee, Pid::from_raw(pid))
+            .expect("prepare application fail");
             app.run().expect("run application fail");
         }
         _ => {
-            let app = AppBuilder::new().build(debugee, Pid::from_raw(pid));
+            let app = AppBuilder::new()
+                .build(debugee, Pid::from_raw(pid))
+                .expect("prepare application fail");
             app.run().expect("run application fail");
         }
     }

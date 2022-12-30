@@ -4,7 +4,7 @@ macro_rules! weak_error {
         match $res {
             Ok(value) => Some(value),
             Err(e) => {
-                log::warn!(target: "debugger", "{}", e);
+                log::warn!(target: "debugger", "{:#}", e);
                 None
             }
         }
