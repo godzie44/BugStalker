@@ -285,29 +285,34 @@ impl<T: EventHook> Debugger<T> {
             .find_function_by_pc(self.offset_pc()?)
             .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
 
-        //todo may be function have not single range, rewrite with respect of multiple ranges
-
-        let mut line = self
-            .dwarf
-            .find_place_from_pc(func.die.base_attributes.ranges[0].begin as usize)
-            .unwrap();
-        let current_line = self.dwarf.find_place_from_pc(self.offset_pc()?).unwrap();
-
         let mut to_delete = vec![];
-        while line.address < func.die.base_attributes.ranges[0].end {
-            if line.is_stmt {
-                let load_addr = self.offset_to_glob_addr(line.address as usize);
-                if line.address != current_line.address
-                    && self.breakpoints.borrow().get(&load_addr).is_none()
-                {
-                    self.set_breakpoint(load_addr)?;
-                    to_delete.push(load_addr);
-                }
-            }
 
-            match line.next() {
-                None => break,
-                Some(n) => line = n,
+        let current_line = self
+            .dwarf
+            .find_place_from_pc(self.offset_pc()?)
+            .ok_or_else(|| anyhow!("current line not found"))?;
+
+        for range in func.die.base_attributes.ranges.iter() {
+            let mut line = self
+                .dwarf
+                .find_place_from_pc(range.begin as usize)
+                .ok_or_else(|| anyhow!("unknown function range"))?;
+
+            while line.address < range.end {
+                if line.is_stmt {
+                    let load_addr = self.offset_to_glob_addr(line.address as usize);
+                    if line.address != current_line.address
+                        && self.breakpoints.borrow().get(&load_addr).is_none()
+                    {
+                        self.set_breakpoint(load_addr)?;
+                        to_delete.push(load_addr);
+                    }
+                }
+
+                match line.next() {
+                    None => break,
+                    Some(n) => line = n,
+                }
             }
         }
 
