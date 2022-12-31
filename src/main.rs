@@ -50,7 +50,13 @@ fn main() {
     match unsafe { fork().expect("fork() error") } {
         ForkResult::Parent { child: pid } => {
             waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WSTOPPED)).unwrap();
-            sys::ptrace::seize(pid, Options::PTRACE_O_TRACEEXEC).unwrap();
+            sys::ptrace::seize(
+                pid,
+                Options::PTRACE_O_TRACECLONE
+                    .union(Options::PTRACE_O_TRACEEXEC)
+                    .union(Options::PTRACE_O_TRACEEXIT),
+            )
+            .unwrap();
 
             println!("Child pid {:?}", pid);
 

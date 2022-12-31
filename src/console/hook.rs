@@ -26,4 +26,8 @@ impl EventHook for TerminalHook {
     fn on_signal(&self, signo: c_int, code: c_int) {
         println!("Receive signal {signo}, reason: {code}")
     }
+
+    fn on_exit(&self, code: i32) {
+        println!("Program exit with code: {code}");
+    }
 }

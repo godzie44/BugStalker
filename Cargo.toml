@@ -45,3 +45,7 @@ test = false
 [[bin]]
 name = "vars"
 test = false
+
+[[bin]]
+name = "mt"
+test = false

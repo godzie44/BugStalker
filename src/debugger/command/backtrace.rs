@@ -10,6 +10,8 @@ impl<'a, T: EventHook> Backtrace<'a, T> {
     }
 
     pub fn run(&self) -> command::Result<uw::Backtrace> {
-        Ok(self.dbg.backtrace()?)
+        Ok(self
+            .dbg
+            .backtrace(self.dbg.thread_registry.on_focus_thread())?)
     }
 }

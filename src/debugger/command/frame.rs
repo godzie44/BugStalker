@@ -10,6 +10,8 @@ impl<'a, T: EventHook> Frame<'a, T> {
     }
 
     pub fn run(&self) -> command::Result<FrameInfo> {
-        Ok(self.dbg.frame_info()?)
+        Ok(self
+            .dbg
+            .frame_info(self.dbg.thread_registry.on_focus_thread())?)
     }
 }
