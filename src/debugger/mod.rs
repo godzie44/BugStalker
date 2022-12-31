@@ -92,11 +92,6 @@ impl<T: EventHook> Debugger<T> {
         Ok(())
     }
 
-    pub fn on_debugee_start(&self) -> anyhow::Result<()> {
-        waitpid(self.pid, None)?;
-        self.init_load_addr()
-    }
-
     fn get_symbol(&self, name: &str) -> anyhow::Result<&Symbol> {
         self.dwarf
             .find_symbol(name)
@@ -199,7 +194,6 @@ impl<T: EventHook> Debugger<T> {
 
     fn wait_for_signal(&self) -> anyhow::Result<()> {
         waitpid(self.pid, None)?;
-
         let info = match sys::ptrace::getsiginfo(self.pid) {
             Ok(info) => info,
             Err(Errno::ESRCH) => return Ok(()),
@@ -214,15 +208,18 @@ impl<T: EventHook> Debugger<T> {
     }
 
     fn handle_sigtrap(&self, info: siginfo_t) -> anyhow::Result<()> {
+        const EVENT_EXEC: c_int = libc::PTRACE_EVENT_EXEC << 8 | libc::SIGTRAP;
         match info.si_code {
+            EVENT_EXEC => {
+                // initialize load address right after `exec` calling in debugee process
+                self.init_load_addr()
+            }
             0x80 | 0x1 => {
                 self.set_pc(self.get_pc()? - 1)?;
                 let current_pc = self.get_pc()?;
                 let offset_pc = self.offset_load_addr(current_pc);
                 self.hooks
-                    .on_trap(current_pc, self.dwarf.find_place_from_pc(offset_pc))?;
-
-                Ok(())
+                    .on_trap(current_pc, self.dwarf.find_place_from_pc(offset_pc))
             }
             0x2 => Ok(()),
             _ => Err(anyhow!("Unknown SIGTRAP code: {}", info.si_code)),

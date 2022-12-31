@@ -28,7 +28,7 @@ tui-textarea = "*"
 crossterm = "0.25"
 clap =  { version = "4.0", features = ["derive"] }
 uuid = {version = "1.2.2", features = ["v4", "fast-rng", "macro-diagnostics"]}
-
+os_pipe = "1.1.2"
 
 [dev-dependencies]
 assert_cmd = "2.0.4"

@@ -2,13 +2,14 @@ use bugstalker::console::AppBuilder;
 use bugstalker::cui;
 use bugstalker::debugger::rust;
 use clap::{arg, Parser};
-use nix::libc::pid_t;
 use nix::sys;
 use nix::sys::personality::Persona;
-use nix::unistd::Pid;
+use nix::sys::ptrace::Options;
+use nix::sys::signal::SIGSTOP;
+use nix::sys::wait::{waitpid, WaitPidFlag};
+use nix::unistd::{fork, ForkResult, Pid};
 use std::os::unix::prelude::CommandExt;
 use std::path::PathBuf;
-use std::process::Stdio;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -30,39 +31,49 @@ fn main() {
 
     rust::Environment::init(args.std_lib_path.map(PathBuf::from));
 
+    let (stdout_reader, stdout_writer) = os_pipe::pipe().unwrap();
+    let (stderr_reader, stderr_writer) = os_pipe::pipe().unwrap();
+
     let mut debugee_cmd = std::process::Command::new(debugee);
     if args.ui.as_str() == "cui" {
-        debugee_cmd.stdout(Stdio::piped());
-        debugee_cmd.stderr(Stdio::piped());
+        debugee_cmd.stdout(stdout_writer);
+        debugee_cmd.stderr(stderr_writer);
     }
 
     unsafe {
         debugee_cmd.pre_exec(move || {
             sys::personality::set(Persona::ADDR_NO_RANDOMIZE)?;
-            sys::ptrace::traceme()?;
             Ok(())
         });
     }
-    let mut handle = debugee_cmd.spawn().expect("execute debugee fail");
-    let pid = handle.id() as pid_t;
 
-    println!("Child pid {:?}", pid);
+    match unsafe { fork().expect("fork() error") } {
+        ForkResult::Parent { child: pid } => {
+            waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WSTOPPED)).unwrap();
+            sys::ptrace::seize(pid, Options::PTRACE_O_TRACEEXEC).unwrap();
 
-    match args.ui.as_str() {
-        "cui" => {
-            let app = cui::AppBuilder::new(
-                handle.stdout.take().expect("take debugee stdout fail"),
-                handle.stderr.take().expect("take debugee stderr fail"),
-            )
-            .build(debugee, Pid::from_raw(pid))
-            .expect("prepare application fail");
-            app.run().expect("run application fail");
+            println!("Child pid {:?}", pid);
+
+            match args.ui.as_str() {
+                "cui" => {
+                    let app = cui::AppBuilder::new(stdout_reader, stderr_reader)
+                        .build(debugee, pid)
+                        .expect("prepare application fail");
+
+                    app.run().expect("run application fail");
+                }
+                _ => {
+                    let app = AppBuilder::new()
+                        .build(debugee, pid)
+                        .expect("prepare application fail");
+
+                    app.run().expect("run application fail");
+                }
+            }
         }
-        _ => {
-            let app = AppBuilder::new()
-                .build(debugee, Pid::from_raw(pid))
-                .expect("prepare application fail");
-            app.run().expect("run application fail");
+        ForkResult::Child => {
+            sys::signal::raise(SIGSTOP).unwrap();
+            debugee_cmd.exec();
         }
     }
 }

@@ -1,13 +1,13 @@
 use crate::cui::hook::CuiHook;
-use crate::debugger::Debugger;
+use crate::debugger::{command, Debugger};
 use crossterm::cursor::Show;
 use crossterm::event;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use nix::unistd::Pid;
+use os_pipe::PipeReader;
 use std::io::{BufRead, BufReader, Read};
-use std::process::{ChildStderr, ChildStdout};
 use std::rc::Rc;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -25,12 +25,12 @@ pub(super) enum Event<I> {
 }
 
 pub struct AppBuilder {
-    debugee_out: ChildStdout,
-    debugee_err: ChildStderr,
+    debugee_out: PipeReader,
+    debugee_err: PipeReader,
 }
 
 impl AppBuilder {
-    pub fn new(debugee_out: ChildStdout, debugee_err: ChildStderr) -> Self {
+    pub fn new(debugee_out: PipeReader, debugee_err: PipeReader) -> Self {
         Self {
             debugee_out,
             debugee_err,
@@ -68,15 +68,15 @@ enum StreamLine {
 
 pub struct CuiApplication {
     debugger: Debugger<CuiHook>,
-    debugee_out: ChildStdout,
-    debugee_err: ChildStderr,
+    debugee_out: PipeReader,
+    debugee_err: PipeReader,
 }
 
 impl CuiApplication {
     pub fn new(
         debugger: Debugger<CuiHook>,
-        debugee_out: ChildStdout,
-        debugee_err: ChildStderr,
+        debugee_out: PipeReader,
+        debugee_err: PipeReader,
     ) -> Self {
         Self {
             debugger,
@@ -118,7 +118,9 @@ impl CuiApplication {
             thread::spawn(move || stream_to_buffer(self.debugee_err, err_buff, StreamType::StdErr));
         }
 
-        self.debugger.on_debugee_start()?;
+        // start debugee
+        command::Continue::new(&self.debugger).run()?;
+
         enable_raw_mode()?;
 
         let (tx, rx) = mpsc::channel();

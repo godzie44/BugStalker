@@ -45,7 +45,8 @@ pub struct TerminalApplication {
 
 impl TerminalApplication {
     pub fn run(&self) -> anyhow::Result<()> {
-        self.debugger.on_debugee_start()?;
+        // start debugee
+        command::Continue::new(&self.debugger).run()?;
 
         let mut rl = Editor::<()>::new()?;
         if rl.load_history("history.txt").is_err() {

@@ -125,6 +125,7 @@ dependencies = [
  "nix 0.25.0",
  "object",
  "once_cell",
+ "os_pipe",
  "ouroboros",
  "rexpect",
  "rustc-demangle",
@@ -675,6 +676,16 @@ name = "once_cell"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "074864da206b4973b84eb91683020dbefd6a8c3f0f38e054d93954e891935e4e"
+
+[[package]]
+name = "os_pipe"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6a252f1f8c11e84b3ab59d7a488e48e4478a93937e027076638c49536204639"
+dependencies = [
+ "libc",
+ "windows-sys 0.42.0",
+]
 
 [[package]]
 name = "os_str_bytes"
