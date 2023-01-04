@@ -35,5 +35,7 @@ impl EventHook for CuiHook {
         context::Context::current().set_alert(alert_text.into());
     }
 
-    fn on_exit(&self, _code: i32) {}
+    fn on_exit(&self, _code: i32) {
+        context::Context::current().change_state(AppState::Finish)
+    }
 }

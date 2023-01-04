@@ -54,6 +54,7 @@ pub enum AppState {
     DebugeeRun,
     DebugeeBreak,
     UserInput,
+    Finish,
 }
 
 #[derive(Default, Clone)]

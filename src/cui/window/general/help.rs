@@ -33,6 +33,7 @@ impl CuiComponent for ContextHelp {
             AppState::DebugeeRun => "Application running",
             AppState::DebugeeBreak => "Application paused",
             AppState::UserInput => "Wait for input",
+            AppState::Finish => "Application finish",
         };
 
         let app_state = Paragraph::new(state_text)
