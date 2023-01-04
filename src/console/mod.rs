@@ -100,12 +100,8 @@ impl TerminalApplication {
                 bt.iter().for_each(|part| match part.place.as_ref() {
                     Some(place) => {
                         println!(
-                            "{:#016X} - {} ({:#016X}) + {:#X} {}",
-                            part.ip,
-                            place.func_name,
-                            place.start_ip,
-                            place.offset,
-                            place.signal_frame,
+                            "{:#016X} - {} ({:#016X}) + {:#X}",
+                            part.ip, place.func_name, place.start_ip, place.offset,
                         );
                     }
                     None => {

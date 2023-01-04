@@ -61,6 +61,25 @@ fn test_multithreaded_breakpoints() {
     session.exp_string("Program exit with code: 0").unwrap();
 }
 
+#[test]
+fn test_multithreaded_backtrace() {
+    let mut session = setup_vars_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break mt.rs:21").unwrap();
+    session.exp_string("break mt.rs:21").unwrap();
+
+    session.send_line("continue").unwrap();
+    session.exp_string("Hit breakpoint at address").unwrap();
+    session.exp_string(">    let mut sum = 0;").unwrap();
+
+    session.send_line("bt").unwrap();
+    session.exp_string("0x005555555618D9 - mt::sum1").unwrap();
+    session
+        .exp_string("std::sys::unix::thread::Thread::new::thread_start")
+        .unwrap();
+}
+
 fn setup_vars_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
     cmd.arg("./target/debug/mt");

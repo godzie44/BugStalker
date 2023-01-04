@@ -28,7 +28,9 @@ pub fn backtrace(pid: Pid) -> unwind::Result<Backtrace> {
             (Ok(ref info), Ok(ref name)) if ip == info.start_ip() + name.offset() => {
                 let fn_name = format!("{:#}", rustc_demangle::demangle(name.name()));
 
-                let in_main = fn_name == "main" || fn_name.contains("::main");
+                let in_main = fn_name == "main"
+                    || fn_name.contains("::main")
+                    || fn_name.contains("::thread_start");
 
                 backtrace.push(BacktracePart {
                     ip,
