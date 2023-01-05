@@ -15,6 +15,7 @@ pub enum TraceeStatus {
     OutOfReach,
 }
 
+#[derive(Clone)]
 pub struct TraceeThread {
     pub num: u64,
     pub pid: Pid,
@@ -145,5 +146,9 @@ impl Registry {
             .get(&pid)
             .map(|t| t.status)
             .unwrap_or(TraceeStatus::OutOfReach)
+    }
+
+    pub fn dump(&self) -> Vec<TraceeThread> {
+        self.state.iter().map(|(_, v)| v.clone()).collect()
     }
 }

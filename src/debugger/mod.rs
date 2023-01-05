@@ -18,9 +18,10 @@ use crate::debugger::dwarf::{DebugeeContext, EndianRcSlice, Symbol};
 use crate::debugger::register::{
     get_register_from_name, get_register_value, set_register_value, Register,
 };
-use crate::debugger::thread::{Registry, TraceeStatus};
+use crate::debugger::thread::{Registry, TraceeStatus, TraceeThread};
 use crate::debugger::uw::Backtrace;
 use crate::debugger::variable::VariableIR;
+use crate::weak_error;
 use anyhow::anyhow;
 use log::warn;
 use nix::errno::Errno;
@@ -130,6 +131,27 @@ impl<T: EventHook> Debugger<T> {
         )
     }
 
+    fn thread_state(&self) -> Vec<ThreadDump> {
+        let threads = self.thread_registry.dump();
+        threads
+            .into_iter()
+            .map(|t| {
+                let pc = weak_error!(get_register_value(t.pid, Register::Rip));
+                let place = pc.and_then(|pc| {
+                    self.dwarf
+                        .find_place_from_pc(self.offset_load_addr(pc as usize))
+                });
+                let bt = weak_error!(uw::backtrace(t.pid));
+                ThreadDump {
+                    thread: t,
+                    pc,
+                    bt,
+                    stop_at: place,
+                }
+            })
+            .collect()
+    }
+
     fn backtrace(&self, pid: Pid) -> anyhow::Result<Backtrace> {
         Ok(uw::backtrace(pid)?)
     }
@@ -210,7 +232,6 @@ impl<T: EventHook> Debugger<T> {
                             .map(|info| info.si_code == code::TRAP_TRACE)
                             .unwrap_or(false)
                 });
-
                 bp.enable()?;
             }
         }
@@ -538,4 +559,11 @@ pub fn read_memory_by_pid(pid: Pid, addr: usize, read_n: usize) -> nix::Result<V
     debug_assert!(result.len() == read_n);
 
     Ok(result)
+}
+
+pub struct ThreadDump<'a> {
+    pub thread: TraceeThread,
+    pub pc: Option<u64>,
+    pub bt: Option<Backtrace>,
+    pub stop_at: Option<Place<'a>>,
 }

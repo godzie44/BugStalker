@@ -3,7 +3,7 @@ use crate::console::hook::TerminalHook;
 use crate::console::variable::render_variable_ir;
 use crate::console::view::FileView;
 use crate::debugger::command::{
-    Backtrace, Break, Frame, Quit, StepI, StepInto, StepOut, StepOver, Symbol, Variables,
+    Backtrace, Break, Frame, Quit, StepI, StepInto, StepOut, StepOver, Symbol, Trace, Variables,
 };
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::{command, Debugger};
@@ -94,9 +94,8 @@ impl TerminalApplication {
                 let read = Memory::new(&self.debugger, args)?.run()?;
                 println!("read at address: {:#016X}", read);
             }
-            "bt" | "trace" => {
+            "bt" | "backtrace" => {
                 let bt = Backtrace::new(&self.debugger).run()?;
-
                 bt.iter().for_each(|part| match part.place.as_ref() {
                     Some(place) => {
                         println!(
@@ -108,6 +107,30 @@ impl TerminalApplication {
                         println!("{:#016X} - ????", part.ip)
                     }
                 })
+            }
+            "trace" => {
+                let bt = Trace::new(&self.debugger).run();
+                bt.iter().for_each(|thread| {
+                    println!(
+                        "thread {} ({}) - {:#016X}",
+                        thread.thread.num,
+                        thread.thread.pid,
+                        thread.pc.unwrap_or(0)
+                    );
+                    if let Some(ref bt) = thread.bt {
+                        bt.iter().for_each(|part| match part.place.as_ref() {
+                            Some(place) => {
+                                println!(
+                                    "{:#016X} - {} ({:#016X}) + {:#X}",
+                                    part.ip, place.func_name, place.start_ip, place.offset,
+                                );
+                            }
+                            None => {
+                                println!("{:#016X} - ????", part.ip)
+                            }
+                        })
+                    }
+                });
             }
             "stepi" => StepI::new(&self.debugger).run()?,
             "step" | "stepinto" => StepInto::new(&self.debugger).run()?,

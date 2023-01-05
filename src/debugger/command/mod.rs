@@ -10,6 +10,7 @@ mod step_into;
 mod step_out;
 mod step_over;
 mod symbol;
+mod trace;
 mod variables;
 
 pub use backtrace::Backtrace;
@@ -25,6 +26,7 @@ pub use step_into::StepInto;
 pub use step_out::StepOut;
 pub use step_over::StepOver;
 pub use symbol::Symbol;
+pub use trace::Trace;
 pub use variables::Variables;
 
 use std::result;
