@@ -7,6 +7,7 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use nix::unistd::Pid;
 use os_pipe::PipeReader;
+use std::cell::RefCell;
 use std::io::{BufRead, BufReader, Read};
 use std::rc::Rc;
 use std::sync::{mpsc, Arc, Mutex};
@@ -86,7 +87,7 @@ impl CuiApplication {
         }
     }
 
-    pub fn run(self) -> anyhow::Result<()> {
+    pub fn run(mut self) -> anyhow::Result<()> {
         let stream_buff = DebugeeStreamBuffer::default();
         enum StreamType {
             StdErr,
@@ -120,7 +121,7 @@ impl CuiApplication {
         }
 
         // start debugee
-        command::Continue::new(&self.debugger).run()?;
+        command::Continue::new(&mut self.debugger).run()?;
 
         enable_raw_mode()?;
 
@@ -160,6 +161,11 @@ impl CuiApplication {
             original_hook(panic);
         }));
 
-        window::run(terminal, Rc::new(self.debugger), rx, stream_buff)
+        window::run(
+            terminal,
+            Rc::new(RefCell::new(self.debugger)),
+            rx,
+            stream_buff,
+        )
     }
 }

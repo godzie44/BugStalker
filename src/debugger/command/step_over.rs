@@ -5,15 +5,15 @@ use crate::debugger::{command, Debugger, EventHook};
 /// this command does not enter the subroutine, but instead steps over
 /// the call, in effect treating it as a single source line.
 pub struct StepOver<'a, T: EventHook> {
-    dbg: &'a Debugger<T>,
+    dbg: &'a mut Debugger<T>,
 }
 
 impl<'a, T: EventHook> StepOver<'a, T> {
-    pub fn new(debugger: &'a Debugger<T>) -> Self {
+    pub fn new(debugger: &'a mut Debugger<T>) -> Self {
         Self { dbg: debugger }
     }
 
-    pub fn run(&self) -> command::Result<()> {
+    pub fn run(&mut self) -> command::Result<()> {
         Ok(self.dbg.step_over()?)
     }
 }

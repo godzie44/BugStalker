@@ -15,6 +15,7 @@ use crate::cui::{AppState, DebugeeStreamBuffer};
 use crate::debugger::Debugger;
 use crate::fire;
 use crossterm::event::KeyEvent;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::default::Default;
 use std::io::StdoutLock;
@@ -39,7 +40,7 @@ pub(super) struct AppWindow {
 }
 
 impl AppWindow {
-    pub fn new(debugger: Rc<Debugger<CuiHook>>, stream_buff: DebugeeStreamBuffer) -> Self {
+    pub fn new(debugger: Rc<RefCell<Debugger<CuiHook>>>, stream_buff: DebugeeStreamBuffer) -> Self {
         let breakpoints: Box<dyn CuiComponent> = Box::new(Breakpoints::new(debugger.clone()));
         let variables: Box<dyn CuiComponent> = Box::new(Variables::new(debugger));
         let debugee_view: Box<dyn CuiComponent> = Box::new(DebugeeView::new());

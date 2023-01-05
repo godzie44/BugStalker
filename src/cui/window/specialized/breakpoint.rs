@@ -15,12 +15,12 @@ use tui::widgets::{Block, BorderType, Borders, List, ListItem, ListState};
 use tui::Frame;
 
 pub struct Breakpoints {
-    debugger: Rc<Debugger<CuiHook>>,
+    debugger: Rc<RefCell<Debugger<CuiHook>>>,
     breakpoints: RefCell<BreakpointList>,
 }
 
 impl Breakpoints {
-    pub fn new(debugger: impl Into<Rc<Debugger<CuiHook>>>) -> Self {
+    pub fn new(debugger: impl Into<Rc<RefCell<Debugger<CuiHook>>>>) -> Self {
         Self {
             debugger: debugger.into(),
             breakpoints: RefCell::default(),
@@ -103,7 +103,8 @@ impl CuiComponent for Breakpoints {
     fn update(&mut self) -> anyhow::Result<()> {
         for action in Exchanger::current().pop(self.name()) {
             if let ActionMessage::HandleUserInput { input } = action {
-                let b = command::Break::new(&self.debugger, vec!["", &input])?;
+                let dbg = &mut (*self.debugger).borrow_mut();
+                let mut b = command::Break::new(dbg, vec!["", &input])?;
                 b.run()?;
                 self.breakpoints.borrow_mut().add(b.r#type);
             }

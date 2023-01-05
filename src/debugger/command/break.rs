@@ -9,12 +9,12 @@ pub enum Type {
 }
 
 pub struct Break<'a, T: EventHook> {
-    dbg: &'a Debugger<T>,
+    dbg: &'a mut Debugger<T>,
     pub r#type: Type,
 }
 
 impl<'a, T: EventHook> Break<'a, T> {
-    pub fn new<'s>(debugger: &'a Debugger<T>, args: Vec<&'s str>) -> command::Result<Self> {
+    pub fn new<'s>(debugger: &'a mut Debugger<T>, args: Vec<&'s str>) -> command::Result<Self> {
         command::helper::check_args_count(&args, 2)?;
 
         let break_point_place = args[1];
@@ -40,7 +40,7 @@ impl<'a, T: EventHook> Break<'a, T> {
         })
     }
 
-    pub fn run(&self) -> command::Result<()> {
+    pub fn run(&mut self) -> command::Result<()> {
         match &self.r#type {
             Type::Address(addr) => Ok(self.dbg.set_breakpoint(*addr)?),
             Type::Line(file, line) => Ok(self.dbg.set_breakpoint_at_line(file, *line)?),

@@ -10,7 +10,7 @@ impl<'a, T: EventHook> StepI<'a, T> {
         Self { dbg: debugger }
     }
 
-    pub fn run(&self) -> command::Result<()> {
+    pub fn run(&mut self) -> command::Result<()> {
         Ok(self.dbg.stepi()?)
     }
 }

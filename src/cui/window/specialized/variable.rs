@@ -14,12 +14,12 @@ use tui::widgets::{Block, BorderType, Borders, List, ListItem, ListState};
 use tui::Frame;
 
 pub struct Variables {
-    debugger: Rc<Debugger<CuiHook>>,
+    debugger: Rc<RefCell<Debugger<CuiHook>>>,
     variables: RefCell<VariableList>,
 }
 
 impl Variables {
-    pub fn new(debugger: impl Into<Rc<Debugger<CuiHook>>>) -> Self {
+    pub fn new(debugger: impl Into<Rc<RefCell<Debugger<CuiHook>>>>) -> Self {
         Self {
             debugger: debugger.into(),
             variables: RefCell::default(),
@@ -34,7 +34,9 @@ impl CuiComponent for Variables {
         rect: Rect,
         opts: RenderOpts,
     ) {
-        self.variables.borrow_mut().update(&self.debugger);
+        self.variables
+            .borrow_mut()
+            .update(&(*self.debugger).borrow());
         let list_items = self
             .variables
             .borrow_mut()
@@ -113,7 +115,7 @@ struct VariableList {
 
 impl VariableList {
     fn update(&mut self, debugger: &Debugger<CuiHook>) {
-        let cmd = command::Variables::new(debugger);
+        let mut cmd = command::Variables::new(debugger);
         let variables = cmd.run().unwrap_or_default();
         self.items = variables.into_iter().collect::<Vec<_>>();
     }

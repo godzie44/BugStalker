@@ -6,6 +6,7 @@ use crate::debugger::command::{Continue, StepInto, StepOut, StepOver};
 use crate::debugger::Debugger;
 use crossterm::event::{DisableMouseCapture, KeyCode, KeyEvent};
 use crossterm::terminal::{disable_raw_mode, LeaveAlternateScreen};
+use std::cell::RefCell;
 use std::io::StdoutLock;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
@@ -43,7 +44,7 @@ macro_rules! try_else_alert {
 
 pub(super) fn run(
     mut terminal: Terminal<CrosstermBackend<StdoutLock>>,
-    debugger: Rc<Debugger<CuiHook>>,
+    debugger: Rc<RefCell<Debugger<CuiHook>>>,
     event_chan: Receiver<Event<KeyEvent>>,
     stream_buff: DebugeeStreamBuffer,
 ) -> anyhow::Result<()> {
@@ -69,7 +70,7 @@ pub(super) fn run(
                         ..
                     } => {
                         ctx.change_state(AppState::DebugeeRun);
-                        try_else_alert!(Continue::new(&debugger).run());
+                        try_else_alert!(Continue::new(&mut debugger.borrow_mut()).run());
                     }
                     KeyEvent {
                         code: KeyCode::Char('q'),
@@ -88,19 +89,19 @@ pub(super) fn run(
                         code: KeyCode::F(8),
                         ..
                     } => {
-                        try_else_alert!(StepOver::new(&debugger).run());
+                        try_else_alert!(StepOver::new(&mut debugger.borrow_mut()).run());
                     }
                     KeyEvent {
                         code: KeyCode::F(7),
                         ..
                     } => {
-                        try_else_alert!(StepInto::new(&debugger).run());
+                        try_else_alert!(StepInto::new(&debugger.borrow()).run());
                     }
                     KeyEvent {
                         code: KeyCode::F(6),
                         ..
                     } => {
-                        try_else_alert!(StepOut::new(&debugger).run());
+                        try_else_alert!(StepOut::new(&mut debugger.borrow_mut()).run());
                     }
                     _ => {
                         app_window.handle_user_event(e);

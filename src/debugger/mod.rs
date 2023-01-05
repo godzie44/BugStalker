@@ -30,7 +30,7 @@ use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::Pid;
 use nix::{libc, sys};
 use object::{Object, ObjectKind};
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ffi::c_long;
@@ -49,14 +49,12 @@ pub trait EventHook {
 }
 
 pub struct Debugger<T: EventHook> {
-    _program: String,
-    load_addr: Cell<usize>,
-    breakpoints: RefCell<HashMap<usize, Breakpoint>>,
+    hooks: T,
+    load_addr: usize,
+    breakpoints: HashMap<usize, Breakpoint>,
     obj_kind: object::ObjectKind,
     dwarf: DebugeeContext<EndianRcSlice>,
-    hooks: T,
     type_cache: RefCell<TypeDeclarationCache>,
-
     thread_registry: Registry,
 }
 
@@ -70,9 +68,8 @@ impl<T: EventHook> Debugger<T> {
         let dwarf_builder = dwarf::DebugeeContextBuilder::default();
 
         Ok(Self {
-            load_addr: Cell::new(0),
-            _program: program,
-            breakpoints: Default::default(),
+            load_addr: 0,
+            breakpoints: HashMap::default(),
             dwarf: dwarf_builder.build(&object)?,
             obj_kind: object.kind(),
             hooks,
@@ -81,7 +78,7 @@ impl<T: EventHook> Debugger<T> {
         })
     }
 
-    fn init_load_addr(&self) -> anyhow::Result<()> {
+    fn init_load_addr(&mut self) -> anyhow::Result<()> {
         if self.obj_kind == ObjectKind::Dynamic {
             let addrs = fs::read(format!("/proc/{}/maps", self.thread_registry.main_thread()))?;
             let maps = from_utf8(&addrs)?;
@@ -94,7 +91,7 @@ impl<T: EventHook> Debugger<T> {
                 .next()
                 .ok_or_else(|| anyhow!("unexpected line format"))?;
             let addr = usize::from_str_radix(addr, 16)?;
-            self.load_addr.set(addr);
+            self.load_addr = addr;
         }
         Ok(())
     }
@@ -138,28 +135,28 @@ impl<T: EventHook> Debugger<T> {
     }
 
     fn offset_load_addr(&self, addr: usize) -> usize {
-        addr - self.load_addr.get()
+        addr - self.load_addr
     }
 
     fn offset_pc(&self) -> nix::Result<usize> {
         Ok(self.offset_load_addr(self.get_current_thread_pc()?))
     }
 
-    fn continue_execution(&self) -> anyhow::Result<()> {
+    fn continue_execution(&mut self) -> anyhow::Result<()> {
         self.step_over_breakpoint()?;
         self.thread_registry.cont_stopped()?;
         self.wait_for_signal()
     }
 
-    fn set_breakpoint(&self, addr: usize) -> anyhow::Result<()> {
+    fn set_breakpoint(&mut self, addr: usize) -> anyhow::Result<()> {
         let bp = Breakpoint::new(addr, self.thread_registry.main_thread());
         bp.enable()?;
-        self.breakpoints.borrow_mut().insert(addr, bp);
+        self.breakpoints.insert(addr, bp);
         Ok(())
     }
 
-    fn remove_breakpoint(&self, addr: usize) -> anyhow::Result<()> {
-        let bp = self.breakpoints.borrow_mut().remove(&addr);
+    fn remove_breakpoint(&mut self, addr: usize) -> anyhow::Result<()> {
+        let bp = self.breakpoints.remove(&addr);
         if let Some(bp) = bp {
             if bp.is_enabled() {
                 bp.disable()?;
@@ -197,18 +194,17 @@ impl<T: EventHook> Debugger<T> {
     }
 
     fn step_over_breakpoint(&self) -> anyhow::Result<()> {
-        let breakpoints = self.breakpoints.borrow();
         let current_pc = self.get_current_thread_pc()? as usize;
-        let mb_bp = breakpoints.get(&current_pc);
+        let mb_bp = self.breakpoints.get(&current_pc);
         if let Some(bp) = mb_bp {
             if bp.is_enabled() {
                 bp.disable()?;
-                sys::ptrace::step(self.thread_registry.on_focus_thread(), None)?;
-
-                let _status = waitpid(self.thread_registry.on_focus_thread(), None)?;
+                let on_focus_thread = self.thread_registry.on_focus_thread();
+                sys::ptrace::step(on_focus_thread, None)?;
+                let _status = waitpid(on_focus_thread, None)?;
                 debug_assert!({
                     // assert TRAP_TRACE code
-                    let info = sys::ptrace::getsiginfo(self.thread_registry.on_focus_thread());
+                    let info = sys::ptrace::getsiginfo(on_focus_thread);
                     matches!(WaitStatus::Stopped, _status)
                         && info
                             .map(|info| info.si_code == code::TRAP_TRACE)
@@ -221,7 +217,7 @@ impl<T: EventHook> Debugger<T> {
         Ok(())
     }
 
-    fn wait_for_signal(&self) -> anyhow::Result<()> {
+    fn wait_for_signal(&mut self) -> anyhow::Result<()> {
         let status = waitpid(Pid::from_raw(-1), None)?;
 
         match status {
@@ -323,24 +319,28 @@ impl<T: EventHook> Debugger<T> {
     fn single_step_instruction(&self) -> anyhow::Result<()> {
         if self
             .breakpoints
-            .borrow()
             .get(&(self.get_current_thread_pc()? as usize))
             .is_some()
         {
             self.step_over_breakpoint()
         } else {
             sys::ptrace::step(self.thread_registry.on_focus_thread(), None)?;
-            self.wait_for_signal()
+            let _status = waitpid(self.thread_registry.on_focus_thread(), None)?;
+            debug_assert!({
+                // assert TRAP_TRACE code
+                let info = sys::ptrace::getsiginfo(self.thread_registry.on_focus_thread());
+                matches!(WaitStatus::Stopped, _status)
+                    && info
+                        .map(|info| info.si_code == code::TRAP_TRACE)
+                        .unwrap_or(false)
+            });
+            Ok(())
         }
     }
 
-    fn step_out(&self) -> anyhow::Result<()> {
+    fn step_out(&mut self) -> anyhow::Result<()> {
         if let Some(ret_addr) = uw::return_addr(self.thread_registry.on_focus_thread())? {
-            let bp_is_set = self
-                .breakpoints
-                .borrow()
-                .get(&(ret_addr as usize))
-                .is_some();
+            let bp_is_set = self.breakpoints.get(&(ret_addr as usize)).is_some();
             if bp_is_set {
                 self.continue_execution()?;
             } else {
@@ -370,7 +370,7 @@ impl<T: EventHook> Debugger<T> {
         Ok(())
     }
 
-    fn step_over(&self) -> anyhow::Result<()> {
+    fn step_over(&mut self) -> anyhow::Result<()> {
         let func = self
             .dwarf
             .find_function_by_pc(self.offset_pc()?)
@@ -383,6 +383,8 @@ impl<T: EventHook> Debugger<T> {
             .find_place_from_pc(self.offset_pc()?)
             .ok_or_else(|| anyhow!("current line not found"))?;
 
+        let mut breakpoints_range = vec![];
+
         for range in func.die.base_attributes.ranges.iter() {
             let mut line = self
                 .dwarf
@@ -393,9 +395,9 @@ impl<T: EventHook> Debugger<T> {
                 if line.is_stmt {
                     let load_addr = self.offset_to_glob_addr(line.address as usize);
                     if line.address != current_line.address
-                        && self.breakpoints.borrow().get(&load_addr).is_none()
+                        && self.breakpoints.get(&load_addr).is_none()
                     {
-                        self.set_breakpoint(load_addr)?;
+                        breakpoints_range.push(load_addr);
                         to_delete.push(load_addr);
                     }
                 }
@@ -407,8 +409,12 @@ impl<T: EventHook> Debugger<T> {
             }
         }
 
+        breakpoints_range
+            .into_iter()
+            .try_for_each(|load_addr| self.set_breakpoint(load_addr))?;
+
         if let Some(ret_addr) = uw::return_addr(self.thread_registry.on_focus_thread())? {
-            if self.breakpoints.borrow().get(&ret_addr).is_none() {
+            if self.breakpoints.get(&ret_addr).is_none() {
                 self.set_breakpoint(ret_addr)?;
                 to_delete.push(ret_addr);
             }
@@ -423,7 +429,7 @@ impl<T: EventHook> Debugger<T> {
         Ok(())
     }
 
-    fn set_breakpoint_at_fn(&self, name: &str) -> anyhow::Result<()> {
+    fn set_breakpoint_at_fn(&mut self, name: &str) -> anyhow::Result<()> {
         let func = self
             .dwarf
             .find_function_by_name(name)
@@ -442,7 +448,7 @@ impl<T: EventHook> Debugger<T> {
         self.set_breakpoint(self.offset_to_glob_addr(entry.address as usize))
     }
 
-    fn set_breakpoint_at_line(&self, fine_name: &str, line: u64) -> anyhow::Result<()> {
+    fn set_breakpoint_at_line(&mut self, fine_name: &str, line: u64) -> anyhow::Result<()> {
         if let Some(place) = self.dwarf.find_stmt_line(fine_name, line) {
             self.set_breakpoint(self.offset_to_glob_addr(place.address as usize))?;
         }
@@ -450,7 +456,7 @@ impl<T: EventHook> Debugger<T> {
     }
 
     fn offset_to_glob_addr(&self, addr: usize) -> usize {
-        addr + self.load_addr.get()
+        addr + self.load_addr
     }
 
     // Read all actual variables in current thread.

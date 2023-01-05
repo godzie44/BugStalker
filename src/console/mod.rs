@@ -44,9 +44,9 @@ pub struct TerminalApplication {
 }
 
 impl TerminalApplication {
-    pub fn run(&self) -> anyhow::Result<()> {
+    pub fn run(mut self) -> anyhow::Result<()> {
         // start debugee
-        command::Continue::new(&self.debugger).run()?;
+        command::Continue::new(&mut self.debugger).run()?;
 
         let mut rl = Editor::<()>::new()?;
         if rl.load_history("history.txt").is_err() {
@@ -59,7 +59,7 @@ impl TerminalApplication {
                 Ok(input) => {
                     rl.add_history_entry(input.as_str());
                     println!("> {}", input);
-                    if let Err(e) = self.handle_cmd(&input, &self.debugger) {
+                    if let Err(e) = self.handle_cmd(&input) {
                         println!("Error: {:?}", e);
                     }
                     rl.add_history_entry(input.as_str());
@@ -76,26 +76,26 @@ impl TerminalApplication {
         Ok(())
     }
 
-    fn handle_cmd(&self, cmd: &str, debugger: &Debugger<TerminalHook>) -> anyhow::Result<()> {
+    fn handle_cmd(&mut self, cmd: &str) -> anyhow::Result<()> {
         let args = cmd.split(' ').collect::<Vec<_>>();
         let command = args[0];
 
         match command.to_lowercase().as_str() {
-            "c" | "continue" => Continue::new(debugger).run()?,
-            "b" | "break" => Break::new(debugger, args)?.run()?,
+            "c" | "continue" => Continue::new(&mut self.debugger).run()?,
+            "b" | "break" => Break::new(&mut self.debugger, args)?.run()?,
             "r" | "register" => {
-                let cmd = Register::new(debugger, args)?;
+                let cmd = Register::new(&self.debugger, args)?;
                 let response = cmd.run()?;
                 response.iter().for_each(|register| {
                     println!("{:10} {:#016X}", register.register_name, register.value);
                 });
             }
             "mem" | "memory" => {
-                let read = Memory::new(debugger, args)?.run()?;
+                let read = Memory::new(&self.debugger, args)?.run()?;
                 println!("read at address: {:#016X}", read);
             }
             "bt" | "trace" => {
-                let bt = Backtrace::new(debugger).run()?;
+                let bt = Backtrace::new(&self.debugger).run()?;
 
                 bt.iter().for_each(|part| match part.place.as_ref() {
                     Some(place) => {
@@ -109,17 +109,20 @@ impl TerminalApplication {
                     }
                 })
             }
-            "stepi" => StepI::new(debugger).run()?,
-            "step" | "stepinto" => StepInto::new(debugger).run()?,
-            "next" | "stepover" => StepOver::new(debugger).run()?,
-            "finish" | "stepout" => StepOut::new(debugger).run()?,
+            "stepi" => StepI::new(&self.debugger).run()?,
+            "step" | "stepinto" => StepInto::new(&self.debugger).run()?,
+            "next" | "stepover" => StepOver::new(&mut self.debugger).run()?,
+            "finish" | "stepout" => StepOut::new(&mut self.debugger).run()?,
             "vars" => {
-                Variables::new(debugger).run()?.into_iter().for_each(|var| {
-                    println!("{} = {}", var.name(), render_variable_ir(&var, 0),);
-                });
+                Variables::new(&mut self.debugger)
+                    .run()?
+                    .into_iter()
+                    .for_each(|var| {
+                        println!("{} = {}", var.name(), render_variable_ir(&var, 0),);
+                    });
             }
             "frame" => {
-                let frame = Frame::new(debugger).run()?;
+                let frame = Frame::new(&self.debugger).run()?;
                 println!("current frame: {:#016X}", frame.base_addr);
                 println!(
                     "return address: {}",
@@ -129,7 +132,7 @@ impl TerminalApplication {
                 );
             }
             "symbol" => {
-                let cmd = Symbol::new(debugger, args)?;
+                let cmd = Symbol::new(&self.debugger, args)?;
                 let symbol = cmd.run()?;
                 println!("{:?} {:#016X}", symbol.kind, symbol.addr);
             }
