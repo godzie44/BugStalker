@@ -9,6 +9,7 @@ use crate::cui::window::message::{ActionMessage, Exchanger};
 use crate::cui::window::specialized::breakpoint::Breakpoints;
 use crate::cui::window::specialized::debugee_out::DebugeeOut;
 use crate::cui::window::specialized::debugee_view::DebugeeView;
+use crate::cui::window::specialized::trace::ThreadTrace;
 use crate::cui::window::specialized::variable::Variables;
 use crate::cui::window::{CuiComponent, RenderOpts};
 use crate::cui::{AppState, DebugeeStreamBuffer};
@@ -42,14 +43,23 @@ pub(super) struct AppWindow {
 impl AppWindow {
     pub fn new(debugger: Rc<RefCell<Debugger<CuiHook>>>, stream_buff: DebugeeStreamBuffer) -> Self {
         let breakpoints: Box<dyn CuiComponent> = Box::new(Breakpoints::new(debugger.clone()));
-        let variables: Box<dyn CuiComponent> = Box::new(Variables::new(debugger));
+        let variables: Box<dyn CuiComponent> = Box::new(Variables::new(debugger.clone()));
+        let threads: Box<dyn CuiComponent> = Box::new(ThreadTrace::new(debugger));
         let debugee_view: Box<dyn CuiComponent> = Box::new(DebugeeView::new());
         let logs: Box<dyn CuiComponent> = Box::new(Logs::default());
         let debugee_out: Box<dyn CuiComponent> = Box::new(DebugeeOut::new(stream_buff));
 
-        let left_deck_states = HashMap::from([(variables.name(), AppState::DebugeeBreak)]);
+        let left_deck_states = HashMap::from([
+            (variables.name(), AppState::DebugeeBreak),
+            (threads.name(), AppState::DebugeeBreak),
+        ]);
+
         Self {
-            left_deck: WindowDeck::new("left_deck", vec![breakpoints, variables], left_deck_states),
+            left_deck: WindowDeck::new(
+                "left_deck",
+                vec![breakpoints, threads, variables],
+                left_deck_states,
+            ),
             right_deck: WindowDeck::new(
                 "right_deck",
                 vec![debugee_view, debugee_out, logs],
