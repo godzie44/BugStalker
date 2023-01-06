@@ -152,6 +152,21 @@ fn test_step_over() {
 }
 
 #[test]
+fn test_step_over_on_fn_decl() {
+    let mut session = setup_hello_world_debugee();
+
+    session.exp_string("No previous history.").unwrap();
+    session.send_line("break hello_world.rs:14").unwrap();
+    session.exp_string("break hello_world.rs:14").unwrap();
+
+    session.send_line("continue").unwrap();
+    session.exp_string("Hit breakpoint at address").unwrap();
+
+    session.send_line("next").unwrap();
+    session.exp_string(">    println!(\"{}\", s)").unwrap();
+}
+
+#[test]
 fn test_function_breakpoint() {
     let mut session = setup_hello_world_debugee();
 

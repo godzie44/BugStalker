@@ -111,7 +111,13 @@ impl DebugeeContext {
             .die_ranges
             .binary_search_by_key(&pc, |dr| dr.range.begin)
         {
-            Ok(pos) => pos + 1,
+            Ok(pos) => {
+                let mut idx = pos + 1;
+                while idx < unit.die_ranges.len() && unit.die_ranges[idx].range.begin == pc {
+                    idx += 1;
+                }
+                idx
+            }
             Err(pos) => pos,
         };
 

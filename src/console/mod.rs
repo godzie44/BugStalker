@@ -136,14 +136,12 @@ impl TerminalApplication {
             "step" | "stepinto" => StepInto::new(&self.debugger).run()?,
             "next" | "stepover" => StepOver::new(&mut self.debugger).run()?,
             "finish" | "stepout" => StepOut::new(&mut self.debugger).run()?,
-            "vars" => {
-                Variables::new(&mut self.debugger)
-                    .run()?
-                    .into_iter()
-                    .for_each(|var| {
-                        println!("{} = {}", var.name(), render_variable_ir(&var, 0),);
-                    });
-            }
+            "vars" => Variables::new(&self.debugger)
+                .run()?
+                .into_iter()
+                .for_each(|var| {
+                    println!("{} = {}", var.name(), render_variable_ir(&var, 0),);
+                }),
             "frame" => {
                 let frame = Frame::new(&self.debugger).run()?;
                 println!("current frame: {:#016X}", frame.base_addr);
