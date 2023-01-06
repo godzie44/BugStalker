@@ -10,7 +10,7 @@ impl<'a, T: EventHook> Variables<'a, T> {
         Self { dbg: debugger }
     }
 
-    pub fn run(&mut self) -> command::Result<Vec<VariableIR>> {
+    pub fn run(&self) -> command::Result<Vec<VariableIR>> {
         Ok(self.dbg.read_variables()?)
     }
 }

@@ -1,4 +1,5 @@
 use crate::cui::hook::CuiHook;
+use crate::cui::window::specialized::PersistentList;
 use crate::cui::window::{CuiComponent, RenderOpts};
 use crate::debugger::variable::render::{RenderRepr, ValueRepr};
 use crate::debugger::variable::VariableIR;
@@ -10,12 +11,12 @@ use std::rc::Rc;
 use tui::backend::CrosstermBackend;
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
-use tui::widgets::{Block, BorderType, Borders, List, ListItem, ListState};
+use tui::widgets::{Block, BorderType, Borders, List, ListItem};
 use tui::Frame;
 
 pub struct Variables {
     debugger: Rc<RefCell<Debugger<CuiHook>>>,
-    variables: RefCell<VariableList>,
+    variables: RefCell<PersistentList<VariableIR>>,
 }
 
 impl Variables {
@@ -34,9 +35,11 @@ impl CuiComponent for Variables {
         rect: Rect,
         opts: RenderOpts,
     ) {
-        self.variables
-            .borrow_mut()
-            .update(&(*self.debugger).borrow());
+        let debugger = self.debugger.borrow();
+        let cmd = command::Variables::new(&debugger);
+        let variables = cmd.run().unwrap_or_default();
+        self.variables.borrow_mut().update_items(variables);
+
         let list_items = self
             .variables
             .borrow_mut()
@@ -104,57 +107,5 @@ impl CuiComponent for Variables {
 
     fn name(&self) -> &'static str {
         "variables"
-    }
-}
-
-#[derive(Default)]
-struct VariableList {
-    items: Vec<VariableIR>,
-    state: ListState,
-}
-
-impl VariableList {
-    fn update(&mut self, debugger: &Debugger<CuiHook>) {
-        let mut cmd = command::Variables::new(debugger);
-        let variables = cmd.run().unwrap_or_default();
-        self.items = variables.into_iter().collect::<Vec<_>>();
-    }
-
-    fn next(&mut self) {
-        if self.items.is_empty() {
-            self.state.select(None);
-            return;
-        }
-
-        let i = match self.state.selected() {
-            Some(i) => {
-                if i >= self.items.len() - 1 {
-                    0
-                } else {
-                    i + 1
-                }
-            }
-            None => 0,
-        };
-        self.state.select(Some(i));
-    }
-
-    fn previous(&mut self) {
-        if self.items.is_empty() {
-            self.state.select(None);
-            return;
-        }
-
-        let i = match self.state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    self.items.len() - 1
-                } else {
-                    i - 1
-                }
-            }
-            None => 0,
-        };
-        self.state.select(Some(i));
     }
 }

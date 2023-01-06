@@ -9,7 +9,7 @@ impl<'a, T: EventHook> Trace<'a, T> {
         Self { dbg: debugger }
     }
 
-    pub fn run(&self) -> Vec<ThreadDump<'a>> {
+    pub fn run(&self) -> Vec<ThreadDump> {
         let mut dump = self.dbg.thread_state();
         dump.sort_unstable_by(|t1, t2| t1.thread.num.cmp(&t2.thread.num));
         dump
