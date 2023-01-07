@@ -41,10 +41,11 @@ impl<'a> DwarfUnitParser<'a> {
             lines: vec![],
             ranges: vec![],
             die_ranges: vec![],
-            die_offsets: HashMap::new(),
             encoding: unit.encoding(),
             offset: unit.header.offset().as_debug_info_offset(),
             name,
+            variable_index: HashMap::new(),
+            die_offsets_index: HashMap::new(),
         };
 
         if let Some(ref lp) = unit.line_program {
@@ -131,12 +132,19 @@ impl<'a> DwarfUnitParser<'a> {
                         mb_parent_idx = parsed_unit.entries[parent_idx].node.parent;
                     }
 
-                    DieVariant::Variable(VariableDie {
+                    let die = VariableDie {
                         base_attributes: base_attrs,
                         type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
                         location: die.attr(DW_AT_location)?,
                         lexical_block_idx,
-                    })
+                    };
+                    if let Some(ref name) = die.base_attributes.name {
+                        parsed_unit
+                            .variable_index
+                            .insert(name.to_string(), current_idx);
+                    }
+
+                    DieVariant::Variable(die)
                 }
                 gimli::DW_TAG_base_type => {
                     let encoding = die.attr(DW_AT_encoding)?.and_then(|attr| {
@@ -220,7 +228,9 @@ impl<'a> DwarfUnitParser<'a> {
 
             parsed_unit.entries.push(Entry::new(parsed_die, parent_idx));
 
-            parsed_unit.die_offsets.insert(die.offset(), current_idx);
+            parsed_unit
+                .die_offsets_index
+                .insert(die.offset(), current_idx);
         }
         parsed_unit.die_ranges.sort_by_key(|dr| dr.range.begin);
 

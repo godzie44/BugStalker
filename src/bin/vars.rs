@@ -163,6 +163,16 @@ fn string_types() {
     let nop: Option<u8> = None;
 }
 
+static GLOB_1: &str = "glob_1";
+static GLOB_2: i32 = 2;
+
+#[allow(unused)]
+fn static_vars() {
+    println!("{GLOB_1}");
+    println!("{GLOB_2}");
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -173,4 +183,5 @@ pub fn main() {
     type_params();
     vec_and_slice_types();
     string_types();
+    static_vars();
 }

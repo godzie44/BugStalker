@@ -182,6 +182,23 @@ impl DebugeeContext {
             }
         }
     }
+
+    pub fn find_variable(&self, name: &str) -> Option<ContextualDieRef<'_, VariableDie>> {
+        for unit in &self.units {
+            if let Some(&entry_idx) = unit.variable_index.get(name) {
+                if let DieVariant::Variable(ref var) = unit.entries[entry_idx].die {
+                    return Some(ContextualDieRef {
+                        context: self,
+                        unit,
+                        node: &unit.entries[entry_idx].node,
+                        die: var,
+                    });
+                }
+            }
+        }
+
+        None
+    }
 }
 
 pub struct ContextualDieRef<'a, T> {
@@ -255,17 +272,22 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
 impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
     pub fn read_value_at_location(
         &self,
-        type_decl: &TypeDeclaration,
-        parent_fn: ContextualDieRef<FunctionDie>,
         pid: Pid,
+        type_decl: &TypeDeclaration,
+        parent_fn: Option<ContextualDieRef<FunctionDie>>,
+        relocation_addr: usize,
     ) -> Option<Bytes> {
         self.die.location.as_ref().and_then(|loc| {
             let expr = loc.exprloc_value()?;
-            let fb = weak_error!(parent_fn.frame_base_addr(pid))?;
-            let eval_result = weak_error!(self
-                .unit
-                .evaluator(pid)
-                .evaluate_with_opts(expr, EvalOption::new().with_base_frame(fb),))?;
+
+            let mut eval_opts = EvalOption::new().with_relocation_addr(relocation_addr);
+            if let Some(parent_fn) = parent_fn {
+                let fb = weak_error!(parent_fn.frame_base_addr(pid))?;
+                eval_opts = eval_opts.with_base_frame(fb);
+            }
+
+            let eval_result =
+                weak_error!(self.unit.evaluator(pid).evaluate_with_opts(expr, eval_opts))?;
             let bytes = weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
                 &EvaluationContext {
                     unit: self.unit,
@@ -328,5 +350,24 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
                     .any(|r| pc >= r.begin as usize && pc <= r.end as usize)
             })
             .unwrap_or(true)
+    }
+
+    pub fn assume_parent_function(&self) -> Option<ContextualDieRef<'_, FunctionDie>> {
+        let mut mb_parent = self.node.parent;
+
+        while let Some(p) = mb_parent {
+            if let DieVariant::Function(ref func) = self.unit.entries[p].die {
+                return Some(ContextualDieRef {
+                    context: self.context,
+                    unit: self.unit,
+                    node: &self.unit.entries[p].node,
+                    die: func,
+                });
+            }
+
+            mb_parent = self.unit.entries[p].node.parent;
+        }
+
+        None
     }
 }

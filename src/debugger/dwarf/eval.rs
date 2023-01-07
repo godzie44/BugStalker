@@ -33,6 +33,7 @@ pub type Result<T> = result::Result<T, EvalError>;
 pub struct EvalOption {
     base_frame: Option<usize>,
     at_location: Option<Vec<u8>>,
+    relocation_addr: Option<usize>,
 }
 
 impl EvalOption {
@@ -50,6 +51,13 @@ impl EvalOption {
     pub fn with_at_location(self, bytes: impl Into<Vec<u8>>) -> Self {
         Self {
             at_location: Some(bytes.into()),
+            ..self
+        }
+    }
+
+    pub fn with_relocation_addr(self, addr: usize) -> Self {
+        Self {
+            relocation_addr: Some(addr),
             ..self
         }
     }
@@ -125,7 +133,15 @@ impl<'a> ExpressionEvaluator<'a> {
                 EvaluationResult::RequiresMemory { .. } => {
                     todo!();
                 }
-                _ => return Err(UnsupportedRequire(format!("{:?}", result))),
+                EvaluationResult::RequiresRelocatedAddress(addr) => {
+                    let relocation_addr = opts
+                        .relocation_addr
+                        .ok_or(OptionRequired("relocation_addr"))?;
+                    result = eval.resume_with_relocated_address(addr + relocation_addr as u64)?;
+                }
+                _ => {
+                    return Err(UnsupportedRequire(format!("{:?}", result)));
+                }
             };
         }
 

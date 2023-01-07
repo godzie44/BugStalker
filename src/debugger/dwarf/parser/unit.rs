@@ -30,11 +30,14 @@ pub struct Unit {
     pub ranges: Vec<Range>,
     pub entries: Vec<Entry>,
     pub die_ranges: Vec<DieRange>,
-    pub(super) die_offsets: HashMap<UnitOffset, usize>,
     #[allow(unused)]
     pub(super) name: Option<String>,
     pub(super) encoding: Encoding,
     pub offset: Option<DebugInfoOffset>,
+    // index for variables: variable name -> position in unit entries
+    pub variable_index: HashMap<String, usize>,
+    // index for variables: offset in unit -> position in unit entries
+    pub die_offsets_index: HashMap<UnitOffset, usize>,
 }
 
 impl Unit {
@@ -84,7 +87,7 @@ impl Unit {
     }
 
     pub fn find_entry(&self, offset: UnitOffset) -> Option<&Entry> {
-        let die_idx = self.die_offsets.get(&offset)?;
+        let die_idx = self.die_offsets_index.get(&offset)?;
         Some(&self.entries[*die_idx])
     }
 }

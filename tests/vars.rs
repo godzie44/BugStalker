@@ -410,6 +410,25 @@ fn test_read_strings() {
     session.exp_string("s3 = &str(hello world)").unwrap();
 }
 
+#[test]
+fn test_read_static_variables() {
+    let mut session = setup_vars_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break vars.rs:173").unwrap();
+    session.exp_string("break vars.rs:173").unwrap();
+
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars GLOB_1").unwrap();
+    session.exp_string("GLOB_1 = &str(glob_1)").unwrap();
+    session.send_line("vars GLOB_2").unwrap();
+    session.exp_string("GLOB_2 = i32(2)").unwrap();
+}
+
 fn setup_vars_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
     cmd.arg("./target/debug/vars");

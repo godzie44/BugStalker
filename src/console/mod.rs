@@ -45,6 +45,8 @@ pub struct TerminalApplication {
 
 impl TerminalApplication {
     pub fn run(mut self) -> anyhow::Result<()> {
+        env_logger::init();
+
         // start debugee
         command::Continue::new(&mut self.debugger).run()?;
 
@@ -136,7 +138,7 @@ impl TerminalApplication {
             "step" | "stepinto" => StepInto::new(&self.debugger).run()?,
             "next" | "stepover" => StepOver::new(&mut self.debugger).run()?,
             "finish" | "stepout" => StepOut::new(&mut self.debugger).run()?,
-            "vars" => Variables::new(&self.debugger)
+            "vars" => Variables::new(&self.debugger, args)?
                 .run()?
                 .into_iter()
                 .for_each(|var| {

@@ -36,7 +36,7 @@ impl CuiComponent for Variables {
         opts: RenderOpts,
     ) {
         let debugger = self.debugger.borrow();
-        let cmd = command::Variables::new(&debugger);
+        let cmd = command::Variables::new_locals(&debugger);
         let variables = cmd.run().unwrap_or_default();
         self.variables.borrow_mut().update_items(variables);
 

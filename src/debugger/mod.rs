@@ -476,8 +476,8 @@ impl<T: EventHook> Debugger<T> {
         addr + self.load_addr
     }
 
-    // Read all actual variables in current thread.
-    fn read_variables(&self) -> anyhow::Result<Vec<VariableIR>> {
+    // Read all local variables from current thread.
+    fn read_local_variables(&self) -> anyhow::Result<Vec<VariableIR>> {
         let pc = self.offset_pc()?;
 
         let current_func = self
@@ -500,9 +500,10 @@ impl<T: EventHook> Debugger<T> {
 
                 let mb_value = mb_type.as_ref().and_then(|type_decl| {
                     var.read_value_at_location(
-                        type_decl,
-                        current_func,
                         self.thread_registry.on_focus_thread(),
+                        type_decl,
+                        Some(current_func),
+                        self.load_addr,
                     )
                 });
 
@@ -518,6 +519,40 @@ impl<T: EventHook> Debugger<T> {
             })
             .collect::<Vec<_>>();
         Ok(vars)
+    }
+
+    // Read any variable from current thread.
+    fn read_variable(&self, name: &str) -> Option<VariableIR> {
+        let var = self.dwarf.find_variable(name)?;
+
+        let mut type_cache = self.type_cache.borrow_mut();
+
+        let mb_type =
+            var.die
+                .type_ref
+                .and_then(|type_ref| match type_cache.entry((var.unit.id, type_ref)) {
+                    Entry::Occupied(o) => Some(&*o.into_mut()),
+                    Entry::Vacant(v) => var.r#type().map(|t| &*v.insert(t)),
+                });
+
+        let mb_value = mb_type.as_ref().and_then(|type_decl| {
+            var.read_value_at_location(
+                self.thread_registry.on_focus_thread(),
+                type_decl,
+                var.assume_parent_function(),
+                self.load_addr,
+            )
+        });
+
+        Some(VariableIR::new(
+            &EvaluationContext {
+                unit: var.unit,
+                pid: self.thread_registry.on_focus_thread(),
+            },
+            var.die.base_attributes.name.clone(),
+            mb_value,
+            mb_type,
+        ))
     }
 
     pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {
