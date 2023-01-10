@@ -30,12 +30,12 @@ use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::Pid;
 use nix::{libc, sys};
-use object::{Object, ObjectKind};
+use proc_maps::MapRange;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ffi::c_long;
-use std::str::from_utf8;
+use std::path::{Path, PathBuf};
 use std::{fs, mem, u64};
 
 pub struct FrameInfo {
@@ -51,9 +51,9 @@ pub trait EventHook {
 
 pub struct Debugger<T: EventHook> {
     hooks: T,
-    load_addr: usize,
+    debugee_path: PathBuf,
+    debugee_mapping_addr: usize,
     breakpoints: HashMap<usize, Breakpoint>,
-    obj_kind: object::ObjectKind,
     dwarf: DebugeeContext<EndianRcSlice>,
     type_cache: RefCell<TypeDeclarationCache>,
     thread_registry: Registry,
@@ -62,38 +62,41 @@ pub struct Debugger<T: EventHook> {
 impl<T: EventHook> Debugger<T> {
     pub fn new(program: impl Into<String>, pid: Pid, hooks: T) -> anyhow::Result<Self> {
         let program = program.into();
-        let file = fs::File::open(&program)?;
+        let program_path = Path::new(&program);
+        let file = fs::File::open(program_path)?;
+
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
         let object = object::File::parse(&*mmap)?;
 
         let dwarf_builder = dwarf::DebugeeContextBuilder::default();
 
         Ok(Self {
-            load_addr: 0,
+            debugee_path: program_path.to_path_buf(),
+            debugee_mapping_addr: 0,
             breakpoints: HashMap::default(),
             dwarf: dwarf_builder.build(&object)?,
-            obj_kind: object.kind(),
             hooks,
             type_cache: RefCell::default(),
             thread_registry: Registry::new(pid),
         })
     }
 
-    fn init_load_addr(&mut self) -> anyhow::Result<()> {
-        if self.obj_kind == ObjectKind::Dynamic {
-            let addrs = fs::read(format!("/proc/{}/maps", self.thread_registry.main_thread()))?;
-            let maps = from_utf8(&addrs)?;
-            let first_line = maps
-                .lines()
-                .next()
-                .ok_or_else(|| anyhow!("unexpected line format"))?;
-            let addr = first_line
-                .split('-')
-                .next()
-                .ok_or_else(|| anyhow!("unexpected line format"))?;
-            let addr = usize::from_str_radix(addr, 16)?;
-            self.load_addr = addr;
-        }
+    fn init_mapping_addr(&mut self) -> anyhow::Result<()> {
+        let absolute_debugee_path_buf = self.debugee_path.canonicalize()?;
+        let absolute_debugee_path = absolute_debugee_path_buf.as_path();
+
+        let proc_maps: Vec<MapRange> =
+            proc_maps::get_process_maps(self.thread_registry.main_thread().as_raw())?
+                .into_iter()
+                .filter(|map| map.filename() == Some(absolute_debugee_path))
+                .collect();
+
+        let lowest_map = proc_maps
+            .iter()
+            .min_by(|map1, map2| map1.start().cmp(&map2.start()))
+            .ok_or_else(|| anyhow!("mapping not found"))?;
+
+        self.debugee_mapping_addr = lowest_map.start();
         Ok(())
     }
 
@@ -153,7 +156,7 @@ impl<T: EventHook> Debugger<T> {
     }
 
     fn offset_load_addr(&self, addr: usize) -> usize {
-        addr - self.load_addr
+        addr - self.debugee_mapping_addr
     }
 
     fn offset_pc(&self) -> nix::Result<usize> {
@@ -255,7 +258,7 @@ impl<T: EventHook> Debugger<T> {
                     libc::PTRACE_EVENT_EXEC => {
                         // fire just before debugee start
                         // cause currently `fork()` in debugee is unsupported we expect this code calling once
-                        self.init_load_addr()?;
+                        self.init_mapping_addr()?;
                         self.thread_registry.set_stop_status(pid);
                     }
                     libc::PTRACE_EVENT_CLONE => {
@@ -473,7 +476,7 @@ impl<T: EventHook> Debugger<T> {
     }
 
     fn offset_to_glob_addr(&self, addr: usize) -> usize {
-        addr + self.load_addr
+        addr + self.debugee_mapping_addr
     }
 
     // Read all local variables from current thread.
@@ -503,7 +506,7 @@ impl<T: EventHook> Debugger<T> {
                         self.thread_registry.on_focus_thread(),
                         type_decl,
                         Some(current_func),
-                        self.load_addr,
+                        self.debugee_mapping_addr,
                     )
                 });
 
@@ -540,7 +543,7 @@ impl<T: EventHook> Debugger<T> {
                 self.thread_registry.on_focus_thread(),
                 type_decl,
                 var.assume_parent_function(),
-                self.load_addr,
+                self.debugee_mapping_addr,
             )
         });
 

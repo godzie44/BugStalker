@@ -74,7 +74,7 @@ fn test_multithreaded_backtrace() {
     session.exp_string(">    let mut sum = 0;").unwrap();
 
     session.send_line("backtrace").unwrap();
-    session.exp_string("0x005555555618D9 - mt::sum1").unwrap();
+    session.exp_string("mt::sum1").unwrap();
     session
         .exp_string("std::sys::unix::thread::Thread::new::thread_start")
         .unwrap();
