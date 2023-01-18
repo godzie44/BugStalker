@@ -34,8 +34,8 @@ pub struct Unit {
     pub(super) name: Option<String>,
     pub(super) encoding: Encoding,
     pub offset: Option<DebugInfoOffset>,
-    // index for variables: variable name -> position in unit entries
-    pub variable_index: HashMap<String, usize>,
+    // index for variable die position: variable name -> [namespaces : die position in unit]
+    pub variable_index: HashMap<String, Vec<(Vec<usize>, usize)>>,
     // index for variables: offset in unit -> position in unit entries
     pub die_offsets_index: HashMap<UnitOffset, usize>,
 }
@@ -225,6 +225,11 @@ pub struct TemplateTypeParameter {
 }
 
 #[derive(Debug)]
+pub struct Namespace {
+    pub base_attributes: DieAttributes,
+}
+
+#[derive(Debug)]
 pub enum DieVariant {
     Function(FunctionDie),
     LexicalBlock(LexicalBlockDie),
@@ -241,6 +246,7 @@ pub enum DieVariant {
     Variant(Variant),
     PointerType(PointerType),
     TemplateType(TemplateTypeParameter),
+    Namespace(Namespace),
 }
 
 #[derive(Debug)]

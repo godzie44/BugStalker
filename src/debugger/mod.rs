@@ -13,8 +13,9 @@ pub use dwarf::parser::unit::Place;
 pub use dwarf::r#type::TypeDeclaration;
 
 use crate::debugger::breakpoint::Breakpoint;
+use crate::debugger::dwarf::parser::unit::{FunctionDie, VariableDie};
 use crate::debugger::dwarf::r#type::{EvaluationContext, TypeDeclarationCache};
-use crate::debugger::dwarf::{DebugeeContext, EndianRcSlice, Symbol};
+use crate::debugger::dwarf::{ContextualDieRef, DebugeeContext, EndianRcSlice, Symbol};
 use crate::debugger::register::{
     get_register_from_name, get_register_value, set_register_value, Register,
 };
@@ -482,17 +483,29 @@ impl<T: EventHook> Debugger<T> {
     // Read all local variables from current thread.
     fn read_local_variables(&self) -> anyhow::Result<Vec<VariableIR>> {
         let pc = self.offset_pc()?;
-
         let current_func = self
             .dwarf
             .find_function_by_pc(pc)
             .ok_or_else(|| anyhow!("not in function"))?;
-
         let vars = current_func.find_variables(pc);
+        self.variables_into_variable_ir(&vars, Some(current_func))
+    }
+
+    // Read any variable from current thread.
+    fn read_variable(&self, name: &str) -> anyhow::Result<Vec<VariableIR>> {
+        let vars = self.dwarf.find_variables(name);
+        self.variables_into_variable_ir(&vars, None)
+    }
+
+    fn variables_into_variable_ir(
+        &self,
+        vars: &[ContextualDieRef<VariableDie>],
+        known_parent_fn: Option<ContextualDieRef<FunctionDie>>,
+    ) -> anyhow::Result<Vec<VariableIR>> {
         let mut type_cache = self.type_cache.borrow_mut();
 
         let vars = vars
-            .into_iter()
+            .iter()
             .map(|var| {
                 let mb_type = var.die.type_ref.and_then(|type_ref| {
                     match type_cache.entry((var.unit.id, type_ref)) {
@@ -505,7 +518,7 @@ impl<T: EventHook> Debugger<T> {
                     var.read_value_at_location(
                         self.thread_registry.on_focus_thread(),
                         type_decl,
-                        Some(current_func),
+                        known_parent_fn.or_else(|| var.assume_parent_function()),
                         self.debugee_mapping_addr,
                     )
                 });
@@ -520,42 +533,8 @@ impl<T: EventHook> Debugger<T> {
                     mb_type,
                 )
             })
-            .collect::<Vec<_>>();
+            .collect();
         Ok(vars)
-    }
-
-    // Read any variable from current thread.
-    fn read_variable(&self, name: &str) -> Option<VariableIR> {
-        let var = self.dwarf.find_variable(name)?;
-
-        let mut type_cache = self.type_cache.borrow_mut();
-
-        let mb_type =
-            var.die
-                .type_ref
-                .and_then(|type_ref| match type_cache.entry((var.unit.id, type_ref)) {
-                    Entry::Occupied(o) => Some(&*o.into_mut()),
-                    Entry::Vacant(v) => var.r#type().map(|t| &*v.insert(t)),
-                });
-
-        let mb_value = mb_type.as_ref().and_then(|type_decl| {
-            var.read_value_at_location(
-                self.thread_registry.on_focus_thread(),
-                type_decl,
-                var.assume_parent_function(),
-                self.debugee_mapping_addr,
-            )
-        });
-
-        Some(VariableIR::new(
-            &EvaluationContext {
-                unit: var.unit,
-                pid: self.thread_registry.on_focus_thread(),
-            },
-            var.die.base_attributes.name.clone(),
-            mb_value,
-            mb_type,
-        ))
     }
 
     pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {

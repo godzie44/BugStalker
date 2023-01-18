@@ -1,6 +1,5 @@
 use crate::debugger::variable::VariableIR;
 use crate::debugger::{command, Debugger, EventHook};
-use anyhow::anyhow;
 
 pub struct Variables<'a, T: EventHook> {
     dbg: &'a Debugger<T>,
@@ -26,9 +25,7 @@ impl<'a, T: EventHook> Variables<'a, T> {
     pub fn run(&self) -> command::Result<Vec<VariableIR>> {
         match self.name {
             None => Ok(self.dbg.read_local_variables()?),
-            Some(ref name) => Ok(vec![self.dbg.read_variable(name).ok_or_else(|| {
-                command::CommandError::Debugger(anyhow!("variable not found"))
-            })?]),
+            Some(ref name) => Ok(self.dbg.read_variable(name)?),
         }
     }
 }

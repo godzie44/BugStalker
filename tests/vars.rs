@@ -429,6 +429,24 @@ fn test_read_static_variables() {
     session.exp_string("GLOB_2 = i32(2)").unwrap();
 }
 
+#[test]
+fn test_read_static_variables_different_modules() {
+    let mut session = setup_vars_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break vars.rs:185").unwrap();
+    session.exp_string("break vars.rs:185").unwrap();
+
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars GLOB_3").unwrap();
+    session.exp_string("GLOB_3 = &str(glob_3)").unwrap();
+    session.exp_string("GLOB_3 = i32(3)").unwrap();
+}
+
 fn setup_vars_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
     cmd.arg("./target/debug/vars");

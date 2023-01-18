@@ -183,21 +183,23 @@ impl DebugeeContext {
         }
     }
 
-    pub fn find_variable(&self, name: &str) -> Option<ContextualDieRef<'_, VariableDie>> {
+    pub fn find_variables(&self, name: &str) -> Vec<ContextualDieRef<'_, VariableDie>> {
+        let mut found = vec![];
         for unit in &self.units {
-            if let Some(&entry_idx) = unit.variable_index.get(name) {
-                if let DieVariant::Variable(ref var) = unit.entries[entry_idx].die {
-                    return Some(ContextualDieRef {
-                        context: self,
-                        unit,
-                        node: &unit.entries[entry_idx].node,
-                        die: var,
-                    });
-                }
+            if let Some(vars) = unit.variable_index.get(name) {
+                vars.iter().for_each(|(_, entry_idx)| {
+                    if let DieVariant::Variable(ref var) = unit.entries[*entry_idx].die {
+                        found.push(ContextualDieRef {
+                            context: self,
+                            unit,
+                            node: &unit.entries[*entry_idx].node,
+                            die: var,
+                        });
+                    }
+                });
             }
         }
-
-        None
+        found
     }
 }
 

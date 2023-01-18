@@ -173,6 +173,18 @@ fn static_vars() {
     let nop: Option<u8> = None;
 }
 
+static GLOB_3: i32 = 3;
+mod ns_1 {
+    pub static GLOB_3: &str = "glob_3";
+}
+
+#[allow(unused)]
+fn static_vars_same_name() {
+    println!("{GLOB_3}");
+    println!("{}", ns_1::GLOB_3);
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -184,4 +196,5 @@ pub fn main() {
     vec_and_slice_types();
     string_types();
     static_vars();
+    static_vars_same_name();
 }

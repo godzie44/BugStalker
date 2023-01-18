@@ -70,6 +70,7 @@ fn test_multithreaded_backtrace() {
     session.exp_string("break mt.rs:21").unwrap();
 
     session.send_line("continue").unwrap();
+    session.exp_string("thread 1 spawn").unwrap();
     session.exp_string("Hit breakpoint at address").unwrap();
     session.exp_string(">    let mut sum = 0;").unwrap();
 

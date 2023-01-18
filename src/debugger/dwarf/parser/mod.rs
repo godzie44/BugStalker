@@ -2,8 +2,8 @@ pub mod unit;
 
 use crate::debugger::dwarf::parser::unit::{
     ArrayDie, ArraySubrangeDie, BaseTypeDie, DieAttributes, DieRange, DieVariant, Entry,
-    EnumTypeDie, EnumeratorDie, FunctionDie, LexicalBlockDie, LineRow, PointerType, StructTypeDie,
-    TemplateTypeParameter, TypeMemberDie, Unit, VariableDie, Variant, VariantPart,
+    EnumTypeDie, EnumeratorDie, FunctionDie, LexicalBlockDie, LineRow, Namespace, PointerType,
+    StructTypeDie, TemplateTypeParameter, TypeMemberDie, Unit, VariableDie, Variant, VariantPart,
 };
 use crate::debugger::dwarf::EndianRcSlice;
 use crate::debugger::rust::Environment;
@@ -138,10 +138,28 @@ impl<'a> DwarfUnitParser<'a> {
                         location: die.attr(DW_AT_location)?,
                         lexical_block_idx,
                     };
+
+                    let variable_ns = parent_idx
+                        .map(|p_idx| {
+                            let mut ns_indexes = vec![];
+                            let mut p_idx = Some(p_idx);
+                            while let Some(parent_idx) = p_idx {
+                                let parent = &parsed_unit.entries[parent_idx];
+                                if let DieVariant::Namespace(_) = parent.die {
+                                    ns_indexes.push(parent_idx);
+                                }
+                                p_idx = parent.node.parent;
+                            }
+                            ns_indexes
+                        })
+                        .unwrap_or_default();
+
                     if let Some(ref name) = die.base_attributes.name {
                         parsed_unit
                             .variable_index
-                            .insert(name.to_string(), current_idx);
+                            .entry(name.to_string())
+                            .or_default()
+                            .push((variable_ns, current_idx));
                     }
 
                     DieVariant::Variable(die)
@@ -223,6 +241,9 @@ impl<'a> DwarfUnitParser<'a> {
                         type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
                     })
                 }
+                gimli::DW_TAG_namespace => DieVariant::Namespace(Namespace {
+                    base_attributes: base_attrs,
+                }),
                 _ => DieVariant::Default(base_attrs),
             };
 
