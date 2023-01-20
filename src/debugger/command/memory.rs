@@ -1,5 +1,5 @@
 use crate::debugger::command::CommandError;
-use crate::debugger::{command, Debugger, EventHook};
+use crate::debugger::{command, Debugger};
 use anyhow::anyhow;
 use nix::libc::uintptr_t;
 use std::mem;
@@ -9,13 +9,13 @@ enum SubCommand {
     Write(usize, uintptr_t),
 }
 
-pub struct Memory<'a, T: EventHook> {
-    dbg: &'a Debugger<T>,
+pub struct Memory<'a> {
+    dbg: &'a Debugger,
     sub_cmd: SubCommand,
 }
 
-impl<'a, T: EventHook> Memory<'a, T> {
-    pub fn new<'s>(debugger: &'a Debugger<T>, args: Vec<&'s str>) -> command::Result<Self> {
+impl<'a> Memory<'a> {
+    pub fn new<'s>(debugger: &'a Debugger, args: Vec<&'s str>) -> command::Result<Self> {
         let sub_cmd = match args[1].to_lowercase().as_str() {
             "read" => {
                 command::helper::check_args_count(&args, 3)?;

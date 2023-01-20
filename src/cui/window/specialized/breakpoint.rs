@@ -1,4 +1,3 @@
-use crate::cui::hook::CuiHook;
 use crate::cui::window::message::{ActionMessage, Exchanger};
 use crate::cui::window::specialized::PersistentList;
 use crate::cui::window::{CuiComponent, RenderOpts};
@@ -16,12 +15,12 @@ use tui::widgets::{Block, BorderType, Borders, List, ListItem};
 use tui::Frame;
 
 pub struct Breakpoints {
-    debugger: Rc<RefCell<Debugger<CuiHook>>>,
+    debugger: Rc<RefCell<Debugger>>,
     breakpoints: RefCell<PersistentList<BreakpointType>>,
 }
 
 impl Breakpoints {
-    pub fn new(debugger: impl Into<Rc<RefCell<Debugger<CuiHook>>>>) -> Self {
+    pub fn new(debugger: impl Into<Rc<RefCell<Debugger>>>) -> Self {
         Self {
             debugger: debugger.into(),
             breakpoints: RefCell::default(),

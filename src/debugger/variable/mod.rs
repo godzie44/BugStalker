@@ -1,4 +1,6 @@
-use crate::debugger::dwarf::r#type::{ArrayType, EvaluationContext, ScalarType, StructureMember};
+use crate::debugger::debugee::dwarf::r#type::{
+    ArrayType, EvaluationContext, ScalarType, StructureMember,
+};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::specialized::{
     SpecializedVariableIR, StrVariable, StringVariable, VecVariable,

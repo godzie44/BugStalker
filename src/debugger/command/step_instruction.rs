@@ -1,12 +1,12 @@
-use crate::debugger::{command, Debugger, EventHook};
+use crate::debugger::{command, Debugger};
 
 /// Step on next instruction
-pub struct StepI<'a, T: EventHook> {
-    dbg: &'a Debugger<T>,
+pub struct StepI<'a> {
+    dbg: &'a Debugger,
 }
 
-impl<'a, T: EventHook> StepI<'a, T> {
-    pub fn new(debugger: &'a Debugger<T>) -> Self {
+impl<'a> StepI<'a> {
+    pub fn new(debugger: &'a Debugger) -> Self {
         Self { dbg: debugger }
     }
 

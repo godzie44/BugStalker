@@ -3,15 +3,15 @@ pub mod parser;
 mod symbol;
 pub mod r#type;
 
-use crate::debugger::dwarf::eval::EvalOption;
-use crate::debugger::dwarf::parser::unit::{
+use crate::debugger::debugee::dwarf::eval::EvalOption;
+use crate::debugger::debugee::dwarf::parser::unit::{
     DieVariant, Entry, FunctionDie, Node, Unit, VariableDie,
 };
-use crate::debugger::dwarf::parser::DieRef;
-use crate::debugger::dwarf::r#type::EvaluationContext;
-use crate::debugger::dwarf::symbol::SymbolTab;
-use crate::debugger::TypeDeclaration;
-use crate::weak_error;
+use crate::debugger::debugee::dwarf::parser::DieRef;
+use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
+use crate::debugger::debugee::dwarf::r#type::TypeDeclaration;
+use crate::debugger::debugee::dwarf::symbol::SymbolTab;
+use crate::{debugger, weak_error};
 use anyhow::anyhow;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
@@ -275,7 +275,7 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
     pub fn read_value_at_location(
         &self,
         pid: Pid,
-        type_decl: &TypeDeclaration,
+        type_decl: &debugger::debugee::dwarf::r#type::TypeDeclaration,
         parent_fn: Option<ContextualDieRef<FunctionDie>>,
         relocation_addr: usize,
     ) -> Option<Bytes> {

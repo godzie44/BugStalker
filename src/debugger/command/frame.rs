@@ -1,17 +1,17 @@
-use crate::debugger::{command, Debugger, EventHook, FrameInfo};
+use crate::debugger::{command, Debugger, FrameInfo};
 
-pub struct Frame<'a, T: EventHook> {
-    dbg: &'a Debugger<T>,
+pub struct Frame<'a> {
+    dbg: &'a Debugger,
 }
 
-impl<'a, T: EventHook> Frame<'a, T> {
-    pub fn new(debugger: &'a Debugger<T>) -> Self {
+impl<'a> Frame<'a> {
+    pub fn new(debugger: &'a Debugger) -> Self {
         Self { dbg: debugger }
     }
 
     pub fn run(&self) -> command::Result<FrameInfo> {
         Ok(self
             .dbg
-            .frame_info(self.dbg.thread_registry.on_focus_thread())?)
+            .frame_info(self.dbg.debugee.threads_ctl.thread_in_focus())?)
     }
 }

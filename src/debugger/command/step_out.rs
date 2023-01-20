@@ -1,12 +1,12 @@
-use crate::debugger::{command, Debugger, EventHook};
+use crate::debugger::{command, Debugger};
 
 // Execute until selected stack frame returns
-pub struct StepOut<'a, T: EventHook> {
-    dbg: &'a mut Debugger<T>,
+pub struct StepOut<'a> {
+    dbg: &'a mut Debugger,
 }
 
-impl<'a, T: EventHook> StepOut<'a, T> {
-    pub fn new(debugger: &'a mut Debugger<T>) -> Self {
+impl<'a> StepOut<'a> {
+    pub fn new(debugger: &'a mut Debugger) -> Self {
         Self { dbg: debugger }
     }
 

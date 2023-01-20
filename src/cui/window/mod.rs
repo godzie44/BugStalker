@@ -1,4 +1,3 @@
-use crate::cui::hook::CuiHook;
 use crate::cui::window::app::AppWindow;
 use crate::cui::window::message::Exchanger;
 use crate::cui::{context, AppState, DebugeeStreamBuffer, Event};
@@ -44,7 +43,7 @@ macro_rules! try_else_alert {
 
 pub(super) fn run(
     mut terminal: Terminal<CrosstermBackend<StdoutLock>>,
-    debugger: Rc<RefCell<Debugger<CuiHook>>>,
+    debugger: Rc<RefCell<Debugger>>,
     event_chan: Receiver<Event<KeyEvent>>,
     stream_buff: DebugeeStreamBuffer,
 ) -> anyhow::Result<()> {

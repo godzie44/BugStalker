@@ -1,5 +1,5 @@
 use crate::debugger;
-use crate::debugger::dwarf::r#type::EvaluationContext;
+use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::{
     ArrayVariable, ScalarVariable, StructVariable, SupportedScalar, VariableIR,

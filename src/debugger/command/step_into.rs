@@ -1,12 +1,12 @@
-use crate::debugger::{command, Debugger, EventHook};
+use crate::debugger::{command, Debugger};
 
 /// Step program until it reaches a different source line.
-pub struct StepInto<'a, T: EventHook> {
-    dbg: &'a Debugger<T>,
+pub struct StepInto<'a> {
+    dbg: &'a Debugger,
 }
 
-impl<'a, T: EventHook> StepInto<'a, T> {
-    pub fn new(debugger: &'a Debugger<T>) -> Self {
+impl<'a> StepInto<'a> {
+    pub fn new(debugger: &'a Debugger) -> Self {
         Self { dbg: debugger }
     }
 

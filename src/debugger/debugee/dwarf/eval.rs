@@ -1,6 +1,6 @@
-use crate::debugger::dwarf::eval::EvalError::{OptionRequired, UnsupportedRequire};
-use crate::debugger::dwarf::parser::unit::{DieVariant, Unit};
-use crate::debugger::dwarf::EndianRcSlice;
+use crate::debugger::debugee::dwarf::eval::EvalError::{OptionRequired, UnsupportedRequire};
+use crate::debugger::debugee::dwarf::parser::unit::{DieVariant, Unit};
+use crate::debugger::debugee::dwarf::EndianRcSlice;
 use crate::debugger::register::get_register_value_dwarf;
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{

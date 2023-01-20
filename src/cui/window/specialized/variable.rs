@@ -1,4 +1,3 @@
-use crate::cui::hook::CuiHook;
 use crate::cui::window::specialized::PersistentList;
 use crate::cui::window::{CuiComponent, RenderOpts};
 use crate::debugger::variable::render::{RenderRepr, ValueRepr};
@@ -15,12 +14,12 @@ use tui::widgets::{Block, BorderType, Borders, List, ListItem};
 use tui::Frame;
 
 pub struct Variables {
-    debugger: Rc<RefCell<Debugger<CuiHook>>>,
+    debugger: Rc<RefCell<Debugger>>,
     variables: RefCell<PersistentList<VariableIR>>,
 }
 
 impl Variables {
-    pub fn new(debugger: impl Into<Rc<RefCell<Debugger<CuiHook>>>>) -> Self {
+    pub fn new(debugger: impl Into<Rc<RefCell<Debugger>>>) -> Self {
         Self {
             debugger: debugger.into(),
             variables: RefCell::default(),

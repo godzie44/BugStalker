@@ -1,17 +1,17 @@
-use crate::debugger::{command, uw, Debugger, EventHook};
+use crate::debugger::{command, uw, Debugger};
 
-pub struct Backtrace<'a, T: EventHook> {
-    dbg: &'a Debugger<T>,
+pub struct Backtrace<'a> {
+    dbg: &'a Debugger,
 }
 
-impl<'a, T: EventHook> Backtrace<'a, T> {
-    pub fn new(debugger: &'a Debugger<T>) -> Self {
+impl<'a> Backtrace<'a> {
+    pub fn new(debugger: &'a Debugger) -> Self {
         Self { dbg: debugger }
     }
 
     pub fn run(&self) -> command::Result<uw::Backtrace> {
         Ok(self
             .dbg
-            .backtrace(self.dbg.thread_registry.on_focus_thread())?)
+            .backtrace(self.dbg.debugee.threads_ctl.thread_in_focus())?)
     }
 }

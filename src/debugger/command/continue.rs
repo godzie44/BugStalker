@@ -1,12 +1,12 @@
-use crate::debugger::{command, Debugger, EventHook};
+use crate::debugger::{command, Debugger};
 use anyhow::Context;
 
-pub struct Continue<'a, T: EventHook> {
-    dbg: &'a mut Debugger<T>,
+pub struct Continue<'a> {
+    dbg: &'a mut Debugger,
 }
 
-impl<'a, T: EventHook> Continue<'a, T> {
-    pub fn new(debugger: &'a mut Debugger<T>) -> Self {
+impl<'a> Continue<'a> {
+    pub fn new(debugger: &'a mut Debugger) -> Self {
         Self { dbg: debugger }
     }
 

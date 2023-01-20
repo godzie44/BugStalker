@@ -1,17 +1,17 @@
-use crate::debugger::{Debugger, EventHook, ThreadDump};
+use crate::debugger::{Debugger, ThreadDump};
 
-pub struct Trace<'a, T: EventHook> {
-    dbg: &'a Debugger<T>,
+pub struct Trace<'a> {
+    dbg: &'a Debugger,
 }
 
-impl<'a, T: EventHook> Trace<'a, T> {
-    pub fn new(debugger: &'a Debugger<T>) -> Self {
+impl<'a> Trace<'a> {
+    pub fn new(debugger: &'a Debugger) -> Self {
         Self { dbg: debugger }
     }
 
     pub fn run(&self) -> Vec<ThreadDump> {
         let mut dump = self.dbg.thread_state();
-        dump.sort_unstable_by(|t1, t2| t1.thread.num.cmp(&t2.thread.num));
+        dump.sort_unstable_by(|t1, t2| t1.thread.pid.cmp(&t2.thread.pid));
         dump
     }
 }

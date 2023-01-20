@@ -1,5 +1,5 @@
 use crate::debugger::command::CommandError;
-use crate::debugger::{command, Debugger, EventHook};
+use crate::debugger::{command, Debugger};
 use std::str::FromStr;
 
 pub enum Breakpoint {
@@ -8,13 +8,13 @@ pub enum Breakpoint {
     Function(String),
 }
 
-pub struct Break<'a, T: EventHook> {
-    dbg: &'a mut Debugger<T>,
+pub struct Break<'a> {
+    dbg: &'a mut Debugger,
     pub r#type: Breakpoint,
 }
 
-impl<'a, T: EventHook> Break<'a, T> {
-    pub fn new<'s>(debugger: &'a mut Debugger<T>, args: Vec<&'s str>) -> command::Result<Self> {
+impl<'a> Break<'a> {
+    pub fn new<'s>(debugger: &'a mut Debugger, args: Vec<&'s str>) -> command::Result<Self> {
         command::helper::check_args_count(&args, 2)?;
 
         let break_point_place = args[1];

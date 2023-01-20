@@ -1,4 +1,3 @@
-use crate::cui::hook::CuiHook;
 use crate::cui::window::specialized::PersistentList;
 use crate::cui::window::{CuiComponent, RenderOpts};
 use crate::debugger::{command, Debugger, ThreadDump};
@@ -13,12 +12,12 @@ use tui::widgets::{Block, BorderType, Borders, List, ListItem};
 use tui::Frame;
 
 pub struct ThreadTrace {
-    debugger: Rc<RefCell<Debugger<CuiHook>>>,
+    debugger: Rc<RefCell<Debugger>>,
     thread_list: RefCell<PersistentList<ThreadDump>>,
 }
 
 impl ThreadTrace {
-    pub fn new(debugger: impl Into<Rc<RefCell<Debugger<CuiHook>>>>) -> Self {
+    pub fn new(debugger: impl Into<Rc<RefCell<Debugger>>>) -> Self {
         Self {
             debugger: debugger.into(),
             thread_list: RefCell::default(),
@@ -44,7 +43,7 @@ impl CuiComponent for ThreadTrace {
             .items
             .iter()
             .map(|t_dump| {
-                let as_text = format!("thread {} ({})", t_dump.thread.num, t_dump.thread.pid);
+                let as_text = format!("thread {}", t_dump.thread.pid);
                 let mut list_item = ListItem::new(as_text);
                 if t_dump.on_focus {
                     list_item = list_item.style(Style::default().fg(Color::Cyan))

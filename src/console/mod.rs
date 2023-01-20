@@ -40,7 +40,7 @@ impl AppBuilder {
 }
 
 pub struct TerminalApplication {
-    debugger: Debugger<TerminalHook>,
+    debugger: Debugger,
 }
 
 impl TerminalApplication {
@@ -48,7 +48,7 @@ impl TerminalApplication {
         env_logger::init();
 
         // start debugee
-        command::Continue::new(&mut self.debugger).run()?;
+        Continue::new(&mut self.debugger).run()?;
 
         let mut rl = Editor::<()>::new()?;
         if rl.load_history("history.txt").is_err() {
@@ -63,6 +63,7 @@ impl TerminalApplication {
                     println!("> {}", input);
                     if let Err(e) = self.handle_cmd(&input) {
                         println!("Error: {:?}", e);
+                        break;
                     }
                     rl.add_history_entry(input.as_str());
                 }
@@ -114,8 +115,7 @@ impl TerminalApplication {
                 let bt = Trace::new(&self.debugger).run();
                 bt.iter().for_each(|thread| {
                     println!(
-                        "thread {} ({}) - {:#016X}",
-                        thread.thread.num,
+                        "thread {} - {:#016X}",
                         thread.thread.pid,
                         thread.pc.unwrap_or(0)
                     );

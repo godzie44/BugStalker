@@ -1,8 +1,8 @@
-use crate::debugger::dwarf::parser::unit::{
+use crate::debugger::debugee::dwarf::parser::unit::{
     ArrayDie, BaseTypeDie, DieVariant, EnumTypeDie, PointerType, StructTypeDie, TypeMemberDie, Unit,
 };
-use crate::debugger::dwarf::parser::DieRef;
-use crate::debugger::dwarf::{eval, ContextualDieRef, EndianRcSlice};
+use crate::debugger::debugee::dwarf::parser::DieRef;
+use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianRcSlice};
 use crate::weak_error;
 use bytes::Bytes;
 use gimli::{AttributeValue, DwAte, Expression};

@@ -1,11 +1,11 @@
 pub mod unit;
 
-use crate::debugger::dwarf::parser::unit::{
+use crate::debugger::debugee::dwarf::parser::unit::{
     ArrayDie, ArraySubrangeDie, BaseTypeDie, DieAttributes, DieRange, DieVariant, Entry,
     EnumTypeDie, EnumeratorDie, FunctionDie, LexicalBlockDie, LineRow, Namespace, PointerType,
     StructTypeDie, TemplateTypeParameter, TypeMemberDie, Unit, VariableDie, Variant, VariantPart,
 };
-use crate::debugger::dwarf::EndianRcSlice;
+use crate::debugger::debugee::dwarf::EndianRcSlice;
 use crate::debugger::rust::Environment;
 use fallible_iterator::FallibleIterator;
 use gimli::{

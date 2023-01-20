@@ -69,17 +69,13 @@ enum StreamLine {
 }
 
 pub struct CuiApplication {
-    debugger: Debugger<CuiHook>,
+    debugger: Debugger,
     debugee_out: PipeReader,
     debugee_err: PipeReader,
 }
 
 impl CuiApplication {
-    pub fn new(
-        debugger: Debugger<CuiHook>,
-        debugee_out: PipeReader,
-        debugee_err: PipeReader,
-    ) -> Self {
+    pub fn new(debugger: Debugger, debugee_out: PipeReader, debugee_err: PipeReader) -> Self {
         Self {
             debugger,
             debugee_out,

@@ -1,15 +1,15 @@
-use crate::debugger::{command, Debugger, EventHook};
+use crate::debugger::{command, Debugger};
 
 /// Step program, proceeding through subroutine calls.
 /// Unlike "step", if the current source line calls a subroutine,
 /// this command does not enter the subroutine, but instead steps over
 /// the call, in effect treating it as a single source line.
-pub struct StepOver<'a, T: EventHook> {
-    dbg: &'a mut Debugger<T>,
+pub struct StepOver<'a> {
+    dbg: &'a mut Debugger,
 }
 
-impl<'a, T: EventHook> StepOver<'a, T> {
-    pub fn new(debugger: &'a mut Debugger<T>) -> Self {
+impl<'a> StepOver<'a> {
+    pub fn new(debugger: &'a mut Debugger) -> Self {
         Self { dbg: debugger }
     }
 

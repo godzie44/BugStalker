@@ -1,6 +1,6 @@
-use crate::debugger::dwarf::eval::ExpressionEvaluator;
-use crate::debugger::dwarf::parser::DieRef;
-use crate::debugger::dwarf::EndianRcSlice;
+use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
+use crate::debugger::debugee::dwarf::parser::DieRef;
+use crate::debugger::debugee::dwarf::EndianRcSlice;
 use gimli::{Attribute, DebugInfoOffset, DwAte, DwTag, Encoding, Range, UnitOffset};
 use nix::unistd::Pid;
 use std::collections::HashMap;

@@ -1,5 +1,4 @@
 use super::specialized::logs::Logs;
-use crate::cui::hook::CuiHook;
 use crate::cui::window::app::AppMode::Default as DefaultMode;
 use crate::cui::window::general::alert::Alert;
 use crate::cui::window::general::deck::WindowDeck;
@@ -41,7 +40,7 @@ pub(super) struct AppWindow {
 }
 
 impl AppWindow {
-    pub fn new(debugger: Rc<RefCell<Debugger<CuiHook>>>, stream_buff: DebugeeStreamBuffer) -> Self {
+    pub fn new(debugger: Rc<RefCell<Debugger>>, stream_buff: DebugeeStreamBuffer) -> Self {
         let breakpoints: Box<dyn CuiComponent> = Box::new(Breakpoints::new(debugger.clone()));
         let variables: Box<dyn CuiComponent> = Box::new(Variables::new(debugger.clone()));
         let threads: Box<dyn CuiComponent> = Box::new(ThreadTrace::new(debugger));

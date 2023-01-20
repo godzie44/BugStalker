@@ -94,11 +94,11 @@ fn test_multithreaded_trace() {
     session.exp_string(">    let mut sum2 = 0;").unwrap();
 
     session.send_line("trace").unwrap();
-    session.exp_string("thread 1").unwrap();
+    session.exp_string("thread ").unwrap();
     session.exp_string("mt::main").unwrap();
-    session.exp_string("thread 2").unwrap();
+    session.exp_string("thread ").unwrap();
     session.exp_string("std::thread::sleep").unwrap();
-    session.exp_string("thread 3").unwrap();
+    session.exp_string("thread ").unwrap();
     session.exp_string("mt::sum2").unwrap();
 }
 
