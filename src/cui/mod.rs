@@ -1,5 +1,5 @@
 use crate::cui::hook::CuiHook;
-use crate::debugger::{command, Debugger};
+use crate::debugger::Debugger;
 use crossterm::cursor::Show;
 use crossterm::event;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
@@ -83,7 +83,7 @@ impl CuiApplication {
         }
     }
 
-    pub fn run(mut self) -> anyhow::Result<()> {
+    pub fn run(self) -> anyhow::Result<()> {
         let stream_buff = DebugeeStreamBuffer::default();
         enum StreamType {
             StdErr,
@@ -115,9 +115,6 @@ impl CuiApplication {
             let err_buff = stream_buff.data.clone();
             thread::spawn(move || stream_to_buffer(self.debugee_err, err_buff, StreamType::StdErr));
         }
-
-        // start debugee
-        command::Continue::new(&mut self.debugger).run()?;
 
         enable_raw_mode()?;
 

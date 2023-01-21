@@ -11,6 +11,7 @@ use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::debugee::dwarf::r#type::TypeDeclaration;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
+use crate::debugger::GlobalAddress;
 use crate::{debugger, weak_error};
 use anyhow::anyhow;
 use bytes::Bytes;
@@ -85,28 +86,29 @@ pub struct DebugeeContext<R: gimli::Reader = EndianRcSlice> {
 }
 
 impl DebugeeContext {
-    fn find_unit_by_pc(&self, pc: u64) -> Option<&parser::unit::Unit> {
-        self.units.iter().find(
-            |&unit| match unit.ranges.binary_search_by_key(&pc, |r| r.begin) {
+    fn find_unit_by_pc(&self, pc: GlobalAddress) -> Option<&parser::unit::Unit> {
+        self.units.iter().find(|&unit| {
+            match unit
+                .ranges
+                .binary_search_by_key(&(pc.0 as u64), |r| r.begin)
+            {
                 Ok(_) => true,
                 Err(pos) => unit.ranges[..pos]
                     .iter()
                     .rev()
-                    .any(|range| range.begin <= pc && pc <= range.end),
-            },
-        )
+                    .any(|range| range.begin <= pc.0 as u64 && pc.0 as u64 <= range.end),
+            }
+        })
     }
 
-    pub fn find_place_from_pc(&self, pc: usize) -> Option<parser::unit::Place> {
-        let pc = pc as u64;
+    pub fn find_place_from_pc(&self, pc: GlobalAddress) -> Option<parser::unit::Place> {
         let unit = self.find_unit_by_pc(pc)?;
         unit.find_place_by_pc(pc)
     }
 
-    pub fn find_function_by_pc(&self, pc: usize) -> Option<ContextualDieRef<FunctionDie>> {
-        let pc = pc as u64;
+    pub fn find_function_by_pc(&self, pc: GlobalAddress) -> Option<ContextualDieRef<FunctionDie>> {
         let unit = self.find_unit_by_pc(pc)?;
-
+        let pc = pc.0 as u64;
         let find_pos = match unit
             .die_ranges
             .binary_search_by_key(&pc, |dr| dr.range.begin)
@@ -136,11 +138,11 @@ impl DebugeeContext {
         })
     }
 
-    pub fn find_function_by_name(&self, needles: &str) -> Option<ContextualDieRef<FunctionDie>> {
+    pub fn find_function_by_name(&self, needle: &str) -> Option<ContextualDieRef<FunctionDie>> {
         self.units.iter().find_map(|unit| {
             unit.entries.iter().find_map(|entry| {
                 if let DieVariant::Function(func) = &entry.die {
-                    if func.base_attributes.name.as_deref() == Some(needles) {
+                    if func.base_attributes.name.as_deref() == Some(needle) {
                         return Some(ContextualDieRef {
                             context: self,
                             unit,
@@ -244,7 +246,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
 
     pub fn find_variables<'this>(
         &'this self,
-        pc: usize,
+        pc: GlobalAddress,
     ) -> Vec<ContextualDieRef<'ctx, VariableDie>> {
         let mut result = vec![];
         let mut queue = VecDeque::from(self.node.children.clone());
@@ -339,7 +341,7 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
         Some(type_decl)
     }
 
-    pub fn valid_at(&self, pc: usize) -> bool {
+    pub fn valid_at(&self, pc: GlobalAddress) -> bool {
         self.die
             .lexical_block_idx
             .map(|lb_idx| {
@@ -349,7 +351,7 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
 
                 lb.ranges
                     .iter()
-                    .any(|r| pc >= r.begin as usize && pc <= r.end as usize)
+                    .any(|r| pc.0 >= r.begin as usize && pc.0 <= r.end as usize)
             })
             .unwrap_or(true)
     }

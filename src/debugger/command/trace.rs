@@ -9,9 +9,9 @@ impl<'a> Trace<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn run(&self) -> Vec<ThreadDump> {
-        let mut dump = self.dbg.thread_state();
+    pub fn run(&self) -> anyhow::Result<Vec<ThreadDump>> {
+        let mut dump = self.dbg.thread_state()?;
         dump.sort_unstable_by(|t1, t2| t1.thread.pid.cmp(&t2.thread.pid));
-        dump
+        Ok(dump)
     }
 }

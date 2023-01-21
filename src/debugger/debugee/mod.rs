@@ -12,6 +12,8 @@ pub mod thread;
 
 /// Debugee - represent static and runtime debugee information.
 pub struct Debugee {
+    /// true if debugee currently start
+    pub in_progress: bool,
     /// path to debugee file
     pub path: PathBuf,
     /// debugee process map address
@@ -23,7 +25,7 @@ pub struct Debugee {
 }
 
 impl Debugee {
-    pub fn new(path: &Path, proc: Pid) -> anyhow::Result<Self> {
+    pub fn new_non_running(path: &Path, proc: Pid) -> anyhow::Result<Self> {
         let file = fs::File::open(path)?;
 
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
@@ -32,6 +34,7 @@ impl Debugee {
         let dwarf_builder = dwarf::DebugeeContextBuilder::default();
 
         Ok(Self {
+            in_progress: false,
             path: path.into(),
             mapping_addr: None,
             threads_ctl: thread::ThreadCtl::new(proc),
@@ -39,20 +42,28 @@ impl Debugee {
         })
     }
 
+    /// Return debugee process mapping offset.
+    /// This method will panic if called before debugee started,
+    /// calling a method on time is the responsibility of the caller.
+    pub fn mapping_offset(&self) -> usize {
+        self.mapping_addr.expect("mapping address must exists")
+    }
+
     pub fn apply_state(&mut self, state: DebugeeState) -> anyhow::Result<()> {
         match state {
-            DebugeeState::ThreadExit(tid) => {
-                // at this point thread must already removed from registry
-                // anyway `registry.remove` is idempotent
-                self.threads_ctl.remove(tid);
+            DebugeeState::DebugeeStart => {
+                self.in_progress = true;
+                self.mapping_addr = Some(self.define_mapping_addr()?);
+                self.threads_ctl
+                    .set_stop_status(self.threads_ctl.proc_pid());
             }
             DebugeeState::DebugeeExit(_) => {
                 self.threads_ctl.remove(self.threads_ctl.proc_pid());
             }
-            DebugeeState::DebugeeStart => {
-                self.mapping_addr = Some(self.define_mapping_addr()?);
-                self.threads_ctl
-                    .set_stop_status(self.threads_ctl.proc_pid());
+            DebugeeState::ThreadExit(tid) => {
+                // at this point thread must already removed from registry
+                // anyway `registry.remove` is idempotent
+                self.threads_ctl.remove(tid);
             }
             DebugeeState::BeforeNewThread(pid, tid) => {
                 self.threads_ctl.set_stop_status(pid);

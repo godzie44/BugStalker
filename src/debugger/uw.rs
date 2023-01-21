@@ -1,3 +1,4 @@
+use crate::debugger::RelocatedAddress;
 use nix::unistd::Pid;
 use unwind::{Accessors, AddressSpace, Byteorder, Cursor, PTraceState, RegNum};
 
@@ -59,7 +60,7 @@ pub fn backtrace(pid: Pid) -> unwind::Result<Backtrace> {
     Ok(backtrace)
 }
 
-pub fn return_addr(pid: Pid) -> unwind::Result<Option<usize>> {
+pub fn return_addr(pid: Pid) -> unwind::Result<Option<RelocatedAddress>> {
     let state = PTraceState::new(pid.as_raw() as u32)?;
     let address_space = AddressSpace::new(Accessors::ptrace(), Byteorder::DEFAULT)?;
     let mut cursor = Cursor::remote(&address_space, &state)?;
@@ -68,5 +69,7 @@ pub fn return_addr(pid: Pid) -> unwind::Result<Option<usize>> {
         return Ok(None);
     }
 
-    Ok(Some(cursor.register(RegNum::IP)? as usize))
+    Ok(Some(
+        RelocatedAddress(cursor.register(RegNum::IP)? as usize),
+    ))
 }

@@ -34,7 +34,7 @@ impl CuiComponent for ThreadTrace {
     ) {
         let debugger = self.debugger.borrow();
         let trace_cmd = command::Trace::new(&debugger);
-        let threads = trace_cmd.run();
+        let threads = trace_cmd.run().unwrap_or_default();
         self.thread_list.borrow_mut().update_items(threads);
 
         let list_items = self
@@ -45,7 +45,7 @@ impl CuiComponent for ThreadTrace {
             .map(|t_dump| {
                 let as_text = format!("thread {}", t_dump.thread.pid);
                 let mut list_item = ListItem::new(as_text);
-                if t_dump.on_focus {
+                if t_dump.in_focus {
                     list_item = list_item.style(Style::default().fg(Color::Cyan))
                 }
                 list_item

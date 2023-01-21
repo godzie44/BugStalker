@@ -1,10 +1,22 @@
-use nix::libc::{c_void, uintptr_t};
+use crate::debugger::PCValue;
+use nix::libc::c_void;
 use nix::sys;
 use nix::unistd::Pid;
 use std::cell::Cell;
 
+impl PCValue {
+    fn as_ptr(&self) -> *mut c_void {
+        match self {
+            PCValue::Relocated(addr) => addr.0 as *mut c_void,
+            PCValue::Global(_) => {
+                panic!("only address with offset allowed")
+            }
+        }
+    }
+}
+
 pub struct Breakpoint {
-    addr: uintptr_t,
+    pub addr: PCValue,
     pid: Pid,
     saved_data: Cell<u8>,
     enabled: Cell<bool>,
@@ -17,7 +29,7 @@ impl Breakpoint {
 }
 
 impl Breakpoint {
-    pub fn new(addr: uintptr_t, pid: Pid) -> Self {
+    pub fn new(addr: PCValue, pid: Pid) -> Self {
         Self {
             addr,
             pid,
@@ -27,16 +39,12 @@ impl Breakpoint {
     }
 
     pub fn enable(&self) -> nix::Result<()> {
-        let data = sys::ptrace::read(self.pid, self.addr as *mut c_void)?;
+        let data = sys::ptrace::read(self.pid, self.addr.as_ptr())?;
         self.saved_data.set((data & 0xff) as u8);
         let int3 = 0xCC as u64;
         let data_with_pb = (data & !0xff) as u64 | int3;
         unsafe {
-            sys::ptrace::write(
-                self.pid,
-                self.addr as *mut c_void,
-                data_with_pb as *mut c_void,
-            )?;
+            sys::ptrace::write(self.pid, self.addr.as_ptr(), data_with_pb as *mut c_void)?;
         }
         self.enabled.set(true);
 
@@ -44,10 +52,10 @@ impl Breakpoint {
     }
 
     pub fn disable(&self) -> nix::Result<()> {
-        let data = sys::ptrace::read(self.pid, self.addr as *mut c_void)? as u64;
+        let data = sys::ptrace::read(self.pid, self.addr.as_ptr())? as u64;
         let restored: u64 = (data & !0xff) | self.saved_data.get() as u64;
         unsafe {
-            sys::ptrace::write(self.pid, self.addr as *mut c_void, restored as *mut c_void)?;
+            sys::ptrace::write(self.pid, self.addr.as_ptr(), restored as *mut c_void)?;
         }
         self.enabled.set(false);
 

@@ -1,19 +1,16 @@
 use crate::debugger::{command, Debugger};
 use anyhow::Context;
 
-pub struct Continue<'a> {
+pub struct Run<'a> {
     dbg: &'a mut Debugger,
 }
 
-impl<'a> Continue<'a> {
+impl<'a> Run<'a> {
     pub fn new(debugger: &'a mut Debugger) -> Self {
         Self { dbg: debugger }
     }
 
     pub fn run(&mut self) -> command::Result<()> {
-        Ok(self
-            .dbg
-            .continue_debugee()
-            .context("Failed to continue execution")?)
+        Ok(self.dbg.run_debugee().context("run fail")?)
     }
 }

@@ -8,7 +8,7 @@ fn test_multithreaded_app_running() {
     let mut session = setup_vars_debugee();
     session.exp_string("No previous history.").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
 
     session.exp_string("thread 1 spawn").unwrap();
     session.exp_string("thread 2 spawn").unwrap();
@@ -36,7 +36,7 @@ fn test_multithreaded_breakpoints() {
     session.send_line("break mt.rs:14").unwrap();
     session.exp_string("break mt.rs:14").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string("Hit breakpoint at address").unwrap();
     session
         .exp_string(">    let jh1 = thread::spawn(sum1);")
@@ -69,7 +69,7 @@ fn test_multithreaded_backtrace() {
     session.send_line("break mt.rs:21").unwrap();
     session.exp_string("break mt.rs:21").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string("thread 1 spawn").unwrap();
     session.exp_string("Hit breakpoint at address").unwrap();
     session.exp_string(">    let mut sum = 0;").unwrap();
@@ -89,7 +89,7 @@ fn test_multithreaded_trace() {
     session.send_line("break mt.rs:31").unwrap();
     session.exp_string("break mt.rs:31").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string("Hit breakpoint at address").unwrap();
     session.exp_string(">    let mut sum2 = 0;").unwrap();
 

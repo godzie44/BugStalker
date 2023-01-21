@@ -8,7 +8,7 @@ fn test_debugee_execute() {
     let mut session = setup_hello_world_debugee();
 
     session.exp_string("No previous history.").unwrap();
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string("Hello, world!").unwrap();
     session.exp_string("bye!").unwrap();
 }
@@ -20,7 +20,7 @@ fn test_address_breakpoint_set() {
     session.exp_string("No previous history.").unwrap();
     session.send_line("break 0x55555555BD63").unwrap();
     session.exp_string("break 0x55555555BD63").unwrap();
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string("Hello, world!").unwrap();
     session
         .exp_string("Hit breakpoint at address 0x0055555555BD63")
@@ -38,10 +38,10 @@ fn test_multiple_address_breakpoint_set() {
     session.exp_string("No previous history.").unwrap();
     session.send_line("break 0x55555555BD30").unwrap();
     session.exp_string("break 0x55555555BD30").unwrap();
-    session.send_line("break 0x55555555BD63").unwrap(); // zamenil
-    session.exp_string("break 0x55555555BD63").unwrap(); // zamenil
+    session.send_line("break 0x55555555BD63").unwrap();
+    session.exp_string("break 0x55555555BD63").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
 
     session
         .exp_string("Hit breakpoint at address 0x0055555555BD30")
@@ -69,7 +69,7 @@ fn test_read_write_register() {
     session.send_line("break 0x55555555BD6C").unwrap();
     session.exp_string("break 0x55555555BD6C").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string("Hello, world!").unwrap();
     session.exp_string("bye!").unwrap();
 
@@ -93,7 +93,7 @@ fn test_step_in() {
     session.send_line("break 0x55555555BD20").unwrap();
     session.exp_string("break 0x55555555BD20").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string(">fn main()").unwrap();
 
     session.send_line("step").unwrap();
@@ -116,7 +116,7 @@ fn test_step_out() {
     session.send_line("break 0x55555555BD30").unwrap();
     session.exp_string("break 0x55555555BD30").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string("myprint(\"Hello, world!\");").unwrap();
 
     session.send_line("step").unwrap();
@@ -138,7 +138,7 @@ fn test_step_over() {
     session.send_line("break 0x55555555BD30").unwrap();
     session.exp_string("break 0x55555555BD30").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string("myprint(\"Hello, world!\");").unwrap();
 
     session.send_line("next").unwrap();
@@ -159,7 +159,7 @@ fn test_step_over_on_fn_decl() {
     session.send_line("break hello_world.rs:14").unwrap();
     session.exp_string("break hello_world.rs:14").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string("Hit breakpoint at address").unwrap();
 
     session.send_line("next").unwrap();
@@ -174,7 +174,7 @@ fn test_function_breakpoint() {
     session.send_line("break myprint").unwrap();
     session.exp_string("break myprint").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string("fn myprint").unwrap();
 
     session.send_line("continue").unwrap();
@@ -193,7 +193,7 @@ fn test_line_breakpoint() {
     session.send_line("break hello_world.rs:15").unwrap();
     session.exp_string("break hello_world.rs:15").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string(">    println!(\"{}\", s)").unwrap();
 
     session.send_line("continue").unwrap();
@@ -224,7 +224,7 @@ fn test_backtrace() {
     session.send_line("break hello_world.rs:15").unwrap();
     session.exp_string("break hello_world.rs:15").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string(">    println!(\"{}\", s)").unwrap();
 
     session.send_line("bt").unwrap();
@@ -242,7 +242,7 @@ fn test_read_value_u64() {
     session.send_line("break calc.rs:3").unwrap();
     session.exp_string("break calc.rs:3").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string(">    print(s);").unwrap();
 
     session.send_line("vars").unwrap();
@@ -251,7 +251,6 @@ fn test_read_value_u64() {
 
 fn setup_hello_world_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
-    // cmd.arg("../hello-world/target/debug/hello-world");
     cmd.arg("./tests/hello_world");
     let program = cmd.get_program().to_string_lossy().to_string()
         + cmd
@@ -267,7 +266,6 @@ fn setup_hello_world_debugee() -> PtySession {
 
 fn setup_calc_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
-    // cmd.arg("../hello-world/target/debug/hello-world");
     cmd.arg("./tests/calc");
     let program = cmd.get_program().to_string_lossy().to_string()
         + cmd

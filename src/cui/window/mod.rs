@@ -1,7 +1,7 @@
 use crate::cui::window::app::AppWindow;
 use crate::cui::window::message::Exchanger;
 use crate::cui::{context, AppState, DebugeeStreamBuffer, Event};
-use crate::debugger::command::{Continue, StepInto, StepOut, StepOver};
+use crate::debugger::command::{Continue, Run, StepInto, StepOut, StepOver};
 use crate::debugger::Debugger;
 use crossterm::event::{DisableMouseCapture, KeyCode, KeyEvent};
 use crossterm::terminal::{disable_raw_mode, LeaveAlternateScreen};
@@ -70,6 +70,13 @@ pub(super) fn run(
                     } => {
                         ctx.change_state(AppState::DebugeeRun);
                         try_else_alert!(Continue::new(&mut debugger.borrow_mut()).run());
+                    }
+                    KeyEvent {
+                        code: KeyCode::Char('r'),
+                        ..
+                    } => {
+                        ctx.change_state(AppState::DebugeeRun);
+                        try_else_alert!(Run::new(&mut debugger.borrow_mut()).run());
                     }
                     KeyEvent {
                         code: KeyCode::Char('q'),

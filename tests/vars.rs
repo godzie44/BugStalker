@@ -11,7 +11,7 @@ fn test_read_scalar_variables() {
     session.send_line("break vars.rs:26").unwrap();
     session.exp_string("break vars.rs:26").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session
         .exp_string(">    let nop: Option<u8> = None;")
         .unwrap();
@@ -47,7 +47,7 @@ fn test_read_scalar_variables_at_place() {
     session.send_line("break vars.rs:7").unwrap();
     session.exp_string("break vars.rs:7").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session.exp_string(">    let int128 = 3_i128;").unwrap();
 
     session.send_line("vars").unwrap();
@@ -66,7 +66,7 @@ fn test_read_struct() {
     session.send_line("break vars.rs:50").unwrap();
     session.exp_string("break vars.rs:50").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session
         .exp_string(">    let nop: Option<u8> = None;")
         .unwrap();
@@ -109,7 +109,7 @@ fn test_read_array() {
     session.send_line("break vars.rs:59").unwrap();
     session.exp_string("break vars.rs:59").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session
         .exp_string(">    let nop: Option<u8> = None;")
         .unwrap();
@@ -154,7 +154,7 @@ fn test_read_enum() {
     session.send_line("break vars.rs:92").unwrap();
     session.exp_string("break vars.rs:92").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session
         .exp_string(">    let nop: Option<u8> = None;")
         .unwrap();
@@ -200,7 +200,7 @@ fn test_read_pointers() {
     session.send_line("break vars.rs:119").unwrap();
     session.exp_string("break vars.rs:119").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session
         .exp_string(">    let nop: Option<u8> = None;")
         .unwrap();
@@ -266,7 +266,7 @@ fn test_read_type_alias() {
     session.send_line("break vars.rs:127").unwrap();
     session.exp_string("break vars.rs:127").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session
         .exp_string(">    let nop: Option<u8> = None;")
         .unwrap();
@@ -283,7 +283,7 @@ fn test_type_parameters() {
     session.send_line("break vars.rs:137").unwrap();
     session.exp_string("break vars.rs:137").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session
         .exp_string(">    let nop: Option<u8> = None;")
         .unwrap();
@@ -302,7 +302,7 @@ fn test_read_vec_and_slice() {
     session.send_line("break vars.rs:154").unwrap();
     session.exp_string("break vars.rs:154").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session
         .exp_string(">    let nop: Option<u8> = None;")
         .unwrap();
@@ -399,7 +399,7 @@ fn test_read_strings() {
     session.send_line("break vars.rs:163").unwrap();
     session.exp_string("break vars.rs:163").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session
         .exp_string(">    let nop: Option<u8> = None;")
         .unwrap();
@@ -418,7 +418,7 @@ fn test_read_static_variables() {
     session.send_line("break vars.rs:173").unwrap();
     session.exp_string("break vars.rs:173").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session
         .exp_string(">    let nop: Option<u8> = None;")
         .unwrap();
@@ -437,7 +437,7 @@ fn test_read_static_variables_different_modules() {
     session.send_line("break vars.rs:185").unwrap();
     session.exp_string("break vars.rs:185").unwrap();
 
-    session.send_line("continue").unwrap();
+    session.send_line("run").unwrap();
     session
         .exp_string(">    let nop: Option<u8> = None;")
         .unwrap();

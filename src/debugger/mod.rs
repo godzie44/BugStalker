@@ -38,20 +38,53 @@ use std::{mem, u64};
 
 pub struct FrameInfo {
     pub base_addr: usize,
-    pub return_addr: Option<usize>,
+    pub return_addr: Option<RelocatedAddress>,
 }
 
 pub struct ThreadDump {
     pub thread: TraceeThread,
-    pub pc: Option<u64>,
+    pub pc: Option<RelocatedAddress>,
     pub bt: Option<Backtrace>,
-    pub on_focus: bool,
+    pub in_focus: bool,
 }
 
 pub trait EventHook {
-    fn on_trap(&self, pc: usize, place: Option<Place>) -> anyhow::Result<()>;
+    fn on_trap(&self, pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()>;
     fn on_signal(&self, signo: c_int, code: c_int);
     fn on_exit(&self, code: i32);
+}
+
+macro_rules! disable_when_not_stared {
+    ($this: expr) => {
+        use anyhow::bail;
+        if !$this.debugee.in_progress {
+            bail!("The program is not being started.")
+        }
+    };
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+pub struct RelocatedAddress(pub usize);
+
+impl RelocatedAddress {
+    pub fn to_global(self, offset: usize) -> GlobalAddress {
+        GlobalAddress(self.0 - offset)
+    }
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+pub struct GlobalAddress(pub usize);
+
+impl GlobalAddress {
+    pub fn relocate(self, offset: usize) -> RelocatedAddress {
+        RelocatedAddress(self.0 + offset)
+    }
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+pub enum PCValue {
+    Relocated(RelocatedAddress),
+    Global(GlobalAddress),
 }
 
 /// Main structure of bug-stalker, control debugee state and provides application functionality.
@@ -61,7 +94,7 @@ pub struct Debugger {
     /// Debugee control flow.
     debugee_flow: DebugeeControlFlow,
     /// Active and non-active breakpoint list.
-    breakpoints: HashMap<usize, Breakpoint>,
+    breakpoints: HashMap<PCValue, Breakpoint>,
     /// Type declaration cache.
     type_cache: RefCell<TypeDeclarationCache>,
     /// Debugger interrupt with UI by EventHook trait.
@@ -82,7 +115,7 @@ impl Debugger {
             hooks: Box::new(hooks),
             type_cache: RefCell::default(),
             debugee_flow: DebugeeControlFlow::new(pid),
-            debugee: Debugee::new(program_path, pid)?,
+            debugee: Debugee::new_non_running(program_path, pid)?,
         })
     }
 
@@ -97,12 +130,35 @@ impl Debugger {
                 DebugeeState::ThreadExit(_)
                 | DebugeeState::BeforeNewThread(_, _)
                 | DebugeeState::ThreadInterrupt(_)
-                | DebugeeState::BeforeThreadExit(_)
-                | DebugeeState::UnexpectedPtraceEvent
-                | DebugeeState::UnexpectedWaitStatus => {}
-                DebugeeState::DebugeeStart
-                | DebugeeState::NoSuchProcess
-                | DebugeeState::TrapTrace => {
+                | DebugeeState::BeforeThreadExit(_) => {}
+                DebugeeState::DebugeeStart => {
+                    let mut brkpts_to_reloc = HashMap::with_capacity(self.breakpoints.len());
+                    let keys = self.breakpoints.keys().copied().collect::<Vec<_>>();
+                    for k in keys {
+                        if let PCValue::Global(addr) = k {
+                            brkpts_to_reloc.insert(addr, self.breakpoints.remove(&k).unwrap());
+                        }
+                    }
+                    for (addr, mut brkpt) in brkpts_to_reloc {
+                        brkpt.addr =
+                            PCValue::Relocated(addr.relocate(self.debugee.mapping_offset()));
+                        self.breakpoints.insert(brkpt.addr, brkpt);
+                    }
+                    self.breakpoints
+                        .iter()
+                        .try_for_each(|(_, brkpt)| brkpt.enable())?;
+
+                    debug_assert!(self
+                        .breakpoints
+                        .iter()
+                        .all(|(addr, _)| matches!(addr, PCValue::Relocated(_))));
+
+                    self.debugee.threads_ctl.cont_stopped()?;
+                }
+                DebugeeState::UnexpectedPtraceEvent | DebugeeState::UnexpectedWaitStatus => {
+                    self.debugee.threads_ctl.cont_stopped()?;
+                }
+                DebugeeState::NoSuchProcess | DebugeeState::TrapTrace => {
                     break;
                 }
                 DebugeeState::DebugeeExit(code) => {
@@ -110,9 +166,9 @@ impl Debugger {
                     break;
                 }
                 DebugeeState::Breakpoint(_) => {
-                    self.set_current_thread_pc(self.get_current_thread_pc()? - 1)?;
+                    self.set_current_thread_pc(self.get_current_thread_pc()?.0 - 1)?;
                     let current_pc = self.get_current_thread_pc()?;
-                    let offset_pc = self.offset_load_addr(current_pc);
+                    let offset_pc = current_pc.to_global(self.debugee.mapping_offset());
                     self.hooks
                         .on_trap(current_pc, self.debugee.dwarf.find_place_from_pc(offset_pc))?;
                     break;
@@ -127,18 +183,31 @@ impl Debugger {
         Ok(())
     }
 
-    fn get_symbol(&self, name: &str) -> anyhow::Result<&Symbol> {
+    pub fn run_debugee(&mut self) -> anyhow::Result<()> {
+        self.continue_execution()
+    }
+
+    pub fn continue_debugee(&mut self) -> anyhow::Result<()> {
+        disable_when_not_stared!(self);
+        self.continue_execution()
+    }
+
+    pub fn get_symbol(&self, name: &str) -> anyhow::Result<&Symbol> {
         self.debugee
             .dwarf
             .find_symbol(name)
             .ok_or_else(|| anyhow!("symbol not found"))
     }
 
-    fn frame_info(&self, pid: Pid) -> anyhow::Result<FrameInfo> {
+    pub fn frame_info(&self, pid: Pid) -> anyhow::Result<FrameInfo> {
+        disable_when_not_stared!(self);
         let func = self
             .debugee
             .dwarf
-            .find_function_by_pc(self.offset_pc()?)
+            .find_function_by_pc(
+                self.get_current_thread_pc()?
+                    .to_global(self.debugee.mapping_offset()),
+            )
             .ok_or_else(|| anyhow!("current function not found"))?;
 
         Ok(FrameInfo {
@@ -147,59 +216,63 @@ impl Debugger {
         })
     }
 
-    fn step_into(&self) -> anyhow::Result<()> {
+    pub fn step_into(&self) -> anyhow::Result<()> {
+        disable_when_not_stared!(self);
         self.step_in()?;
         self.hooks.on_trap(
-            self.offset_pc()?,
-            self.debugee.dwarf.find_place_from_pc(self.offset_pc()?),
+            self.get_current_thread_pc()?,
+            self.debugee.dwarf.find_place_from_pc(
+                self.get_current_thread_pc()?
+                    .to_global(self.debugee.mapping_offset()),
+            ),
         )
     }
 
-    fn stepi(&self) -> anyhow::Result<()> {
+    pub fn stepi(&self) -> anyhow::Result<()> {
+        disable_when_not_stared!(self);
         self.single_step_instruction()?;
         self.hooks.on_trap(
-            self.offset_pc()?,
-            self.debugee.dwarf.find_place_from_pc(self.offset_pc()?),
+            self.get_current_thread_pc()?,
+            self.debugee.dwarf.find_place_from_pc(
+                self.get_current_thread_pc()?
+                    .to_global(self.debugee.mapping_offset()),
+            ),
         )
     }
 
-    fn thread_state(&self) -> Vec<ThreadDump> {
+    pub fn thread_state(&self) -> anyhow::Result<Vec<ThreadDump>> {
+        disable_when_not_stared!(self);
         let threads = self.debugee.threads_ctl.dump();
-        threads
+        Ok(threads
             .into_iter()
             .map(|thread| {
                 let pc = weak_error!(get_register_value(thread.pid, Register::Rip));
                 let bt = weak_error!(uw::backtrace(thread.pid));
                 ThreadDump {
-                    on_focus: thread.pid == self.debugee.threads_ctl.thread_in_focus(),
+                    in_focus: thread.pid == self.debugee.threads_ctl.thread_in_focus(),
                     thread,
-                    pc,
+                    pc: pc.map(|pc| RelocatedAddress(pc as usize)),
                     bt,
                 }
             })
-            .collect()
+            .collect())
     }
 
-    fn backtrace(&self, pid: Pid) -> anyhow::Result<Backtrace> {
+    pub fn backtrace(&self, pid: Pid) -> anyhow::Result<Backtrace> {
+        disable_when_not_stared!(self);
         Ok(uw::backtrace(pid)?)
     }
 
-    fn offset_load_addr(&self, addr: usize) -> usize {
-        addr - self.debugee.mapping_addr.unwrap_or(0)
-    }
-
-    fn offset_pc(&self) -> nix::Result<usize> {
-        Ok(self.offset_load_addr(self.get_current_thread_pc()?))
-    }
-
-    fn set_breakpoint(&mut self, addr: usize) -> anyhow::Result<()> {
+    pub fn set_breakpoint(&mut self, addr: PCValue) -> anyhow::Result<()> {
         let brkpt = Breakpoint::new(addr, self.debugee.threads_ctl.proc_pid());
-        brkpt.enable()?;
+        if self.debugee.in_progress {
+            brkpt.enable()?;
+        }
         self.breakpoints.insert(addr, brkpt);
         Ok(())
     }
 
-    fn remove_breakpoint(&mut self, addr: usize) -> anyhow::Result<()> {
+    pub fn remove_breakpoint(&mut self, addr: PCValue) -> anyhow::Result<()> {
         let brkpt = self.breakpoints.remove(&addr);
         if let Some(brkpt) = brkpt {
             if brkpt.is_enabled() {
@@ -210,23 +283,29 @@ impl Debugger {
     }
 
     /// Read N bytes from debugee process.
-    fn read_memory(&self, addr: usize, read_n: usize) -> nix::Result<Vec<u8>> {
-        read_memory_by_pid(self.debugee.threads_ctl.proc_pid(), addr, read_n)
+    pub fn read_memory(&self, addr: usize, read_n: usize) -> anyhow::Result<Vec<u8>> {
+        disable_when_not_stared!(self);
+        Ok(read_memory_by_pid(
+            self.debugee.threads_ctl.proc_pid(),
+            addr,
+            read_n,
+        )?)
     }
 
-    fn write_memory(&self, addr: uintptr_t, value: uintptr_t) -> nix::Result<()> {
+    pub fn write_memory(&self, addr: uintptr_t, value: uintptr_t) -> anyhow::Result<()> {
+        disable_when_not_stared!(self);
         unsafe {
-            sys::ptrace::write(
+            Ok(sys::ptrace::write(
                 self.debugee.threads_ctl.proc_pid(),
                 addr as *mut c_void,
                 value as *mut c_void,
-            )
+            )?)
         }
     }
 
-    fn get_current_thread_pc(&self) -> nix::Result<usize> {
+    fn get_current_thread_pc(&self) -> nix::Result<RelocatedAddress> {
         get_register_value(self.debugee.threads_ctl.thread_in_focus(), Register::Rip)
-            .map(|addr| addr as usize)
+            .map(|addr| RelocatedAddress(addr as usize))
     }
 
     fn set_current_thread_pc(&self, value: usize) -> nix::Result<()> {
@@ -238,8 +317,8 @@ impl Debugger {
     }
 
     fn step_over_breakpoint(&self) -> anyhow::Result<()> {
-        let current_pc = self.get_current_thread_pc()? as usize;
-        let mb_brkpt = self.breakpoints.get(&current_pc);
+        let current_pc = self.get_current_thread_pc()?;
+        let mb_brkpt = self.breakpoints.get(&PCValue::Relocated(current_pc));
         if let Some(brkpt) = mb_brkpt {
             if brkpt.is_enabled() {
                 brkpt.disable()?;
@@ -253,7 +332,7 @@ impl Debugger {
     fn single_step_instruction(&self) -> anyhow::Result<()> {
         if self
             .breakpoints
-            .get(&(self.get_current_thread_pc()? as usize))
+            .get(&PCValue::Relocated(self.get_current_thread_pc()?))
             .is_some()
         {
             self.step_over_breakpoint()
@@ -263,32 +342,43 @@ impl Debugger {
         }
     }
 
-    fn step_out(&mut self) -> anyhow::Result<()> {
+    pub fn step_out(&mut self) -> anyhow::Result<()> {
+        disable_when_not_stared!(self);
         if let Some(ret_addr) = uw::return_addr(self.debugee.threads_ctl.thread_in_focus())? {
-            let brkpt_is_set = self.breakpoints.get(&(ret_addr as usize)).is_some();
+            let brkpt_is_set = self
+                .breakpoints
+                .get(&PCValue::Relocated(ret_addr))
+                .is_some();
             if brkpt_is_set {
                 self.continue_execution()?;
             } else {
-                self.set_breakpoint(ret_addr)?;
+                self.set_breakpoint(PCValue::Relocated(ret_addr))?;
                 self.continue_execution()?;
-                self.remove_breakpoint(ret_addr)?;
+                self.remove_breakpoint(PCValue::Relocated(ret_addr))?;
             }
         }
         Ok(())
     }
 
-    fn step_in(&self) -> anyhow::Result<()> {
+    pub fn step_in(&self) -> anyhow::Result<()> {
+        disable_when_not_stared!(self);
         let place = self
             .debugee
             .dwarf
-            .find_place_from_pc(self.offset_pc()?)
+            .find_place_from_pc(
+                self.get_current_thread_pc()?
+                    .to_global(self.debugee.mapping_offset()),
+            )
             .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
 
         while place
             == self
                 .debugee
                 .dwarf
-                .find_place_from_pc(self.offset_pc()?)
+                .find_place_from_pc(
+                    self.get_current_thread_pc()?
+                        .to_global(self.debugee.mapping_offset()),
+                )
                 .ok_or_else(|| anyhow!("unreachable! line not found"))?
         {
             self.single_step_instruction()?
@@ -297,11 +387,15 @@ impl Debugger {
         Ok(())
     }
 
-    fn step_over(&mut self) -> anyhow::Result<()> {
+    pub fn step_over(&mut self) -> anyhow::Result<()> {
+        disable_when_not_stared!(self);
         let func = self
             .debugee
             .dwarf
-            .find_function_by_pc(self.offset_pc()?)
+            .find_function_by_pc(
+                self.get_current_thread_pc()?
+                    .to_global(self.debugee.mapping_offset()),
+            )
             .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
 
         let mut to_delete = vec![];
@@ -309,7 +403,10 @@ impl Debugger {
         let current_line = self
             .debugee
             .dwarf
-            .find_place_from_pc(self.offset_pc()?)
+            .find_place_from_pc(
+                self.get_current_thread_pc()?
+                    .to_global(self.debugee.mapping_offset()),
+            )
             .ok_or_else(|| anyhow!("current line not found"))?;
 
         let mut breakpoints_range = vec![];
@@ -318,14 +415,17 @@ impl Debugger {
             let mut line = self
                 .debugee
                 .dwarf
-                .find_place_from_pc(range.begin as usize)
+                .find_place_from_pc(GlobalAddress(range.begin as usize))
                 .ok_or_else(|| anyhow!("unknown function range"))?;
 
-            while line.address < range.end {
+            while line.address.0 < range.end as usize {
                 if line.is_stmt {
-                    let load_addr = self.offset_to_glob_addr(line.address as usize);
+                    let load_addr = line.address.relocate(self.debugee.mapping_offset());
                     if line.address != current_line.address
-                        && self.breakpoints.get(&load_addr).is_none()
+                        && self
+                            .breakpoints
+                            .get(&PCValue::Relocated(load_addr))
+                            .is_none()
                     {
                         breakpoints_range.push(load_addr);
                         to_delete.push(load_addr);
@@ -341,11 +441,15 @@ impl Debugger {
 
         breakpoints_range
             .into_iter()
-            .try_for_each(|load_addr| self.set_breakpoint(load_addr))?;
+            .try_for_each(|load_addr| self.set_breakpoint(PCValue::Relocated(load_addr)))?;
 
         if let Some(ret_addr) = uw::return_addr(self.debugee.threads_ctl.thread_in_focus())? {
-            if self.breakpoints.get(&ret_addr).is_none() {
-                self.set_breakpoint(ret_addr)?;
+            if self
+                .breakpoints
+                .get(&PCValue::Relocated(ret_addr))
+                .is_none()
+            {
+                self.set_breakpoint(PCValue::Relocated(ret_addr))?;
                 to_delete.push(ret_addr);
             }
         }
@@ -354,12 +458,12 @@ impl Debugger {
 
         to_delete
             .into_iter()
-            .try_for_each(|addr| self.remove_breakpoint(addr))?;
+            .try_for_each(|addr| self.remove_breakpoint(PCValue::Relocated(addr)))?;
 
         Ok(())
     }
 
-    fn set_breakpoint_at_fn(&mut self, name: &str) -> anyhow::Result<()> {
+    pub fn set_breakpoint_at_fn(&mut self, name: &str) -> anyhow::Result<()> {
         let func = self
             .debugee
             .dwarf
@@ -371,42 +475,32 @@ impl Debugger {
         let entry = self
             .debugee
             .dwarf
-            .find_place_from_pc(low_pc as usize)
+            .find_place_from_pc(GlobalAddress(low_pc as usize))
             .ok_or_else(|| anyhow!("invalid function entry"))?
             // TODO skip prologue smarter
             .next()
             .ok_or_else(|| anyhow!("invalid function entry"))?;
 
-        self.set_breakpoint(self.offset_to_glob_addr(entry.address as usize))
+        let addr = if self.debugee.in_progress {
+            PCValue::Relocated(entry.address.relocate(self.debugee.mapping_offset()))
+        } else {
+            PCValue::Global(entry.address)
+        };
+
+        self.set_breakpoint(addr)
     }
 
-    fn set_breakpoint_at_line(&mut self, fine_name: &str, line: u64) -> anyhow::Result<()> {
+    pub fn set_breakpoint_at_line(&mut self, fine_name: &str, line: u64) -> anyhow::Result<()> {
         if let Some(place) = self.debugee.dwarf.find_stmt_line(fine_name, line) {
-            self.set_breakpoint(self.offset_to_glob_addr(place.address as usize))?;
+            let addr = if self.debugee.in_progress {
+                PCValue::Relocated(place.address.relocate(self.debugee.mapping_offset()))
+            } else {
+                PCValue::Global(place.address)
+            };
+
+            self.set_breakpoint(addr)?;
         }
         Ok(())
-    }
-
-    fn offset_to_glob_addr(&self, addr: usize) -> usize {
-        addr + self.debugee.mapping_addr.unwrap_or(0)
-    }
-
-    // Read all local variables from current thread.
-    fn read_local_variables(&self) -> anyhow::Result<Vec<VariableIR>> {
-        let pc = self.offset_pc()?;
-        let current_func = self
-            .debugee
-            .dwarf
-            .find_function_by_pc(pc)
-            .ok_or_else(|| anyhow!("not in function"))?;
-        let vars = current_func.find_variables(pc);
-        self.variables_into_variable_ir(&vars, Some(current_func))
-    }
-
-    // Read any variable from current thread.
-    fn read_variable(&self, name: &str) -> anyhow::Result<Vec<VariableIR>> {
-        let vars = self.debugee.dwarf.find_variables(name);
-        self.variables_into_variable_ir(&vars, None)
     }
 
     fn variables_into_variable_ir(
@@ -449,7 +543,33 @@ impl Debugger {
         Ok(vars)
     }
 
+    // Read all local variables from current thread.
+    pub fn read_local_variables(&self) -> anyhow::Result<Vec<VariableIR>> {
+        disable_when_not_stared!(self);
+
+        let pc = self
+            .get_current_thread_pc()?
+            .to_global(self.debugee.mapping_offset());
+        let current_func = self
+            .debugee
+            .dwarf
+            .find_function_by_pc(pc)
+            .ok_or_else(|| anyhow!("not in function"))?;
+        let vars = current_func.find_variables(pc);
+        self.variables_into_variable_ir(&vars, Some(current_func))
+    }
+
+    // Read any variable from current thread.
+    pub fn read_variable(&self, name: &str) -> anyhow::Result<Vec<VariableIR>> {
+        disable_when_not_stared!(self);
+
+        let vars = self.debugee.dwarf.find_variables(name);
+        self.variables_into_variable_ir(&vars, None)
+    }
+
     pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {
+        disable_when_not_stared!(self);
+
         Ok(get_register_value(
             self.debugee.threads_ctl.thread_in_focus(),
             get_register_from_name(register_name)?,
@@ -457,6 +577,8 @@ impl Debugger {
     }
 
     pub fn set_register_value(&self, register_name: &str, val: u64) -> anyhow::Result<()> {
+        disable_when_not_stared!(self);
+
         Ok(set_register_value(
             self.debugee.threads_ctl.thread_in_focus(),
             get_register_from_name(register_name)?,

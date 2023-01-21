@@ -1,5 +1,5 @@
 use crate::cui::{context, AppState};
-use crate::debugger::{EventHook, Place};
+use crate::debugger::{EventHook, Place, RelocatedAddress};
 use nix::libc::c_int;
 use tui::style::{Color, Style};
 use tui::text::{Span, Spans};
@@ -14,7 +14,7 @@ impl CuiHook {
 }
 
 impl EventHook for CuiHook {
-    fn on_trap(&self, _: usize, place: Option<Place>) -> anyhow::Result<()> {
+    fn on_trap(&self, _: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()> {
         if let Some(ref place) = place {
             let ctx = context::Context::current();
             ctx.set_trap_file_name(place.file.to_path_buf().to_string_lossy().to_string());

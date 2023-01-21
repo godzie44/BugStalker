@@ -3,10 +3,11 @@ use crate::console::hook::TerminalHook;
 use crate::console::variable::render_variable_ir;
 use crate::console::view::FileView;
 use crate::debugger::command::{
-    Backtrace, Break, Frame, Quit, StepI, StepInto, StepOut, StepOver, Symbol, Trace, Variables,
+    Backtrace, Break, Frame, Quit, Run, StepI, StepInto, StepOut, StepOver, Symbol, Trace,
+    Variables,
 };
 use crate::debugger::variable::render::RenderRepr;
-use crate::debugger::{command, Debugger};
+use crate::debugger::{command, Debugger, RelocatedAddress};
 use command::{Memory, Register};
 use nix::unistd::Pid;
 use rustyline::error::ReadlineError;
@@ -47,9 +48,6 @@ impl TerminalApplication {
     pub fn run(mut self) -> anyhow::Result<()> {
         env_logger::init();
 
-        // start debugee
-        Continue::new(&mut self.debugger).run()?;
-
         let mut rl = Editor::<()>::new()?;
         if rl.load_history("history.txt").is_err() {
             println!("No previous history.");
@@ -84,9 +82,10 @@ impl TerminalApplication {
         let command = args[0];
 
         match command.to_lowercase().as_str() {
+            "r" | "run" => Run::new(&mut self.debugger).run()?,
             "c" | "continue" => Continue::new(&mut self.debugger).run()?,
             "b" | "break" => Break::new(&mut self.debugger, args)?.run()?,
-            "r" | "register" => {
+            "reg" | "register" => {
                 let cmd = Register::new(&self.debugger, args)?;
                 let response = cmd.run()?;
                 response.iter().for_each(|register| {
@@ -112,12 +111,12 @@ impl TerminalApplication {
                 })
             }
             "trace" => {
-                let bt = Trace::new(&self.debugger).run();
+                let bt = Trace::new(&self.debugger).run()?;
                 bt.iter().for_each(|thread| {
                     println!(
                         "thread {} - {:#016X}",
                         thread.thread.pid,
-                        thread.pc.unwrap_or(0)
+                        thread.pc.unwrap_or(RelocatedAddress(0)).0
                     );
                     if let Some(ref bt) = thread.bt {
                         bt.iter().for_each(|part| match part.place.as_ref() {
@@ -151,7 +150,7 @@ impl TerminalApplication {
                     "return address: {}",
                     frame
                         .return_addr
-                        .map_or(String::from("unknown"), |addr| format!("{:#016x}", addr))
+                        .map_or(String::from("unknown"), |addr| format!("{:#016x}", addr.0))
                 );
             }
             "symbol" => {

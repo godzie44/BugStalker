@@ -1,5 +1,5 @@
 use crate::debugger::command::CommandError;
-use crate::debugger::{command, Debugger};
+use crate::debugger::{command, Debugger, PCValue, RelocatedAddress};
 use std::str::FromStr;
 
 pub enum Breakpoint {
@@ -42,7 +42,9 @@ impl<'a> Break<'a> {
 
     pub fn run(&mut self) -> command::Result<()> {
         match &self.r#type {
-            Breakpoint::Address(addr) => Ok(self.dbg.set_breakpoint(*addr)?),
+            Breakpoint::Address(addr) => Ok(self
+                .dbg
+                .set_breakpoint(PCValue::Relocated(RelocatedAddress(*addr)))?),
             Breakpoint::Line(file, line) => Ok(self.dbg.set_breakpoint_at_line(file, *line)?),
             Breakpoint::Function(func_name) => Ok(self.dbg.set_breakpoint_at_fn(func_name)?),
         }
