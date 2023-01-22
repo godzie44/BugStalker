@@ -1,8 +1,9 @@
-use crate::debugger::code;
 use crate::debugger::debugee_ctl::DebugeeState::{
-    BeforeNewThread, BeforeThreadExit, Breakpoint, DebugeeExit, DebugeeStart, NoSuchProcess,
-    OsSignal, ThreadExit, ThreadInterrupt, TrapTrace, UnexpectedPtraceEvent, UnexpectedWaitStatus,
+    AtEntryPoint, BeforeNewThread, BeforeThreadExit, Breakpoint, DebugeeExit, DebugeeStart,
+    NoSuchProcess, OsSignal, ThreadExit, ThreadInterrupt, TrapTrace, UnexpectedPtraceEvent,
+    UnexpectedWaitStatus,
 };
+use crate::debugger::{code, Debugger, GlobalAddress};
 use anyhow::bail;
 use log::warn;
 use nix::errno::Errno;
@@ -30,6 +31,8 @@ pub enum DebugeeState {
 
     Breakpoint(Pid),
 
+    AtEntryPoint(Pid),
+
     OsSignal(siginfo_t, Pid),
 
     UnexpectedPtraceEvent,
@@ -40,14 +43,18 @@ pub enum DebugeeState {
 
 pub struct DebugeeControlFlow {
     proc_id: Pid,
+    program_ep: GlobalAddress,
 }
 
 impl DebugeeControlFlow {
-    pub fn new(proc_pid: Pid) -> Self {
-        Self { proc_id: proc_pid }
+    pub fn new(proc_pid: Pid, program_ep: GlobalAddress) -> Self {
+        Self {
+            proc_id: proc_pid,
+            program_ep,
+        }
     }
 
-    pub fn tick(&self) -> anyhow::Result<DebugeeState> {
+    pub fn tick(&self, debugger: &Debugger) -> anyhow::Result<DebugeeState> {
         let status = waitpid(Pid::from_raw(-1), None)?;
 
         match status {
@@ -92,7 +99,16 @@ impl DebugeeControlFlow {
                 match signal {
                     Signal::SIGTRAP => match info.si_code {
                         code::TRAP_TRACE => Ok(TrapTrace),
-                        code::TRAP_BRKPT | code::SI_KERNEL => Ok(Breakpoint(pid)),
+                        code::TRAP_BRKPT | code::SI_KERNEL => {
+                            debugger.set_thread_pc(pid, debugger.get_thread_pc(pid)?.0 - 1)?;
+                            let current_pc = debugger.get_thread_pc(pid)?;
+                            let offset_pc = current_pc.to_global(debugger.debugee.mapping_offset());
+                            if offset_pc == self.program_ep {
+                                return Ok(AtEntryPoint(pid));
+                            }
+
+                            Ok(Breakpoint(pid))
+                        }
                         code => bail!("unexpected SIGTRAP code {code}"),
                     },
                     _ => Ok(OsSignal(info, pid)),

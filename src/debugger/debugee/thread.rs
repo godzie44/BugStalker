@@ -18,7 +18,7 @@ struct ThreadDBProcess {
     process: thread_db::Process<'this>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TraceeStatus {
     Created,
     Stopped,
@@ -26,7 +26,7 @@ pub enum TraceeStatus {
     OutOfReach,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TraceeThread {
     pub pid: Pid,
     pub status: TraceeStatus,

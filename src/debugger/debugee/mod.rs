@@ -1,17 +1,18 @@
 use crate::debugger::debugee::dwarf::{DebugeeContext, EndianRcSlice};
+use crate::debugger::debugee::rendezvous::Rendezvous;
 use crate::debugger::debugee::thread::TraceeStatus;
 use crate::debugger::debugee_ctl::DebugeeState;
 use anyhow::anyhow;
 use log::{info, warn};
 use nix::unistd::Pid;
+use object::{Object, ObjectSection};
 use proc_maps::MapRange;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::{fs, sync};
 
 pub mod dwarf;
+mod rendezvous;
 pub mod thread;
-
-static LIBTHREAD_DB_ONCE: sync::Once = sync::Once::new();
 
 /// Debugee - represent static and runtime debugee information.
 pub struct Debugee {
@@ -25,15 +26,22 @@ pub struct Debugee {
     pub threads_ctl: thread::ThreadCtl,
     /// preparsed debugee dwarf
     pub dwarf: DebugeeContext<EndianRcSlice>,
+    /// elf file sections (name => address)
+    object_sections: HashMap<String, u64>,
+
+    rendezvous: Option<Rendezvous>,
 }
 
 impl Debugee {
-    pub fn new_non_running(path: &Path, proc: Pid) -> anyhow::Result<Self> {
-        let file = fs::File::open(path)?;
-
-        let mmap = unsafe { memmap2::Mmap::map(&file)? };
-        let object = object::File::parse(&*mmap)?;
-
+    pub fn new_non_running<'a, 'b, OBJ>(
+        path: &Path,
+        proc: Pid,
+        object: &'a OBJ,
+    ) -> anyhow::Result<Self>
+    where
+        'a: 'b,
+        OBJ: Object<'a, 'b>,
+    {
         let dwarf_builder = dwarf::DebugeeContextBuilder::default();
 
         Ok(Self {
@@ -41,7 +49,12 @@ impl Debugee {
             path: path.into(),
             mapping_addr: None,
             threads_ctl: thread::ThreadCtl::new(proc),
-            dwarf: dwarf_builder.build(&object)?,
+            dwarf: dwarf_builder.build(object)?,
+            object_sections: object
+                .sections()
+                .filter_map(|section| Some((section.name().ok()?.to_string(), section.address())))
+                .collect(),
+            rendezvous: None,
         })
     }
 
@@ -50,6 +63,14 @@ impl Debugee {
     /// calling a method on time is the responsibility of the caller.
     pub fn mapping_offset(&self) -> usize {
         self.mapping_addr.expect("mapping address must exists")
+    }
+
+    /// Return rendezvous struct.
+    /// This method will panic if called before program entry point evaluated,
+    /// calling a method on time is the responsibility of the caller.
+    #[allow(unused)]
+    fn rendezvous(&self) -> &Rendezvous {
+        self.rendezvous.as_ref().expect("rendezvous must exists")
     }
 
     fn init_libthread_db(&mut self) {
@@ -87,9 +108,6 @@ impl Debugee {
             }
             DebugeeState::ThreadInterrupt(tid) => {
                 if self.threads_ctl.status(tid) == TraceeStatus::Created {
-                    LIBTHREAD_DB_ONCE.call_once(|| {
-                        self.init_libthread_db();
-                    });
                     self.threads_ctl.set_stop_status(tid);
                     self.threads_ctl.cont_stopped()?;
                 } else {
@@ -102,6 +120,18 @@ impl Debugee {
                 self.threads_ctl.remove(tid);
             }
             DebugeeState::Breakpoint(tid) => {
+                self.threads_ctl.set_thread_to_focus(tid);
+                self.threads_ctl.set_stop_status(tid);
+                self.threads_ctl.interrupt_running()?;
+            }
+            DebugeeState::AtEntryPoint(tid) => {
+                self.rendezvous = Some(Rendezvous::new(
+                    tid,
+                    self.mapping_offset(),
+                    &self.object_sections,
+                )?);
+                self.init_libthread_db();
+
                 self.threads_ctl.set_thread_to_focus(tid);
                 self.threads_ctl.set_stop_status(tid);
                 self.threads_ctl.interrupt_running()?;

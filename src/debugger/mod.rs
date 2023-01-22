@@ -29,12 +29,13 @@ use anyhow::anyhow;
 use nix::libc::{c_int, c_void, uintptr_t};
 use nix::sys;
 use nix::unistd::Pid;
+use object::Object;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ffi::c_long;
 use std::path::Path;
-use std::{mem, u64};
+use std::{fs, mem, u64};
 
 pub struct FrameInfo {
     pub base_addr: usize,
@@ -110,12 +111,22 @@ impl Debugger {
         let program = program.into();
         let program_path = Path::new(&program);
 
+        let file = fs::File::open(program_path)?;
+        let mmap = unsafe { memmap2::Mmap::map(&file)? };
+        let object = object::File::parse(&*mmap)?;
+
+        let entry_point = GlobalAddress(object.entry() as usize);
+        let breakpoints = HashMap::from([(
+            PCValue::Global(entry_point),
+            breakpoint::Breakpoint::new(PCValue::Global(entry_point), pid),
+        )]);
+
         Ok(Self {
-            breakpoints: HashMap::default(),
+            breakpoints,
             hooks: Box::new(hooks),
             type_cache: RefCell::default(),
-            debugee_flow: DebugeeControlFlow::new(pid),
-            debugee: Debugee::new_non_running(program_path, pid)?,
+            debugee_flow: DebugeeControlFlow::new(pid, entry_point),
+            debugee: Debugee::new_non_running(program_path, pid, &object)?,
         })
     }
 
@@ -124,7 +135,7 @@ impl Debugger {
         self.debugee.threads_ctl.cont_stopped()?;
 
         loop {
-            let debugee_state = self.debugee_flow.tick()?;
+            let debugee_state = self.debugee_flow.tick(self)?;
             self.debugee.apply_state(debugee_state)?;
             match debugee_state {
                 DebugeeState::ThreadExit(_)
@@ -166,12 +177,16 @@ impl Debugger {
                     break;
                 }
                 DebugeeState::Breakpoint(_) => {
-                    self.set_current_thread_pc(self.get_current_thread_pc()?.0 - 1)?;
+                    //  self.set_current_thread_pc(self.get_current_thread_pc()?.0 - 1)?;
                     let current_pc = self.get_current_thread_pc()?;
                     let offset_pc = current_pc.to_global(self.debugee.mapping_offset());
                     self.hooks
                         .on_trap(current_pc, self.debugee.dwarf.find_place_from_pc(offset_pc))?;
                     break;
+                }
+                DebugeeState::AtEntryPoint(_) => {
+                    self.step_over_breakpoint()?;
+                    self.debugee.threads_ctl.cont_stopped()?;
                 }
                 DebugeeState::OsSignal(info, _) => {
                     self.hooks.on_signal(info.si_signo, info.si_code);
@@ -304,16 +319,20 @@ impl Debugger {
     }
 
     fn get_current_thread_pc(&self) -> nix::Result<RelocatedAddress> {
-        get_register_value(self.debugee.threads_ctl.thread_in_focus(), Register::Rip)
-            .map(|addr| RelocatedAddress(addr as usize))
+        self.get_thread_pc(self.debugee.threads_ctl.thread_in_focus())
     }
 
+    fn get_thread_pc(&self, tid: Pid) -> nix::Result<RelocatedAddress> {
+        get_register_value(tid, Register::Rip).map(|addr| RelocatedAddress(addr as usize))
+    }
+
+    #[allow(unused)]
     fn set_current_thread_pc(&self, value: usize) -> nix::Result<()> {
-        set_register_value(
-            self.debugee.threads_ctl.thread_in_focus(),
-            Register::Rip,
-            value as u64,
-        )
+        self.set_thread_pc(self.debugee.threads_ctl.thread_in_focus(), value)
+    }
+
+    fn set_thread_pc(&self, tid: Pid, value: usize) -> nix::Result<()> {
+        set_register_value(tid, Register::Rip, value as u64)
     }
 
     fn step_over_breakpoint(&self) -> anyhow::Result<()> {
