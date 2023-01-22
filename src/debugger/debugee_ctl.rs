@@ -13,7 +13,7 @@ use nix::unistd::Pid;
 use nix::{libc, sys};
 
 /// Debugee state
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum DebugeeState {
     /// Thread exited with tread id
     ThreadExit(Pid),

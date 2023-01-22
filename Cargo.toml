@@ -6,7 +6,7 @@ license = "MIT"
 authors = ["Derevtsov Konstantin <godzie@yandex.ru>"]
 
 [dependencies]
-nix = "0.25.0"
+nix = "0.26.2"
 once_cell = "1.13.1"
 anyhow = "1.0"
 rustyline = "10.0.0"
@@ -30,6 +30,7 @@ clap =  { version = "4.0", features = ["derive"] }
 uuid = {version = "1.2.2", features = ["v4", "fast-rng", "macro-diagnostics"]}
 os_pipe = "1.1.2"
 proc-maps = "0.3.0"
+thread_db = "0.1.2"
 
 [dev-dependencies]
 assert_cmd = "2.0.4"

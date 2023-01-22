@@ -6,7 +6,17 @@ use nix::errno::Errno;
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::Pid;
 use nix::{libc, sys};
+use ouroboros::self_referencing;
 use std::collections::HashMap;
+use thread_db;
+
+#[self_referencing]
+struct ThreadDBProcess {
+    lib: thread_db::Lib,
+    #[borrows(lib)]
+    #[covariant]
+    process: thread_db::Process<'this>,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TraceeStatus {
@@ -26,6 +36,7 @@ pub struct ThreadCtl {
     process_pid: Pid,
     in_focus_tid: Pid,
     threads_state: HashMap<Pid, TraceeThread>,
+    thread_db_proc: Option<ThreadDBProcess>,
 }
 
 impl ThreadCtl {
@@ -40,6 +51,7 @@ impl ThreadCtl {
                     status: Stopped,
                 },
             )]),
+            thread_db_proc: None,
         }
     }
 
@@ -156,14 +168,27 @@ impl ThreadCtl {
 
     /// Return current thread status.
     /// TraceeStatus::OutOfReach returns if thread not found in budge.
-    pub fn status(&self, pid: Pid) -> TraceeStatus {
+    pub fn status(&self, tid: Pid) -> TraceeStatus {
         self.threads_state
-            .get(&pid)
+            .get(&tid)
             .map(|t| t.status)
             .unwrap_or(TraceeStatus::OutOfReach)
     }
 
     pub fn dump(&self) -> Vec<TraceeThread> {
         self.threads_state.iter().map(|(_, v)| v.clone()).collect()
+    }
+
+    /// Load libthread_db and init libthread_db process handle.
+    /// libthread_db must initialized after first thread created.
+    pub fn init_thread_db(&mut self) -> anyhow::Result<()> {
+        let thread_db_lib = thread_db::Lib::try_load()?;
+        let td_process = ThreadDBProcessTryBuilder {
+            lib: thread_db_lib,
+            process_builder: |lib| lib.attach(self.process_pid),
+        }
+        .try_build()?;
+        self.thread_db_proc = Some(td_process);
+        Ok(())
     }
 }

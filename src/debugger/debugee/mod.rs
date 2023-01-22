@@ -2,13 +2,16 @@ use crate::debugger::debugee::dwarf::{DebugeeContext, EndianRcSlice};
 use crate::debugger::debugee::thread::TraceeStatus;
 use crate::debugger::debugee_ctl::DebugeeState;
 use anyhow::anyhow;
+use log::{info, warn};
 use nix::unistd::Pid;
 use proc_maps::MapRange;
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::{fs, sync};
 
 pub mod dwarf;
 pub mod thread;
+
+static LIBTHREAD_DB_ONCE: sync::Once = sync::Once::new();
 
 /// Debugee - represent static and runtime debugee information.
 pub struct Debugee {
@@ -49,6 +52,19 @@ impl Debugee {
         self.mapping_addr.expect("mapping address must exists")
     }
 
+    fn init_libthread_db(&mut self) {
+        match self.threads_ctl.init_thread_db() {
+            Ok(_) => {
+                info!("libthread_db enabled")
+            }
+            Err(e) => {
+                warn!(
+                    "libthread_db load fail with \"{e}\", some thread debug functions are omitted"
+                );
+            }
+        }
+    }
+
     pub fn apply_state(&mut self, state: DebugeeState) -> anyhow::Result<()> {
         match state {
             DebugeeState::DebugeeStart => {
@@ -71,6 +87,9 @@ impl Debugee {
             }
             DebugeeState::ThreadInterrupt(tid) => {
                 if self.threads_ctl.status(tid) == TraceeStatus::Created {
+                    LIBTHREAD_DB_ONCE.call_once(|| {
+                        self.init_libthread_db();
+                    });
                     self.threads_ctl.set_stop_status(tid);
                     self.threads_ctl.cont_stopped()?;
                 } else {
