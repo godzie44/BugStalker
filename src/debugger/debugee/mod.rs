@@ -1,7 +1,8 @@
 use crate::debugger::debugee::dwarf::{DebugeeContext, EndianRcSlice};
+use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
 use crate::debugger::debugee::rendezvous::Rendezvous;
-use crate::debugger::debugee::thread::TraceeStatus;
-use crate::debugger::debugee_ctl::DebugeeState;
+use crate::debugger::debugee::thread::ThreadCtl;
+use crate::debugger::GlobalAddress;
 use anyhow::anyhow;
 use log::{info, warn};
 use nix::unistd::Pid;
@@ -11,24 +12,25 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub mod dwarf;
+pub mod flow;
 mod rendezvous;
 pub mod thread;
 
 /// Debugee - represent static and runtime debugee information.
 pub struct Debugee {
-    /// true if debugee currently start
+    /// true if debugee currently start.
     pub in_progress: bool,
-    /// path to debugee file
+    /// path to debugee file.
     pub path: PathBuf,
-    /// debugee process map address
+    /// debugee process map address.
     pub mapping_addr: Option<usize>,
-    /// debugee process threads
-    pub threads_ctl: thread::ThreadCtl,
-    /// preparsed debugee dwarf
+    /// preparsed debugee dwarf.
     pub dwarf: DebugeeContext<EndianRcSlice>,
-    /// elf file sections (name => address)
+    /// debugee control flow
+    pub control_flow: ControlFlow,
+    /// elf file sections (name => address).
     object_sections: HashMap<String, u64>,
-
+    /// rendezvous struct maintained by dyn linker.
     rendezvous: Option<Rendezvous>,
 }
 
@@ -43,13 +45,13 @@ impl Debugee {
         OBJ: Object<'a, 'b>,
     {
         let dwarf_builder = dwarf::DebugeeContextBuilder::default();
-
         Ok(Self {
             in_progress: false,
             path: path.into(),
             mapping_addr: None,
-            threads_ctl: thread::ThreadCtl::new(proc),
+            //  threads_ctl: thread::ThreadCtl::new(proc),
             dwarf: dwarf_builder.build(object)?,
+            control_flow: ControlFlow::new(proc, GlobalAddress(object.entry() as usize)),
             object_sections: object
                 .sections()
                 .filter_map(|section| Some((section.name().ok()?.to_string(), section.address())))
@@ -69,12 +71,12 @@ impl Debugee {
     /// This method will panic if called before program entry point evaluated,
     /// calling a method on time is the responsibility of the caller.
     #[allow(unused)]
-    fn rendezvous(&self) -> &Rendezvous {
+    pub fn rendezvous(&self) -> &Rendezvous {
         self.rendezvous.as_ref().expect("rendezvous must exists")
     }
 
     fn init_libthread_db(&mut self) {
-        match self.threads_ctl.init_thread_db() {
+        match self.control_flow.threads_ctl.init_thread_db() {
             Ok(_) => {
                 info!("libthread_db enabled")
             }
@@ -86,64 +88,29 @@ impl Debugee {
         }
     }
 
-    pub fn apply_state(&mut self, state: DebugeeState) -> anyhow::Result<()> {
-        match state {
-            DebugeeState::DebugeeStart => {
+    pub fn control_flow_tick(&mut self) -> anyhow::Result<DebugeeEvent> {
+        let event = self.control_flow.tick(self.mapping_addr)?;
+        match event {
+            DebugeeEvent::DebugeeStart => {
                 self.in_progress = true;
                 self.mapping_addr = Some(self.define_mapping_addr()?);
-                self.threads_ctl
-                    .set_stop_status(self.threads_ctl.proc_pid());
             }
-            DebugeeState::DebugeeExit(_) => {
-                self.threads_ctl.remove(self.threads_ctl.proc_pid());
-            }
-            DebugeeState::ThreadExit(tid) => {
-                // at this point thread must already removed from registry
-                // anyway `registry.remove` is idempotent
-                self.threads_ctl.remove(tid);
-            }
-            DebugeeState::BeforeNewThread(pid, tid) => {
-                self.threads_ctl.set_stop_status(pid);
-                self.threads_ctl.register(tid);
-            }
-            DebugeeState::ThreadInterrupt(tid) => {
-                if self.threads_ctl.status(tid) == TraceeStatus::Created {
-                    self.threads_ctl.set_stop_status(tid);
-                    self.threads_ctl.cont_stopped()?;
-                } else {
-                    self.threads_ctl.set_stop_status(tid);
-                }
-            }
-            DebugeeState::BeforeThreadExit(tid) => {
-                self.threads_ctl.set_stop_status(tid);
-                self.threads_ctl.cont_stopped()?;
-                self.threads_ctl.remove(tid);
-            }
-            DebugeeState::Breakpoint(tid) => {
-                self.threads_ctl.set_thread_to_focus(tid);
-                self.threads_ctl.set_stop_status(tid);
-                self.threads_ctl.interrupt_running()?;
-            }
-            DebugeeState::AtEntryPoint(tid) => {
+            flow::DebugeeEvent::AtEntryPoint(tid) => {
                 self.rendezvous = Some(Rendezvous::new(
                     tid,
                     self.mapping_offset(),
                     &self.object_sections,
                 )?);
                 self.init_libthread_db();
-
-                self.threads_ctl.set_thread_to_focus(tid);
-                self.threads_ctl.set_stop_status(tid);
-                self.threads_ctl.interrupt_running()?;
-            }
-            DebugeeState::OsSignal(_, tid) => {
-                self.threads_ctl.set_thread_to_focus(tid);
-                self.threads_ctl.set_stop_status(tid);
-                self.threads_ctl.interrupt_running()?;
             }
             _ => {}
         }
-        Ok(())
+
+        Ok(event)
+    }
+
+    pub fn threads_ctl(&self) -> &ThreadCtl {
+        &self.control_flow.threads_ctl
     }
 
     fn define_mapping_addr(&mut self) -> anyhow::Result<usize> {
@@ -151,7 +118,7 @@ impl Debugee {
         let absolute_debugee_path = absolute_debugee_path_buf.as_path();
 
         let proc_maps: Vec<MapRange> =
-            proc_maps::get_process_maps(self.threads_ctl.proc_pid().as_raw())?
+            proc_maps::get_process_maps(self.threads_ctl().proc_pid().as_raw())?
                 .into_iter()
                 .filter(|map| map.filename() == Some(absolute_debugee_path))
                 .collect();
