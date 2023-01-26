@@ -11,8 +11,9 @@ use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::debugee::dwarf::r#type::TypeDeclaration;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
-use crate::debugger::GlobalAddress;
-use crate::{debugger, weak_error};
+use crate::debugger::debugee::Debugee;
+use crate::debugger::{GlobalAddress, RelocatedAddress};
+use crate::weak_error;
 use anyhow::anyhow;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
@@ -21,6 +22,7 @@ use nix::unistd::Pid;
 use object::{Object, ObjectSection};
 use std::borrow::Cow;
 use std::collections::VecDeque;
+use std::ops::Deref;
 use std::rc::Rc;
 pub use symbol::Symbol;
 
@@ -201,7 +203,66 @@ impl DebugeeContext {
                 });
             }
         }
+
+        // now check tls variables
+        // for rust we expect that tls variable represents in dwarf like
+        // variable with name "__KEY" and namespace like [.., variable_name, __getit]
+        let tls_ns_part = &[name, "__getit"];
+        for unit in &self.units {
+            if let Some(vars) = unit.variable_index.get("__KEY") {
+                vars.iter().for_each(|(namespaces, entry_idx)| {
+                    if namespaces.contains(tls_ns_part) {
+                        if let DieVariant::Variable(ref var) = unit.entries[*entry_idx].die {
+                            found.push(ContextualDieRef {
+                                context: self,
+                                unit,
+                                node: &unit.entries[*entry_idx].node,
+                                die: var,
+                            });
+                        }
+                    }
+                });
+            }
+        }
+
         found
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct NamespaceHierarchy(Vec<String>);
+
+impl Deref for NamespaceHierarchy {
+    type Target = Vec<String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl NamespaceHierarchy {
+    pub fn for_node(node: &Node, unit: &Unit) -> Self {
+        NamespaceHierarchy(
+            node.parent
+                .map(|p_idx| {
+                    let mut ns_chain = vec![];
+                    let mut p_idx = Some(p_idx);
+                    while let Some(parent_idx) = p_idx {
+                        let parent = &unit.entries[parent_idx];
+                        if let DieVariant::Namespace(ref ns) = parent.die {
+                            ns_chain.push(ns.base_attributes.name.clone().unwrap_or_default());
+                        }
+                        p_idx = parent.node.parent;
+                    }
+                    ns_chain.reverse();
+                    ns_chain
+                })
+                .unwrap_or_default(),
+        )
+    }
+
+    pub fn contains(&self, needle: &[&str]) -> bool {
+        self.0.windows(needle.len()).any(|slice| slice == needle)
     }
 }
 
@@ -224,6 +285,12 @@ impl<'a, T> Clone for ContextualDieRef<'a, T> {
 }
 
 impl<'a, T> Copy for ContextualDieRef<'a, T> {}
+
+impl<'a, T> ContextualDieRef<'a, T> {
+    pub fn namespaces(&self) -> NamespaceHierarchy {
+        NamespaceHierarchy::for_node(self.node, self.unit)
+    }
+}
 
 impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
     pub fn frame_base_addr(&self, pid: Pid) -> anyhow::Result<usize> {
@@ -276,26 +343,35 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
 impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
     pub fn read_value_at_location(
         &self,
-        pid: Pid,
-        type_decl: &debugger::debugee::dwarf::r#type::TypeDeclaration,
+        debugee: &Debugee,
+        type_decl: &TypeDeclaration,
         parent_fn: Option<ContextualDieRef<FunctionDie>>,
-        relocation_addr: usize,
     ) -> Option<Bytes> {
+        let current_thread = debugee.threads_ctl().thread_in_focus();
         self.die.location.as_ref().and_then(|loc| {
             let expr = loc.exprloc_value()?;
 
-            let mut eval_opts = EvalOption::new().with_relocation_addr(relocation_addr);
+            let mut eval_opts = EvalOption::new().with_relocation_addr(debugee.mapping_offset());
             if let Some(parent_fn) = parent_fn {
-                let fb = weak_error!(parent_fn.frame_base_addr(pid))?;
+                let fb = weak_error!(parent_fn.frame_base_addr(current_thread))?;
                 eval_opts = eval_opts.with_base_frame(fb);
             }
+            let tls_resolver = |pid: Pid, offset: u64| -> anyhow::Result<RelocatedAddress> {
+                let lm_addr = debugee.rendezvous().link_map_main();
+                debugee
+                    .threads_ctl()
+                    .tls_addr(pid, lm_addr, offset as usize)
+            };
+            eval_opts = eval_opts.with_tls_resolver(&tls_resolver);
 
-            let eval_result =
-                weak_error!(self.unit.evaluator(pid).evaluate_with_opts(expr, eval_opts))?;
+            let eval_result = weak_error!(self
+                .unit
+                .evaluator(current_thread)
+                .evaluate_with_opts(expr, eval_opts))?;
             let bytes = weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
                 &EvaluationContext {
                     unit: self.unit,
-                    pid,
+                    pid: current_thread,
                 }
             )? as usize))?;
             Some(bytes)

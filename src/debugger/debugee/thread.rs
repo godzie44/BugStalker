@@ -1,5 +1,6 @@
 use crate::debugger::debugee::thread::TraceeStatus::{Created, Running, Stopped};
-use anyhow::bail;
+use crate::debugger::RelocatedAddress;
+use anyhow::{anyhow, bail};
 use itertools::Itertools;
 use log::warn;
 use nix::errno::Errno;
@@ -181,7 +182,7 @@ impl ThreadCtl {
 
     /// Load libthread_db and init libthread_db process handle.
     /// libthread_db must initialized after first thread created.
-    pub fn init_thread_db(&mut self) -> anyhow::Result<()> {
+    pub(super) fn init_thread_db(&mut self) -> anyhow::Result<()> {
         let thread_db_lib = thread_db::Lib::try_load()?;
         let td_process = ThreadDBProcessTryBuilder {
             lib: thread_db_lib,
@@ -190,5 +191,24 @@ impl ThreadCtl {
         .try_build()?;
         self.thread_db_proc = Some(td_process);
         Ok(())
+    }
+
+    /// Get address of thread local variable. link_map_addr - address of module link_map struct.
+    pub fn tls_addr(
+        &self,
+        tid: Pid,
+        link_map_addr: RelocatedAddress,
+        offset: usize,
+    ) -> anyhow::Result<RelocatedAddress> {
+        let td_proc = self
+            .thread_db_proc
+            .as_ref()
+            .ok_or_else(|| anyhow!("libthread_db not enabled"))?;
+
+        let thread: thread_db::Thread = td_proc.borrow_process().get_thread(tid)?;
+
+        Ok(RelocatedAddress(
+            thread.tls_addr(link_map_addr.0, offset)? as usize
+        ))
     }
 }

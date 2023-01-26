@@ -447,6 +447,65 @@ fn test_read_static_variables_different_modules() {
     session.exp_string("GLOB_3 = i32(3)").unwrap();
 }
 
+#[test]
+fn test_read_tls_variables() {
+    let mut session = setup_vars_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break vars.rs:201").unwrap();
+    session.exp_string("break vars.rs:201").unwrap();
+
+    // assert tls variables values
+    session.send_line("run").unwrap();
+    session
+        .exp_string(">        let nop: Option<u8> = None;")
+        .unwrap();
+    session.send_line("vars THREAD_LOCAL_VAR_1").unwrap();
+    session
+        .exp_string("THREAD_LOCAL_VAR_1 = Cell<i32> {")
+        .unwrap();
+    session.exp_string("value: UnsafeCell<i32> {").unwrap();
+    session.exp_string("value: i32(2)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+    session.send_line("vars THREAD_LOCAL_VAR_2").unwrap();
+    session
+        .exp_string("THREAD_LOCAL_VAR_2 = Cell<&str> {")
+        .unwrap();
+    session.exp_string("value: UnsafeCell<&str> {").unwrap();
+    session.exp_string("value: &str(2)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+
+    // assert uninit tls variables
+    session.send_line("break vars.rs:206").unwrap();
+    session.exp_string("break vars.rs:206").unwrap();
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">        let nop: Option<u8> = None;")
+        .unwrap();
+    session.send_line("vars THREAD_LOCAL_VAR_1").unwrap();
+    session
+        .exp_string("THREAD_LOCAL_VAR_1 = Cell<i32>(uninit)")
+        .unwrap();
+
+    // assert tls variables changes in another thread
+    session.send_line("break vars.rs:210").unwrap();
+    session.exp_string("break vars.rs:210").unwrap();
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+    session.send_line("vars THREAD_LOCAL_VAR_1").unwrap();
+    session
+        .exp_string("THREAD_LOCAL_VAR_1 = Cell<i32> {")
+        .unwrap();
+    session.exp_string("value: UnsafeCell<i32> {").unwrap();
+    session.exp_string("value: i32(1)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+}
+
 fn setup_vars_debugee() -> PtySession {
     let mut cmd = Command::cargo_bin("bugstalker").unwrap();
     cmd.arg("./target/debug/vars");

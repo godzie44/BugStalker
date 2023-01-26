@@ -1,12 +1,13 @@
 #![allow(dead_code)]
 
+use crate::debugger::RelocatedAddress;
 use nix::libc;
 use nix::unistd::Pid;
 use object::elf::DT_DEBUG;
 use std::collections::HashMap;
 
 pub struct LinkMap {
-    addr: usize,
+    addr: RelocatedAddress,
     name: String,
 }
 
@@ -59,20 +60,20 @@ impl Rendezvous {
         Err(RendezvousError::NotFound())
     }
 
-    pub fn link_map_main(&self) -> usize {
-        self.inner.link_map as usize
+    pub fn link_map_main(&self) -> RelocatedAddress {
+        RelocatedAddress(self.inner.link_map as usize)
     }
 
     pub fn link_maps(&self) -> Result<Vec<LinkMap>, RendezvousError> {
         let mut result = vec![];
-        let mut next_link_map_addr = self.link_map_main() as *const libc::c_void;
+        let mut next_link_map_addr = self.link_map_main().0 as *const libc::c_void;
 
         while !next_link_map_addr.is_null() {
             let lm = ffi::read_val::<ffi::link_map>(self.pid, &mut (next_link_map_addr as usize))?;
             let name = ffi::read_string(self.pid, lm.l_name as usize)?;
 
             result.push(LinkMap {
-                addr: next_link_map_addr as usize,
+                addr: RelocatedAddress(next_link_map_addr as usize),
                 name,
             });
 

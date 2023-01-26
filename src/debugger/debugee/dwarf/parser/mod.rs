@@ -2,10 +2,11 @@ pub mod unit;
 
 use crate::debugger::debugee::dwarf::parser::unit::{
     ArrayDie, ArraySubrangeDie, BaseTypeDie, DieAttributes, DieRange, DieVariant, Entry,
-    EnumTypeDie, EnumeratorDie, FunctionDie, LexicalBlockDie, LineRow, Namespace, PointerType,
-    StructTypeDie, TemplateTypeParameter, TypeMemberDie, Unit, VariableDie, Variant, VariantPart,
+    EnumTypeDie, EnumeratorDie, FunctionDie, LexicalBlockDie, LineRow, Namespace, Node,
+    PointerType, StructTypeDie, TemplateTypeParameter, TypeMemberDie, Unit, VariableDie, Variant,
+    VariantPart,
 };
-use crate::debugger::debugee::dwarf::EndianRcSlice;
+use crate::debugger::debugee::dwarf::{EndianRcSlice, NamespaceHierarchy};
 use crate::debugger::rust::Environment;
 use fallible_iterator::FallibleIterator;
 use gimli::{
@@ -139,20 +140,13 @@ impl<'a> DwarfUnitParser<'a> {
                         lexical_block_idx,
                     };
 
-                    let variable_ns = parent_idx
-                        .map(|p_idx| {
-                            let mut ns_indexes = vec![];
-                            let mut p_idx = Some(p_idx);
-                            while let Some(parent_idx) = p_idx {
-                                let parent = &parsed_unit.entries[parent_idx];
-                                if let DieVariant::Namespace(_) = parent.die {
-                                    ns_indexes.push(parent_idx);
-                                }
-                                p_idx = parent.node.parent;
-                            }
-                            ns_indexes
-                        })
-                        .unwrap_or_default();
+                    let variable_ns = NamespaceHierarchy::for_node(
+                        &Node {
+                            parent: parent_idx,
+                            children: vec![],
+                        },
+                        &parsed_unit,
+                    );
 
                     if let Some(ref name) = die.base_attributes.name {
                         parsed_unit

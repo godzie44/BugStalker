@@ -21,24 +21,30 @@ pub trait RenderRepr {
 impl RenderRepr for VariableIR {
     fn name(&self) -> &str {
         let name = match self {
-            VariableIR::Scalar(s) => &s.name,
-            VariableIR::Struct(s) => &s.name,
-            VariableIR::Array(a) => &a.name,
-            VariableIR::CEnum(e) => &e.name,
-            VariableIR::RustEnum(e) => &e.name,
-            VariableIR::Pointer(p) => return &p.name.as_deref().unwrap_or("anon"),
+            VariableIR::Scalar(s) => &s.identity.name,
+            VariableIR::Struct(s) => &s.identity.name,
+            VariableIR::Array(a) => &a.identity.name,
+            VariableIR::CEnum(e) => &e.identity.name,
+            VariableIR::RustEnum(e) => &e.identity.name,
+            VariableIR::Pointer(p) => return p.identity.name.as_deref().unwrap_or("anon"),
             VariableIR::Specialized(spec) => match spec {
                 SpecializedVariableIR::Vector { vec, original } => match vec {
-                    None => &original.name,
-                    Some(v) => &v.structure.name,
+                    None => &original.identity.name,
+                    Some(v) => &v.structure.identity.name,
                 },
                 SpecializedVariableIR::String { string, original } => match string {
-                    None => &original.name,
+                    None => &original.identity.name,
                     Some(s) => &s.name,
                 },
                 SpecializedVariableIR::Str { string, original } => match string {
-                    None => &original.name,
+                    None => &original.identity.name,
                     Some(s) => &s.name,
+                },
+                SpecializedVariableIR::Tls {
+                    tls_var, original, ..
+                } => match tls_var {
+                    None => &original.identity.name,
+                    Some(tls) => &tls.name,
                 },
             },
         };
@@ -68,6 +74,14 @@ impl RenderRepr for VariableIR {
                 },
                 SpecializedVariableIR::String { .. } => return "String",
                 SpecializedVariableIR::Str { .. } => return "&str",
+                SpecializedVariableIR::Tls {
+                    tls_var: value,
+                    original,
+                    ..
+                } => match value {
+                    None => &original.type_name,
+                    Some(v) => &v.inner_type,
+                },
             },
         };
         r#type.as_deref().unwrap_or("unknown")
@@ -101,6 +115,16 @@ impl RenderRepr for VariableIR {
                 SpecializedVariableIR::Str { string, original } => match string {
                     None => ValueRepr::Nested(original.members.as_ref()),
                     Some(s) => ValueRepr::PreRendered(Cow::Borrowed(&s.value)),
+                },
+                SpecializedVariableIR::Tls {
+                    tls_var: value,
+                    original,
+                } => match value {
+                    None => ValueRepr::Nested(original.members.as_ref()),
+                    Some(ref tls_val) => match tls_val.inner_value.as_ref() {
+                        None => ValueRepr::PreRendered(Cow::Borrowed("uninit")),
+                        Some(tls_inner_val) => tls_inner_val.value()?,
+                    },
                 },
             },
         };

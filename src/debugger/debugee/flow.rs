@@ -110,7 +110,7 @@ impl ControlFlow {
 
                                 Debugger::set_thread_pc(pid, Debugger::get_thread_pc(pid)?.0 - 1)?;
                                 let current_pc = Debugger::get_thread_pc(pid)?;
-                                let offset_pc = current_pc.to_global(mapping_offset.unwrap());
+                                let offset_pc = current_pc.into_global(mapping_offset.unwrap());
                                 if offset_pc == self.program_ep {
                                     Ok(DebugeeEvent::AtEntryPoint(pid))
                                 } else {

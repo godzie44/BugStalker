@@ -22,7 +22,7 @@ use crate::debugger::register::{
     get_register_from_name, get_register_value, set_register_value, Register,
 };
 use crate::debugger::uw::Backtrace;
-use crate::debugger::variable::VariableIR;
+use crate::debugger::variable::{VariableIR, VariableIdentity};
 use crate::weak_error;
 use anyhow::anyhow;
 use nix::libc::{c_int, c_void, uintptr_t};
@@ -67,7 +67,7 @@ macro_rules! disable_when_not_stared {
 pub struct RelocatedAddress(pub usize);
 
 impl RelocatedAddress {
-    pub fn to_global(self, offset: usize) -> GlobalAddress {
+    pub fn into_global(self, offset: usize) -> GlobalAddress {
         GlobalAddress(self.0 - offset)
     }
 }
@@ -165,7 +165,7 @@ impl Debugger {
                     break;
                 }
                 DebugeeEvent::Breakpoint(_, current_pc) => {
-                    let offset_pc = current_pc.to_global(self.debugee.mapping_offset());
+                    let offset_pc = current_pc.into_global(self.debugee.mapping_offset());
                     self.hooks
                         .on_trap(current_pc, self.debugee.dwarf.find_place_from_pc(offset_pc))?;
                     break;
@@ -203,7 +203,7 @@ impl Debugger {
             .dwarf
             .find_function_by_pc(
                 self.get_current_thread_pc()?
-                    .to_global(self.debugee.mapping_offset()),
+                    .into_global(self.debugee.mapping_offset()),
             )
             .ok_or_else(|| anyhow!("current function not found"))?;
 
@@ -220,7 +220,7 @@ impl Debugger {
             self.get_current_thread_pc()?,
             self.debugee.dwarf.find_place_from_pc(
                 self.get_current_thread_pc()?
-                    .to_global(self.debugee.mapping_offset()),
+                    .into_global(self.debugee.mapping_offset()),
             ),
         )
     }
@@ -232,7 +232,7 @@ impl Debugger {
             self.get_current_thread_pc()?,
             self.debugee.dwarf.find_place_from_pc(
                 self.get_current_thread_pc()?
-                    .to_global(self.debugee.mapping_offset()),
+                    .into_global(self.debugee.mapping_offset()),
             ),
         )
     }
@@ -368,7 +368,7 @@ impl Debugger {
             .dwarf
             .find_place_from_pc(
                 self.get_current_thread_pc()?
-                    .to_global(self.debugee.mapping_offset()),
+                    .into_global(self.debugee.mapping_offset()),
             )
             .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
 
@@ -378,7 +378,7 @@ impl Debugger {
                 .dwarf
                 .find_place_from_pc(
                     self.get_current_thread_pc()?
-                        .to_global(self.debugee.mapping_offset()),
+                        .into_global(self.debugee.mapping_offset()),
                 )
                 .ok_or_else(|| anyhow!("unreachable! line not found"))?
         {
@@ -395,7 +395,7 @@ impl Debugger {
             .dwarf
             .find_function_by_pc(
                 self.get_current_thread_pc()?
-                    .to_global(self.debugee.mapping_offset()),
+                    .into_global(self.debugee.mapping_offset()),
             )
             .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
 
@@ -406,7 +406,7 @@ impl Debugger {
             .dwarf
             .find_place_from_pc(
                 self.get_current_thread_pc()?
-                    .to_global(self.debugee.mapping_offset()),
+                    .into_global(self.debugee.mapping_offset()),
             )
             .ok_or_else(|| anyhow!("current line not found"))?;
 
@@ -523,10 +523,9 @@ impl Debugger {
 
                 let mb_value = mb_type.as_ref().and_then(|type_decl| {
                     var.read_value_at_location(
-                        self.debugee.threads_ctl().thread_in_focus(),
+                        &self.debugee,
                         type_decl,
                         known_parent_fn.or_else(|| var.assume_parent_function()),
-                        self.debugee.mapping_addr?,
                     )
                 });
 
@@ -535,7 +534,7 @@ impl Debugger {
                         unit: var.unit,
                         pid: self.debugee.threads_ctl().thread_in_focus(),
                     },
-                    var.die.base_attributes.name.clone(),
+                    VariableIdentity::new(var.namespaces(), var.die.base_attributes.name.clone()),
                     mb_value,
                     mb_type,
                 )
@@ -550,7 +549,7 @@ impl Debugger {
 
         let pc = self
             .get_current_thread_pc()?
-            .to_global(self.debugee.mapping_offset());
+            .into_global(self.debugee.mapping_offset());
         let current_func = self
             .debugee
             .dwarf

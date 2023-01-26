@@ -1,6 +1,6 @@
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::parser::DieRef;
-use crate::debugger::debugee::dwarf::EndianRcSlice;
+use crate::debugger::debugee::dwarf::{EndianRcSlice, NamespaceHierarchy};
 use crate::debugger::GlobalAddress;
 use gimli::{Attribute, DebugInfoOffset, DwAte, DwTag, Encoding, Range, UnitOffset};
 use nix::unistd::Pid;
@@ -36,7 +36,7 @@ pub struct Unit {
     pub(super) encoding: Encoding,
     pub offset: Option<DebugInfoOffset>,
     // index for variable die position: variable name -> [namespaces : die position in unit]
-    pub variable_index: HashMap<String, Vec<(Vec<usize>, usize)>>,
+    pub variable_index: HashMap<String, Vec<(NamespaceHierarchy, usize)>>,
     // index for variables: offset in unit -> position in unit entries
     pub die_offsets_index: HashMap<UnitOffset, usize>,
 }

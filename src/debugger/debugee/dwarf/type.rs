@@ -2,7 +2,7 @@ use crate::debugger::debugee::dwarf::parser::unit::{
     ArrayDie, BaseTypeDie, DieVariant, EnumTypeDie, PointerType, StructTypeDie, TypeMemberDie, Unit,
 };
 use crate::debugger::debugee::dwarf::parser::DieRef;
-use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianRcSlice};
+use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianRcSlice, NamespaceHierarchy};
 use crate::weak_error;
 use bytes::Bytes;
 use gimli::{AttributeValue, DwAte, Expression};
@@ -128,6 +128,7 @@ pub enum UpperBound {
 
 #[derive(Clone)]
 pub struct ArrayType {
+    pub namespaces: NamespaceHierarchy,
     byte_size: Option<u64>,
     pub element_type: Option<Box<TypeDeclaration>>,
     lower_bound: ArrayBoundValue,
@@ -138,12 +139,14 @@ pub struct ArrayType {
 
 impl ArrayType {
     pub fn new(
+        namespaces: NamespaceHierarchy,
         byte_size: Option<u64>,
         element_type: Option<Box<TypeDeclaration>>,
         lower_bound: ArrayBoundValue,
         upper_bound: Option<UpperBound>,
     ) -> Self {
         Self {
+            namespaces,
             byte_size,
             element_type,
             lower_bound,
@@ -188,6 +191,7 @@ impl ArrayType {
 
 #[derive(Clone)]
 pub struct ScalarType {
+    pub namespaces: NamespaceHierarchy,
     pub name: Option<String>,
     pub byte_size: Option<u64>,
     pub encoding: Option<DwAte>,
@@ -198,18 +202,21 @@ pub enum TypeDeclaration {
     Scalar(ScalarType),
     Array(ArrayType),
     Structure {
+        namespaces: NamespaceHierarchy,
         name: Option<String>,
         byte_size: Option<u64>,
         members: Vec<StructureMember>,
         type_params: HashMap<String, Option<TypeDeclaration>>,
     },
     CStyleEnum {
+        namespaces: NamespaceHierarchy,
         name: Option<String>,
         byte_size: Option<u64>,
         discr_type: Option<Box<TypeDeclaration>>,
         enumerators: HashMap<i64, String>,
     },
     RustEnum {
+        namespaces: NamespaceHierarchy,
         name: Option<String>,
         byte_size: Option<u64>,
         discr_type: Option<Box<StructureMember>>,
@@ -217,6 +224,7 @@ pub enum TypeDeclaration {
         enumerators: HashMap<Option<i64>, StructureMember>,
     },
     Pointer {
+        namespaces: NamespaceHierarchy,
         name: Option<String>,
         target_type: Option<Box<TypeDeclaration>>,
     },
@@ -325,6 +333,7 @@ impl TypeDeclaration {
             .collect::<HashMap<_, _>>();
 
         TypeDeclaration::Structure {
+            namespaces: ctx_die.namespaces(),
             name,
             byte_size: ctx_die.die.byte_size,
             members,
@@ -397,6 +406,7 @@ impl TypeDeclaration {
             .collect::<HashMap<_, _>>();
 
         TypeDeclaration::RustEnum {
+            namespaces: ctx_die.namespaces(),
             name,
             byte_size: ctx_die.die.byte_size,
             discr_type: discr_type.map(Box::new),
@@ -409,6 +419,7 @@ impl From<ContextualDieRef<'_, BaseTypeDie>> for TypeDeclaration {
     fn from(ctx_die: ContextualDieRef<'_, BaseTypeDie>) -> Self {
         let name = ctx_die.die.base_attributes.name.clone();
         TypeDeclaration::Scalar(ScalarType {
+            namespaces: ctx_die.namespaces(),
             name,
             byte_size: ctx_die.die.byte_size,
             encoding: ctx_die.die.encoding,
@@ -492,6 +503,7 @@ impl<'a> From<ContextualDieRef<'a, ArrayDie>> for TypeDeclaration {
         });
 
         TypeDeclaration::Array(ArrayType::new(
+            ctx_die.namespaces(),
             ctx_die.die.byte_size,
             type_decl.map(Box::new),
             lower_bound,
@@ -527,6 +539,7 @@ impl<'a> From<ContextualDieRef<'a, EnumTypeDie>> for TypeDeclaration {
             .collect::<HashMap<_, _>>();
 
         TypeDeclaration::CStyleEnum {
+            namespaces: ctx_die.namespaces(),
             name,
             byte_size: ctx_die.die.byte_size,
             discr_type: discr_type.map(Box::new),
@@ -544,6 +557,7 @@ impl<'a> From<ContextualDieRef<'a, PointerType>> for TypeDeclaration {
             .and_then(|reference| TypeDeclaration::from_type_ref(ctx_die, reference));
 
         TypeDeclaration::Pointer {
+            namespaces: ctx_die.namespaces(),
             name,
             target_type: type_decl.map(Box::new),
         }

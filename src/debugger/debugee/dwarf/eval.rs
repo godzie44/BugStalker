@@ -2,6 +2,7 @@ use crate::debugger::debugee::dwarf::eval::EvalError::{OptionRequired, Unsupport
 use crate::debugger::debugee::dwarf::parser::unit::{DieVariant, Unit};
 use crate::debugger::debugee::dwarf::EndianRcSlice;
 use crate::debugger::register::get_register_value_dwarf;
+use crate::debugger::RelocatedAddress;
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{
     Encoding, EvaluationResult, Expression, Location, Piece, RunTimeEndian, Value, ValueType,
@@ -30,13 +31,14 @@ pub enum EvalError {
 pub type Result<T> = result::Result<T, EvalError>;
 
 #[derive(Default)]
-pub struct EvalOption {
+pub struct EvalOption<'a> {
     base_frame: Option<usize>,
     at_location: Option<Vec<u8>>,
     relocation_addr: Option<usize>,
+    tls_resolver: Option<&'a dyn Fn(Pid, u64) -> anyhow::Result<RelocatedAddress>>,
 }
 
-impl EvalOption {
+impl<'a> EvalOption<'a> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -58,6 +60,16 @@ impl EvalOption {
     pub fn with_relocation_addr(self, addr: usize) -> Self {
         Self {
             relocation_addr: Some(addr),
+            ..self
+        }
+    }
+
+    pub fn with_tls_resolver(
+        self,
+        resolver: &'a dyn Fn(Pid, u64) -> anyhow::Result<RelocatedAddress>,
+    ) -> Self {
+        Self {
+            tls_resolver: Some(resolver),
             ..self
         }
     }
@@ -138,6 +150,14 @@ impl<'a> ExpressionEvaluator<'a> {
                         .relocation_addr
                         .ok_or(OptionRequired("relocation_addr"))?;
                     result = eval.resume_with_relocated_address(addr + relocation_addr as u64)?;
+                }
+                EvaluationResult::RequiresTls(offset) => {
+                    let tls_resolver = opts
+                        .tls_resolver
+                        .take()
+                        .ok_or(OptionRequired("tls_resolver"))?;
+                    let addr = tls_resolver(self.pid, offset)?;
+                    result = eval.resume_with_tls(addr.0 as u64)?;
                 }
                 _ => {
                     return Err(UnsupportedRequire(format!("{:?}", result)));

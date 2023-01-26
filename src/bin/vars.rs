@@ -185,6 +185,31 @@ fn static_vars_same_name() {
     let nop: Option<u8> = None;
 }
 
+thread_local! {
+    static THREAD_LOCAL_VAR_1: std::cell::Cell<i32> = std::cell::Cell::new(0);
+    static THREAD_LOCAL_VAR_2: std::cell::Cell<&'static str> = std::cell::Cell::new("0");
+}
+
+#[allow(unused)]
+fn thread_local() {
+    THREAD_LOCAL_VAR_1.with(|tl1| tl1.set(1));
+    THREAD_LOCAL_VAR_2.with(|tl2| tl2.set("1"));
+
+    let t1 = std::thread::spawn(|| {
+        THREAD_LOCAL_VAR_1.with(|tl1| tl1.set(2));
+        THREAD_LOCAL_VAR_2.with(|tl2| tl2.set("2"));
+        let nop: Option<u8> = None;
+    });
+    t1.join();
+
+    let t2 = std::thread::spawn(|| {
+        let nop: Option<u8> = None;
+    });
+    t2.join();
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -197,4 +222,5 @@ pub fn main() {
     string_types();
     static_vars();
     static_vars_same_name();
+    thread_local();
 }

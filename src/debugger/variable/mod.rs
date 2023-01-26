@@ -1,9 +1,10 @@
 use crate::debugger::debugee::dwarf::r#type::{
     ArrayType, EvaluationContext, ScalarType, StructureMember,
 };
+use crate::debugger::debugee::dwarf::NamespaceHierarchy;
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::specialized::{
-    SpecializedVariableIR, StrVariable, StringVariable, VecVariable,
+    SpecializedVariableIR, StrVariable, StringVariable, TlsVariable, VecVariable,
 };
 use crate::debugger::TypeDeclaration;
 use crate::{debugger, weak_error};
@@ -15,6 +16,25 @@ use std::mem;
 
 pub mod render;
 pub mod specialized;
+
+#[derive(Clone)]
+pub struct VariableIdentity {
+    namespace: NamespaceHierarchy,
+    name: Option<String>,
+}
+
+impl VariableIdentity {
+    pub fn new(namespace: NamespaceHierarchy, name: Option<String>) -> Self {
+        Self { namespace, name }
+    }
+
+    fn no_namespace(name: Option<String>) -> Self {
+        Self {
+            namespace: NamespaceHierarchy::default(),
+            name,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub enum SupportedScalar {
@@ -63,13 +83,13 @@ impl Display for SupportedScalar {
 
 #[derive(Clone)]
 pub struct ScalarVariable {
-    name: Option<String>,
+    identity: VariableIdentity,
     type_name: Option<String>,
     value: Option<SupportedScalar>,
 }
 
 impl ScalarVariable {
-    fn new(name: Option<String>, value: Option<Bytes>, r#type: &ScalarType) -> Self {
+    fn new(identity: VariableIdentity, value: Option<Bytes>, r#type: &ScalarType) -> Self {
         fn render_scalar<S: Copy + Display>(data: Option<Bytes>) -> Option<S> {
             data.as_ref().map(|v| *scalar_from_bytes::<S>(v))
         }
@@ -96,7 +116,7 @@ impl ScalarVariable {
         };
 
         ScalarVariable {
-            name,
+            identity,
             type_name: r#type.name.clone(),
             value: value_view,
         }
@@ -121,7 +141,7 @@ impl ScalarVariable {
 
 #[derive(Clone)]
 pub struct StructVariable {
-    pub name: Option<String>,
+    pub identity: VariableIdentity,
     pub type_name: Option<String>,
     pub members: Vec<VariableIR>,
 }
@@ -129,7 +149,7 @@ pub struct StructVariable {
 impl StructVariable {
     fn new(
         eval_ctx: &EvaluationContext,
-        name: Option<String>,
+        identity: VariableIdentity,
         value: Option<Bytes>,
         type_name: Option<String>,
         members: &[StructureMember],
@@ -140,7 +160,7 @@ impl StructVariable {
             .collect();
 
         StructVariable {
-            name,
+            identity,
             type_name,
             members: children,
         }
@@ -149,7 +169,7 @@ impl StructVariable {
 
 #[derive(Clone)]
 pub struct ArrayVariable {
-    pub name: Option<String>,
+    pub identity: VariableIdentity,
     pub type_name: Option<String>,
     pub items: Option<Vec<VariableIR>>,
 }
@@ -157,7 +177,7 @@ pub struct ArrayVariable {
 impl ArrayVariable {
     fn new(
         eval_ctx: &EvaluationContext,
-        name: Option<String>,
+        identity: VariableIdentity,
         value: Option<Bytes>,
         type_name: Option<String>,
         array_decl: &ArrayType,
@@ -173,7 +193,10 @@ impl ArrayVariable {
                     .map(|(i, chunk)| {
                         VariableIR::new(
                             eval_ctx,
-                            Some(format!("{}", bounds.0 + i as i64)),
+                            VariableIdentity::no_namespace(Some(format!(
+                                "{}",
+                                bounds.0 + i as i64
+                            ))),
                             Some(bytes.slice_ref(chunk)),
                             array_decl.element_type.as_ref().map(|t| t.as_ref()),
                         )
@@ -183,7 +206,7 @@ impl ArrayVariable {
         });
 
         ArrayVariable {
-            name,
+            identity,
             items,
             type_name,
         }
@@ -192,7 +215,7 @@ impl ArrayVariable {
 
 #[derive(Clone)]
 pub struct CEnumVariable {
-    pub name: Option<String>,
+    pub identity: VariableIdentity,
     pub type_name: Option<String>,
     pub value: Option<String>,
 }
@@ -200,13 +223,18 @@ pub struct CEnumVariable {
 impl CEnumVariable {
     fn new(
         eval_ctx: &EvaluationContext,
-        name: Option<String>,
+        identity: VariableIdentity,
         value: Option<Bytes>,
         type_name: Option<String>,
         discr_type: Option<&TypeDeclaration>,
         enumerators: &HashMap<i64, String>,
     ) -> Self {
-        let discr = VariableIR::new(eval_ctx, None, value, discr_type);
+        let discr = VariableIR::new(
+            eval_ctx,
+            VariableIdentity::no_namespace(None),
+            value,
+            discr_type,
+        );
         let value = if let VariableIR::Scalar(scalar) = discr {
             scalar.try_as_number()
         } else {
@@ -214,7 +242,7 @@ impl CEnumVariable {
         };
 
         CEnumVariable {
-            name,
+            identity,
             type_name,
             value: value.and_then(|val| enumerators.get(&(val as i64)).cloned()),
         }
@@ -223,7 +251,7 @@ impl CEnumVariable {
 
 #[derive(Clone)]
 pub struct RustEnumVariable {
-    pub name: Option<String>,
+    pub identity: VariableIdentity,
     pub type_name: Option<String>,
     pub value: Option<Box<VariableIR>>,
 }
@@ -231,7 +259,7 @@ pub struct RustEnumVariable {
 impl RustEnumVariable {
     fn new(
         eval_ctx: &EvaluationContext,
-        name: Option<String>,
+        identity: VariableIdentity,
         value: Option<Bytes>,
         type_name: Option<String>,
         discr_member: Option<&StructureMember>,
@@ -252,7 +280,7 @@ impl RustEnumVariable {
             .map(|member| Box::new(VariableIR::from_member(eval_ctx, member, value.as_ref())));
 
         RustEnumVariable {
-            name,
+            identity,
             type_name,
             value: enumerator,
         }
@@ -261,7 +289,7 @@ impl RustEnumVariable {
 
 #[derive(Clone)]
 pub struct PointerVariable {
-    name: Option<String>,
+    identity: VariableIdentity,
     type_name: Option<String>,
     value: Option<*const ()>,
     deref: Option<Box<VariableIR>>,
@@ -270,7 +298,7 @@ pub struct PointerVariable {
 impl PointerVariable {
     fn new(
         eval_ctx: &EvaluationContext,
-        name: Option<String>,
+        identity: VariableIdentity,
         value: Option<Bytes>,
         type_name: Option<String>,
         target_type: Option<&TypeDeclaration>,
@@ -287,14 +315,14 @@ impl PointerVariable {
 
             Box::new(VariableIR::new(
                 eval_ctx,
-                Some(String::from("*")),
+                VariableIdentity::no_namespace(Some(String::from("*"))),
                 val.map(Bytes::from),
                 target_type,
             ))
         });
 
         PointerVariable {
-            name,
+            identity,
             type_name,
             value: mb_ptr,
             deref: deref_var,
@@ -322,7 +350,7 @@ impl Debug for VariableIR {
 impl VariableIR {
     pub fn new(
         eval_ctx: &EvaluationContext,
-        name: Option<String>,
+        identity: VariableIdentity,
         value: Option<Bytes>,
         r#type: Option<&TypeDeclaration>,
     ) -> Self {
@@ -331,20 +359,23 @@ impl VariableIR {
         match r#type {
             Some(type_decl) => match type_decl {
                 TypeDeclaration::Scalar(scalar_type) => {
-                    VariableIR::Scalar(ScalarVariable::new(name, value, scalar_type))
+                    VariableIR::Scalar(ScalarVariable::new(identity, value, scalar_type))
                 }
                 TypeDeclaration::Structure {
+                    namespaces: type_ns_h,
                     members,
                     type_params,
                     name: struct_name,
                     ..
                 } => {
-                    let struct_var = StructVariable::new(eval_ctx, name, value, type_name, members);
+                    let struct_var =
+                        StructVariable::new(eval_ctx, identity, value, type_name, members);
 
                     // Reinterpret structure if underline data type is:
                     // - Vector
                     // - String
                     // - &str
+                    // - tls variable
                     if struct_name.as_deref() == Some("&str") {
                         return VariableIR::Specialized(SpecializedVariableIR::Str {
                             string: weak_error!(StrVariable::from_struct_ir(
@@ -379,18 +410,29 @@ impl VariableIR {
                         });
                     };
 
+                    if type_ns_h.contains(&["std", "thread", "local", "fast"]) {
+                        return VariableIR::Specialized(SpecializedVariableIR::Tls {
+                            tls_var: weak_error!(TlsVariable::from_struct_ir(
+                                VariableIR::Struct(struct_var.clone()),
+                                type_params,
+                            )
+                            .context("tls interpretation")),
+                            original: struct_var,
+                        });
+                    }
+
                     VariableIR::Struct(struct_var)
                 }
-                TypeDeclaration::Array(decl) => {
-                    VariableIR::Array(ArrayVariable::new(eval_ctx, name, value, type_name, decl))
-                }
+                TypeDeclaration::Array(decl) => VariableIR::Array(ArrayVariable::new(
+                    eval_ctx, identity, value, type_name, decl,
+                )),
                 TypeDeclaration::CStyleEnum {
                     discr_type,
                     enumerators,
                     ..
                 } => VariableIR::CEnum(CEnumVariable::new(
                     eval_ctx,
-                    name,
+                    identity,
                     value,
                     type_name,
                     discr_type.as_ref().map(|t| t.as_ref()),
@@ -402,7 +444,7 @@ impl VariableIR {
                     ..
                 } => VariableIR::RustEnum(RustEnumVariable::new(
                     eval_ctx,
-                    name,
+                    identity,
                     value,
                     type_name,
                     discr_type.as_ref().map(|t| t.as_ref()),
@@ -411,7 +453,7 @@ impl VariableIR {
                 TypeDeclaration::Pointer { target_type, .. } => {
                     VariableIR::Pointer(PointerVariable::new(
                         eval_ctx,
-                        name,
+                        identity,
                         value,
                         type_name,
                         target_type.as_ref().map(|t| t.as_ref()),
@@ -432,7 +474,7 @@ impl VariableIR {
         let member_val = parent_value.and_then(|val| member.value(eval_ctx, val.as_ptr() as usize));
         Self::new(
             eval_ctx,
-            member.name.clone(),
+            VariableIdentity::no_namespace(member.name.clone()),
             member_val,
             member.r#type.as_ref(),
         )
@@ -462,7 +504,7 @@ impl VariableIR {
         self.bfs_iterator()
             .find_map(|child| {
                 if let VariableIR::Pointer(pointer) = child {
-                    if pointer.name.as_deref() != Some(field_name) {
+                    if pointer.identity.name.as_deref() != Some(field_name) {
                         return None;
                     }
 
@@ -471,6 +513,41 @@ impl VariableIR {
                 None
             })
             .ok_or(AssumeError::IncompleteInterp("pointer"))
+    }
+
+    fn assume_field_as_rust_enum(
+        &self,
+        field_name: &'static str,
+    ) -> Result<RustEnumVariable, AssumeError> {
+        self.bfs_iterator()
+            .find_map(|child| {
+                if let VariableIR::RustEnum(r_enum) = child {
+                    if r_enum.identity.name.as_deref() != Some(field_name) {
+                        return None;
+                    }
+
+                    return Some(r_enum.clone());
+                }
+                None
+            })
+            .ok_or(AssumeError::IncompleteInterp("pointer"))
+    }
+
+    fn identity(&self) -> &VariableIdentity {
+        match self {
+            VariableIR::Scalar(s) => &s.identity,
+            VariableIR::Struct(s) => &s.identity,
+            VariableIR::Array(a) => &a.identity,
+            VariableIR::CEnum(e) => &e.identity,
+            VariableIR::RustEnum(e) => &e.identity,
+            VariableIR::Pointer(p) => &p.identity,
+            VariableIR::Specialized(s) => match s {
+                SpecializedVariableIR::Vector { original, .. } => &original.identity,
+                SpecializedVariableIR::String { original, .. } => &original.identity,
+                SpecializedVariableIR::Str { original, .. } => &original.identity,
+                SpecializedVariableIR::Tls { original, .. } => &original.identity,
+            },
+        }
     }
 }
 
@@ -535,6 +612,12 @@ impl<'a> Iterator for BfsIterator<'a> {
                         .iter()
                         .for_each(|member| self.queue.push_back(member));
                 }
+                SpecializedVariableIR::Tls { original, .. } => {
+                    original
+                        .members
+                        .iter()
+                        .for_each(|member| self.queue.push_back(member));
+                }
             },
             _ => {}
         }
@@ -565,36 +648,44 @@ mod test {
         let test_cases = vec![
             TestCase {
                 variable: VariableIR::Struct(StructVariable {
-                    name: Some("struct_1".to_owned()),
+                    identity: VariableIdentity::no_namespace(Some("struct_1".to_owned())),
                     type_name: None,
                     members: vec![
                         VariableIR::Array(ArrayVariable {
-                            name: Some("array_1".to_owned()),
+                            identity: VariableIdentity::no_namespace(Some("array_1".to_owned())),
                             type_name: None,
                             items: Some(vec![
                                 VariableIR::Scalar(ScalarVariable {
-                                    name: Some("scalar_1".to_owned()),
+                                    identity: VariableIdentity::no_namespace(Some(
+                                        "scalar_1".to_owned(),
+                                    )),
                                     type_name: None,
                                     value: None,
                                 }),
                                 VariableIR::Scalar(ScalarVariable {
-                                    name: Some("scalar_2".to_owned()),
+                                    identity: VariableIdentity::no_namespace(Some(
+                                        "scalar_2".to_owned(),
+                                    )),
                                     type_name: None,
                                     value: None,
                                 }),
                             ]),
                         }),
                         VariableIR::Array(ArrayVariable {
-                            name: Some("array_2".to_owned()),
+                            identity: VariableIdentity::no_namespace(Some("array_2".to_owned())),
                             type_name: None,
                             items: Some(vec![
                                 VariableIR::Scalar(ScalarVariable {
-                                    name: Some("scalar_3".to_owned()),
+                                    identity: VariableIdentity::no_namespace(Some(
+                                        "scalar_3".to_owned(),
+                                    )),
                                     type_name: None,
                                     value: None,
                                 }),
                                 VariableIR::Scalar(ScalarVariable {
-                                    name: Some("scalar_4".to_owned()),
+                                    identity: VariableIdentity::no_namespace(Some(
+                                        "scalar_4".to_owned(),
+                                    )),
                                     type_name: None,
                                     value: None,
                                 }),
@@ -609,40 +700,50 @@ mod test {
             },
             TestCase {
                 variable: VariableIR::Struct(StructVariable {
-                    name: Some("struct_1".to_owned()),
+                    identity: VariableIdentity::no_namespace(Some("struct_1".to_owned())),
                     type_name: None,
                     members: vec![
                         VariableIR::Struct(StructVariable {
-                            name: Some("struct_2".to_owned()),
+                            identity: VariableIdentity::no_namespace(Some("struct_2".to_owned())),
                             type_name: None,
                             members: vec![
                                 VariableIR::Scalar(ScalarVariable {
-                                    name: Some("scalar_1".to_owned()),
+                                    identity: VariableIdentity::no_namespace(Some(
+                                        "scalar_1".to_owned(),
+                                    )),
                                     type_name: None,
                                     value: None,
                                 }),
                                 VariableIR::RustEnum(RustEnumVariable {
-                                    name: Some("enum_1".to_owned()),
+                                    identity: VariableIdentity::no_namespace(Some(
+                                        "enum_1".to_owned(),
+                                    )),
                                     type_name: None,
                                     value: Some(Box::new(VariableIR::Scalar(ScalarVariable {
-                                        name: Some("scalar_2".to_owned()),
+                                        identity: VariableIdentity::no_namespace(Some(
+                                            "scalar_2".to_owned(),
+                                        )),
                                         type_name: None,
                                         value: None,
                                     }))),
                                 }),
                                 VariableIR::Scalar(ScalarVariable {
-                                    name: Some("scalar_3".to_owned()),
+                                    identity: VariableIdentity::no_namespace(Some(
+                                        "scalar_3".to_owned(),
+                                    )),
                                     type_name: None,
                                     value: None,
                                 }),
                             ],
                         }),
                         VariableIR::Pointer(PointerVariable {
-                            name: Some("pointer_1".to_owned()),
+                            identity: VariableIdentity::no_namespace(Some("pointer_1".to_owned())),
                             type_name: None,
                             value: None,
                             deref: Some(Box::new(VariableIR::Scalar(ScalarVariable {
-                                name: Some("scalar_4".to_owned()),
+                                identity: VariableIdentity::no_namespace(Some(
+                                    "scalar_4".to_owned(),
+                                )),
                                 type_name: None,
                                 value: None,
                             }))),
@@ -666,12 +767,12 @@ mod test {
             let iter = tc.variable.bfs_iterator();
             let names: Vec<_> = iter
                 .map(|g| match g {
-                    VariableIR::Scalar(s) => s.name.as_deref().unwrap(),
-                    VariableIR::Struct(s) => s.name.as_deref().unwrap(),
-                    VariableIR::Array(a) => a.name.as_deref().unwrap(),
-                    VariableIR::CEnum(e) => e.name.as_deref().unwrap(),
-                    VariableIR::RustEnum(e) => e.name.as_deref().unwrap(),
-                    VariableIR::Pointer(p) => p.name.as_deref().unwrap(),
+                    VariableIR::Scalar(s) => s.identity.name.as_deref().unwrap(),
+                    VariableIR::Struct(s) => s.identity.name.as_deref().unwrap(),
+                    VariableIR::Array(a) => a.identity.name.as_deref().unwrap(),
+                    VariableIR::CEnum(e) => e.identity.name.as_deref().unwrap(),
+                    VariableIR::RustEnum(e) => e.identity.name.as_deref().unwrap(),
+                    VariableIR::Pointer(p) => p.identity.name.as_deref().unwrap(),
                     _ => {
                         unreachable!()
                     }
