@@ -2,6 +2,7 @@ use crate::debugger::variable::specialized::SpecializedVariableIR;
 use crate::debugger::variable::VariableIR;
 use std::borrow::Cow;
 
+#[derive(Debug)]
 pub enum ValueRepr<'a> {
     PreRendered(Cow<'a, str>),
     Referential {

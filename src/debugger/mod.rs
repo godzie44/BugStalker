@@ -5,7 +5,7 @@ mod debugee;
 mod register;
 pub mod rust;
 mod utils;
-mod uw;
+pub mod uw;
 pub mod variable;
 
 pub use debugee::dwarf::parser::unit::Place;
@@ -126,7 +126,7 @@ impl Debugger {
         })
     }
 
-    fn continue_execution2(&mut self) -> anyhow::Result<()> {
+    fn continue_execution(&mut self) -> anyhow::Result<()> {
         self.step_over_breakpoint()?;
 
         loop {
@@ -181,12 +181,12 @@ impl Debugger {
     }
 
     pub fn run_debugee(&mut self) -> anyhow::Result<()> {
-        self.continue_execution2()
+        self.continue_execution()
     }
 
     pub fn continue_debugee(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
-        self.continue_execution2()
+        self.continue_execution()
     }
 
     pub fn get_symbol(&self, name: &str) -> anyhow::Result<&Symbol> {
@@ -261,6 +261,7 @@ impl Debugger {
     }
 
     pub fn set_breakpoint(&mut self, addr: PCValue) -> anyhow::Result<()> {
+        // todo make method idempotence
         let brkpt = Breakpoint::new(addr, self.debugee.threads_ctl().proc_pid());
         if self.debugee.in_progress {
             brkpt.enable()?;
@@ -300,7 +301,7 @@ impl Debugger {
         }
     }
 
-    fn get_current_thread_pc(&self) -> nix::Result<RelocatedAddress> {
+    pub fn get_current_thread_pc(&self) -> nix::Result<RelocatedAddress> {
         Self::get_thread_pc(self.debugee.threads_ctl().thread_in_focus())
     }
 
@@ -351,10 +352,10 @@ impl Debugger {
                 .get(&PCValue::Relocated(ret_addr))
                 .is_some();
             if brkpt_is_set {
-                self.continue_execution2()?;
+                self.continue_execution()?;
             } else {
                 self.set_breakpoint(PCValue::Relocated(ret_addr))?;
-                self.continue_execution2()?;
+                self.continue_execution()?;
                 self.remove_breakpoint(PCValue::Relocated(ret_addr))?;
             }
         }
@@ -455,7 +456,7 @@ impl Debugger {
             }
         }
 
-        self.continue_execution2()?;
+        self.continue_execution()?;
 
         to_delete
             .into_iter()

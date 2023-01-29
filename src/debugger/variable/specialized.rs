@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct VecVariable {
-    pub(super) structure: StructVariable,
+    pub structure: StructVariable,
 }
 
 impl VecVariable {
@@ -63,7 +63,7 @@ impl VecVariable {
                 members: vec![
                     VariableIR::Array(ArrayVariable {
                         identity: VariableIdentity::no_namespace(Some("buf".to_owned())),
-                        type_name: Some("".to_owned()),
+                        type_name: inner_type.name().map(|tp| format!("[{tp}]")),
                         items: Some(items),
                     }),
                     VariableIR::Scalar(ScalarVariable {
@@ -79,8 +79,8 @@ impl VecVariable {
 
 #[derive(Clone)]
 pub struct StringVariable {
-    pub(super) name: Option<String>,
-    pub(super) value: String,
+    pub name: Option<String>,
+    pub value: String,
 }
 
 impl StringVariable {
@@ -112,8 +112,8 @@ impl HashMapVariable {
 
 #[derive(Clone)]
 pub struct StrVariable {
-    pub(super) name: Option<String>,
-    pub(super) value: String,
+    pub name: Option<String>,
+    pub value: String,
 }
 
 impl StrVariable {
@@ -133,9 +133,9 @@ impl StrVariable {
 
 #[derive(Clone)]
 pub struct TlsVariable {
-    pub(super) name: Option<String>,
-    pub(super) inner_value: Option<Box<VariableIR>>,
-    pub(super) inner_type: Option<String>,
+    pub name: Option<String>,
+    pub inner_value: Option<Box<VariableIR>>,
+    pub inner_type: Option<String>,
 }
 
 impl TlsVariable {

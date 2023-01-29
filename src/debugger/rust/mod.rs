@@ -22,13 +22,16 @@ impl Environment {
         if let Err(ref e) = toolchain {
             warn!("detect toolchain: {e}")
         }
-        ENVIRONMENT
+        if ENVIRONMENT
             .set(Environment {
                 std_lib_path: std_lib_path
                     .or_else(|| toolchain.as_ref().ok().map(|t| t.std_lib_path())),
                 toolchain: toolchain.ok(),
             })
-            .unwrap()
+            .is_err()
+        {
+            warn!("rust env already set")
+        }
     }
 }
 

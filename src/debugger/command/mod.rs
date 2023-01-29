@@ -12,7 +12,7 @@ mod step_out;
 mod step_over;
 mod symbol;
 mod trace;
-mod variables;
+pub mod variables;
 
 pub use backtrace::Backtrace;
 pub use frame::Frame;

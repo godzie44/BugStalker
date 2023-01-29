@@ -4,7 +4,7 @@ use crate::debugger::debugee::dwarf::r#type::{
 use crate::debugger::debugee::dwarf::NamespaceHierarchy;
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::specialized::{
-    SpecializedVariableIR, StrVariable, StringVariable, TlsVariable, VecVariable,
+    StrVariable, StringVariable, TlsVariable, VecVariable,
 };
 use crate::debugger::TypeDeclaration;
 use crate::{debugger, weak_error};
@@ -17,10 +17,12 @@ use std::mem;
 pub mod render;
 pub mod specialized;
 
+pub use specialized::SpecializedVariableIR;
+
 #[derive(Clone)]
 pub struct VariableIdentity {
     namespace: NamespaceHierarchy,
-    name: Option<String>,
+    pub name: Option<String>,
 }
 
 impl VariableIdentity {
@@ -36,7 +38,7 @@ impl VariableIdentity {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SupportedScalar {
     I8(i8),
     I16(i16),
@@ -83,9 +85,9 @@ impl Display for SupportedScalar {
 
 #[derive(Clone)]
 pub struct ScalarVariable {
-    identity: VariableIdentity,
-    type_name: Option<String>,
-    value: Option<SupportedScalar>,
+    pub identity: VariableIdentity,
+    pub type_name: Option<String>,
+    pub value: Option<SupportedScalar>,
 }
 
 impl ScalarVariable {
@@ -289,10 +291,10 @@ impl RustEnumVariable {
 
 #[derive(Clone)]
 pub struct PointerVariable {
-    identity: VariableIdentity,
-    type_name: Option<String>,
-    value: Option<*const ()>,
-    deref: Option<Box<VariableIR>>,
+    pub identity: VariableIdentity,
+    pub type_name: Option<String>,
+    pub value: Option<*const ()>,
+    pub deref: Option<Box<VariableIR>>,
 }
 
 impl PointerVariable {

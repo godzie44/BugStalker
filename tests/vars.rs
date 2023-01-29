@@ -311,7 +311,7 @@ fn test_read_vec_and_slice() {
     session
         .exp_string("vec1 = Vec<i32, alloc::alloc::Global> {")
         .unwrap();
-    session.exp_string("buf:  {").unwrap();
+    session.exp_string("buf: [i32] {").unwrap();
     session.exp_string("0: i32(1)").unwrap();
     session.exp_string("1: i32(2)").unwrap();
     session.exp_string("2: i32(3)").unwrap();
@@ -322,7 +322,7 @@ fn test_read_vec_and_slice() {
     session
         .exp_string("vec2 = Vec<vars::vec_and_slice_types::Foo, alloc::alloc::Global> {")
         .unwrap();
-    session.exp_string("buf:  {").unwrap();
+    session.exp_string("buf: [Foo] {").unwrap();
     session.exp_string("0: Foo {").unwrap();
     session.exp_string("foo: i32(1)").unwrap();
     session.exp_string("}").unwrap();
@@ -338,11 +338,13 @@ fn test_read_vec_and_slice() {
             "vec3 = Vec<alloc::vec::Vec<i32, alloc::alloc::Global>, alloc::alloc::Global> {",
         )
         .unwrap();
-    session.exp_string("buf:  {").unwrap();
+    session
+        .exp_string("buf: [Vec<i32, alloc::alloc::Global>] {")
+        .unwrap();
     session
         .exp_string("0: Vec<i32, alloc::alloc::Global> {")
         .unwrap();
-    session.exp_string("buf:  {").unwrap();
+    session.exp_string("buf: [i32] {").unwrap();
     session.exp_string("0: i32(1)").unwrap();
     session.exp_string("1: i32(2)").unwrap();
     session.exp_string("2: i32(3)").unwrap();
@@ -352,7 +354,7 @@ fn test_read_vec_and_slice() {
     session
         .exp_string("1: Vec<i32, alloc::alloc::Global> {")
         .unwrap();
-    session.exp_string("buf:  {").unwrap();
+    session.exp_string("buf: [i32] {").unwrap();
     session.exp_string("0: i32(1)").unwrap();
     session.exp_string("1: i32(2)").unwrap();
     session.exp_string("2: i32(3)").unwrap();
