@@ -210,6 +210,22 @@ fn thread_local() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn fn_and_closure() {
+    let inc = |a: i32| -> i32 { a + 1 };
+    let inc_mut = |a: &mut i32| *a += 1;
+
+    let outer = "outer val".to_string();
+    let closure = move || println!("{outer}");
+
+    let (a, b, c) = ("a".to_string(), "b".to_string(), "c".to_string());
+    let trait_once: Box<dyn FnOnce()> = Box::new(move || println!("{a}"));
+    let trait_mut: Box<dyn FnMut()> = Box::new(move || println!("{b}"));
+    let trait_fn: Box<dyn Fn()> = Box::new(move || println!("{c}"));
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -223,4 +239,5 @@ pub fn main() {
     static_vars();
     static_vars_same_name();
     thread_local();
+    fn_and_closure();
 }

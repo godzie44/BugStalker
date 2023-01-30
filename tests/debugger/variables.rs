@@ -91,6 +91,15 @@ fn assert_pointer(
     with_deref(ptr.deref.as_ref().unwrap());
 }
 
+fn assert_anon_pointer(var: &VariableIR, exp_name: &str, with_deref: impl FnOnce(&VariableIR)) {
+    let VariableIR::Pointer(ptr) = var else {
+        panic!("not a pointer");
+    };
+    assert_eq!(ptr.identity.name.as_ref().unwrap(), exp_name);
+    assert!(ptr.type_name.is_none());
+    with_deref(ptr.deref.as_ref().unwrap());
+}
+
 fn assert_vec(
     var: &VariableIR,
     exp_name: &str,
@@ -723,6 +732,83 @@ fn test_read_tls_variables() {
                 })
             })
         });
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
+    });
+}
+
+#[test]
+#[serial]
+fn test_read_closures() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 226).unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(226));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_struct(&vars[0], "inc", "{closure_env#0}", |_, _| {
+            panic!("no members expected")
+        });
+        assert_struct(&vars[1], "inc_mut", "{closure_env#1}", |_, _| {
+            panic!("no members expected")
+        });
+        assert_struct(&vars[3], "closure", "{closure_env#2}", |_, member| {
+            assert_string(member, "outer", "outer val")
+        });
+        assert_struct(&vars[7], "trait_once", "alloc::boxed::Box<dyn core::ops::function::FnOnce<(), Output=()>, alloc::alloc::Global>", |i, member| {
+            match i {
+                0 => assert_anon_pointer(member, "pointer", |deref| {
+                    assert_struct(deref, "*", "dyn core::ops::function::FnOnce<(), Output=()>" ,|_, _| {});
+                }),
+                1 => assert_pointer(member, "vtable", "&[usize; 3]", |deref| {
+                    assert_array(deref, "*", "[usize]", |i, _| match i {
+                        0 | 1 | 2 => {},
+                        _ => panic!("3 items expected"),
+                    });
+                 }),
+                _ => panic!("2 members expected"),
+            }
+        });
+        assert_struct(&vars[8], "trait_mut", "alloc::boxed::Box<dyn core::ops::function::FnMut<(), Output=()>, alloc::alloc::Global>", |i, member| {
+            match i {
+                0 => assert_anon_pointer(member, "pointer", |deref| {
+                    assert_struct(deref, "*", "dyn core::ops::function::FnMut<(), Output=()>" ,|_, _| {});
+                }),
+                1 => assert_pointer(member, "vtable", "&[usize; 3]", |deref| {
+                    assert_array(deref, "*", "[usize]", |i, _| match i {
+                        0 | 1 | 2 => {},
+                        _ => panic!("3 items expected"),
+                    });
+                 }),
+                _ => panic!("2 members expected"),
+            }
+        });
+        assert_struct(
+            &vars[9],
+            "trait_fn",
+            "alloc::boxed::Box<dyn core::ops::function::Fn<(), Output=()>, alloc::alloc::Global>",
+            |i, member| match i {
+                0 => assert_anon_pointer(member, "pointer", |deref| {
+                    assert_struct(
+                        deref,
+                        "*",
+                        "dyn core::ops::function::Fn<(), Output=()>",
+                        |_, _| {},
+                    );
+                }),
+                1 => assert_pointer(member, "vtable", "&[usize; 3]", |deref| {
+                    assert_array(deref, "*", "[usize]", |i, _| match i {
+                        0 | 1 | 2 => {}
+                        _ => panic!("3 items expected"),
+                    });
+                }),
+                _ => panic!("2 members expected"),
+            },
+        );
 
         debugger.continue_debugee().unwrap();
         assert_no_proc!(child);
