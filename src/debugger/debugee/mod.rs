@@ -91,6 +91,9 @@ impl Debugee {
     pub fn control_flow_tick(&mut self) -> anyhow::Result<DebugeeEvent> {
         let event = self.control_flow.tick(self.mapping_addr)?;
         match event {
+            DebugeeEvent::DebugeeExit(_) => {
+                self.in_progress = false;
+            }
             DebugeeEvent::DebugeeStart => {
                 self.in_progress = true;
                 self.mapping_addr = Some(self.define_mapping_addr()?);

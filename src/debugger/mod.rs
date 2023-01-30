@@ -27,6 +27,9 @@ use crate::weak_error;
 use anyhow::anyhow;
 use nix::libc::{c_int, c_void, uintptr_t};
 use nix::sys;
+use nix::sys::signal;
+use nix::sys::signal::Signal;
+use nix::sys::wait::waitpid;
 use nix::unistd::Pid;
 use object::Object;
 use std::cell::RefCell;
@@ -585,6 +588,23 @@ impl Debugger {
             get_register_from_name(register_name)?,
             val,
         )?)
+    }
+}
+
+impl Drop for Debugger {
+    fn drop(&mut self) {
+        if !self.debugee.in_progress {
+            return;
+        }
+
+        self.step_over_breakpoint().expect("continue debugee");
+        self.debugee
+            .threads_ctl()
+            .dump()
+            .iter()
+            .for_each(|thread| sys::ptrace::detach(thread.pid, None).expect("detach thread"));
+        signal::kill(self.debugee.threads_ctl().proc_pid(), Signal::SIGKILL).expect("kill debugee");
+        waitpid(self.debugee.threads_ctl().proc_pid(), None).expect("waiting child");
     }
 }
 
