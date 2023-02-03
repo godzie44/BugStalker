@@ -5,7 +5,7 @@ pub mod r#type;
 
 use crate::debugger::debugee::dwarf::eval::EvalOption;
 use crate::debugger::debugee::dwarf::parser::unit::{
-    DieVariant, Entry, FunctionDie, Node, Unit, VariableDie,
+    DieVariant, Entry, FunctionDie, Node, ParameterDie, Unit, VariableDie,
 };
 use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
@@ -17,7 +17,10 @@ use crate::weak_error;
 use anyhow::anyhow;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
-use gimli::{DebugInfoOffset, Dwarf, RunTimeEndian, UnitOffset};
+use gimli::{
+    Attribute, AttributeValue, DebugAddr, DebugInfoOffset, Dwarf, Expression, LocationLists,
+    RunTimeEndian, UnitOffset,
+};
 use nix::unistd::Pid;
 use object::{Object, ObjectSection};
 use std::borrow::Cow;
@@ -71,7 +74,7 @@ impl DebugeeContextBuilder {
             .units()
             .map(|header| parser.parse(dwarf.unit(header)?))
             .collect::<Vec<_>>()?;
-        units.sort_by_key(|u| u.offset);
+        units.sort_by_key(|u| u.offset());
 
         Ok(DebugeeContext {
             _inner: dwarf,
@@ -88,6 +91,14 @@ pub struct DebugeeContext<R: gimli::Reader = EndianRcSlice> {
 }
 
 impl DebugeeContext {
+    pub fn locations(&self) -> &LocationLists<EndianRcSlice> {
+        &self._inner.locations
+    }
+
+    pub fn debug_addr(&self) -> &DebugAddr<EndianRcSlice> {
+        &self._inner.debug_addr
+    }
+
     fn find_unit_by_pc(&self, pc: GlobalAddress) -> Option<&parser::unit::Unit> {
         self.units.iter().find(|&unit| {
             match unit
@@ -176,12 +187,15 @@ impl DebugeeContext {
         match reference {
             DieRef::Unit(offset) => default_unit.find_entry(offset),
             DieRef::Global(offset) => {
-                let unit = match self.units.binary_search_by_key(&Some(offset), |u| u.offset) {
+                let unit = match self
+                    .units
+                    .binary_search_by_key(&Some(offset), |u| u.offset())
+                {
                     Ok(_) | Err(0) => return None,
                     Err(pos) => &self.units[pos - 1],
                 };
                 unit.find_entry(UnitOffset(
-                    offset.0 - unit.offset.unwrap_or(DebugInfoOffset(0)).0,
+                    offset.0 - unit.offset().unwrap_or(DebugInfoOffset(0)).0,
                 ))
             }
         }
@@ -226,6 +240,58 @@ impl DebugeeContext {
         }
 
         found
+    }
+}
+
+trait LocatedValue {
+    fn location(&self) -> Option<&Attribute<EndianRcSlice>>;
+
+    fn location_expr(
+        &self,
+        pc: GlobalAddress,
+        dwarf_ctx: &DebugeeContext<EndianRcSlice>,
+        unit: &Unit,
+    ) -> Option<Expression<EndianRcSlice>> {
+        let location = self.location()?;
+
+        if let Some(expr) = location.exprloc_value() {
+            return Some(expr);
+        }
+
+        let offset = match location.value() {
+            AttributeValue::LocationListsRef(offset) => offset,
+            AttributeValue::DebugLocListsIndex(index) => weak_error!(dwarf_ctx
+                .locations()
+                .get_offset(unit.encoding(), unit.loclists_base(), index))?,
+            _ => return None,
+        };
+
+        let mut iter = weak_error!(dwarf_ctx.locations().locations(
+            offset,
+            unit.encoding(),
+            unit.low_pc(),
+            dwarf_ctx.debug_addr(),
+            unit.addr_base(),
+        ))?;
+
+        let pc = pc.0 as u64;
+        let entry = iter
+            .find(|list_entry| Ok(list_entry.range.begin <= pc && list_entry.range.end >= pc))
+            .ok()?;
+
+        entry.map(|e| e.data)
+    }
+}
+
+impl LocatedValue for VariableDie {
+    fn location(&self) -> Option<&Attribute<EndianRcSlice>> {
+        self.location.as_ref()
+    }
+}
+
+impl LocatedValue for ParameterDie {
+    fn location(&self) -> Option<&Attribute<EndianRcSlice>> {
+        self.location.as_ref()
     }
 }
 
@@ -311,7 +377,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         Ok(result)
     }
 
-    pub fn find_variables<'this>(
+    pub fn local_variables<'this>(
         &'this self,
         pc: GlobalAddress,
     ) -> Vec<ContextualDieRef<'ctx, VariableDie>> {
@@ -338,6 +404,27 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         }
         result
     }
+
+    pub fn parameters(&self) -> Vec<ContextualDieRef<'_, ParameterDie>> {
+        let mut result = vec![];
+        let mut queue = VecDeque::from(self.node.children.clone());
+        while let Some(idx) = queue.pop_front() {
+            if let DieVariant::Parameter(ref var) = self.unit.entries[idx].die {
+                result.push(ContextualDieRef {
+                    context: self.context,
+                    unit: self.unit,
+                    node: &self.unit.entries[idx].node,
+                    die: var,
+                })
+            }
+            self.unit.entries[idx]
+                .node
+                .children
+                .iter()
+                .for_each(|i| queue.push_back(*i));
+        }
+        result
+    }
 }
 
 impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
@@ -348,73 +435,40 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
         parent_fn: Option<ContextualDieRef<FunctionDie>>,
     ) -> Option<Bytes> {
         let current_thread = debugee.threads_ctl().thread_in_focus();
-        self.die.location.as_ref().and_then(|loc| {
-            let expr = loc.exprloc_value()?;
 
-            let mut eval_opts = EvalOption::new().with_relocation_addr(debugee.mapping_offset());
-            if let Some(parent_fn) = parent_fn {
-                let fb = weak_error!(parent_fn.frame_base_addr(current_thread))?;
-                eval_opts = eval_opts.with_base_frame(fb);
-            }
-            let tls_resolver = |pid: Pid, offset: u64| -> anyhow::Result<RelocatedAddress> {
-                let lm_addr = debugee.rendezvous().link_map_main();
-                debugee
-                    .threads_ctl()
-                    .tls_addr(pid, lm_addr, offset as usize)
-            };
-            eval_opts = eval_opts.with_tls_resolver(&tls_resolver);
-
-            let eval_result = weak_error!(self
-                .unit
-                .evaluator(current_thread)
-                .evaluate_with_opts(expr, eval_opts))?;
-            let bytes = weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
-                &EvaluationContext {
-                    unit: self.unit,
-                    pid: current_thread,
+        self.die
+            .location_expr(GlobalAddress(0), self.context, self.unit)
+            .and_then(|expr| {
+                let mut eval_opts =
+                    EvalOption::new().with_relocation_addr(debugee.mapping_offset());
+                if let Some(parent_fn) = parent_fn {
+                    let fb = weak_error!(parent_fn.frame_base_addr(current_thread))?;
+                    eval_opts = eval_opts.with_base_frame(fb);
                 }
-            )? as usize))?;
-            Some(bytes)
-        })
+                let tls_resolver = |pid: Pid, offset: u64| -> anyhow::Result<RelocatedAddress> {
+                    let lm_addr = debugee.rendezvous().link_map_main();
+                    debugee
+                        .threads_ctl()
+                        .tls_addr(pid, lm_addr, offset as usize)
+                };
+                eval_opts = eval_opts.with_tls_resolver(&tls_resolver);
+
+                let eval_result = weak_error!(self
+                    .unit
+                    .evaluator(current_thread)
+                    .evaluate_with_opts(expr, eval_opts))?;
+
+                weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
+                    &EvaluationContext {
+                        unit: self.unit,
+                        pid: current_thread,
+                    }
+                )? as usize))
+            })
     }
 
     pub fn r#type(&self) -> Option<TypeDeclaration> {
-        let entry = &self.context.deref_die(self.unit, self.die.type_ref?)?;
-        let type_decl = match entry.die {
-            DieVariant::BaseType(ref type_die) => TypeDeclaration::from(ContextualDieRef {
-                context: self.context,
-                unit: self.unit,
-                node: &entry.node,
-                die: type_die,
-            }),
-            DieVariant::StructType(ref type_die) => TypeDeclaration::from(ContextualDieRef {
-                context: self.context,
-                unit: self.unit,
-                node: &entry.node,
-                die: type_die,
-            }),
-            DieVariant::ArrayType(ref type_die) => TypeDeclaration::from(ContextualDieRef {
-                context: self.context,
-                unit: self.unit,
-                node: &entry.node,
-                die: type_die,
-            }),
-            DieVariant::EnumType(ref type_die) => TypeDeclaration::from(ContextualDieRef {
-                context: self.context,
-                unit: self.unit,
-                node: &entry.node,
-                die: type_die,
-            }),
-            DieVariant::PointerType(ref type_die) => TypeDeclaration::from(ContextualDieRef {
-                context: self.context,
-                unit: self.unit,
-                node: &entry.node,
-                die: type_die,
-            }),
-            _ => None?,
-        };
-
-        Some(type_decl)
+        TypeDeclaration::from_type_ref(*self, self.die.type_ref?)
     }
 
     pub fn valid_at(&self, pc: GlobalAddress) -> bool {
@@ -449,5 +503,49 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
         }
 
         None
+    }
+}
+
+impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
+    pub fn read_value_at_location(
+        &self,
+        pc: GlobalAddress,
+        debugee: &Debugee,
+        type_decl: &TypeDeclaration,
+        parent_fn: ContextualDieRef<FunctionDie>,
+    ) -> Option<Bytes> {
+        let current_thread = debugee.threads_ctl().thread_in_focus();
+
+        self.die
+            .location_expr(pc, self.context, self.unit)
+            .and_then(|expr| {
+                let mut eval_opts =
+                    EvalOption::new().with_relocation_addr(debugee.mapping_offset());
+                let fb = weak_error!(parent_fn.frame_base_addr(current_thread))?;
+                eval_opts = eval_opts.with_base_frame(fb);
+
+                let tls_resolver = |pid: Pid, offset: u64| -> anyhow::Result<RelocatedAddress> {
+                    let lm_addr = debugee.rendezvous().link_map_main();
+                    debugee
+                        .threads_ctl()
+                        .tls_addr(pid, lm_addr, offset as usize)
+                };
+                eval_opts = eval_opts.with_tls_resolver(&tls_resolver);
+
+                let eval_result = weak_error!(self
+                    .unit
+                    .evaluator(current_thread)
+                    .evaluate_with_opts(expr, eval_opts))?;
+                weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
+                    &EvaluationContext {
+                        unit: self.unit,
+                        pid: current_thread,
+                    }
+                )? as usize))
+            })
+    }
+
+    pub fn r#type(&self) -> Option<TypeDeclaration> {
+        TypeDeclaration::from_type_ref(*self, self.die.type_ref?)
     }
 }

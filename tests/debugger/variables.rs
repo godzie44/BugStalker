@@ -814,3 +814,51 @@ fn test_read_closures() {
         assert_no_proc!(child);
     });
 }
+
+#[test]
+#[serial]
+fn test_arguments() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 236).unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(236));
+
+        let args = debugger.read_arguments().unwrap();
+        assert_scalar(&args[0], "by_val", "i32", Some(SupportedScalar::I32(1)));
+        assert_pointer(&args[1], "by_ref", "&i32", |deref| {
+            assert_scalar(deref, "*", "i32", Some(SupportedScalar::I32(2)))
+        });
+        assert_vec(
+            &args[2],
+            "vec",
+            "Vec<u8, alloc::alloc::Global>",
+            3,
+            |buff| {
+                assert_array(buff, "buf", "[u8]", |i, item| match i {
+                    0 => assert_scalar(item, "0", "u8", Some(SupportedScalar::U8(3))),
+                    1 => assert_scalar(item, "1", "u8", Some(SupportedScalar::U8(4))),
+                    2 => assert_scalar(item, "2", "u8", Some(SupportedScalar::U8(5))),
+                    _ => panic!("3 items expected"),
+                })
+            },
+        );
+        assert_struct(
+            &args[3],
+            "box_arr",
+            "alloc::boxed::Box<[u8], alloc::alloc::Global>",
+            |i, member| match i {
+                0 => assert_anon_pointer(member, "data_ptr", |deref| {
+                    assert_scalar(deref, "*", "u8", Some(SupportedScalar::U8(6)));
+                }),
+                1 => assert_scalar(member, "length", "usize", Some(SupportedScalar::Usize(3))),
+                _ => panic!("2 members expected"),
+            },
+        );
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
+    });
+}

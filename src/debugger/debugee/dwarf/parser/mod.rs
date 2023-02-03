@@ -129,6 +129,11 @@ impl<'a> DwarfUnitParser<'a> {
                     base_attributes: base_attrs,
                     fb_addr: die.attr(DW_AT_frame_base)?,
                 }),
+                gimli::DW_TAG_formal_parameter => DieVariant::Parameter(ParameterDie {
+                    base_attributes: base_attrs,
+                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
+                    location: die.attr(DW_AT_location)?,
+                }),
                 gimli::DW_TAG_variable => {
                     let mut lexical_block_idx = None;
                     let mut mb_parent_idx = parent_idx;

@@ -3,8 +3,8 @@ use crate::console::hook::TerminalHook;
 use crate::console::variable::render_variable_ir;
 use crate::console::view::FileView;
 use crate::debugger::command::{
-    Backtrace, Break, Frame, Quit, Run, StepI, StepInto, StepOut, StepOver, Symbol, Trace,
-    Variables,
+    Arguments, Backtrace, Break, Frame, Quit, Run, StepI, StepInto, StepOut, StepOver, Symbol,
+    Trace, Variables,
 };
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::{command, Debugger, RelocatedAddress};
@@ -142,6 +142,12 @@ impl TerminalApplication {
                 .into_iter()
                 .for_each(|var| {
                     println!("{} = {}", var.name(), render_variable_ir(&var, 0),);
+                }),
+            "args" => Arguments::new(&self.debugger)?
+                .run()?
+                .into_iter()
+                .for_each(|arg| {
+                    println!("{} = {}", arg.name(), render_variable_ir(&arg, 0),);
                 }),
             "frame" => {
                 let frame = Frame::new(&self.debugger).run()?;

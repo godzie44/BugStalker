@@ -263,6 +263,13 @@ pub struct Namespace {
 }
 
 #[derive(Debug)]
+pub struct ParameterDie {
+    pub base_attributes: DieAttributes,
+    pub type_ref: Option<DieRef>,
+    pub location: Option<Attribute<EndianRcSlice>>,
+}
+
+#[derive(Debug)]
 pub enum DieVariant {
     Function(FunctionDie),
     LexicalBlock(LexicalBlockDie),
@@ -280,6 +287,7 @@ pub enum DieVariant {
     PointerType(PointerType),
     TemplateType(TemplateTypeParameter),
     Namespace(Namespace),
+    Parameter(ParameterDie),
 }
 
 #[derive(Debug)]

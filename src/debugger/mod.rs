@@ -14,7 +14,7 @@ pub use debugee::dwarf::r#type::TypeDeclaration;
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::debugee::dwarf::parser::unit::{FunctionDie, VariableDie};
 use crate::debugger::debugee::dwarf::r#type::{EvaluationContext, TypeDeclarationCache};
-use crate::debugger::debugee::dwarf::{ContextualDieRef, Symbol};
+use crate::debugger::debugee::dwarf::{ContextualDieRef, NamespaceHierarchy, Symbol};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
 use crate::debugger::debugee::thread::TraceeThread;
 use crate::debugger::debugee::Debugee;
@@ -515,7 +515,7 @@ impl Debugger {
     ) -> anyhow::Result<Vec<VariableIR>> {
         let mut type_cache = self.type_cache.borrow_mut();
 
-        let vars = vars
+        Ok(vars
             .iter()
             .map(|var| {
                 let mb_type = var.die.type_ref.and_then(|type_ref| {
@@ -543,8 +543,7 @@ impl Debugger {
                     mb_type,
                 )
             })
-            .collect();
-        Ok(vars)
+            .collect())
     }
 
     // Read all local variables from current thread.
@@ -559,7 +558,7 @@ impl Debugger {
             .dwarf
             .find_function_by_pc(pc)
             .ok_or_else(|| anyhow!("not in function"))?;
-        let vars = current_func.find_variables(pc);
+        let vars = current_func.local_variables(pc);
         self.variables_into_variable_ir(&vars, Some(current_func))
     }
 
@@ -569,6 +568,54 @@ impl Debugger {
 
         let vars = self.debugee.dwarf.find_variables(name);
         self.variables_into_variable_ir(&vars, None)
+    }
+
+    // Read current function parameters.
+    pub fn read_arguments(&self) -> anyhow::Result<Vec<VariableIR>> {
+        disable_when_not_stared!(self);
+
+        let pc = self
+            .get_current_thread_pc()?
+            .into_global(self.debugee.mapping_offset());
+        let current_func = self
+            .debugee
+            .dwarf
+            .find_function_by_pc(pc)
+            .ok_or_else(|| anyhow!("not in function"))?;
+        let params = current_func.parameters();
+        let mut type_cache = self.type_cache.borrow_mut();
+        let pc = self
+            .get_current_thread_pc()?
+            .into_global(self.debugee.mapping_offset());
+
+        Ok(params
+            .iter()
+            .map(|param| {
+                let mb_type = param.die.type_ref.and_then(|type_ref| {
+                    match type_cache.entry((param.unit.id, type_ref)) {
+                        Entry::Occupied(o) => Some(&*o.into_mut()),
+                        Entry::Vacant(v) => param.r#type().map(|t| &*v.insert(t)),
+                    }
+                });
+
+                let mb_value = mb_type.as_ref().and_then(|type_decl| {
+                    param.read_value_at_location(pc, &self.debugee, type_decl, current_func)
+                });
+
+                VariableIR::new(
+                    &EvaluationContext {
+                        unit: param.unit,
+                        pid: self.debugee.threads_ctl().thread_in_focus(),
+                    },
+                    VariableIdentity::new(
+                        NamespaceHierarchy::default(),
+                        param.die.base_attributes.name.clone(),
+                    ),
+                    mb_value,
+                    mb_type,
+                )
+            })
+            .collect())
     }
 
     pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {

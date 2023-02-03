@@ -226,6 +226,16 @@ fn fn_and_closure() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn arguments(by_val: i32, by_ref: &i32, vec: Vec<u8>, box_arr: Box<[u8]>) {
+    println!("{by_val}");
+    println!("{by_ref}");
+    println!("{vec:?}");
+    println!("{box_arr:?}");
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -240,4 +250,5 @@ pub fn main() {
     static_vars_same_name();
     thread_local();
     fn_and_closure();
+    arguments(1, &2, vec![3, 4, 5], Box::new([6, 7, 8]));
 }

@@ -1,3 +1,4 @@
+mod arguments;
 mod backtrace;
 mod r#break;
 mod r#continue;
@@ -14,6 +15,7 @@ mod symbol;
 mod trace;
 pub mod variables;
 
+pub use arguments::Arguments;
 pub use backtrace::Backtrace;
 pub use frame::Frame;
 pub use memory::Memory;

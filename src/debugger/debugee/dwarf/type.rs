@@ -260,7 +260,7 @@ impl TypeDeclaration {
         }
     }
 
-    fn from_type_ref<T>(ctx_die: ContextualDieRef<'_, T>, type_ref: DieRef) -> Option<Self> {
+    pub fn from_type_ref<T>(ctx_die: ContextualDieRef<'_, T>, type_ref: DieRef) -> Option<Self> {
         let mb_type_die = ctx_die.context.deref_die(ctx_die.unit, type_ref);
         mb_type_die.and_then(|entry| match &entry.die {
             DieVariant::BaseType(die) => Some(TypeDeclaration::from(ContextualDieRef {
