@@ -2,7 +2,10 @@ use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::{EndianRcSlice, NamespaceHierarchy};
 use crate::debugger::GlobalAddress;
-use gimli::{Attribute, DebugInfoOffset, DwAte, DwTag, Encoding, Range, UnitOffset};
+use gimli::{
+    Attribute, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DwAte, DwTag, Encoding, Range,
+    UnitOffset,
+};
 use nix::unistd::Pid;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -24,8 +27,18 @@ pub struct DieRange {
 }
 
 #[derive(Debug)]
+pub(super) struct UnitProperties {
+    pub(super) encoding: Encoding,
+    pub(super) offset: Option<DebugInfoOffset>,
+    pub(super) low_pc: u64,
+    pub(super) addr_base: DebugAddrBase,
+    pub(super) loclists_base: DebugLocListsBase,
+}
+
+#[derive(Debug)]
 pub struct Unit {
     pub id: Uuid,
+    pub(super) properties: UnitProperties,
     pub(super) files: Vec<PathBuf>,
     pub(super) lines: Vec<LineRow>,
     pub ranges: Vec<Range>,
@@ -33,8 +46,6 @@ pub struct Unit {
     pub die_ranges: Vec<DieRange>,
     #[allow(unused)]
     pub(super) name: Option<String>,
-    pub(super) encoding: Encoding,
-    pub offset: Option<DebugInfoOffset>,
     // index for variable die position: variable name -> [namespaces : die position in unit]
     pub variable_index: HashMap<String, Vec<(NamespaceHierarchy, usize)>>,
     // index for variables: offset in unit -> position in unit entries
@@ -42,8 +53,28 @@ pub struct Unit {
 }
 
 impl Unit {
+    pub fn encoding(&self) -> Encoding {
+        self.properties.encoding
+    }
+
+    pub fn low_pc(&self) -> u64 {
+        self.properties.low_pc
+    }
+
+    pub fn addr_base(&self) -> DebugAddrBase {
+        self.properties.addr_base
+    }
+
+    pub fn loclists_base(&self) -> DebugLocListsBase {
+        self.properties.loclists_base
+    }
+
+    pub fn offset(&self) -> Option<DebugInfoOffset> {
+        self.properties.offset
+    }
+
     pub fn evaluator(&self, pid: Pid) -> ExpressionEvaluator {
-        ExpressionEvaluator::new(self, self.encoding, pid)
+        ExpressionEvaluator::new(self, self.encoding(), pid)
     }
 
     pub fn find_place(&self, line_pos: usize) -> Option<Place> {

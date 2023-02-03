@@ -1,17 +1,17 @@
+use crate::debugger;
 use crate::debugger::debugee::dwarf::eval::EvalError::{OptionRequired, UnsupportedRequire};
 use crate::debugger::debugee::dwarf::parser::unit::{DieVariant, Unit};
 use crate::debugger::debugee::dwarf::EndianRcSlice;
 use crate::debugger::register::get_register_value_dwarf;
 use crate::debugger::RelocatedAddress;
+use anyhow::anyhow;
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{
-    Encoding, EvaluationResult, Expression, Location, Piece, RunTimeEndian, Value, ValueType,
+    Encoding, EndianSlice, EvaluationResult, Expression, Location, Piece, RunTimeEndian,
+    UnitOffset, Value, ValueType,
 };
-use nix::sys;
-use nix::sys::ptrace::AddressType;
 use nix::unistd::Pid;
 use std::cmp::min;
-use std::ffi::c_long;
 use std::{mem, result};
 
 #[derive(thiserror::Error, Debug)]
@@ -107,11 +107,11 @@ impl<'a> ExpressionEvaluator<'a> {
             match result {
                 EvaluationResult::RequiresRegister {
                     register,
-                    base_type: _base_type,
+                    base_type,
                 } => {
-                    let val =
-                        Value::Generic(get_register_value_dwarf(self.pid, register.0 as i32)?);
-                    result = eval.resume_with_register(val)?;
+                    let bytes = get_register_value_dwarf(self.pid, register.0 as i32)?;
+                    let value_type = self.value_type_from_offset(base_type);
+                    result = eval.resume_with_register(Value::from_u64(value_type, bytes)?)?;
                 }
                 EvaluationResult::RequiresFrameBase => {
                     result = eval.resume_with_frame_base(
@@ -129,21 +129,34 @@ impl<'a> ExpressionEvaluator<'a> {
                     result = eval.resume_with_at_location(buf)?;
                 }
                 EvaluationResult::RequiresBaseType(offset) => {
-                    let mb_entry = self.unit.find_entry(offset);
-
-                    let base_type = mb_entry
-                        .and_then(|entry| {
-                            if let DieVariant::BaseType(die) = &entry.die {
-                                return ValueType::from_encoding(die.encoding?, die.byte_size?);
-                            }
-                            None
-                        })
-                        .unwrap_or(ValueType::Generic);
-
-                    result = eval.resume_with_base_type(base_type)?;
+                    let value_type = self.value_type_from_offset(offset);
+                    result = eval.resume_with_base_type(value_type)?;
                 }
-                EvaluationResult::RequiresMemory { .. } => {
-                    todo!();
+                EvaluationResult::RequiresMemory {
+                    address,
+                    size,
+                    base_type,
+                    ..
+                } => {
+                    let memory =
+                        debugger::read_memory_by_pid(self.pid, address as usize, size as usize)
+                            .map_err(EvalError::Nix)?;
+
+                    let value_type = self.value_type_from_offset(base_type);
+                    let value = match value_type {
+                        ValueType::Generic => {
+                            let u = u64::from_ne_bytes(
+                                memory.try_into().map_err(|e| anyhow!("{e:?}"))?,
+                            );
+                            Value::Generic(u)
+                        }
+                        _ => Value::parse(
+                            value_type,
+                            EndianSlice::new(&memory, RunTimeEndian::default()),
+                        )?,
+                    };
+
+                    result = eval.resume_with_memory(value)?;
                 }
                 EvaluationResult::RequiresRelocatedAddress(addr) => {
                     let relocation_addr = opts
@@ -170,6 +183,22 @@ impl<'a> ExpressionEvaluator<'a> {
             pid: self.pid,
         })
     }
+
+    fn value_type_from_offset(&self, base_type: UnitOffset) -> ValueType {
+        if base_type == UnitOffset(0) {
+            ValueType::Generic
+        } else {
+            self.unit
+                .find_entry(base_type)
+                .and_then(|entry| match entry.die {
+                    DieVariant::BaseType(ref bt_die) => Some(bt_die),
+                    _ => None,
+                })
+                .and_then(|bt_die| Some((bt_die.byte_size?, bt_die.encoding?)))
+                .and_then(|(size, encoding)| ValueType::from_encoding(encoding, size))
+                .unwrap_or(ValueType::Generic)
+        }
+    }
 }
 
 pub struct CompletedResult {
@@ -184,7 +213,7 @@ impl CompletedResult {
     }
 
     pub fn into_raw_buffer(self, byte_size: usize) -> Result<Bytes> {
-        let mut buff = BytesMut::with_capacity(byte_size);
+        let mut buf = BytesMut::with_capacity(byte_size);
         self.inner.into_iter().try_for_each(|piece| -> Result<()> {
             let read_size = piece
                 .size_in_bits
@@ -194,7 +223,7 @@ impl CompletedResult {
 
             match piece.location {
                 Location::Register { register } => {
-                    buff.put(read_register(
+                    buf.put(read_register(
                         self.pid,
                         register.0 as i32,
                         read_size,
@@ -202,26 +231,29 @@ impl CompletedResult {
                     )?);
                 }
                 Location::Address { address } => {
-                    buff.put(read_memory(self.pid, address as usize, read_size)?);
+                    let memory =
+                        debugger::read_memory_by_pid(self.pid, address as usize, read_size)
+                            .map_err(EvalError::Nix)?;
+                    buf.put(Bytes::from(memory));
                 }
                 Location::Value { value } => {
                     match value {
                         Value::Generic(v) | Value::U64(v) => {
-                            buff.put_u64(v);
+                            buf.put_u64(v);
                         }
-                        Value::I8(v) => buff.put_i8(v),
-                        Value::U8(v) => buff.put_u8(v),
-                        Value::I16(v) => buff.put_i16(v),
-                        Value::U16(v) => buff.put_u16(v),
-                        Value::I32(v) => buff.put_i32(v),
-                        Value::U32(v) => buff.put_u32(v),
-                        Value::I64(v) => buff.put_i64(v),
-                        Value::F32(v) => buff.put_f32(v),
-                        Value::F64(v) => buff.put_f64(v),
+                        Value::I8(v) => buf.put_i8(v),
+                        Value::U8(v) => buf.put_u8(v),
+                        Value::I16(v) => buf.put_i16(v),
+                        Value::U16(v) => buf.put_u16(v),
+                        Value::I32(v) => buf.put_i32(v),
+                        Value::U32(v) => buf.put_u32(v),
+                        Value::I64(v) => buf.put_i64(v),
+                        Value::F32(v) => buf.put_f32(v),
+                        Value::F64(v) => buf.put_f64(v),
                     };
                 }
                 Location::Bytes { value, .. } => {
-                    buff.put_slice(value.bytes());
+                    buf.put_slice(value.bytes());
                 }
                 Location::ImplicitPointer { .. } => {
                     todo!()
@@ -230,25 +262,9 @@ impl CompletedResult {
             };
             Ok(())
         })?;
-        Ok(buff.freeze())
+
+        Ok(buf.freeze())
     }
-}
-
-fn read_memory(pid: Pid, address: usize, size_in_bytes: usize) -> Result<Bytes> {
-    let mut buff = BytesMut::with_capacity(size_in_bytes);
-    let mut address = address;
-    let mut bytes_to_write = size_in_bytes;
-    while bytes_to_write > 0 {
-        let mem = sys::ptrace::read(pid, address as AddressType).map_err(EvalError::Nix)?;
-        let bytes = (mem as u64).to_ne_bytes();
-
-        let write_size = min(bytes_to_write, std::mem::size_of::<u64>());
-        buff.put_slice(&bytes[..write_size]);
-        bytes_to_write -= write_size;
-        address += mem::size_of::<c_long>()
-    }
-
-    Ok(buff.freeze())
 }
 
 fn read_register(pid: Pid, reg_num: i32, size_in_bytes: usize, offset: u64) -> Result<Bytes> {
