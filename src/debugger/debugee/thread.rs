@@ -1,5 +1,5 @@
+use crate::debugger::address::RelocatedAddress;
 use crate::debugger::debugee::thread::TraceeStatus::{Created, Running, Stopped};
-use crate::debugger::RelocatedAddress;
 use anyhow::{anyhow, bail};
 use itertools::Itertools;
 use log::warn;
@@ -207,8 +207,8 @@ impl ThreadCtl {
 
         let thread: thread_db::Thread = td_proc.borrow_process().get_thread(tid)?;
 
-        Ok(RelocatedAddress(
-            thread.tls_addr(link_map_addr.0, offset)? as usize
+        Ok(RelocatedAddress::from(
+            thread.tls_addr(link_map_addr.into(), offset)? as usize,
         ))
     }
 }

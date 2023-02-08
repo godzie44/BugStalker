@@ -2,7 +2,7 @@ use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
 use crate::debugger_env;
 use crate::{assert_no_proc, HW_APP};
-use bugstalker::debugger::{PCValue, RelocatedAddress};
+use bugstalker::debugger::address::{PCValue, RelocatedAddress};
 use serial_test::serial;
 
 #[test]
@@ -21,12 +21,14 @@ fn test_brkpt_on_addr() {
     debugger_env!(HW_APP, child, {
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::default()).unwrap();
         debugger
-            .set_breakpoint(PCValue::Relocated(RelocatedAddress(0x55555555BD63)))
+            .set_breakpoint(PCValue::Relocated(RelocatedAddress::from(
+                0x55555555BD63_usize,
+            )))
             .unwrap();
         debugger.run_debugee().unwrap();
 
         let pc = debugger.get_current_thread_pc().unwrap();
-        assert_eq!(RelocatedAddress(0x55555555BD63), pc);
+        assert_eq!(RelocatedAddress::from(0x55555555BD63_usize), pc);
 
         debugger.continue_debugee().unwrap();
 
@@ -40,19 +42,23 @@ fn test_multiple_brkpt_on_addr() {
     debugger_env!(HW_APP, child, {
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::default()).unwrap();
         debugger
-            .set_breakpoint(PCValue::Relocated(RelocatedAddress(0x55555555BD30)))
+            .set_breakpoint(PCValue::Relocated(RelocatedAddress::from(
+                0x55555555BD30_usize,
+            )))
             .unwrap();
         debugger
-            .set_breakpoint(PCValue::Relocated(RelocatedAddress(0x55555555BD63)))
+            .set_breakpoint(PCValue::Relocated(RelocatedAddress::from(
+                0x55555555BD63_usize,
+            )))
             .unwrap();
 
         debugger.run_debugee().unwrap();
         let pc = debugger.get_current_thread_pc().unwrap();
-        assert_eq!(RelocatedAddress(0x0055555555BD30), pc);
+        assert_eq!(RelocatedAddress::from(0x0055555555BD30_usize), pc);
 
         debugger.continue_debugee().unwrap();
         let pc = debugger.get_current_thread_pc().unwrap();
-        assert_eq!(RelocatedAddress(0x55555555BD63), pc);
+        assert_eq!(RelocatedAddress::from(0x55555555BD63_usize), pc);
 
         debugger.continue_debugee().unwrap();
 
@@ -70,12 +76,12 @@ fn test_brkpt_on_function() {
 
         debugger.run_debugee().unwrap();
         let pc = debugger.get_current_thread_pc().unwrap();
-        assert_eq!(RelocatedAddress(0x55555555BD7E), pc);
+        assert_eq!(RelocatedAddress::from(0x55555555BD7E_usize), pc);
         assert_eq!(info.line.take(), Some(15));
 
         debugger.continue_debugee().unwrap();
         let pc = debugger.get_current_thread_pc().unwrap();
-        assert_eq!(RelocatedAddress(0x55555555BD7E), pc);
+        assert_eq!(RelocatedAddress::from(0x55555555BD7E_usize), pc);
         assert_eq!(info.line.take(), Some(15));
 
         debugger.continue_debugee().unwrap();
@@ -96,12 +102,12 @@ fn test_brkpt_on_line() {
 
         debugger.run_debugee().unwrap();
         let pc = debugger.get_current_thread_pc().unwrap();
-        assert_eq!(RelocatedAddress(0x55555555BD7E), pc);
+        assert_eq!(RelocatedAddress::from(0x55555555BD7E_usize), pc);
         assert_eq!(info.line.take(), Some(15));
 
         debugger.continue_debugee().unwrap();
         let pc = debugger.get_current_thread_pc().unwrap();
-        assert_eq!(RelocatedAddress(0x55555555BD7E), pc);
+        assert_eq!(RelocatedAddress::from(0x55555555BD7E_usize), pc);
         assert_eq!(info.line.take(), Some(15));
 
         debugger.continue_debugee().unwrap();

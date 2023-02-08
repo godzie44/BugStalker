@@ -1,3 +1,4 @@
+pub mod address;
 mod breakpoint;
 mod code;
 pub mod command;
@@ -10,14 +11,15 @@ pub mod variable;
 
 pub use debugee::dwarf::parser::unit::Place;
 pub use debugee::dwarf::r#type::TypeDeclaration;
+pub use debugee::ThreadDump;
 
+use crate::debugger::address::{GlobalAddress, PCValue, RelocatedAddress};
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::debugee::dwarf::parser::unit::VariableDie;
 use crate::debugger::debugee::dwarf::r#type::{EvaluationContext, TypeDeclarationCache};
 use crate::debugger::debugee::dwarf::{ContextualDieRef, NamespaceHierarchy, Symbol};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
-use crate::debugger::debugee::thread::TraceeThread;
-use crate::debugger::debugee::Debugee;
+use crate::debugger::debugee::{Debugee, FrameInfo};
 use crate::debugger::register::{
     get_register_from_name, get_register_value, set_register_value, Register,
 };
@@ -39,22 +41,6 @@ use std::ffi::c_long;
 use std::path::Path;
 use std::{fs, mem, u64};
 
-#[derive(Debug, Default, Clone)]
-pub struct FrameInfo {
-    pub base_addr: RelocatedAddress,
-    /// CFA is defined to be the value of the stack  pointer at the call site in the previous frame
-    /// (which may be different from its value on entry to the current frame).
-    pub cfa: RelocatedAddress,
-    pub return_addr: Option<RelocatedAddress>,
-}
-
-pub struct ThreadDump {
-    pub thread: TraceeThread,
-    pub pc: Option<RelocatedAddress>,
-    pub bt: Option<Backtrace>,
-    pub in_focus: bool,
-}
-
 pub trait EventHook {
     fn on_trap(&self, pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()>;
     fn on_signal(&self, signo: c_int, code: c_int);
@@ -68,30 +54,6 @@ macro_rules! disable_when_not_stared {
             bail!("The program is not being started.")
         }
     };
-}
-
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, Default)]
-pub struct RelocatedAddress(pub usize);
-
-impl RelocatedAddress {
-    pub fn into_global(self, offset: usize) -> GlobalAddress {
-        GlobalAddress(self.0 - offset)
-    }
-}
-
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, Default)]
-pub struct GlobalAddress(pub usize);
-
-impl GlobalAddress {
-    pub fn relocate(self, offset: usize) -> RelocatedAddress {
-        RelocatedAddress(self.0 + offset)
-    }
-}
-
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
-pub enum PCValue {
-    Relocated(RelocatedAddress),
-    Global(GlobalAddress),
 }
 
 /// Main structure of bug-stalker, control debugee state and provides application functionality.
@@ -119,7 +81,7 @@ impl Debugger {
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
         let object = object::File::parse(&*mmap)?;
 
-        let entry_point = GlobalAddress(object.entry() as usize);
+        let entry_point = GlobalAddress::from(object.entry());
         let breakpoints = HashMap::from([(
             PCValue::Global(entry_point),
             breakpoint::Breakpoint::new(PCValue::Global(entry_point), pid),
@@ -206,28 +168,7 @@ impl Debugger {
     pub fn frame_info(&self, pid: Pid) -> anyhow::Result<FrameInfo> {
         disable_when_not_stared!(self);
 
-        let func = self
-            .debugee
-            .dwarf
-            .find_function_by_pc(
-                self.get_current_thread_pc()?
-                    .into_global(self.debugee.mapping_offset()),
-            )
-            .ok_or_else(|| anyhow!("current function not found"))?;
-
-        let base_addr = func.frame_base_addr(pid)?;
-
-        let cfa = self.debugee.dwarf.get_cfa(
-            self.debugee.threads_ctl().thread_in_focus(),
-            self.get_current_thread_pc()?
-                .into_global(self.debugee.mapping_offset()),
-        )?;
-
-        Ok(FrameInfo {
-            cfa,
-            base_addr,
-            return_addr: uw::return_addr(pid)?,
-        })
+        self.debugee.frame_info(pid, self.get_current_thread_pc()?)
     }
 
     pub fn step_into(&self) -> anyhow::Result<()> {
@@ -256,20 +197,7 @@ impl Debugger {
 
     pub fn thread_state(&self) -> anyhow::Result<Vec<ThreadDump>> {
         disable_when_not_stared!(self);
-        let threads = self.debugee.threads_ctl().dump();
-        Ok(threads
-            .into_iter()
-            .map(|thread| {
-                let pc = weak_error!(get_register_value(thread.pid, Register::Rip));
-                let bt = weak_error!(uw::backtrace(thread.pid));
-                ThreadDump {
-                    in_focus: thread.pid == self.debugee.threads_ctl().thread_in_focus(),
-                    thread,
-                    pc: pc.map(|pc| RelocatedAddress(pc as usize)),
-                    bt,
-                }
-            })
-            .collect())
+        self.debugee.thread_state()
     }
 
     pub fn backtrace(&self, pid: Pid) -> anyhow::Result<Backtrace> {
@@ -323,7 +251,7 @@ impl Debugger {
     }
 
     fn get_thread_pc(tid: Pid) -> nix::Result<RelocatedAddress> {
-        get_register_value(tid, Register::Rip).map(|addr| RelocatedAddress(addr as usize))
+        get_register_value(tid, Register::Rip).map(RelocatedAddress::from)
     }
 
     #[allow(unused)]
@@ -434,10 +362,10 @@ impl Debugger {
             let mut line = self
                 .debugee
                 .dwarf
-                .find_place_from_pc(GlobalAddress(range.begin as usize))
+                .find_place_from_pc(GlobalAddress::from(range.begin))
                 .ok_or_else(|| anyhow!("unknown function range"))?;
 
-            while line.address.0 < range.end as usize {
+            while u64::from(line.address) < range.end {
                 if line.is_stmt {
                     let load_addr = line.address.relocate(self.debugee.mapping_offset());
                     if line.address != current_line.address
@@ -494,7 +422,7 @@ impl Debugger {
         let entry = self
             .debugee
             .dwarf
-            .find_place_from_pc(GlobalAddress(low_pc as usize))
+            .find_place_from_pc(GlobalAddress::from(low_pc))
             .ok_or_else(|| anyhow!("invalid function entry"))?
             // TODO skip prologue smarter
             .next()

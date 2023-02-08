@@ -1,5 +1,6 @@
+use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::thread::{ThreadCtl, TraceeStatus};
-use crate::debugger::{code, Debugger, GlobalAddress, RelocatedAddress};
+use crate::debugger::{code, Debugger};
 use anyhow::bail;
 use log::warn;
 use nix::errno::Errno;
@@ -108,7 +109,10 @@ impl ControlFlow {
                                 self.threads_ctl.set_stop_status(pid);
                                 self.threads_ctl.interrupt_running()?;
 
-                                Debugger::set_thread_pc(pid, Debugger::get_thread_pc(pid)?.0 - 1)?;
+                                Debugger::set_thread_pc(
+                                    pid,
+                                    usize::from(Debugger::get_thread_pc(pid)?) - 1,
+                                )?;
                                 let current_pc = Debugger::get_thread_pc(pid)?;
                                 let offset_pc = current_pc.into_global(mapping_offset.unwrap());
                                 if offset_pc == self.program_ep {

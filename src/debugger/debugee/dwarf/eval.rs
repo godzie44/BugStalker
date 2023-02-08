@@ -1,9 +1,10 @@
 use crate::debugger;
+use crate::debugger::address::RelocatedAddress;
 use crate::debugger::debugee::dwarf::eval::EvalError::{OptionRequired, UnsupportedRequire};
 use crate::debugger::debugee::dwarf::parser::unit::{DieVariant, Unit};
 use crate::debugger::debugee::dwarf::EndianRcSlice;
 use crate::debugger::register::get_register_value_dwarf;
-use crate::debugger::{FrameInfo, RelocatedAddress};
+use crate::debugger::FrameInfo;
 use anyhow::anyhow;
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{
@@ -155,7 +156,7 @@ impl<'a> ExpressionEvaluator<'a> {
                             .as_ref()
                             .ok_or(OptionRequired("frame_info"))?
                             .base_addr
-                            .0 as u64,
+                            .into(),
                     )?;
                 }
                 EvaluationResult::RequiresAtLocation(_) => {
@@ -210,7 +211,7 @@ impl<'a> ExpressionEvaluator<'a> {
                         .take()
                         .ok_or(OptionRequired("tls_resolver"))?;
                     let addr = tls_resolver(self.pid, offset)?;
-                    result = eval.resume_with_tls(addr.0 as u64)?;
+                    result = eval.resume_with_tls(addr.into())?;
                 }
                 EvaluationResult::RequiresIndexedAddress { index, relocate } => {
                     let debug_addr = opts.debug_addr.ok_or(OptionRequired("debug_addr"))?;
@@ -232,7 +233,7 @@ impl<'a> ExpressionEvaluator<'a> {
                         .frame_info
                         .as_ref()
                         .ok_or(OptionRequired("frame_info"))?;
-                    result = eval.resume_with_call_frame_cfa(frame_info.cfa.0 as u64)?;
+                    result = eval.resume_with_call_frame_cfa(frame_info.cfa.into())?;
                 }
                 EvaluationResult::RequiresEntryValue(expr) => {
                     let resolver = opts

@@ -1,4 +1,4 @@
-use crate::debugger::RelocatedAddress;
+use crate::debugger::address::RelocatedAddress;
 use nix::unistd::Pid;
 use unwind::{Accessors, AddressSpace, Byteorder, Cursor, PTraceState, RegNum};
 
@@ -69,7 +69,5 @@ pub fn return_addr(pid: Pid) -> unwind::Result<Option<RelocatedAddress>> {
         return Ok(None);
     }
 
-    Ok(Some(
-        RelocatedAddress(cursor.register(RegNum::IP)? as usize),
-    ))
+    Ok(Some(RelocatedAddress::from(cursor.register(RegNum::IP)?)))
 }

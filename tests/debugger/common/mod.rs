@@ -1,4 +1,5 @@
-use bugstalker::debugger::{EventHook, Place, RelocatedAddress};
+use bugstalker::debugger::address::RelocatedAddress;
+use bugstalker::debugger::{EventHook, Place};
 use std::cell::Cell;
 use std::ffi::c_int;
 use std::sync::Arc;

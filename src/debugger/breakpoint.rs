@@ -1,4 +1,4 @@
-use crate::debugger::PCValue;
+use crate::debugger::address::PCValue;
 use nix::libc::c_void;
 use nix::sys;
 use nix::unistd::Pid;
@@ -7,7 +7,7 @@ use std::cell::Cell;
 impl PCValue {
     fn as_ptr(&self) -> *mut c_void {
         match self {
-            PCValue::Relocated(addr) => addr.0 as *mut c_void,
+            PCValue::Relocated(addr) => usize::from(*addr) as *mut c_void,
             PCValue::Global(_) => {
                 panic!("only address with offset allowed")
             }

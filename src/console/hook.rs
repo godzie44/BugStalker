@@ -1,6 +1,7 @@
 use crate::console::view::FileView;
+use crate::debugger::address::RelocatedAddress;
+use crate::debugger::EventHook;
 use crate::debugger::Place;
-use crate::debugger::{EventHook, RelocatedAddress};
 use nix::libc::c_int;
 
 pub(super) struct TerminalHook {
@@ -15,7 +16,7 @@ impl TerminalHook {
 
 impl EventHook for TerminalHook {
     fn on_trap(&self, pc: RelocatedAddress, mb_place: Option<Place>) -> anyhow::Result<()> {
-        println!("Hit breakpoint at address {:#016X}", pc.0);
+        println!("Hit breakpoint at address {}", pc);
         if let Some(place) = mb_place {
             println!("{}:{}", place.file.display(), place.line_number);
             println!("{}", self.file_view.render_source(&place, 1)?);

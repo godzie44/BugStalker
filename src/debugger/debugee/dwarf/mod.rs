@@ -3,6 +3,7 @@ pub mod parser;
 mod symbol;
 pub mod r#type;
 
+use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::dwarf::eval::{EvalOption, ExpressionEvaluator};
 use crate::debugger::debugee::dwarf::parser::unit::{
     DieVariant, Entry, FunctionDie, Node, ParameterDie, Unit, VariableDie,
@@ -13,7 +14,7 @@ use crate::debugger::debugee::dwarf::r#type::TypeDeclaration;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
 use crate::debugger::debugee::Debugee;
 use crate::debugger::utils::TryGetOrInsert;
-use crate::debugger::{register, FrameInfo, GlobalAddress, RelocatedAddress};
+use crate::debugger::{register, FrameInfo};
 use crate::{debugger, weak_error};
 use anyhow::anyhow;
 use bytes::Bytes;
@@ -138,12 +139,7 @@ impl DebugeeContext {
         match rule {
             RegisterAndOffset { register, offset } => {
                 let ra = register::get_register_value_dwarf(pid, register.0 as i32)?;
-                let cfa = if *offset >= 0 {
-                    ra + *offset as u64
-                } else {
-                    ra - offset.unsigned_abs()
-                } as usize;
-                Ok(RelocatedAddress(cfa))
+                Ok(RelocatedAddress::from(ra as usize).offset(*offset as isize))
             }
             CfaRule::Expression(expr) => {
                 let unit = self
@@ -152,7 +148,7 @@ impl DebugeeContext {
                 let evaluator = unit.evaluator(pid);
                 let expr_result = evaluator.evaluate(expr.clone())?;
 
-                Ok(RelocatedAddress(expr_result.into_scalar::<usize>()?))
+                Ok((expr_result.into_scalar::<usize>()?).into())
             }
         }
     }
@@ -162,7 +158,7 @@ impl DebugeeContext {
         let row = self.eh_frame.unwind_info_for_address(
             &self.bases,
             &mut ctx,
-            pc.0 as u64,
+            pc.into(),
             EhFrame::cie_from_offset,
         )?;
         self.evaluate_cfa(row, pc, pid)
@@ -178,7 +174,7 @@ impl DebugeeContext {
         let row = self.eh_frame.unwind_info_for_address(
             &self.bases,
             &mut ctx,
-            pc.0 as u64,
+            pc.into(),
             EhFrame::cie_from_offset,
         )?;
 
@@ -202,15 +198,11 @@ impl DebugeeContext {
                         weak_error!(register::get_register_value_dwarf(pid, register.0 as i32))?
                     }
                     RegisterRule::Offset(offset) => {
-                        let cfa = weak_error!(lazy_cfa.try_get_or_insert_with(cfa_init_fn))?.0;
-                        let addr = if *offset >= 0 {
-                            cfa + *offset as usize
-                        } else {
-                            cfa - offset.unsigned_abs() as usize
-                        };
+                        let cfa = *weak_error!(lazy_cfa.try_get_or_insert_with(cfa_init_fn))?;
+                        let addr = cfa.offset(*offset as isize);
                         let bytes = weak_error!(debugger::read_memory_by_pid(
                             pid,
-                            addr,
+                            addr.into(),
                             mem::size_of::<u64>()
                         ))?;
                         u64::from_ne_bytes(weak_error!(bytes
@@ -218,12 +210,8 @@ impl DebugeeContext {
                             .map_err(|e| anyhow!("{e:?}")))?)
                     }
                     RegisterRule::ValOffset(offset) => {
-                        let cfa = weak_error!(lazy_cfa.try_get_or_insert_with(cfa_init_fn))?.0;
-                        if *offset >= 0 {
-                            cfa as u64 + *offset as u64
-                        } else {
-                            cfa as u64 - offset.unsigned_abs() as u64
-                        }
+                        let cfa = *weak_error!(lazy_cfa.try_get_or_insert_with(cfa_init_fn))?;
+                        cfa.offset(*offset as isize).into()
                     }
                     RegisterRule::Register(reg) => {
                         weak_error!(register::get_register_value_dwarf(pid, reg.0 as i32))?
@@ -262,15 +250,12 @@ impl DebugeeContext {
 
     fn find_unit_by_pc(&self, pc: GlobalAddress) -> Option<&parser::unit::Unit> {
         self.units.iter().find(|&unit| {
-            match unit
-                .ranges
-                .binary_search_by_key(&(pc.0 as u64), |r| r.begin)
-            {
+            match unit.ranges.binary_search_by_key(&(pc.into()), |r| r.begin) {
                 Ok(_) => true,
                 Err(pos) => unit.ranges[..pos]
                     .iter()
                     .rev()
-                    .any(|range| range.begin <= pc.0 as u64 && pc.0 as u64 <= range.end),
+                    .any(|range| range.begin <= u64::from(pc) && u64::from(pc) <= range.end),
             }
         })
     }
@@ -282,7 +267,7 @@ impl DebugeeContext {
 
     pub fn find_function_by_pc(&self, pc: GlobalAddress) -> Option<ContextualDieRef<FunctionDie>> {
         let unit = self.find_unit_by_pc(pc)?;
-        let pc = pc.0 as u64;
+        let pc = u64::from(pc);
         let find_pos = match unit
             .die_ranges
             .binary_search_by_key(&pc, |dr| dr.range.begin)
@@ -435,7 +420,7 @@ trait LocatedValue {
             unit.addr_base(),
         ))?;
 
-        let pc = pc.0 as u64;
+        let pc = u64::from(pc);
         let entry = iter
             .find(|list_entry| Ok(list_entry.range.begin <= pc && list_entry.range.end >= pc))
             .ok()?;
@@ -536,7 +521,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
             .evaluate(expr)?
             .into_scalar::<usize>()?;
 
-        Ok(RelocatedAddress(result))
+        Ok(result.into())
     }
 
     pub fn local_variables<'this>(
@@ -626,7 +611,7 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
                         .ok_or_else(|| anyhow!("entry point pc not found"))?;
                     debugee
                         .dwarf
-                        .registers(pid, GlobalAddress(low_pc as usize), pc)
+                        .registers(pid, GlobalAddress::from(low_pc as usize), pc)
                 };
                 eval_opts = eval_opts.with_entry_point_registers_resolver(&ep_regs_resolver);
                 eval_opts = eval_opts.with_frame_info(frame_info);
@@ -661,7 +646,7 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
 
                 lb.ranges
                     .iter()
-                    .any(|r| pc.0 >= r.begin as usize && pc.0 <= r.end as usize)
+                    .any(|r| u64::from(pc) >= r.begin && u64::from(pc) <= r.end)
             })
             .unwrap_or(true)
     }
@@ -726,7 +711,7 @@ impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
                         .ok_or_else(|| anyhow!("entry point pc not found"))?;
                     debugee
                         .dwarf
-                        .registers(pid, GlobalAddress(low_pc as usize), pc)
+                        .registers(pid, GlobalAddress::from(low_pc as usize), pc)
                 };
                 eval_opts = eval_opts.with_entry_point_registers_resolver(&ep_regs_resolver);
 

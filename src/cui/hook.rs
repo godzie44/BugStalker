@@ -1,5 +1,6 @@
 use crate::cui::{context, AppState};
-use crate::debugger::{EventHook, Place, RelocatedAddress};
+use crate::debugger::address::RelocatedAddress;
+use crate::debugger::{EventHook, Place};
 use nix::libc::c_int;
 use tui::style::{Color, Style};
 use tui::text::{Span, Spans};

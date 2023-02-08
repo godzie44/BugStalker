@@ -7,7 +7,7 @@ use crate::debugger::command::{
     Trace, Variables,
 };
 use crate::debugger::variable::render::RenderRepr;
-use crate::debugger::{command, Debugger, RelocatedAddress};
+use crate::debugger::{command, Debugger};
 use command::{Memory, Register};
 use nix::unistd::Pid;
 use rustyline::error::ReadlineError;
@@ -114,9 +114,9 @@ impl TerminalApplication {
                 let bt = Trace::new(&self.debugger).run()?;
                 bt.iter().for_each(|thread| {
                     println!(
-                        "thread {} - {:#016X}",
+                        "thread {} - {}",
                         thread.thread.pid,
-                        thread.pc.unwrap_or(RelocatedAddress(0)).0
+                        thread.pc.unwrap_or((0 as usize).into())
                     );
                     if let Some(ref bt) = thread.bt {
                         bt.iter().for_each(|part| match part.place.as_ref() {
@@ -151,12 +151,12 @@ impl TerminalApplication {
                 }),
             "frame" => {
                 let frame = Frame::new(&self.debugger).run()?;
-                println!("current frame: {:#016X}", frame.base_addr.0);
+                println!("current frame: {}", frame.base_addr);
                 println!(
                     "return address: {}",
                     frame
                         .return_addr
-                        .map_or(String::from("unknown"), |addr| format!("{:#016x}", addr.0))
+                        .map_or(String::from("unknown"), |addr| format!("{}", addr))
                 );
             }
             "symbol" => {

@@ -1,8 +1,12 @@
+use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::dwarf::{DebugeeContext, EndianRcSlice};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
 use crate::debugger::debugee::rendezvous::Rendezvous;
-use crate::debugger::debugee::thread::ThreadCtl;
-use crate::debugger::GlobalAddress;
+use crate::debugger::debugee::thread::{ThreadCtl, TraceeThread};
+use crate::debugger::register::Register;
+use crate::debugger::uw::Backtrace;
+use crate::debugger::{register, uw};
+use crate::weak_error;
 use anyhow::anyhow;
 use log::{info, warn};
 use nix::unistd::Pid;
@@ -15,6 +19,22 @@ pub mod dwarf;
 pub mod flow;
 mod rendezvous;
 pub mod thread;
+
+#[derive(Debug, Default, Clone)]
+pub struct FrameInfo {
+    pub base_addr: RelocatedAddress,
+    /// CFA is defined to be the value of the stack  pointer at the call site in the previous frame
+    /// (which may be different from its value on entry to the current frame).
+    pub cfa: RelocatedAddress,
+    pub return_addr: Option<RelocatedAddress>,
+}
+
+pub struct ThreadDump {
+    pub thread: TraceeThread,
+    pub pc: Option<RelocatedAddress>,
+    pub bt: Option<Backtrace>,
+    pub in_focus: bool,
+}
 
 /// Debugee - represent static and runtime debugee information.
 pub struct Debugee {
@@ -51,7 +71,7 @@ impl Debugee {
             mapping_addr: None,
             //  threads_ctl: thread::ThreadCtl::new(proc),
             dwarf: dwarf_builder.build(object)?,
-            control_flow: ControlFlow::new(proc, GlobalAddress(object.entry() as usize)),
+            control_flow: ControlFlow::new(proc, GlobalAddress::from(object.entry() as usize)),
             object_sections: object
                 .sections()
                 .filter_map(|section| Some((section.name().ok()?.to_string(), section.address())))
@@ -132,5 +152,42 @@ impl Debugee {
             .ok_or_else(|| anyhow!("mapping not found"))?;
 
         Ok(lowest_map.start())
+    }
+
+    pub fn frame_info(&self, pid: Pid, pc: RelocatedAddress) -> anyhow::Result<FrameInfo> {
+        let func = self
+            .dwarf
+            .find_function_by_pc(pc.into_global(self.mapping_offset()))
+            .ok_or_else(|| anyhow!("current function not found"))?;
+
+        let base_addr = func.frame_base_addr(pid)?;
+
+        let cfa = self.dwarf.get_cfa(
+            self.threads_ctl().thread_in_focus(),
+            pc.into_global(self.mapping_offset()),
+        )?;
+
+        Ok(FrameInfo {
+            cfa,
+            base_addr,
+            return_addr: uw::return_addr(pid)?,
+        })
+    }
+
+    pub fn thread_state(&self) -> anyhow::Result<Vec<ThreadDump>> {
+        let threads = self.threads_ctl().dump();
+        Ok(threads
+            .into_iter()
+            .map(|thread| {
+                let pc = weak_error!(register::get_register_value(thread.pid, Register::Rip));
+                let bt = weak_error!(uw::backtrace(thread.pid));
+                ThreadDump {
+                    in_focus: thread.pid == self.threads_ctl().thread_in_focus(),
+                    thread,
+                    pc: pc.map(RelocatedAddress::from),
+                    bt,
+                }
+            })
+            .collect())
     }
 }

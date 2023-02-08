@@ -68,7 +68,7 @@ fn test_frame_cfa() {
         let frame_info = debugger.frame_info(child).unwrap();
 
         // expect that cfa equals stack pointer from callee function.
-        assert_eq!(sp as usize, frame_info.cfa.0);
+        assert_eq!(sp, u64::from(frame_info.cfa));
 
         mem::drop(debugger);
         assert_no_proc!(child);
@@ -94,8 +94,8 @@ fn test_registers() {
         let frame = debugger.frame_info(child).unwrap();
         let registers = debugger.current_thread_registers(pc).unwrap();
         assert_eq!(
-            frame.return_addr.unwrap().0,
-            *registers.get(&gimli::Register(16)).unwrap() as usize
+            u64::from(frame.return_addr.unwrap()),
+            *registers.get(&gimli::Register(16)).unwrap()
         );
 
         mem::drop(debugger);

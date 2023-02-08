@@ -1,7 +1,7 @@
+use crate::debugger::address::GlobalAddress;
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::{EndianRcSlice, NamespaceHierarchy};
-use crate::debugger::GlobalAddress;
 use gimli::{
     Attribute, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DwAte, DwTag, Encoding, Range,
     UnitOffset,
@@ -89,7 +89,7 @@ impl Unit {
                 .files
                 .get(line.file_index as usize)
                 .expect("parse error"),
-            address: GlobalAddress(line.address as usize),
+            address: (line.address as usize).into(),
             line_number: line.line,
             column_number: line.column,
             pos_in_unit: line_pos,
@@ -99,7 +99,7 @@ impl Unit {
     }
 
     pub fn find_place_by_pc(&self, pc: GlobalAddress) -> Option<Place> {
-        let pc = pc.0 as u64;
+        let pc = u64::from(pc);
         let pos = match self.lines.binary_search_by_key(&pc, |line| line.address) {
             Ok(p) => p,
             Err(p) => p - 1,

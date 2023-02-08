@@ -2,10 +2,8 @@ use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
 use crate::{assert_no_proc, CALC_APP};
 use crate::{debugger_env, HW_APP};
-use bugstalker::debugger;
+use bugstalker::debugger::address::{PCValue, RelocatedAddress};
 use bugstalker::debugger::variable::render::{RenderRepr, ValueRepr};
-use debugger::PCValue;
-use debugger::RelocatedAddress;
 use serial_test::serial;
 use std::borrow::Cow;
 
@@ -14,7 +12,7 @@ use std::borrow::Cow;
 fn test_read_register_write() {
     debugger_env!(HW_APP, child, {
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::default()).unwrap();
-        let brkpt_addr = PCValue::Relocated(RelocatedAddress(0x55555555BD6C));
+        let brkpt_addr = PCValue::Relocated(RelocatedAddress::from(0x55555555BD6C_usize));
         debugger.set_breakpoint(brkpt_addr).unwrap();
 
         debugger.run_debugee().unwrap();
@@ -26,7 +24,7 @@ fn test_read_register_write() {
 
         // assert that breakpoint hit again
         let pc = debugger.get_current_thread_pc().unwrap();
-        assert_eq!(pc, RelocatedAddress(0x55555555BD6C));
+        assert_eq!(pc, RelocatedAddress::from(0x55555555BD6C_usize));
 
         debugger.continue_debugee().unwrap();
 
