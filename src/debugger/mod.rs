@@ -2,7 +2,7 @@ mod breakpoint;
 mod code;
 pub mod command;
 mod debugee;
-mod register;
+pub mod register;
 pub mod rust;
 mod utils;
 pub mod uw;
@@ -12,7 +12,7 @@ pub use debugee::dwarf::parser::unit::Place;
 pub use debugee::dwarf::r#type::TypeDeclaration;
 
 use crate::debugger::breakpoint::Breakpoint;
-use crate::debugger::debugee::dwarf::parser::unit::{FunctionDie, VariableDie};
+use crate::debugger::debugee::dwarf::parser::unit::VariableDie;
 use crate::debugger::debugee::dwarf::r#type::{EvaluationContext, TypeDeclarationCache};
 use crate::debugger::debugee::dwarf::{ContextualDieRef, NamespaceHierarchy, Symbol};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
@@ -39,8 +39,12 @@ use std::ffi::c_long;
 use std::path::Path;
 use std::{fs, mem, u64};
 
+#[derive(Debug, Default, Clone)]
 pub struct FrameInfo {
-    pub base_addr: usize,
+    pub base_addr: RelocatedAddress,
+    /// CFA is defined to be the value of the stack  pointer at the call site in the previous frame
+    /// (which may be different from its value on entry to the current frame).
+    pub cfa: RelocatedAddress,
     pub return_addr: Option<RelocatedAddress>,
 }
 
@@ -66,7 +70,7 @@ macro_rules! disable_when_not_stared {
     };
 }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, Default)]
 pub struct RelocatedAddress(pub usize);
 
 impl RelocatedAddress {
@@ -75,7 +79,7 @@ impl RelocatedAddress {
     }
 }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, Default)]
 pub struct GlobalAddress(pub usize);
 
 impl GlobalAddress {
@@ -201,6 +205,7 @@ impl Debugger {
 
     pub fn frame_info(&self, pid: Pid) -> anyhow::Result<FrameInfo> {
         disable_when_not_stared!(self);
+
         let func = self
             .debugee
             .dwarf
@@ -210,8 +215,17 @@ impl Debugger {
             )
             .ok_or_else(|| anyhow!("current function not found"))?;
 
+        let base_addr = func.frame_base_addr(pid)?;
+
+        let cfa = self.debugee.dwarf.get_cfa(
+            self.debugee.threads_ctl().thread_in_focus(),
+            self.get_current_thread_pc()?
+                .into_global(self.debugee.mapping_offset()),
+        )?;
+
         Ok(FrameInfo {
-            base_addr: func.frame_base_addr(pid)?,
+            cfa,
+            base_addr,
             return_addr: uw::return_addr(pid)?,
         })
     }
@@ -511,9 +525,11 @@ impl Debugger {
     fn variables_into_variable_ir(
         &self,
         vars: &[ContextualDieRef<VariableDie>],
-        known_parent_fn: Option<ContextualDieRef<FunctionDie>>,
     ) -> anyhow::Result<Vec<VariableIR>> {
         let mut type_cache = self.type_cache.borrow_mut();
+        let pc = self
+            .get_current_thread_pc()?
+            .into_global(self.debugee.mapping_offset());
 
         Ok(vars
             .iter()
@@ -527,9 +543,10 @@ impl Debugger {
 
                 let mb_value = mb_type.as_ref().and_then(|type_decl| {
                     var.read_value_at_location(
+                        pc,
                         &self.debugee,
                         type_decl,
-                        known_parent_fn.or_else(|| var.assume_parent_function()),
+                        weak_error!(self.frame_info(self.debugee.threads_ctl().thread_in_focus()))?,
                     )
                 });
 
@@ -559,7 +576,7 @@ impl Debugger {
             .find_function_by_pc(pc)
             .ok_or_else(|| anyhow!("not in function"))?;
         let vars = current_func.local_variables(pc);
-        self.variables_into_variable_ir(&vars, Some(current_func))
+        self.variables_into_variable_ir(&vars)
     }
 
     // Read any variable from current thread.
@@ -567,7 +584,7 @@ impl Debugger {
         disable_when_not_stared!(self);
 
         let vars = self.debugee.dwarf.find_variables(name);
-        self.variables_into_variable_ir(&vars, None)
+        self.variables_into_variable_ir(&vars)
     }
 
     // Read current function parameters.
@@ -584,9 +601,6 @@ impl Debugger {
             .ok_or_else(|| anyhow!("not in function"))?;
         let params = current_func.parameters();
         let mut type_cache = self.type_cache.borrow_mut();
-        let pc = self
-            .get_current_thread_pc()?
-            .into_global(self.debugee.mapping_offset());
 
         Ok(params
             .iter()
@@ -599,7 +613,12 @@ impl Debugger {
                 });
 
                 let mb_value = mb_type.as_ref().and_then(|type_decl| {
-                    param.read_value_at_location(pc, &self.debugee, type_decl, current_func)
+                    param.read_value_at_location(
+                        pc,
+                        &self.debugee,
+                        type_decl,
+                        weak_error!(self.frame_info(self.debugee.threads_ctl().thread_in_focus()))?,
+                    )
                 });
 
                 VariableIR::new(
@@ -625,6 +644,27 @@ impl Debugger {
             self.debugee.threads_ctl().thread_in_focus(),
             get_register_from_name(register_name)?,
         )?)
+    }
+
+    pub fn current_thread_registers(
+        &self,
+        pc: RelocatedAddress,
+    ) -> anyhow::Result<HashMap<gimli::Register, u64>> {
+        self.get_registers(self.debugee.threads_ctl().thread_in_focus(), pc)
+    }
+
+    pub fn get_registers(
+        &self,
+        pid: Pid,
+        pc: RelocatedAddress,
+    ) -> anyhow::Result<HashMap<gimli::Register, u64>> {
+        disable_when_not_stared!(self);
+        let current_pc = self.get_current_thread_pc()?;
+        self.debugee.dwarf.registers(
+            pid,
+            pc.into_global(self.debugee.mapping_offset()),
+            current_pc.into_global(self.debugee.mapping_offset()),
+        )
     }
 
     pub fn set_register_value(&self, register_name: &str, val: u64) -> anyhow::Result<()> {

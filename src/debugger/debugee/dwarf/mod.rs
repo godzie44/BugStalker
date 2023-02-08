@@ -3,7 +3,7 @@ pub mod parser;
 mod symbol;
 pub mod r#type;
 
-use crate::debugger::debugee::dwarf::eval::EvalOption;
+use crate::debugger::debugee::dwarf::eval::{EvalOption, ExpressionEvaluator};
 use crate::debugger::debugee::dwarf::parser::unit::{
     DieVariant, Entry, FunctionDie, Node, ParameterDie, Unit, VariableDie,
 };
@@ -12,19 +12,23 @@ use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::debugee::dwarf::r#type::TypeDeclaration;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
 use crate::debugger::debugee::Debugee;
-use crate::debugger::{GlobalAddress, RelocatedAddress};
-use crate::weak_error;
+use crate::debugger::utils::TryGetOrInsert;
+use crate::debugger::{register, FrameInfo, GlobalAddress, RelocatedAddress};
+use crate::{debugger, weak_error};
 use anyhow::anyhow;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
+use gimli::CfaRule::RegisterAndOffset;
 use gimli::{
-    Attribute, AttributeValue, DebugAddr, DebugInfoOffset, Dwarf, Expression, LocationLists,
-    RunTimeEndian, UnitOffset,
+    Attribute, AttributeValue, BaseAddresses, CfaRule, DebugAddr, DebugInfoOffset, Dwarf, EhFrame,
+    Expression, LocationLists, Register, RegisterRule, RunTimeEndian, Section, UnitOffset,
+    UnwindContext, UnwindSection, UnwindTableRow,
 };
 use nix::unistd::Pid;
 use object::{Object, ObjectSection};
 use std::borrow::Cow;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
+use std::mem;
 use std::ops::Deref;
 use std::rc::Rc;
 pub use symbol::Symbol;
@@ -68,6 +72,31 @@ impl DebugeeContextBuilder {
         let dwarf = gimli::Dwarf::load(|id| Self::load_section(id, obj_file, endian))?;
         let symbol_table = SymbolTab::new(obj_file);
 
+        let eh_frame = EhFrame::load(|id| Self::load_section(id, obj_file, endian))?;
+
+        let section_addr = |name: &str| -> Option<u64> {
+            obj_file.sections().find_map(|section| {
+                if section.name().ok()? == name {
+                    Some(section.address())
+                } else {
+                    None
+                }
+            })
+        };
+        let mut bases = BaseAddresses::default();
+        if let Some(got) = section_addr(".got") {
+            bases = bases.set_got(got);
+        }
+        if let Some(text) = section_addr(".text") {
+            bases = bases.set_text(text);
+        }
+        if let Some(eh) = section_addr(".eh_frame") {
+            bases = bases.set_eh_frame(eh);
+        }
+        if let Some(eh_frame_hdr) = section_addr(".eh_frame_hdr") {
+            bases = bases.set_eh_frame_hdr(eh_frame_hdr);
+        }
+
         let parser = parser::DwarfUnitParser::new(&dwarf);
 
         let mut units = dwarf
@@ -77,7 +106,9 @@ impl DebugeeContextBuilder {
         units.sort_by_key(|u| u.offset());
 
         Ok(DebugeeContext {
-            _inner: dwarf,
+            inner: dwarf,
+            eh_frame,
+            bases,
             units,
             symbol_table,
         })
@@ -85,18 +116,148 @@ impl DebugeeContextBuilder {
 }
 
 pub struct DebugeeContext<R: gimli::Reader = EndianRcSlice> {
-    _inner: Dwarf<R>,
+    inner: Dwarf<R>,
+    eh_frame: EhFrame<R>,
+    bases: BaseAddresses,
     units: Vec<parser::unit::Unit>,
     symbol_table: Option<SymbolTab>,
 }
 
 impl DebugeeContext {
     pub fn locations(&self) -> &LocationLists<EndianRcSlice> {
-        &self._inner.locations
+        &self.inner.locations
+    }
+
+    fn evaluate_cfa(
+        &self,
+        utr: &UnwindTableRow<EndianRcSlice>,
+        pc: GlobalAddress,
+        pid: Pid,
+    ) -> anyhow::Result<RelocatedAddress> {
+        let rule = utr.cfa();
+        match rule {
+            RegisterAndOffset { register, offset } => {
+                let ra = register::get_register_value_dwarf(pid, register.0 as i32)?;
+                let cfa = if *offset >= 0 {
+                    ra + *offset as u64
+                } else {
+                    ra - offset.unsigned_abs()
+                } as usize;
+                Ok(RelocatedAddress(cfa))
+            }
+            CfaRule::Expression(expr) => {
+                let unit = self
+                    .find_unit_by_pc(pc)
+                    .ok_or_else(|| anyhow!("undefined unit"))?;
+                let evaluator = unit.evaluator(pid);
+                let expr_result = evaluator.evaluate(expr.clone())?;
+
+                Ok(RelocatedAddress(expr_result.into_scalar::<usize>()?))
+            }
+        }
+    }
+
+    pub fn get_cfa(&self, pid: Pid, pc: GlobalAddress) -> anyhow::Result<RelocatedAddress> {
+        let mut ctx = Box::new(UnwindContext::new());
+        let row = self.eh_frame.unwind_info_for_address(
+            &self.bases,
+            &mut ctx,
+            pc.0 as u64,
+            EhFrame::cie_from_offset,
+        )?;
+        self.evaluate_cfa(row, pc, pid)
+    }
+
+    pub fn registers(
+        &self,
+        pid: Pid,
+        pc: GlobalAddress,
+        current_pc: GlobalAddress,
+    ) -> anyhow::Result<HashMap<Register, u64>> {
+        let mut ctx = Box::new(UnwindContext::new());
+        let row = self.eh_frame.unwind_info_for_address(
+            &self.bases,
+            &mut ctx,
+            pc.0 as u64,
+            EhFrame::cie_from_offset,
+        )?;
+
+        let mut lazy_cfa = None;
+        let cfa_init_fn = || self.evaluate_cfa(row, current_pc, pid);
+
+        let mut lazy_evaluator = None;
+        let evaluator_init_fn = || -> anyhow::Result<ExpressionEvaluator> {
+            let unit = self
+                .find_unit_by_pc(pc)
+                .ok_or_else(|| anyhow!("undefined unit"))?;
+            Ok(unit.evaluator(pid))
+        };
+
+        Ok(row
+            .registers()
+            .filter_map(|(register, rule)| {
+                let value = match rule {
+                    RegisterRule::Undefined => return None,
+                    RegisterRule::SameValue => {
+                        weak_error!(register::get_register_value_dwarf(pid, register.0 as i32))?
+                    }
+                    RegisterRule::Offset(offset) => {
+                        let cfa = weak_error!(lazy_cfa.try_get_or_insert_with(cfa_init_fn))?.0;
+                        let addr = if *offset >= 0 {
+                            cfa + *offset as usize
+                        } else {
+                            cfa - offset.unsigned_abs() as usize
+                        };
+                        let bytes = weak_error!(debugger::read_memory_by_pid(
+                            pid,
+                            addr,
+                            mem::size_of::<u64>()
+                        ))?;
+                        u64::from_ne_bytes(weak_error!(bytes
+                            .try_into()
+                            .map_err(|e| anyhow!("{e:?}")))?)
+                    }
+                    RegisterRule::ValOffset(offset) => {
+                        let cfa = weak_error!(lazy_cfa.try_get_or_insert_with(cfa_init_fn))?.0;
+                        if *offset >= 0 {
+                            cfa as u64 + *offset as u64
+                        } else {
+                            cfa as u64 - offset.unsigned_abs() as u64
+                        }
+                    }
+                    RegisterRule::Register(reg) => {
+                        weak_error!(register::get_register_value_dwarf(pid, reg.0 as i32))?
+                    }
+                    RegisterRule::Expression(expr) => {
+                        let evaluator =
+                            weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
+                        let expr_result = weak_error!(evaluator.evaluate(expr.clone()))?;
+                        let addr = weak_error!(expr_result.into_scalar::<usize>())?;
+                        let bytes = weak_error!(debugger::read_memory_by_pid(
+                            pid,
+                            addr,
+                            mem::size_of::<u64>()
+                        ))?;
+                        u64::from_ne_bytes(weak_error!(bytes
+                            .try_into()
+                            .map_err(|e| anyhow!("{e:?}")))?)
+                    }
+                    RegisterRule::ValExpression(expr) => {
+                        let evaluator =
+                            weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
+                        let expr_result = weak_error!(evaluator.evaluate(expr.clone()))?;
+                        weak_error!(expr_result.into_scalar::<u64>())?
+                    }
+                    RegisterRule::Architectural => return None,
+                };
+
+                Some((*register, value))
+            })
+            .collect())
     }
 
     pub fn debug_addr(&self) -> &DebugAddr<EndianRcSlice> {
-        &self._inner.debug_addr
+        &self.inner.debug_addr
     }
 
     fn find_unit_by_pc(&self, pc: GlobalAddress) -> Option<&parser::unit::Unit> {
@@ -359,7 +520,7 @@ impl<'a, T> ContextualDieRef<'a, T> {
 }
 
 impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
-    pub fn frame_base_addr(&self, pid: Pid) -> anyhow::Result<usize> {
+    pub fn frame_base_addr(&self, pid: Pid) -> anyhow::Result<RelocatedAddress> {
         let attr = self
             .die
             .fb_addr
@@ -374,7 +535,8 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
             .evaluator(pid)
             .evaluate(expr)?
             .into_scalar::<usize>()?;
-        Ok(result)
+
+        Ok(RelocatedAddress(result))
     }
 
     pub fn local_variables<'this>(
@@ -430,21 +592,18 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
 impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
     pub fn read_value_at_location(
         &self,
+        pc: GlobalAddress,
         debugee: &Debugee,
         type_decl: &TypeDeclaration,
-        parent_fn: Option<ContextualDieRef<FunctionDie>>,
+        frame_info: FrameInfo,
     ) -> Option<Bytes> {
         let current_thread = debugee.threads_ctl().thread_in_focus();
 
         self.die
-            .location_expr(GlobalAddress(0), self.context, self.unit)
+            .location_expr(pc, self.context, self.unit)
             .and_then(|expr| {
                 let mut eval_opts =
                     EvalOption::new().with_relocation_addr(debugee.mapping_offset());
-                if let Some(parent_fn) = parent_fn {
-                    let fb = weak_error!(parent_fn.frame_base_addr(current_thread))?;
-                    eval_opts = eval_opts.with_base_frame(fb);
-                }
                 let tls_resolver = |pid: Pid, offset: u64| -> anyhow::Result<RelocatedAddress> {
                     let lm_addr = debugee.rendezvous().link_map_main();
                     debugee
@@ -452,12 +611,33 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
                         .tls_addr(pid, lm_addr, offset as usize)
                 };
                 eval_opts = eval_opts.with_tls_resolver(&tls_resolver);
+                let ep_regs_resolver = |pid: Pid| -> anyhow::Result<HashMap<gimli::Register, u64>> {
+                    let current_fn = debugee
+                        .dwarf
+                        .find_function_by_pc(pc)
+                        .ok_or_else(|| anyhow!("not in function"))?;
+                    let low_pc = current_fn
+                        .die
+                        .base_attributes
+                        .ranges
+                        .iter()
+                        .map(|r| r.begin)
+                        .min()
+                        .ok_or_else(|| anyhow!("entry point pc not found"))?;
+                    debugee
+                        .dwarf
+                        .registers(pid, GlobalAddress(low_pc as usize), pc)
+                };
+                eval_opts = eval_opts.with_entry_point_registers_resolver(&ep_regs_resolver);
+                eval_opts = eval_opts.with_frame_info(frame_info);
+                eval_opts = eval_opts.with_debug_addr(self.context.debug_addr());
 
                 let eval_result = weak_error!(self
                     .unit
                     .evaluator(current_thread)
                     .evaluate_with_opts(expr, eval_opts))?;
 
+                // todo send evaluator instead of context
                 weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
                     &EvaluationContext {
                         unit: self.unit,
@@ -512,7 +692,7 @@ impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
         pc: GlobalAddress,
         debugee: &Debugee,
         type_decl: &TypeDeclaration,
-        parent_fn: ContextualDieRef<FunctionDie>,
+        frame_info: FrameInfo,
     ) -> Option<Bytes> {
         let current_thread = debugee.threads_ctl().thread_in_focus();
 
@@ -521,8 +701,6 @@ impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
             .and_then(|expr| {
                 let mut eval_opts =
                     EvalOption::new().with_relocation_addr(debugee.mapping_offset());
-                let fb = weak_error!(parent_fn.frame_base_addr(current_thread))?;
-                eval_opts = eval_opts.with_base_frame(fb);
 
                 let tls_resolver = |pid: Pid, offset: u64| -> anyhow::Result<RelocatedAddress> {
                     let lm_addr = debugee.rendezvous().link_map_main();
@@ -531,6 +709,26 @@ impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
                         .tls_addr(pid, lm_addr, offset as usize)
                 };
                 eval_opts = eval_opts.with_tls_resolver(&tls_resolver);
+                eval_opts = eval_opts.with_debug_addr(self.context.debug_addr());
+                eval_opts = eval_opts.with_frame_info(frame_info);
+                let ep_regs_resolver = |pid: Pid| -> anyhow::Result<HashMap<gimli::Register, u64>> {
+                    let current_fn = debugee
+                        .dwarf
+                        .find_function_by_pc(pc)
+                        .ok_or_else(|| anyhow!("not in function"))?;
+                    let low_pc = current_fn
+                        .die
+                        .base_attributes
+                        .ranges
+                        .iter()
+                        .map(|r| r.begin)
+                        .min()
+                        .ok_or_else(|| anyhow!("entry point pc not found"))?;
+                    debugee
+                        .dwarf
+                        .registers(pid, GlobalAddress(low_pc as usize), pc)
+                };
+                eval_opts = eval_opts.with_entry_point_registers_resolver(&ep_regs_resolver);
 
                 let eval_result = weak_error!(self
                     .unit

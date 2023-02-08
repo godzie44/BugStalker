@@ -33,6 +33,7 @@ pub(super) struct UnitProperties {
     pub(super) low_pc: u64,
     pub(super) addr_base: DebugAddrBase,
     pub(super) loclists_base: DebugLocListsBase,
+    pub(super) address_size: u8,
 }
 
 #[derive(Debug)]
@@ -71,6 +72,10 @@ impl Unit {
 
     pub fn offset(&self) -> Option<DebugInfoOffset> {
         self.properties.offset
+    }
+
+    pub fn address_size(&self) -> u8 {
+        self.properties.address_size
     }
 
     pub fn evaluator(&self, pid: Pid) -> ExpressionEvaluator {

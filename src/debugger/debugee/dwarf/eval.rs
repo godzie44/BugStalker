@@ -3,15 +3,16 @@ use crate::debugger::debugee::dwarf::eval::EvalError::{OptionRequired, Unsupport
 use crate::debugger::debugee::dwarf::parser::unit::{DieVariant, Unit};
 use crate::debugger::debugee::dwarf::EndianRcSlice;
 use crate::debugger::register::get_register_value_dwarf;
-use crate::debugger::RelocatedAddress;
+use crate::debugger::{FrameInfo, RelocatedAddress};
 use anyhow::anyhow;
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{
-    Encoding, EndianSlice, EvaluationResult, Expression, Location, Piece, RunTimeEndian,
+    DebugAddr, Encoding, EndianSlice, EvaluationResult, Expression, Location, Piece, RunTimeEndian,
     UnitOffset, Value, ValueType,
 };
 use nix::unistd::Pid;
 use std::cmp::min;
+use std::collections::HashMap;
 use std::{mem, result};
 
 #[derive(thiserror::Error, Debug)]
@@ -32,22 +33,18 @@ pub type Result<T> = result::Result<T, EvalError>;
 
 #[derive(Default)]
 pub struct EvalOption<'a> {
-    base_frame: Option<usize>,
+    frame_info: Option<FrameInfo>,
     at_location: Option<Vec<u8>>,
     relocation_addr: Option<usize>,
     tls_resolver: Option<&'a dyn Fn(Pid, u64) -> anyhow::Result<RelocatedAddress>>,
+    debug_addr: Option<&'a DebugAddr<EndianRcSlice>>,
+    ep_registers_resolver: Option<&'a dyn Fn(Pid) -> anyhow::Result<HashMap<gimli::Register, u64>>>,
+    registers: Option<HashMap<gimli::Register, u64>>,
 }
 
 impl<'a> EvalOption<'a> {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn with_base_frame(self, base_frame: usize) -> Self {
-        Self {
-            base_frame: Some(base_frame),
-            ..self
-        }
     }
 
     pub fn with_at_location(self, bytes: impl Into<Vec<u8>>) -> Self {
@@ -70,6 +67,37 @@ impl<'a> EvalOption<'a> {
     ) -> Self {
         Self {
             tls_resolver: Some(resolver),
+            ..self
+        }
+    }
+
+    pub fn with_debug_addr(self, debug_addr: &'a DebugAddr<EndianRcSlice>) -> Self {
+        Self {
+            debug_addr: Some(debug_addr),
+            ..self
+        }
+    }
+
+    pub fn with_frame_info(self, frame_info: FrameInfo) -> Self {
+        Self {
+            frame_info: Some(frame_info),
+            ..self
+        }
+    }
+
+    pub fn with_entry_point_registers_resolver(
+        self,
+        resolver: &'a dyn Fn(Pid) -> anyhow::Result<HashMap<gimli::Register, u64>>,
+    ) -> Self {
+        Self {
+            ep_registers_resolver: Some(resolver),
+            ..self
+        }
+    }
+
+    pub fn with_registers(self, registers: HashMap<gimli::Register, u64>) -> Self {
+        Self {
+            registers: Some(registers),
             ..self
         }
     }
@@ -109,13 +137,25 @@ impl<'a> ExpressionEvaluator<'a> {
                     register,
                     base_type,
                 } => {
-                    let bytes = get_register_value_dwarf(self.pid, register.0 as i32)?;
                     let value_type = self.value_type_from_offset(base_type);
+
+                    let bytes = if let Some(ref regs) = opts.registers {
+                        let bytes = regs.get(&register).ok_or_else(|| {
+                            anyhow!("predefined registers exists, but target not found")
+                        })?;
+                        *bytes
+                    } else {
+                        get_register_value_dwarf(self.pid, register.0 as i32)?
+                    };
                     result = eval.resume_with_register(Value::from_u64(value_type, bytes)?)?;
                 }
                 EvaluationResult::RequiresFrameBase => {
                     result = eval.resume_with_frame_base(
-                        opts.base_frame.ok_or(OptionRequired("base_frame"))? as u64,
+                        opts.frame_info
+                            .as_ref()
+                            .ok_or(OptionRequired("frame_info"))?
+                            .base_addr
+                            .0 as u64,
                     )?;
                 }
                 EvaluationResult::RequiresAtLocation(_) => {
@@ -172,8 +212,44 @@ impl<'a> ExpressionEvaluator<'a> {
                     let addr = tls_resolver(self.pid, offset)?;
                     result = eval.resume_with_tls(addr.0 as u64)?;
                 }
-                _ => {
+                EvaluationResult::RequiresIndexedAddress { index, relocate } => {
+                    let debug_addr = opts.debug_addr.ok_or(OptionRequired("debug_addr"))?;
+                    let mut addr = debug_addr.get_address(
+                        self.unit.address_size(),
+                        self.unit.addr_base(),
+                        index,
+                    )?;
+                    if relocate {
+                        let relocation_addr = opts
+                            .relocation_addr
+                            .ok_or(OptionRequired("relocation_addr"))?;
+                        addr += relocation_addr as u64;
+                    }
+                    result = eval.resume_with_indexed_address(addr)?;
+                }
+                EvaluationResult::RequiresCallFrameCfa => {
+                    let frame_info = opts
+                        .frame_info
+                        .as_ref()
+                        .ok_or(OptionRequired("frame_info"))?;
+                    result = eval.resume_with_call_frame_cfa(frame_info.cfa.0 as u64)?;
+                }
+                EvaluationResult::RequiresEntryValue(expr) => {
+                    let resolver = opts
+                        .ep_registers_resolver
+                        .take()
+                        .ok_or(OptionRequired("entry_point_registers_resolver"))?;
+                    let regs = resolver(self.pid)?;
+                    let opts = EvalOption::default().with_registers(regs);
+                    let eval_res = self.evaluate_with_opts(expr, opts)?;
+                    let u = eval_res.into_scalar::<u64>()?;
+                    result = eval.resume_with_entry_value(Value::Generic(u))?;
+                }
+                EvaluationResult::RequiresParameterRef(_) => {
                     return Err(UnsupportedRequire(format!("{:?}", result)));
+                }
+                EvaluationResult::Complete => {
+                    unreachable!()
                 }
             };
         }

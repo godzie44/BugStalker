@@ -42,6 +42,7 @@ impl<'a> DwarfUnitParser<'a> {
                 low_pc: unit.low_pc,
                 addr_base: unit.addr_base,
                 loclists_base: unit.loclists_base,
+                address_size: unit.header.address_size(),
             },
             id: Uuid::new_v4(),
             entries: vec![],

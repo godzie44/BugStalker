@@ -151,7 +151,7 @@ impl TerminalApplication {
                 }),
             "frame" => {
                 let frame = Frame::new(&self.debugger).run()?;
-                println!("current frame: {:#016X}", frame.base_addr);
+                println!("current frame: {:#016X}", frame.base_addr.0);
                 println!(
                     "return address: {}",
                     frame

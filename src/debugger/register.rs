@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use nix::sys;
 use nix::unistd::Pid;
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Register {
     Rax,
     Rbx,
@@ -168,4 +168,14 @@ pub(super) fn get_register_from_name(name: &str) -> anyhow::Result<Register> {
     LIST.iter()
         .find_map(|r| if r.name == name { Some(r.r) } else { None })
         .ok_or_else(|| anyhow!("Register not found"))
+}
+
+pub fn get_register_dwarf_num(register: Register) -> Option<i32> {
+    LIST.iter().find_map(|r| {
+        if r.r == register {
+            Some(r.dwarf_num)
+        } else {
+            None
+        }
+    })
 }
