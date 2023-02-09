@@ -144,10 +144,18 @@ impl ThreadCtl {
         for need_assume in assume_stopped {
             match waitpid(need_assume, None) {
                 Ok(wait) => {
-                    debug_assert!(matches!(
-                        wait,
-                        WaitStatus::PtraceEvent(_, _, libc::PTRACE_EVENT_STOP)
-                    ));
+                    // thread may be exited before stop
+                    if matches!(wait, WaitStatus::PtraceEvent(_, _, libc::PTRACE_EVENT_EXIT)) {
+                        sys::ptrace::cont(need_assume, None)?;
+                        self.remove(need_assume);
+                        continue;
+                    }
+
+                    debug_assert!(
+                        matches!(wait, WaitStatus::PtraceEvent(_, _, libc::PTRACE_EVENT_STOP)),
+                        "unexpected sign: {:?}",
+                        wait
+                    );
                 }
                 Err(err) => {
                     errors
