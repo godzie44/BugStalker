@@ -2,11 +2,11 @@ use crate::debugger::address::GlobalAddress;
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::{EndianRcSlice, NamespaceHierarchy};
+use crate::debugger::debugee::Debugee;
 use gimli::{
     Attribute, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DwAte, DwTag, Encoding, Range,
     UnitOffset,
 };
-use nix::unistd::Pid;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -78,8 +78,8 @@ impl Unit {
         self.properties.address_size
     }
 
-    pub fn evaluator(&self, pid: Pid) -> ExpressionEvaluator {
-        ExpressionEvaluator::new(self, self.encoding(), pid)
+    pub fn evaluator<'this>(&'this self, debugee: &'this Debugee) -> ExpressionEvaluator {
+        ExpressionEvaluator::new(self, self.encoding(), debugee)
     }
 
     pub fn find_place(&self, line_pos: usize) -> Option<Place> {

@@ -1,5 +1,6 @@
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::thread::{ThreadCtl, TraceeStatus};
+use crate::debugger::debugee::Debugee;
 use crate::debugger::{code, Debugger};
 use anyhow::bail;
 use log::warn;
@@ -84,6 +85,7 @@ impl ControlFlow {
                             }
                         }
                         libc::PTRACE_EVENT_EXIT => {
+                            // Stop the tracee at exit
                             self.threads_ctl.set_stop_status(pid);
                             self.threads_ctl.cont_stopped()?;
                             self.threads_ctl.remove(pid);
@@ -111,9 +113,9 @@ impl ControlFlow {
 
                                 Debugger::set_thread_pc(
                                     pid,
-                                    usize::from(Debugger::get_thread_pc(pid)?) - 1,
+                                    usize::from(Debugee::get_thread_pc_inner(pid)?) - 1,
                                 )?;
-                                let current_pc = Debugger::get_thread_pc(pid)?;
+                                let current_pc = Debugee::get_thread_pc_inner(pid)?;
                                 let offset_pc = current_pc.into_global(mapping_offset.unwrap());
                                 if offset_pc == self.program_ep {
                                     Ok(DebugeeEvent::AtEntryPoint(pid))

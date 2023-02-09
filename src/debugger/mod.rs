@@ -25,7 +25,6 @@ use crate::debugger::register::{
 };
 use crate::debugger::uw::Backtrace;
 use crate::debugger::variable::{VariableIR, VariableIdentity};
-use crate::weak_error;
 use anyhow::anyhow;
 use nix::libc::{c_int, c_void, uintptr_t};
 use nix::sys;
@@ -247,11 +246,7 @@ impl Debugger {
     }
 
     pub fn get_current_thread_pc(&self) -> nix::Result<RelocatedAddress> {
-        Self::get_thread_pc(self.debugee.threads_ctl().thread_in_focus())
-    }
-
-    fn get_thread_pc(tid: Pid) -> nix::Result<RelocatedAddress> {
-        get_register_value(tid, Register::Rip).map(RelocatedAddress::from)
+        self.debugee.get_current_thread_pc()
     }
 
     #[allow(unused)]
@@ -452,11 +447,13 @@ impl Debugger {
 
     fn variables_into_variable_ir(
         &self,
+        pid: Pid,
         vars: &[ContextualDieRef<VariableDie>],
     ) -> anyhow::Result<Vec<VariableIR>> {
         let mut type_cache = self.type_cache.borrow_mut();
         let pc = self
-            .get_current_thread_pc()?
+            .debugee
+            .get_thread_pc(pid)?
             .into_global(self.debugee.mapping_offset());
 
         Ok(vars
@@ -470,17 +467,13 @@ impl Debugger {
                 });
 
                 let mb_value = mb_type.as_ref().and_then(|type_decl| {
-                    var.read_value_at_location(
-                        pc,
-                        &self.debugee,
-                        type_decl,
-                        weak_error!(self.frame_info(self.debugee.threads_ctl().thread_in_focus()))?,
-                    )
+                    var.read_value_at_location(pc, pid, &self.debugee, type_decl)
                 });
 
+                let evaluator = var.unit.evaluator(&self.debugee);
                 VariableIR::new(
                     &EvaluationContext {
-                        unit: var.unit,
+                        evaluator: &evaluator,
                         pid: self.debugee.threads_ctl().thread_in_focus(),
                     },
                     VariableIdentity::new(var.namespaces(), var.die.base_attributes.name.clone()),
@@ -504,7 +497,7 @@ impl Debugger {
             .find_function_by_pc(pc)
             .ok_or_else(|| anyhow!("not in function"))?;
         let vars = current_func.local_variables(pc);
-        self.variables_into_variable_ir(&vars)
+        self.variables_into_variable_ir(self.debugee.threads_ctl().thread_in_focus(), &vars)
     }
 
     // Read any variable from current thread.
@@ -512,13 +505,14 @@ impl Debugger {
         disable_when_not_stared!(self);
 
         let vars = self.debugee.dwarf.find_variables(name);
-        self.variables_into_variable_ir(&vars)
+        self.variables_into_variable_ir(self.debugee.threads_ctl().thread_in_focus(), &vars)
     }
 
     // Read current function parameters.
     pub fn read_arguments(&self) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
 
+        let pid = self.debugee.threads_ctl().thread_in_focus();
         let pc = self
             .get_current_thread_pc()?
             .into_global(self.debugee.mapping_offset());
@@ -541,17 +535,12 @@ impl Debugger {
                 });
 
                 let mb_value = mb_type.as_ref().and_then(|type_decl| {
-                    param.read_value_at_location(
-                        pc,
-                        &self.debugee,
-                        type_decl,
-                        weak_error!(self.frame_info(self.debugee.threads_ctl().thread_in_focus()))?,
-                    )
+                    param.read_value_at_location(pc, pid, &self.debugee, type_decl)
                 });
-
+                let evaluator = param.unit.evaluator(&self.debugee);
                 VariableIR::new(
                     &EvaluationContext {
-                        unit: param.unit,
+                        evaluator: &evaluator,
                         pid: self.debugee.threads_ctl().thread_in_focus(),
                     },
                     VariableIdentity::new(
@@ -589,6 +578,7 @@ impl Debugger {
         disable_when_not_stared!(self);
         let current_pc = self.get_current_thread_pc()?;
         self.debugee.dwarf.registers(
+            &self.debugee,
             pid,
             pc.into_global(self.debugee.mapping_offset()),
             current_pc.into_global(self.debugee.mapping_offset()),

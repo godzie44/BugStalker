@@ -4,7 +4,7 @@ mod symbol;
 pub mod r#type;
 
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
-use crate::debugger::debugee::dwarf::eval::{EvalOption, ExpressionEvaluator};
+use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::parser::unit::{
     DieVariant, Entry, FunctionDie, Node, ParameterDie, Unit, VariableDie,
 };
@@ -13,8 +13,8 @@ use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::debugee::dwarf::r#type::TypeDeclaration;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
 use crate::debugger::debugee::Debugee;
+use crate::debugger::register;
 use crate::debugger::utils::TryGetOrInsert;
-use crate::debugger::{register, FrameInfo};
 use crate::{debugger, weak_error};
 use anyhow::anyhow;
 use bytes::Bytes;
@@ -131,6 +131,7 @@ impl DebugeeContext {
 
     fn evaluate_cfa(
         &self,
+        debugee: &Debugee,
         utr: &UnwindTableRow<EndianRcSlice>,
         pc: GlobalAddress,
         pid: Pid,
@@ -145,15 +146,19 @@ impl DebugeeContext {
                 let unit = self
                     .find_unit_by_pc(pc)
                     .ok_or_else(|| anyhow!("undefined unit"))?;
-                let evaluator = unit.evaluator(pid);
-                let expr_result = evaluator.evaluate(expr.clone())?;
+                let expr_result = unit.evaluator(debugee).evaluate(pid, expr.clone())?;
 
                 Ok((expr_result.into_scalar::<usize>()?).into())
             }
         }
     }
 
-    pub fn get_cfa(&self, pid: Pid, pc: GlobalAddress) -> anyhow::Result<RelocatedAddress> {
+    pub fn get_cfa(
+        &self,
+        debugee: &Debugee,
+        pid: Pid,
+        pc: GlobalAddress,
+    ) -> anyhow::Result<RelocatedAddress> {
         let mut ctx = Box::new(UnwindContext::new());
         let row = self.eh_frame.unwind_info_for_address(
             &self.bases,
@@ -161,11 +166,12 @@ impl DebugeeContext {
             pc.into(),
             EhFrame::cie_from_offset,
         )?;
-        self.evaluate_cfa(row, pc, pid)
+        self.evaluate_cfa(debugee, row, pc, pid)
     }
 
     pub fn registers(
         &self,
+        debugee: &Debugee,
         pid: Pid,
         pc: GlobalAddress,
         current_pc: GlobalAddress,
@@ -179,14 +185,14 @@ impl DebugeeContext {
         )?;
 
         let mut lazy_cfa = None;
-        let cfa_init_fn = || self.evaluate_cfa(row, current_pc, pid);
+        let cfa_init_fn = || self.evaluate_cfa(debugee, row, current_pc, pid);
 
         let mut lazy_evaluator = None;
         let evaluator_init_fn = || -> anyhow::Result<ExpressionEvaluator> {
             let unit = self
                 .find_unit_by_pc(pc)
                 .ok_or_else(|| anyhow!("undefined unit"))?;
-            Ok(unit.evaluator(pid))
+            Ok(unit.evaluator(debugee))
         };
 
         Ok(row
@@ -219,7 +225,7 @@ impl DebugeeContext {
                     RegisterRule::Expression(expr) => {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
-                        let expr_result = weak_error!(evaluator.evaluate(expr.clone()))?;
+                        let expr_result = weak_error!(evaluator.evaluate(pid, expr.clone()))?;
                         let addr = weak_error!(expr_result.into_scalar::<usize>())?;
                         let bytes = weak_error!(debugger::read_memory_by_pid(
                             pid,
@@ -233,7 +239,7 @@ impl DebugeeContext {
                     RegisterRule::ValExpression(expr) => {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
-                        let expr_result = weak_error!(evaluator.evaluate(expr.clone()))?;
+                        let expr_result = weak_error!(evaluator.evaluate(pid, expr.clone()))?;
                         weak_error!(expr_result.into_scalar::<u64>())?
                     }
                     RegisterRule::Architectural => return None,
@@ -505,20 +511,21 @@ impl<'a, T> ContextualDieRef<'a, T> {
 }
 
 impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
-    pub fn frame_base_addr(&self, pid: Pid) -> anyhow::Result<RelocatedAddress> {
+    pub fn frame_base_addr(&self, debugee: &Debugee, pid: Pid) -> anyhow::Result<RelocatedAddress> {
         let attr = self
             .die
             .fb_addr
             .as_ref()
             .ok_or_else(|| anyhow!("no frame base attr"))?;
+        // todo maybe loclist
         let expr = attr
             .exprloc_value()
             .ok_or_else(|| anyhow!("frame base attribute not an expression"))?;
 
         let result = self
             .unit
-            .evaluator(pid)
-            .evaluate(expr)?
+            .evaluator(debugee)
+            .evaluate(pid, expr)?
             .into_scalar::<usize>()?;
 
         Ok(result.into())
@@ -578,55 +585,19 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
     pub fn read_value_at_location(
         &self,
         pc: GlobalAddress,
+        pid: Pid,
         debugee: &Debugee,
         type_decl: &TypeDeclaration,
-        frame_info: FrameInfo,
     ) -> Option<Bytes> {
-        let current_thread = debugee.threads_ctl().thread_in_focus();
-
         self.die
             .location_expr(pc, self.context, self.unit)
             .and_then(|expr| {
-                let mut eval_opts =
-                    EvalOption::new().with_relocation_addr(debugee.mapping_offset());
-                let tls_resolver = |pid: Pid, offset: u64| -> anyhow::Result<RelocatedAddress> {
-                    let lm_addr = debugee.rendezvous().link_map_main();
-                    debugee
-                        .threads_ctl()
-                        .tls_addr(pid, lm_addr, offset as usize)
-                };
-                eval_opts = eval_opts.with_tls_resolver(&tls_resolver);
-                let ep_regs_resolver = |pid: Pid| -> anyhow::Result<HashMap<gimli::Register, u64>> {
-                    let current_fn = debugee
-                        .dwarf
-                        .find_function_by_pc(pc)
-                        .ok_or_else(|| anyhow!("not in function"))?;
-                    let low_pc = current_fn
-                        .die
-                        .base_attributes
-                        .ranges
-                        .iter()
-                        .map(|r| r.begin)
-                        .min()
-                        .ok_or_else(|| anyhow!("entry point pc not found"))?;
-                    debugee
-                        .dwarf
-                        .registers(pid, GlobalAddress::from(low_pc as usize), pc)
-                };
-                eval_opts = eval_opts.with_entry_point_registers_resolver(&ep_regs_resolver);
-                eval_opts = eval_opts.with_frame_info(frame_info);
-                eval_opts = eval_opts.with_debug_addr(self.context.debug_addr());
-
-                let eval_result = weak_error!(self
-                    .unit
-                    .evaluator(current_thread)
-                    .evaluate_with_opts(expr, eval_opts))?;
-
-                // todo send evaluator instead of context
+                let evaluator = self.unit.evaluator(debugee);
+                let eval_result = weak_error!(evaluator.evaluate(pid, expr))?;
                 weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
                     &EvaluationContext {
-                        unit: self.unit,
-                        pid: current_thread,
+                        evaluator: &evaluator,
+                        pid,
                     }
                 )? as usize))
             })
@@ -675,54 +646,19 @@ impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
     pub fn read_value_at_location(
         &self,
         pc: GlobalAddress,
+        pid: Pid,
         debugee: &Debugee,
         type_decl: &TypeDeclaration,
-        frame_info: FrameInfo,
     ) -> Option<Bytes> {
-        let current_thread = debugee.threads_ctl().thread_in_focus();
-
         self.die
             .location_expr(pc, self.context, self.unit)
             .and_then(|expr| {
-                let mut eval_opts =
-                    EvalOption::new().with_relocation_addr(debugee.mapping_offset());
-
-                let tls_resolver = |pid: Pid, offset: u64| -> anyhow::Result<RelocatedAddress> {
-                    let lm_addr = debugee.rendezvous().link_map_main();
-                    debugee
-                        .threads_ctl()
-                        .tls_addr(pid, lm_addr, offset as usize)
-                };
-                eval_opts = eval_opts.with_tls_resolver(&tls_resolver);
-                eval_opts = eval_opts.with_debug_addr(self.context.debug_addr());
-                eval_opts = eval_opts.with_frame_info(frame_info);
-                let ep_regs_resolver = |pid: Pid| -> anyhow::Result<HashMap<gimli::Register, u64>> {
-                    let current_fn = debugee
-                        .dwarf
-                        .find_function_by_pc(pc)
-                        .ok_or_else(|| anyhow!("not in function"))?;
-                    let low_pc = current_fn
-                        .die
-                        .base_attributes
-                        .ranges
-                        .iter()
-                        .map(|r| r.begin)
-                        .min()
-                        .ok_or_else(|| anyhow!("entry point pc not found"))?;
-                    debugee
-                        .dwarf
-                        .registers(pid, GlobalAddress::from(low_pc as usize), pc)
-                };
-                eval_opts = eval_opts.with_entry_point_registers_resolver(&ep_regs_resolver);
-
-                let eval_result = weak_error!(self
-                    .unit
-                    .evaluator(current_thread)
-                    .evaluate_with_opts(expr, eval_opts))?;
+                let evaluator = self.unit.evaluator(debugee);
+                let eval_result = weak_error!(evaluator.evaluate(pid, expr))?;
                 weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
                     &EvaluationContext {
-                        unit: self.unit,
-                        pid: current_thread,
+                        evaluator: &evaluator,
+                        pid,
                     }
                 )? as usize))
             })

@@ -20,6 +20,7 @@ pub mod flow;
 mod rendezvous;
 pub mod thread;
 
+/// Stack frame information.
 #[derive(Debug, Default, Clone)]
 pub struct FrameInfo {
     pub base_addr: RelocatedAddress,
@@ -69,7 +70,6 @@ impl Debugee {
             in_progress: false,
             path: path.into(),
             mapping_addr: None,
-            //  threads_ctl: thread::ThreadCtl::new(proc),
             dwarf: dwarf_builder.build(object)?,
             control_flow: ControlFlow::new(proc, GlobalAddress::from(object.entry() as usize)),
             object_sections: object
@@ -160,9 +160,10 @@ impl Debugee {
             .find_function_by_pc(pc.into_global(self.mapping_offset()))
             .ok_or_else(|| anyhow!("current function not found"))?;
 
-        let base_addr = func.frame_base_addr(pid)?;
+        let base_addr = func.frame_base_addr(self, pid)?;
 
         let cfa = self.dwarf.get_cfa(
+            self,
             self.threads_ctl().thread_in_focus(),
             pc.into_global(self.mapping_offset()),
         )?;
@@ -189,5 +190,17 @@ impl Debugee {
                 }
             })
             .collect())
+    }
+
+    pub fn get_current_thread_pc(&self) -> nix::Result<RelocatedAddress> {
+        self.get_thread_pc(self.threads_ctl().thread_in_focus())
+    }
+
+    pub fn get_thread_pc(&self, pid: Pid) -> nix::Result<RelocatedAddress> {
+        register::get_register_value(pid, Register::Rip).map(RelocatedAddress::from)
+    }
+
+    fn get_thread_pc_inner(pid: Pid) -> nix::Result<RelocatedAddress> {
+        register::get_register_value(pid, Register::Rip).map(RelocatedAddress::from)
     }
 }

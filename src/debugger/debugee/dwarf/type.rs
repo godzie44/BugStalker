@@ -1,5 +1,6 @@
+use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::parser::unit::{
-    ArrayDie, BaseTypeDie, DieVariant, EnumTypeDie, PointerType, StructTypeDie, TypeMemberDie, Unit,
+    ArrayDie, BaseTypeDie, DieVariant, EnumTypeDie, PointerType, StructTypeDie, TypeMemberDie,
 };
 use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianRcSlice, NamespaceHierarchy};
@@ -22,11 +23,12 @@ pub struct MemberLocationExpression {
 impl MemberLocationExpression {
     fn base_addr(&self, eval_ctx: &EvaluationContext, entity_addr: usize) -> anyhow::Result<usize> {
         Ok(eval_ctx
-            .unit
-            .evaluator(eval_ctx.pid)
-            .evaluate_with_opts(
+            .evaluator
+            .evaluate_with_resolver(
+                eval::ExternalRequirementsResolver::new()
+                    .with_at_location(entity_addr.to_ne_bytes()),
+                eval_ctx.pid,
                 self.expr.clone(),
-                eval::EvalOption::new().with_at_location(entity_addr.to_ne_bytes()),
             )?
             .into_scalar::<usize>()?)
     }
@@ -98,9 +100,8 @@ pub struct ArrayBoundValueExpression {
 impl ArrayBoundValueExpression {
     fn bound(&self, eval_ctx: &EvaluationContext) -> anyhow::Result<i64> {
         Ok(eval_ctx
-            .unit
-            .evaluator(eval_ctx.pid)
-            .evaluate_with_opts(self.expr.clone(), eval::EvalOption::new())?
+            .evaluator
+            .evaluate(eval_ctx.pid, self.expr.clone())?
             .into_scalar::<i64>()?)
     }
 }
@@ -565,6 +566,6 @@ impl<'a> From<ContextualDieRef<'a, PointerType>> for TypeDeclaration {
 }
 
 pub struct EvaluationContext<'a> {
-    pub unit: &'a Unit,
+    pub evaluator: &'a ExpressionEvaluator<'a>,
     pub pid: Pid,
 }

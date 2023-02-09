@@ -1,10 +1,10 @@
 use crate::debugger;
-use crate::debugger::address::RelocatedAddress;
+use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::dwarf::eval::EvalError::{OptionRequired, UnsupportedRequire};
 use crate::debugger::debugee::dwarf::parser::unit::{DieVariant, Unit};
 use crate::debugger::debugee::dwarf::EndianRcSlice;
+use crate::debugger::debugee::Debugee;
 use crate::debugger::register::get_register_value_dwarf;
-use crate::debugger::FrameInfo;
 use anyhow::anyhow;
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{
@@ -12,7 +12,9 @@ use gimli::{
     UnitOffset, Value, ValueType,
 };
 use nix::unistd::Pid;
+use std::cell::RefCell;
 use std::cmp::min;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::{mem, result};
 
@@ -32,20 +34,110 @@ pub enum EvalError {
 
 pub type Result<T> = result::Result<T, EvalError>;
 
-#[derive(Default)]
-pub struct EvalOption<'a> {
-    frame_info: Option<FrameInfo>,
-    at_location: Option<Vec<u8>>,
-    relocation_addr: Option<usize>,
-    tls_resolver: Option<&'a dyn Fn(Pid, u64) -> anyhow::Result<RelocatedAddress>>,
-    debug_addr: Option<&'a DebugAddr<EndianRcSlice>>,
-    ep_registers_resolver: Option<&'a dyn Fn(Pid) -> anyhow::Result<HashMap<gimli::Register, u64>>>,
-    registers: Option<HashMap<gimli::Register, u64>>,
+/// Resolve requirements that the `ExpressionEvaluator` may need. Relevant for the current breakpoint.
+/// Some options are lazy to avoid overhead on recalculation.
+struct RequirementsResolver<'a> {
+    debugee: &'a Debugee,
+    cfa: RefCell<HashMap<Pid, RelocatedAddress>>,
+    base_address: RefCell<HashMap<Pid, RelocatedAddress>>,
 }
 
-impl<'a> EvalOption<'a> {
+impl<'a> RequirementsResolver<'a> {
+    fn new(debugee: &'a Debugee) -> Self {
+        RequirementsResolver {
+            debugee,
+            cfa: RefCell::default(),
+            base_address: RefCell::default(),
+        }
+    }
+
+    /// Return base address of current frame.
+    fn base_addr(&self, pid: Pid) -> anyhow::Result<RelocatedAddress> {
+        match self.base_address.borrow_mut().entry(pid) {
+            Entry::Occupied(e) => Ok(*e.get()),
+            Entry::Vacant(e) => {
+                let pc = self.debugee.get_thread_pc(pid)?;
+                let func = self
+                    .debugee
+                    .dwarf
+                    .find_function_by_pc(pc.into_global(self.debugee.mapping_offset()))
+                    .ok_or_else(|| anyhow!("current function not found"))?;
+                let base_addr = func.frame_base_addr(self.debugee, pid)?;
+                Ok(*e.insert(base_addr))
+            }
+        }
+    }
+
+    /// Return canonical frame address of current frame.
+    fn cfa(&self, pid: Pid) -> anyhow::Result<RelocatedAddress> {
+        match self.cfa.borrow_mut().entry(pid) {
+            Entry::Occupied(e) => Ok(*e.get()),
+            Entry::Vacant(e) => {
+                let pc = self.debugee.get_thread_pc(pid)?;
+                let cfa = self.debugee.dwarf.get_cfa(
+                    self.debugee,
+                    pid,
+                    pc.into_global(self.debugee.mapping_offset()),
+                )?;
+                Ok(*e.insert(cfa))
+            }
+        }
+    }
+
+    fn relocation_addr(&self) -> usize {
+        self.debugee.mapping_offset()
+    }
+
+    fn resolve_tls(&self, pid: Pid, offset: u64) -> anyhow::Result<RelocatedAddress> {
+        let lm_addr = self.debugee.rendezvous().link_map_main();
+        self.debugee
+            .threads_ctl()
+            .tls_addr(pid, lm_addr, offset as usize)
+    }
+
+    fn debug_addr_section(&self) -> &DebugAddr<EndianRcSlice> {
+        self.debugee.dwarf.debug_addr()
+    }
+
+    fn resolve_registers(&self, pid: Pid) -> anyhow::Result<HashMap<gimli::Register, u64>> {
+        let pc = self
+            .debugee
+            .get_thread_pc(pid)?
+            .into_global(self.debugee.mapping_offset());
+        let current_fn = self
+            .debugee
+            .dwarf
+            .find_function_by_pc(pc)
+            .ok_or_else(|| anyhow!("not in function"))?;
+        let entry_pc = current_fn
+            .die
+            .base_attributes
+            .ranges
+            .iter()
+            .map(|r| r.begin)
+            .min()
+            .ok_or_else(|| anyhow!("entry point pc not found"))?;
+
+        self.debugee
+            .dwarf
+            .registers(self.debugee, pid, GlobalAddress::from(entry_pc), pc)
+    }
+}
+
+/// Resolve requirements that the `ExpressionEvaluator` may need.
+/// Sets in by callee, the composition of these requirements depends on the context of the calculation.
+#[derive(Default)]
+pub struct ExternalRequirementsResolver {
+    at_location: Option<Vec<u8>>,
+    entry_registers: HashMap<Pid, HashMap<gimli::Register, u64>>,
+}
+
+impl ExternalRequirementsResolver {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            at_location: None,
+            entry_registers: HashMap::default(),
+        }
     }
 
     pub fn with_at_location(self, bytes: impl Into<Vec<u8>>) -> Self {
@@ -55,79 +147,40 @@ impl<'a> EvalOption<'a> {
         }
     }
 
-    pub fn with_relocation_addr(self, addr: usize) -> Self {
+    pub fn with_entry_registers(self, pid: Pid, registers: HashMap<gimli::Register, u64>) -> Self {
+        let mut regs = self.entry_registers;
+        regs.insert(pid, registers);
         Self {
-            relocation_addr: Some(addr),
-            ..self
-        }
-    }
-
-    pub fn with_tls_resolver(
-        self,
-        resolver: &'a dyn Fn(Pid, u64) -> anyhow::Result<RelocatedAddress>,
-    ) -> Self {
-        Self {
-            tls_resolver: Some(resolver),
-            ..self
-        }
-    }
-
-    pub fn with_debug_addr(self, debug_addr: &'a DebugAddr<EndianRcSlice>) -> Self {
-        Self {
-            debug_addr: Some(debug_addr),
-            ..self
-        }
-    }
-
-    pub fn with_frame_info(self, frame_info: FrameInfo) -> Self {
-        Self {
-            frame_info: Some(frame_info),
-            ..self
-        }
-    }
-
-    pub fn with_entry_point_registers_resolver(
-        self,
-        resolver: &'a dyn Fn(Pid) -> anyhow::Result<HashMap<gimli::Register, u64>>,
-    ) -> Self {
-        Self {
-            ep_registers_resolver: Some(resolver),
-            ..self
-        }
-    }
-
-    pub fn with_registers(self, registers: HashMap<gimli::Register, u64>) -> Self {
-        Self {
-            registers: Some(registers),
+            entry_registers: regs,
             ..self
         }
     }
 }
 
-#[derive(Debug)]
 pub struct ExpressionEvaluator<'a> {
     encoding: Encoding,
     unit: &'a Unit,
-    pid: Pid,
+    resolver: RequirementsResolver<'a>,
 }
 
 impl<'a> ExpressionEvaluator<'a> {
-    pub fn new(unit: &'a Unit, encoding: Encoding, pid: Pid) -> Self {
+    pub fn new(unit: &'a Unit, encoding: Encoding, debugee: &'a Debugee) -> Self {
         Self {
             encoding,
             unit,
-            pid,
+            resolver: RequirementsResolver::new(debugee),
         }
     }
 
-    pub fn evaluate(&self, expr: Expression<EndianRcSlice>) -> Result<CompletedResult> {
-        self.evaluate_with_opts(expr, EvalOption::default())
+    pub fn evaluate(&self, pid: Pid, expr: Expression<EndianRcSlice>) -> Result<CompletedResult> {
+        self.evaluate_with_resolver(ExternalRequirementsResolver::default(), pid, expr)
     }
 
-    pub fn evaluate_with_opts(
+    pub fn evaluate_with_resolver(
         &self,
+        mut resolver: ExternalRequirementsResolver,
+        pid: Pid,
         expr: Expression<EndianRcSlice>,
-        mut opts: EvalOption,
     ) -> Result<CompletedResult> {
         let mut eval = expr.evaluation(self.encoding);
 
@@ -140,28 +193,24 @@ impl<'a> ExpressionEvaluator<'a> {
                 } => {
                     let value_type = self.value_type_from_offset(base_type);
 
-                    let bytes = if let Some(ref regs) = opts.registers {
+                    // if there is registers dump for functions entry - use it
+                    let bytes = if let Some(regs) = resolver.entry_registers.remove(&pid) {
                         let bytes = regs.get(&register).ok_or_else(|| {
-                            anyhow!("predefined registers exists, but target not found")
+                            anyhow!("entry registers exists, but target not found")
                         })?;
                         *bytes
                     } else {
-                        get_register_value_dwarf(self.pid, register.0 as i32)?
+                        get_register_value_dwarf(pid, register.0 as i32)?
                     };
                     result = eval.resume_with_register(Value::from_u64(value_type, bytes)?)?;
                 }
                 EvaluationResult::RequiresFrameBase => {
-                    result = eval.resume_with_frame_base(
-                        opts.frame_info
-                            .as_ref()
-                            .ok_or(OptionRequired("frame_info"))?
-                            .base_addr
-                            .into(),
-                    )?;
+                    result = eval.resume_with_frame_base(self.resolver.base_addr(pid)?.into())?;
                 }
                 EvaluationResult::RequiresAtLocation(_) => {
                     let buf = EndianRcSlice::new(
-                        opts.at_location
+                        resolver
+                            .at_location
                             .take()
                             .ok_or(OptionRequired("at_location"))?
                             .into(),
@@ -179,9 +228,8 @@ impl<'a> ExpressionEvaluator<'a> {
                     base_type,
                     ..
                 } => {
-                    let memory =
-                        debugger::read_memory_by_pid(self.pid, address as usize, size as usize)
-                            .map_err(EvalError::Nix)?;
+                    let memory = debugger::read_memory_by_pid(pid, address as usize, size as usize)
+                        .map_err(EvalError::Nix)?;
 
                     let value_type = self.value_type_from_offset(base_type);
                     let value = match value_type {
@@ -200,49 +248,34 @@ impl<'a> ExpressionEvaluator<'a> {
                     result = eval.resume_with_memory(value)?;
                 }
                 EvaluationResult::RequiresRelocatedAddress(addr) => {
-                    let relocation_addr = opts
-                        .relocation_addr
-                        .ok_or(OptionRequired("relocation_addr"))?;
+                    let relocation_addr = self.resolver.relocation_addr();
                     result = eval.resume_with_relocated_address(addr + relocation_addr as u64)?;
                 }
                 EvaluationResult::RequiresTls(offset) => {
-                    let tls_resolver = opts
-                        .tls_resolver
-                        .take()
-                        .ok_or(OptionRequired("tls_resolver"))?;
-                    let addr = tls_resolver(self.pid, offset)?;
+                    let addr = self.resolver.resolve_tls(pid, offset)?;
                     result = eval.resume_with_tls(addr.into())?;
                 }
                 EvaluationResult::RequiresIndexedAddress { index, relocate } => {
-                    let debug_addr = opts.debug_addr.ok_or(OptionRequired("debug_addr"))?;
+                    let debug_addr = self.resolver.debug_addr_section();
                     let mut addr = debug_addr.get_address(
                         self.unit.address_size(),
                         self.unit.addr_base(),
                         index,
                     )?;
                     if relocate {
-                        let relocation_addr = opts
-                            .relocation_addr
-                            .ok_or(OptionRequired("relocation_addr"))?;
-                        addr += relocation_addr as u64;
+                        addr += self.resolver.relocation_addr() as u64;
                     }
                     result = eval.resume_with_indexed_address(addr)?;
                 }
                 EvaluationResult::RequiresCallFrameCfa => {
-                    let frame_info = opts
-                        .frame_info
-                        .as_ref()
-                        .ok_or(OptionRequired("frame_info"))?;
-                    result = eval.resume_with_call_frame_cfa(frame_info.cfa.into())?;
+                    let cfa = self.resolver.cfa(pid)?;
+                    result = eval.resume_with_call_frame_cfa(cfa.into())?;
                 }
                 EvaluationResult::RequiresEntryValue(expr) => {
-                    let resolver = opts
-                        .ep_registers_resolver
-                        .take()
-                        .ok_or(OptionRequired("entry_point_registers_resolver"))?;
-                    let regs = resolver(self.pid)?;
-                    let opts = EvalOption::default().with_registers(regs);
-                    let eval_res = self.evaluate_with_opts(expr, opts)?;
+                    let regs = self.resolver.resolve_registers(pid)?;
+                    let ctx_resolver =
+                        ExternalRequirementsResolver::default().with_entry_registers(pid, regs);
+                    let eval_res = self.evaluate_with_resolver(ctx_resolver, pid, expr)?;
                     let u = eval_res.into_scalar::<u64>()?;
                     result = eval.resume_with_entry_value(Value::Generic(u))?;
                 }
@@ -257,7 +290,7 @@ impl<'a> ExpressionEvaluator<'a> {
 
         Ok(CompletedResult {
             inner: eval.result(),
-            pid: self.pid,
+            pid,
         })
     }
 
