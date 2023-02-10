@@ -31,6 +31,7 @@ uuid = {version = "1.2.2", features = ["v4", "fast-rng", "macro-diagnostics"]}
 os_pipe = "1.1.2"
 proc-maps = "0.3.0"
 thread_db = "0.1.2"
+smallvec = "1.10.0"
 
 [dev-dependencies]
 assert_cmd = "2.0.4"

@@ -67,7 +67,7 @@ impl ThreadCtl {
     }
 
     /// Return current focused thread.
-    pub fn thread_in_focus(&self) -> Pid {
+    pub(super) fn thread_in_focus(&self) -> Pid {
         self.in_focus_tid
     }
 

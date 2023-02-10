@@ -12,7 +12,7 @@ use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::debugee::dwarf::r#type::TypeDeclaration;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
-use crate::debugger::debugee::Debugee;
+use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register;
 use crate::debugger::utils::TryGetOrInsert;
 use crate::{debugger, weak_error};
@@ -27,8 +27,9 @@ use gimli::{
 };
 use nix::unistd::Pid;
 use object::{Object, ObjectSection};
+use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::mem;
 use std::ops::Deref;
 use std::rc::Rc;
@@ -116,6 +117,14 @@ impl DebugeeContextBuilder {
     }
 }
 
+pub struct RegisterDump(SmallVec<[Option<u64>; 0x80]>);
+
+impl RegisterDump {
+    pub fn get(&self, register: Register) -> Option<u64> {
+        self.0.get(register.0 as usize).copied().and_then(|v| v)
+    }
+}
+
 pub struct DebugeeContext<R: gimli::Reader = EndianRcSlice> {
     inner: Dwarf<R>,
     eh_frame: EhFrame<R>,
@@ -133,20 +142,21 @@ impl DebugeeContext {
         &self,
         debugee: &Debugee,
         utr: &UnwindTableRow<EndianRcSlice>,
-        pc: GlobalAddress,
-        pid: Pid,
+        location: Location,
     ) -> anyhow::Result<RelocatedAddress> {
         let rule = utr.cfa();
         match rule {
             RegisterAndOffset { register, offset } => {
-                let ra = register::get_register_value_dwarf(pid, register.0 as i32)?;
+                let ra = register::get_register_value_dwarf(location.pid, register.0 as i32)?;
                 Ok(RelocatedAddress::from(ra as usize).offset(*offset as isize))
             }
             CfaRule::Expression(expr) => {
                 let unit = self
-                    .find_unit_by_pc(pc)
+                    .find_unit_by_pc(location.global_pc)
                     .ok_or_else(|| anyhow!("undefined unit"))?;
-                let expr_result = unit.evaluator(debugee).evaluate(pid, expr.clone())?;
+                let expr_result = unit
+                    .evaluator(debugee)
+                    .evaluate(location.pid, expr.clone())?;
 
                 Ok((expr_result.into_scalar::<usize>()?).into())
             }
@@ -156,58 +166,58 @@ impl DebugeeContext {
     pub fn get_cfa(
         &self,
         debugee: &Debugee,
-        pid: Pid,
-        pc: GlobalAddress,
+        location: Location,
     ) -> anyhow::Result<RelocatedAddress> {
         let mut ctx = Box::new(UnwindContext::new());
         let row = self.eh_frame.unwind_info_for_address(
             &self.bases,
             &mut ctx,
-            pc.into(),
+            location.global_pc.into(),
             EhFrame::cie_from_offset,
         )?;
-        self.evaluate_cfa(debugee, row, pc, pid)
+        self.evaluate_cfa(debugee, row, location)
     }
 
     pub fn registers(
         &self,
         debugee: &Debugee,
-        pid: Pid,
-        pc: GlobalAddress,
-        current_pc: GlobalAddress,
-    ) -> anyhow::Result<HashMap<Register, u64>> {
+        location: Location,
+        current_location: Location,
+    ) -> anyhow::Result<RegisterDump> {
         let mut ctx = Box::new(UnwindContext::new());
         let row = self.eh_frame.unwind_info_for_address(
             &self.bases,
             &mut ctx,
-            pc.into(),
+            location.global_pc.into(),
             EhFrame::cie_from_offset,
         )?;
 
         let mut lazy_cfa = None;
-        let cfa_init_fn = || self.evaluate_cfa(debugee, row, current_pc, pid);
+        let cfa_init_fn = || self.evaluate_cfa(debugee, row, current_location);
 
         let mut lazy_evaluator = None;
         let evaluator_init_fn = || -> anyhow::Result<ExpressionEvaluator> {
             let unit = self
-                .find_unit_by_pc(pc)
+                .find_unit_by_pc(location.global_pc)
                 .ok_or_else(|| anyhow!("undefined unit"))?;
             Ok(unit.evaluator(debugee))
         };
 
-        Ok(row
-            .registers()
+        let mut registers: SmallVec<[Option<u64>; 0x80]> = smallvec![None; 0x80];
+
+        row.registers()
             .filter_map(|(register, rule)| {
                 let value = match rule {
                     RegisterRule::Undefined => return None,
-                    RegisterRule::SameValue => {
-                        weak_error!(register::get_register_value_dwarf(pid, register.0 as i32))?
-                    }
+                    RegisterRule::SameValue => weak_error!(register::get_register_value_dwarf(
+                        location.pid,
+                        register.0 as i32
+                    ))?,
                     RegisterRule::Offset(offset) => {
                         let cfa = *weak_error!(lazy_cfa.try_get_or_insert_with(cfa_init_fn))?;
                         let addr = cfa.offset(*offset as isize);
                         let bytes = weak_error!(debugger::read_memory_by_pid(
-                            pid,
+                            location.pid,
                             addr.into(),
                             mem::size_of::<u64>()
                         ))?;
@@ -219,16 +229,17 @@ impl DebugeeContext {
                         let cfa = *weak_error!(lazy_cfa.try_get_or_insert_with(cfa_init_fn))?;
                         cfa.offset(*offset as isize).into()
                     }
-                    RegisterRule::Register(reg) => {
-                        weak_error!(register::get_register_value_dwarf(pid, reg.0 as i32))?
-                    }
+                    RegisterRule::Register(reg) => weak_error!(
+                        register::get_register_value_dwarf(location.pid, reg.0 as i32)
+                    )?,
                     RegisterRule::Expression(expr) => {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
-                        let expr_result = weak_error!(evaluator.evaluate(pid, expr.clone()))?;
+                        let expr_result =
+                            weak_error!(evaluator.evaluate(location.pid, expr.clone()))?;
                         let addr = weak_error!(expr_result.into_scalar::<usize>())?;
                         let bytes = weak_error!(debugger::read_memory_by_pid(
-                            pid,
+                            location.pid,
                             addr,
                             mem::size_of::<u64>()
                         ))?;
@@ -239,7 +250,8 @@ impl DebugeeContext {
                     RegisterRule::ValExpression(expr) => {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
-                        let expr_result = weak_error!(evaluator.evaluate(pid, expr.clone()))?;
+                        let expr_result =
+                            weak_error!(evaluator.evaluate(location.pid, expr.clone()))?;
                         weak_error!(expr_result.into_scalar::<u64>())?
                     }
                     RegisterRule::Architectural => return None,
@@ -247,7 +259,9 @@ impl DebugeeContext {
 
                 Some((*register, value))
             })
-            .collect())
+            .for_each(|(reg, val)| registers.insert(reg.0 as usize, Some(val)));
+
+        Ok(RegisterDump(registers))
     }
 
     pub fn debug_addr(&self) -> &DebugAddr<EndianRcSlice> {
@@ -584,20 +598,19 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
 impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
     pub fn read_value_at_location(
         &self,
-        pc: GlobalAddress,
-        pid: Pid,
+        location: Location,
         debugee: &Debugee,
         type_decl: &TypeDeclaration,
     ) -> Option<Bytes> {
         self.die
-            .location_expr(pc, self.context, self.unit)
+            .location_expr(location.global_pc, self.context, self.unit)
             .and_then(|expr| {
                 let evaluator = self.unit.evaluator(debugee);
-                let eval_result = weak_error!(evaluator.evaluate(pid, expr))?;
+                let eval_result = weak_error!(evaluator.evaluate(location.pid, expr))?;
                 weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
                     &EvaluationContext {
                         evaluator: &evaluator,
-                        pid,
+                        pid: location.pid,
                     }
                 )? as usize))
             })
@@ -645,20 +658,19 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
 impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
     pub fn read_value_at_location(
         &self,
-        pc: GlobalAddress,
-        pid: Pid,
+        location: Location,
         debugee: &Debugee,
         type_decl: &TypeDeclaration,
     ) -> Option<Bytes> {
         self.die
-            .location_expr(pc, self.context, self.unit)
+            .location_expr(location.global_pc, self.context, self.unit)
             .and_then(|expr| {
                 let evaluator = self.unit.evaluator(debugee);
-                let eval_result = weak_error!(evaluator.evaluate(pid, expr))?;
+                let eval_result = weak_error!(evaluator.evaluate(location.pid, expr))?;
                 weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
                     &EvaluationContext {
                         evaluator: &evaluator,
-                        pid,
+                        pid: location.pid,
                     }
                 )? as usize))
             })

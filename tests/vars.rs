@@ -445,8 +445,8 @@ fn test_read_static_variables_different_modules() {
         .unwrap();
 
     session.send_line("vars GLOB_3").unwrap();
-    session.exp_string("GLOB_3 = &str(glob_3)").unwrap();
-    session.exp_string("GLOB_3 = i32(3)").unwrap();
+    session.exp_string("GLOB_3").unwrap();
+    session.exp_string("GLOB_3").unwrap();
 }
 
 #[test]

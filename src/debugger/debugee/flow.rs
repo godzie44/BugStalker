@@ -1,7 +1,7 @@
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::thread::{ThreadCtl, TraceeStatus};
-use crate::debugger::debugee::Debugee;
-use crate::debugger::{code, Debugger};
+use crate::debugger::register::Register;
+use crate::debugger::{code, register};
 use anyhow::bail;
 use log::warn;
 use nix::errno::Errno;
@@ -111,11 +111,8 @@ impl ControlFlow {
                                 self.threads_ctl.set_stop_status(pid);
                                 self.threads_ctl.interrupt_running()?;
 
-                                Debugger::set_thread_pc(
-                                    pid,
-                                    usize::from(Debugee::get_thread_pc_inner(pid)?) - 1,
-                                )?;
-                                let current_pc = Debugee::get_thread_pc_inner(pid)?;
+                                self.set_thread_pc(pid, u64::from(self.thread_pc(pid)?) - 1)?;
+                                let current_pc = self.thread_pc(pid)?;
                                 let offset_pc = current_pc.into_global(mapping_offset.unwrap());
                                 if offset_pc == self.program_ep {
                                     Ok(DebugeeEvent::AtEntryPoint(pid))
@@ -139,6 +136,14 @@ impl ControlFlow {
                 }
             };
         }
+    }
+
+    pub fn thread_pc(&self, tid: Pid) -> nix::Result<RelocatedAddress> {
+        register::get_register_value(tid, Register::Rip).map(RelocatedAddress::from)
+    }
+
+    fn set_thread_pc(&self, tid: Pid, value: u64) -> nix::Result<()> {
+        register::set_register_value(tid, Register::Rip, value)
     }
 
     pub fn thread_step(tid: Pid) -> anyhow::Result<()> {

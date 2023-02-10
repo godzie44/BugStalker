@@ -1,8 +1,9 @@
 use crate::debugger;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
+use crate::debugger::debugee;
 use crate::debugger::debugee::dwarf::eval::EvalError::{OptionRequired, UnsupportedRequire};
 use crate::debugger::debugee::dwarf::parser::unit::{DieVariant, Unit};
-use crate::debugger::debugee::dwarf::EndianRcSlice;
+use crate::debugger::debugee::dwarf::{EndianRcSlice, RegisterDump};
 use crate::debugger::debugee::Debugee;
 use crate::debugger::register::get_register_value_dwarf;
 use anyhow::anyhow;
@@ -56,11 +57,11 @@ impl<'a> RequirementsResolver<'a> {
         match self.base_address.borrow_mut().entry(pid) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(e) => {
-                let pc = self.debugee.get_thread_pc(pid)?;
+                let loc = self.debugee.thread_stop_at(pid)?;
                 let func = self
                     .debugee
                     .dwarf
-                    .find_function_by_pc(pc.into_global(self.debugee.mapping_offset()))
+                    .find_function_by_pc(loc.global_pc)
                     .ok_or_else(|| anyhow!("current function not found"))?;
                 let base_addr = func.frame_base_addr(self.debugee, pid)?;
                 Ok(*e.insert(base_addr))
@@ -73,12 +74,8 @@ impl<'a> RequirementsResolver<'a> {
         match self.cfa.borrow_mut().entry(pid) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(e) => {
-                let pc = self.debugee.get_thread_pc(pid)?;
-                let cfa = self.debugee.dwarf.get_cfa(
-                    self.debugee,
-                    pid,
-                    pc.into_global(self.debugee.mapping_offset()),
-                )?;
+                let loc = self.debugee.thread_stop_at(pid)?;
+                let cfa = self.debugee.dwarf.get_cfa(self.debugee, loc)?;
                 Ok(*e.insert(cfa))
             }
         }
@@ -99,28 +96,32 @@ impl<'a> RequirementsResolver<'a> {
         self.debugee.dwarf.debug_addr()
     }
 
-    fn resolve_registers(&self, pid: Pid) -> anyhow::Result<HashMap<gimli::Register, u64>> {
-        let pc = self
-            .debugee
-            .get_thread_pc(pid)?
-            .into_global(self.debugee.mapping_offset());
+    fn resolve_registers(&self, pid: Pid) -> anyhow::Result<RegisterDump> {
+        let current_loc = self.debugee.thread_stop_at(pid)?;
         let current_fn = self
             .debugee
             .dwarf
-            .find_function_by_pc(pc)
+            .find_function_by_pc(current_loc.global_pc)
             .ok_or_else(|| anyhow!("not in function"))?;
-        let entry_pc = current_fn
+        let entry_pc: GlobalAddress = current_fn
             .die
             .base_attributes
             .ranges
             .iter()
             .map(|r| r.begin)
             .min()
-            .ok_or_else(|| anyhow!("entry point pc not found"))?;
+            .ok_or_else(|| anyhow!("entry point pc not found"))?
+            .into();
 
-        self.debugee
-            .dwarf
-            .registers(self.debugee, pid, GlobalAddress::from(entry_pc), pc)
+        self.debugee.dwarf.registers(
+            self.debugee,
+            debugee::Location {
+                pid,
+                pc: entry_pc.relocate(self.debugee.mapping_offset()),
+                global_pc: entry_pc,
+            },
+            current_loc,
+        )
     }
 }
 
@@ -129,7 +130,7 @@ impl<'a> RequirementsResolver<'a> {
 #[derive(Default)]
 pub struct ExternalRequirementsResolver {
     at_location: Option<Vec<u8>>,
-    entry_registers: HashMap<Pid, HashMap<gimli::Register, u64>>,
+    entry_registers: HashMap<Pid, RegisterDump>,
 }
 
 impl ExternalRequirementsResolver {
@@ -147,7 +148,7 @@ impl ExternalRequirementsResolver {
         }
     }
 
-    pub fn with_entry_registers(self, pid: Pid, registers: HashMap<gimli::Register, u64>) -> Self {
+    pub fn with_entry_registers(self, pid: Pid, registers: RegisterDump) -> Self {
         let mut regs = self.entry_registers;
         regs.insert(pid, registers);
         Self {
@@ -195,10 +196,9 @@ impl<'a> ExpressionEvaluator<'a> {
 
                     // if there is registers dump for functions entry - use it
                     let bytes = if let Some(regs) = resolver.entry_registers.remove(&pid) {
-                        let bytes = regs.get(&register).ok_or_else(|| {
+                        regs.get(register).ok_or_else(|| {
                             anyhow!("entry registers exists, but target not found")
-                        })?;
-                        *bytes
+                        })?
                     } else {
                         get_register_value_dwarf(pid, register.0 as i32)?
                     };

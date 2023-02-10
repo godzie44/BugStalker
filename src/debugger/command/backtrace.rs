@@ -10,8 +10,6 @@ impl<'a> Backtrace<'a> {
     }
 
     pub fn run(&self) -> command::Result<uw::Backtrace> {
-        Ok(self
-            .dbg
-            .backtrace(self.dbg.debugee.threads_ctl().thread_in_focus())?)
+        Ok(self.dbg.backtrace(self.dbg.debugee.thread_in_focus())?)
     }
 }

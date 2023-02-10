@@ -90,12 +90,12 @@ fn test_registers() {
 
         // there is only info about return address (dwarf reg 16) in .debug_info section
         // so assert it with libunwind provided address
-        let pc = debugger.get_current_thread_pc().unwrap();
+        let pc = debugger.current_thread_stop_at().unwrap().pc;
         let frame = debugger.frame_info(child).unwrap();
-        let registers = debugger.current_thread_registers(pc).unwrap();
+        let registers = debugger.current_thread_registers_at_pc(pc).unwrap();
         assert_eq!(
             u64::from(frame.return_addr.unwrap()),
-            *registers.get(&gimli::Register(16)).unwrap()
+            registers.get(gimli::Register(16)).unwrap()
         );
 
         mem::drop(debugger);

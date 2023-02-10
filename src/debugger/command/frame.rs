@@ -10,8 +10,6 @@ impl<'a> Frame<'a> {
     }
 
     pub fn run(&self) -> command::Result<FrameInfo> {
-        Ok(self
-            .dbg
-            .frame_info(self.dbg.debugee.threads_ctl().thread_in_focus())?)
+        Ok(self.dbg.frame_info(self.dbg.debugee.thread_in_focus())?)
     }
 }

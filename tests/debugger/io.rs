@@ -23,7 +23,7 @@ fn test_read_register_write() {
         debugger.continue_debugee().unwrap();
 
         // assert that breakpoint hit again
-        let pc = debugger.get_current_thread_pc().unwrap();
+        let pc = debugger.current_thread_stop_at().unwrap().pc;
         assert_eq!(pc, RelocatedAddress::from(0x55555555BD6C_usize));
 
         debugger.continue_debugee().unwrap();

@@ -37,6 +37,15 @@ pub struct ThreadDump {
     pub in_focus: bool,
 }
 
+/// Contains the address (location) of the thread PID
+/// and instruction being executed at the current time
+#[derive(Clone, Copy)]
+pub struct Location {
+    pub pc: RelocatedAddress,
+    pub global_pc: GlobalAddress,
+    pub pid: Pid,
+}
+
 /// Debugee - represent static and runtime debugee information.
 pub struct Debugee {
     /// true if debugee currently start.
@@ -154,24 +163,20 @@ impl Debugee {
         Ok(lowest_map.start())
     }
 
-    pub fn frame_info(&self, pid: Pid, pc: RelocatedAddress) -> anyhow::Result<FrameInfo> {
+    pub fn frame_info(&self, location: Location) -> anyhow::Result<FrameInfo> {
         let func = self
             .dwarf
-            .find_function_by_pc(pc.into_global(self.mapping_offset()))
+            .find_function_by_pc(location.global_pc)
             .ok_or_else(|| anyhow!("current function not found"))?;
 
-        let base_addr = func.frame_base_addr(self, pid)?;
+        let base_addr = func.frame_base_addr(self, location.pid)?;
 
-        let cfa = self.dwarf.get_cfa(
-            self,
-            self.threads_ctl().thread_in_focus(),
-            pc.into_global(self.mapping_offset()),
-        )?;
+        let cfa = self.dwarf.get_cfa(self, location)?;
 
         Ok(FrameInfo {
             cfa,
             base_addr,
-            return_addr: uw::return_addr(pid)?,
+            return_addr: uw::return_addr(location.pid)?,
         })
     }
 
@@ -192,15 +197,20 @@ impl Debugee {
             .collect())
     }
 
-    pub fn get_current_thread_pc(&self) -> nix::Result<RelocatedAddress> {
-        self.get_thread_pc(self.threads_ctl().thread_in_focus())
+    pub fn thread_in_focus(&self) -> Pid {
+        self.threads_ctl().thread_in_focus()
     }
 
-    pub fn get_thread_pc(&self, pid: Pid) -> nix::Result<RelocatedAddress> {
-        register::get_register_value(pid, Register::Rip).map(RelocatedAddress::from)
+    pub fn current_thread_stop_at(&self) -> nix::Result<Location> {
+        self.thread_stop_at(self.threads_ctl().thread_in_focus())
     }
 
-    fn get_thread_pc_inner(pid: Pid) -> nix::Result<RelocatedAddress> {
-        register::get_register_value(pid, Register::Rip).map(RelocatedAddress::from)
+    pub fn thread_stop_at(&self, tid: Pid) -> nix::Result<Location> {
+        let pc = self.control_flow.thread_pc(tid)?;
+        Ok(Location {
+            pid: tid,
+            pc,
+            global_pc: pc.into_global(self.mapping_offset()),
+        })
     }
 }

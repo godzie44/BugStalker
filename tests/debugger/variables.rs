@@ -4,6 +4,7 @@ use crate::common::TestHooks;
 use crate::{debugger_env, VARS_APP};
 use bugstalker::debugger;
 use bugstalker::debugger::variable;
+use bugstalker::debugger::variable::render::RenderRepr;
 use bugstalker::debugger::variable::VariableIR;
 use debugger::variable::SupportedScalar;
 use serial_test::serial;
@@ -672,8 +673,10 @@ fn test_read_static_variables_different_modules() {
         debugger.run_debugee().unwrap();
         assert_eq!(info.line.take(), Some(185));
 
-        let vars = debugger.read_variable("GLOB_3").unwrap();
+        let mut vars = debugger.read_variable("GLOB_3").unwrap();
         assert_eq!(vars.len(), 2);
+        vars.sort_by(|v1, v2| v1.r#type().cmp(v2.r#type()));
+
         assert_str(&vars[0], "GLOB_3", "glob_3");
         assert_scalar(&vars[1], "GLOB_3", "i32", Some(SupportedScalar::I32(3)));
 

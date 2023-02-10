@@ -27,8 +27,8 @@ fn test_brkpt_on_addr() {
             .unwrap();
         debugger.run_debugee().unwrap();
 
-        let pc = debugger.get_current_thread_pc().unwrap();
-        assert_eq!(RelocatedAddress::from(0x55555555BD63_usize), pc);
+        let location = debugger.current_thread_stop_at().unwrap();
+        assert_eq!(RelocatedAddress::from(0x55555555BD63_usize), location.pc);
 
         debugger.continue_debugee().unwrap();
 
@@ -53,11 +53,11 @@ fn test_multiple_brkpt_on_addr() {
             .unwrap();
 
         debugger.run_debugee().unwrap();
-        let pc = debugger.get_current_thread_pc().unwrap();
+        let pc = debugger.current_thread_stop_at().unwrap().pc;
         assert_eq!(RelocatedAddress::from(0x0055555555BD30_usize), pc);
 
         debugger.continue_debugee().unwrap();
-        let pc = debugger.get_current_thread_pc().unwrap();
+        let pc = debugger.current_thread_stop_at().unwrap().pc;
         assert_eq!(RelocatedAddress::from(0x55555555BD63_usize), pc);
 
         debugger.continue_debugee().unwrap();
@@ -75,12 +75,12 @@ fn test_brkpt_on_function() {
         debugger.set_breakpoint_at_fn("myprint").unwrap();
 
         debugger.run_debugee().unwrap();
-        let pc = debugger.get_current_thread_pc().unwrap();
+        let pc = debugger.current_thread_stop_at().unwrap().pc;
         assert_eq!(RelocatedAddress::from(0x55555555BD7E_usize), pc);
         assert_eq!(info.line.take(), Some(15));
 
         debugger.continue_debugee().unwrap();
-        let pc = debugger.get_current_thread_pc().unwrap();
+        let pc = debugger.current_thread_stop_at().unwrap().pc;
         assert_eq!(RelocatedAddress::from(0x55555555BD7E_usize), pc);
         assert_eq!(info.line.take(), Some(15));
 
@@ -101,12 +101,12 @@ fn test_brkpt_on_line() {
             .unwrap();
 
         debugger.run_debugee().unwrap();
-        let pc = debugger.get_current_thread_pc().unwrap();
+        let pc = debugger.current_thread_stop_at().unwrap().pc;
         assert_eq!(RelocatedAddress::from(0x55555555BD7E_usize), pc);
         assert_eq!(info.line.take(), Some(15));
 
         debugger.continue_debugee().unwrap();
-        let pc = debugger.get_current_thread_pc().unwrap();
+        let pc = debugger.current_thread_stop_at().unwrap().pc;
         assert_eq!(RelocatedAddress::from(0x55555555BD7E_usize), pc);
         assert_eq!(info.line.take(), Some(15));
 
