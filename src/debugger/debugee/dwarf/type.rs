@@ -1,12 +1,14 @@
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::parser::unit::{
     ArrayDie, BaseTypeDie, DieVariant, EnumTypeDie, PointerType, StructTypeDie, TypeMemberDie,
+    UnionTypeDie,
 };
 use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianRcSlice, NamespaceHierarchy};
 use crate::weak_error;
 use bytes::Bytes;
 use gimli::{AttributeValue, DwAte, Expression};
+use log::warn;
 use nix::unistd::Pid;
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -209,6 +211,12 @@ pub enum TypeDeclaration {
         members: Vec<StructureMember>,
         type_params: HashMap<String, Option<TypeDeclaration>>,
     },
+    Union {
+        namespaces: NamespaceHierarchy,
+        name: Option<String>,
+        byte_size: Option<u64>,
+        members: Vec<StructureMember>,
+    },
     CStyleEnum {
         namespaces: NamespaceHierarchy,
         name: Option<String>,
@@ -247,6 +255,7 @@ impl TypeDeclaration {
             TypeDeclaration::CStyleEnum { name, .. } => name.clone(),
             TypeDeclaration::RustEnum { name, .. } => name.clone(),
             TypeDeclaration::Pointer { name, .. } => name.clone(),
+            TypeDeclaration::Union { name, .. } => name.clone(),
         }
     }
 
@@ -258,6 +267,7 @@ impl TypeDeclaration {
             TypeDeclaration::CStyleEnum { byte_size, .. } => *byte_size,
             TypeDeclaration::RustEnum { byte_size, .. } => *byte_size,
             TypeDeclaration::Pointer { .. } => Some(mem::size_of::<usize>() as u64),
+            TypeDeclaration::Union { byte_size, .. } => *byte_size,
         }
     }
 
@@ -294,7 +304,16 @@ impl TypeDeclaration {
                 node: &entry.node,
                 die,
             })),
-            _ => None,
+            DieVariant::UnionTypeDie(die) => Some(TypeDeclaration::from(ContextualDieRef {
+                context: ctx_die.context,
+                unit: ctx_die.unit,
+                node: &entry.node,
+                die,
+            })),
+            _ => {
+                warn!("unsupported type die: {:?}", entry.die);
+                None
+            }
         })
     }
 
@@ -441,6 +460,36 @@ impl<'a> From<ContextualDieRef<'a, StructTypeDie>> for TypeDeclaration {
             TypeDeclaration::from_struct_enum_type(ctx_die)
         } else {
             TypeDeclaration::from_struct_type(ctx_die)
+        }
+    }
+}
+
+impl<'a> From<ContextualDieRef<'a, UnionTypeDie>> for TypeDeclaration {
+    fn from(ctx_die: ContextualDieRef<'a, UnionTypeDie>) -> Self {
+        let name = ctx_die.die.base_attributes.name.clone();
+        let members = ctx_die
+            .node
+            .children
+            .iter()
+            .filter_map(|child_idx| {
+                let entry = &ctx_die.unit.entries[*child_idx];
+                if let DieVariant::TypeMember(member) = &entry.die {
+                    return Some(StructureMember::from(ContextualDieRef {
+                        context: ctx_die.context,
+                        unit: ctx_die.unit,
+                        node: &entry.node,
+                        die: member,
+                    }));
+                }
+                None
+            })
+            .collect::<Vec<_>>();
+
+        TypeDeclaration::Union {
+            namespaces: ctx_die.namespaces(),
+            name,
+            byte_size: ctx_die.die.byte_size,
+            members,
         }
     }
 }

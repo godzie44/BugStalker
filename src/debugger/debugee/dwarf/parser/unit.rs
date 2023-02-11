@@ -209,7 +209,6 @@ pub struct ArraySubrangeDie {
 #[derive(Debug)]
 pub struct StructTypeDie {
     pub base_attributes: DieAttributes,
-    #[allow(unused)]
     pub byte_size: Option<u64>,
 }
 
@@ -275,6 +274,12 @@ pub struct ParameterDie {
 }
 
 #[derive(Debug)]
+pub struct UnionTypeDie {
+    pub base_attributes: DieAttributes,
+    pub byte_size: Option<u64>,
+}
+
+#[derive(Debug)]
 pub enum DieVariant {
     Function(FunctionDie),
     LexicalBlock(LexicalBlockDie),
@@ -282,6 +287,7 @@ pub enum DieVariant {
     BaseType(BaseTypeDie),
     StructType(StructTypeDie),
     TypeMember(TypeMemberDie),
+    UnionTypeDie(UnionTypeDie),
     ArrayType(ArrayDie),
     ArraySubrange(ArraySubrangeDie),
     Default(DieAttributes),

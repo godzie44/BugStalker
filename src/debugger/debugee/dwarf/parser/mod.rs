@@ -3,8 +3,8 @@ pub mod unit;
 use crate::debugger::debugee::dwarf::parser::unit::{
     ArrayDie, ArraySubrangeDie, BaseTypeDie, DieAttributes, DieRange, DieVariant, Entry,
     EnumTypeDie, EnumeratorDie, FunctionDie, LexicalBlockDie, LineRow, Namespace, Node,
-    ParameterDie, PointerType, StructTypeDie, TemplateTypeParameter, TypeMemberDie, Unit,
-    UnitProperties, VariableDie, Variant, VariantPart,
+    ParameterDie, PointerType, StructTypeDie, TemplateTypeParameter, TypeMemberDie, UnionTypeDie,
+    Unit, UnitProperties, VariableDie, Variant, VariantPart,
 };
 use crate::debugger::debugee::dwarf::{EndianRcSlice, NamespaceHierarchy};
 use crate::debugger::rust::Environment;
@@ -195,6 +195,10 @@ impl<'a> DwarfUnitParser<'a> {
                     byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
                     location: die.attr(DW_AT_data_member_location)?,
                     type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
+                }),
+                gimli::DW_TAG_union_type => DieVariant::UnionTypeDie(UnionTypeDie {
+                    base_attributes: base_attrs,
+                    byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
                 }),
                 gimli::DW_TAG_lexical_block => DieVariant::LexicalBlock(LexicalBlockDie {
                     base_attributes: base_attrs,

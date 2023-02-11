@@ -880,3 +880,27 @@ fn test_arguments() {
         assert_no_proc!(child);
     });
 }
+
+#[test]
+#[serial]
+fn test_read_union() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 249).unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(249));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_struct(&vars[0], "union", "Union1", |i, member| match i {
+            0 => assert_scalar(member, "f1", "f32", Some(SupportedScalar::F32(1.1))),
+            1 => assert_scalar(member, "u2", "u64", Some(SupportedScalar::U64(1066192077))),
+            2 => assert_scalar(member, "u3", "u8", Some(SupportedScalar::U8(205))),
+            _ => panic!("3 members expected"),
+        });
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
+    });
+}

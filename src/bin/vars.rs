@@ -236,6 +236,19 @@ fn arguments(by_val: i32, by_ref: &i32, vec: Vec<u8>, box_arr: Box<[u8]>) {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn unions() {
+    #[repr(C)]
+    union Union1 {
+        f1: f32,
+        u2: u64,
+        u3: u8,
+    }
+    let union = Union1 { f1: 1.1 };
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -251,4 +264,5 @@ pub fn main() {
     thread_local();
     fn_and_closure();
     arguments(1, &2, vec![3, 4, 5], Box::new([6, 7, 8]));
+    unions();
 }

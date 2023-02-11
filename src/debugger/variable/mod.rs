@@ -461,6 +461,11 @@ impl VariableIR {
                         target_type.as_ref().map(|t| t.as_ref()),
                     ))
                 }
+                TypeDeclaration::Union { members, .. } => {
+                    let struct_var =
+                        StructVariable::new(eval_ctx, identity, value, type_name, members);
+                    VariableIR::Struct(struct_var)
+                }
             },
             _ => {
                 todo!()
