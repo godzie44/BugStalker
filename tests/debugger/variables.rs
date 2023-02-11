@@ -161,7 +161,6 @@ fn assert_uninit_tls(var: &VariableIR, exp_name: &str, exp_type: &str) {
 
 #[test]
 #[serial]
-#[allow(unused)]
 fn test_read_scalar_variables() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
@@ -213,6 +212,22 @@ fn test_read_scalar_variables() {
 
         debugger.continue_debugee().unwrap();
         assert_no_proc!(child);
+    });
+}
+
+#[test]
+#[serial]
+fn test_read_scalar_variables_at_place() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 7).unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(7));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_eq!(vars.len(), 4)
     });
 }
 
