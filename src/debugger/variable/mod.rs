@@ -325,7 +325,11 @@ impl PointerVariable {
 
         PointerVariable {
             identity,
-            type_name,
+            type_name: type_name.or_else(|| {
+                deref_var
+                    .as_ref()
+                    .map(|dv| format!("*{deref_type}", deref_type = dv.r#type()))
+            }),
             value: mb_ptr,
             deref: deref_var,
         }

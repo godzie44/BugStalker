@@ -92,15 +92,6 @@ fn assert_pointer(
     with_deref(ptr.deref.as_ref().unwrap());
 }
 
-fn assert_anon_pointer(var: &VariableIR, exp_name: &str, with_deref: impl FnOnce(&VariableIR)) {
-    let VariableIR::Pointer(ptr) = var else {
-        panic!("not a pointer");
-    };
-    assert_eq!(ptr.identity.name.as_ref().unwrap(), exp_name);
-    assert!(ptr.type_name.is_none());
-    with_deref(ptr.deref.as_ref().unwrap());
-}
-
 fn assert_vec(
     var: &VariableIR,
     exp_name: &str,
@@ -779,7 +770,7 @@ fn test_read_closures() {
         });
         assert_struct(&vars[7], "trait_once", "alloc::boxed::Box<dyn core::ops::function::FnOnce<(), Output=()>, alloc::alloc::Global>", |i, member| {
             match i {
-                0 => assert_anon_pointer(member, "pointer", |deref| {
+                0 => assert_pointer(member, "pointer", "*dyn core::ops::function::FnOnce<(), Output=()>", |deref| {
                     assert_struct(deref, "*", "dyn core::ops::function::FnOnce<(), Output=()>" ,|_, _| {});
                 }),
                 1 => assert_pointer(member, "vtable", "&[usize; 3]", |deref| {
@@ -793,7 +784,7 @@ fn test_read_closures() {
         });
         assert_struct(&vars[8], "trait_mut", "alloc::boxed::Box<dyn core::ops::function::FnMut<(), Output=()>, alloc::alloc::Global>", |i, member| {
             match i {
-                0 => assert_anon_pointer(member, "pointer", |deref| {
+                0 => assert_pointer(member, "pointer", "*dyn core::ops::function::FnMut<(), Output=()>", |deref| {
                     assert_struct(deref, "*", "dyn core::ops::function::FnMut<(), Output=()>" ,|_, _| {});
                 }),
                 1 => assert_pointer(member, "vtable", "&[usize; 3]", |deref| {
@@ -810,14 +801,19 @@ fn test_read_closures() {
             "trait_fn",
             "alloc::boxed::Box<dyn core::ops::function::Fn<(), Output=()>, alloc::alloc::Global>",
             |i, member| match i {
-                0 => assert_anon_pointer(member, "pointer", |deref| {
-                    assert_struct(
-                        deref,
-                        "*",
-                        "dyn core::ops::function::Fn<(), Output=()>",
-                        |_, _| {},
-                    );
-                }),
+                0 => assert_pointer(
+                    member,
+                    "pointer",
+                    "*dyn core::ops::function::Fn<(), Output=()>",
+                    |deref| {
+                        assert_struct(
+                            deref,
+                            "*",
+                            "dyn core::ops::function::Fn<(), Output=()>",
+                            |_, _| {},
+                        );
+                    },
+                ),
                 1 => assert_pointer(member, "vtable", "&[usize; 3]", |deref| {
                     assert_array(deref, "*", "[usize]", |i, _| match i {
                         0 | 1 | 2 => {}
@@ -868,7 +864,7 @@ fn test_arguments() {
             "box_arr",
             "alloc::boxed::Box<[u8], alloc::alloc::Global>",
             |i, member| match i {
-                0 => assert_anon_pointer(member, "data_ptr", |deref| {
+                0 => assert_pointer(member, "data_ptr", "*u8", |deref| {
                     assert_scalar(deref, "*", "u8", Some(SupportedScalar::U8(6)));
                 }),
                 1 => assert_scalar(member, "length", "usize", Some(SupportedScalar::Usize(3))),
