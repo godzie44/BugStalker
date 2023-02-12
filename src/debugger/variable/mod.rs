@@ -10,6 +10,11 @@ use crate::debugger::TypeDeclaration;
 use crate::{debugger, weak_error};
 use anyhow::Context;
 use bytes::Bytes;
+use gimli::{
+    DW_ATE_address, DW_ATE_boolean, DW_ATE_float, DW_ATE_signed, DW_ATE_signed_char,
+    DW_ATE_unsigned, DW_ATE_unsigned_char, DW_ATE_ASCII, DW_ATE_UTF,
+};
+use log::warn;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Display, Formatter};
 use std::mem;
@@ -96,26 +101,54 @@ impl ScalarVariable {
             data.as_ref().map(|v| *scalar_from_bytes::<S>(v))
         }
 
-        let value_view = match r#type.name.as_deref() {
-            Some("i8") => render_scalar::<i8>(value).map(SupportedScalar::I8),
-            Some("i16") => render_scalar::<i16>(value).map(SupportedScalar::I16),
-            Some("i32") => render_scalar::<i32>(value).map(SupportedScalar::I32),
-            Some("i64") => render_scalar::<i64>(value).map(SupportedScalar::I64),
-            Some("i128") => render_scalar::<i128>(value).map(SupportedScalar::I128),
-            Some("isize") => render_scalar::<isize>(value).map(SupportedScalar::Isize),
-            Some("u8") => render_scalar::<u8>(value).map(SupportedScalar::U8),
-            Some("u16") => render_scalar::<u16>(value).map(SupportedScalar::U16),
-            Some("u32") => render_scalar::<u32>(value).map(SupportedScalar::U32),
-            Some("u64") => render_scalar::<u64>(value).map(SupportedScalar::U64),
-            Some("u128") => render_scalar::<u128>(value).map(SupportedScalar::U128),
-            Some("usize") => render_scalar::<usize>(value).map(SupportedScalar::Usize),
-            Some("f32") => render_scalar::<f32>(value).map(SupportedScalar::F32),
-            Some("f64") => render_scalar::<f64>(value).map(SupportedScalar::F64),
-            Some("bool") => render_scalar::<bool>(value).map(SupportedScalar::Bool),
-            Some("char") => render_scalar::<char>(value).map(SupportedScalar::Char),
-            Some("()") => Some(SupportedScalar::Empty()),
-            _ => None,
-        };
+        #[allow(non_upper_case_globals)]
+        let value_view = r#type.encoding.and_then(|encoding| match encoding {
+            DW_ATE_address => render_scalar::<usize>(value).map(SupportedScalar::Usize),
+            DW_ATE_signed_char => render_scalar::<i8>(value).map(SupportedScalar::I8),
+            DW_ATE_unsigned_char => render_scalar::<u8>(value).map(SupportedScalar::U8),
+            DW_ATE_signed => match r#type.byte_size.unwrap_or(0) {
+                0 => Some(SupportedScalar::Empty()),
+                1 => render_scalar::<i8>(value).map(SupportedScalar::I8),
+                2 => render_scalar::<i16>(value).map(SupportedScalar::I16),
+                4 => render_scalar::<i32>(value).map(SupportedScalar::I32),
+                8 => render_scalar::<i64>(value).map(SupportedScalar::I64),
+                16 => render_scalar::<i128>(value).map(SupportedScalar::I128),
+                _ => {
+                    warn!("unsupported signed size: {size:?}", size = r#type.byte_size);
+                    None
+                }
+            },
+            DW_ATE_unsigned => match r#type.byte_size.unwrap_or(0) {
+                0 => Some(SupportedScalar::Empty()),
+                1 => render_scalar::<u8>(value).map(SupportedScalar::U8),
+                2 => render_scalar::<u16>(value).map(SupportedScalar::U16),
+                4 => render_scalar::<u32>(value).map(SupportedScalar::U32),
+                8 => render_scalar::<u64>(value).map(SupportedScalar::U64),
+                16 => render_scalar::<u128>(value).map(SupportedScalar::U128),
+                _ => {
+                    warn!(
+                        "unsupported unsigned size: {size:?}",
+                        size = r#type.byte_size
+                    );
+                    None
+                }
+            },
+            DW_ATE_float => match r#type.byte_size.unwrap_or(0) {
+                4 => render_scalar::<f32>(value).map(SupportedScalar::F32),
+                8 => render_scalar::<f64>(value).map(SupportedScalar::F64),
+                _ => {
+                    warn!("unsupported float size: {size:?}", size = r#type.byte_size);
+                    None
+                }
+            },
+            DW_ATE_boolean => render_scalar::<bool>(value).map(SupportedScalar::Bool),
+            DW_ATE_UTF => render_scalar::<char>(value).map(SupportedScalar::Char),
+            DW_ATE_ASCII => render_scalar::<char>(value).map(SupportedScalar::Char),
+            _ => {
+                warn!("unsupported base type encoding: {encoding}");
+                None
+            }
+        });
 
         ScalarVariable {
             identity,
