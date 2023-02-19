@@ -115,7 +115,7 @@ fn assert_string(var: &VariableIR, exp_name: &str, exp_value: &str) {
     let VariableIR::Specialized(variable::SpecializedVariableIR::String {string: Some(string), ..}) = var else {
         panic!("not a string");
     };
-    assert_eq!(string.name.as_ref().unwrap(), exp_name);
+    assert_eq!(string.identity.name.as_ref().unwrap(), exp_name);
     assert_eq!(string.value, exp_value);
 }
 
@@ -123,7 +123,7 @@ fn assert_str(var: &VariableIR, exp_name: &str, exp_value: &str) {
     let VariableIR::Specialized(variable::SpecializedVariableIR::Str {string: Some(str), ..}) = var else {
         panic!("not a &str");
     };
-    assert_eq!(str.name.as_ref().unwrap(), exp_name);
+    assert_eq!(str.identity.name.as_ref().unwrap(), exp_name);
     assert_eq!(str.value, exp_value);
 }
 
@@ -136,7 +136,7 @@ fn assert_init_tls(
     let VariableIR::Specialized(variable::SpecializedVariableIR::Tls {tls_var: Some(tls), ..}) = var else {
         panic!("not a tls");
     };
-    assert_eq!(tls.name.as_ref().unwrap(), exp_name);
+    assert_eq!(tls.identity.name.as_ref().unwrap(), exp_name);
     assert_eq!(tls.inner_type.as_ref().unwrap(), exp_type);
     with_var(tls.inner_value.as_ref().unwrap());
 }
@@ -145,9 +145,29 @@ fn assert_uninit_tls(var: &VariableIR, exp_name: &str, exp_type: &str) {
     let VariableIR::Specialized(variable::SpecializedVariableIR::Tls {tls_var: Some(tls), ..}) = var else {
         panic!("not a tls");
     };
-    assert_eq!(tls.name.as_ref().unwrap(), exp_name);
+    assert_eq!(tls.identity.name.as_ref().unwrap(), exp_name);
     assert_eq!(tls.inner_type.as_ref().unwrap(), exp_type);
     assert!(tls.inner_value.is_none());
+}
+
+fn assert_hashmap(
+    var: &VariableIR,
+    exp_name: &str,
+    exp_type: &str,
+    with_kv_items: impl FnOnce(&Vec<(VariableIR, VariableIR)>),
+) {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::HashMap {map: Some(map), ..}) = var else {
+        panic!("not a hashmap");
+    };
+    assert_eq!(map.identity.name.as_ref().unwrap(), exp_name);
+    assert_eq!(map.type_name.as_ref().unwrap(), exp_type);
+    let mut items = map.kv_items.clone();
+    items.sort_by(|v1, v2| {
+        let k1_render = format!("{:?}", v1.0.value());
+        let k2_render = format!("{:?}", v2.0.value());
+        k1_render.cmp(&k2_render)
+    });
+    with_kv_items(&items);
 }
 
 #[test]
@@ -528,8 +548,8 @@ fn test_read_vec_and_slice() {
             "vec1",
             "Vec<i32, alloc::alloc::Global>",
             3,
-            |buff| {
-                assert_array(buff, "buf", "[i32]", |i, item| match i {
+            |buf| {
+                assert_array(buf, "buf", "[i32]", |i, item| match i {
                     0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
                     1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
                     2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
@@ -542,8 +562,8 @@ fn test_read_vec_and_slice() {
             "vec2",
             "Vec<vars::vec_and_slice_types::Foo, alloc::alloc::Global>",
             2,
-            |buff| {
-                assert_array(buff, "buf", "[Foo]", |i, item| match i {
+            |buf| {
+                assert_array(buf, "buf", "[Foo]", |i, item| match i {
                     0 => assert_struct(item, "0", "Foo", |i, member| match i {
                         0 => assert_scalar(member, "foo", "i32", Some(SupportedScalar::I32(1))),
                         _ => panic!("1 members expected"),
@@ -561,22 +581,22 @@ fn test_read_vec_and_slice() {
             "vec3",
             "Vec<alloc::vec::Vec<i32, alloc::alloc::Global>, alloc::alloc::Global>",
             2,
-            |buff| {
+            |buf| {
                 assert_array(
-                    buff,
+                    buf,
                     "buf",
                     "[Vec<i32, alloc::alloc::Global>]",
                     |i, item| match i {
-                        0 => assert_vec(item, "0", "Vec<i32, alloc::alloc::Global>", 3, |buff| {
-                            assert_array(buff, "buf", "[i32]", |i, item| match i {
+                        0 => assert_vec(item, "0", "Vec<i32, alloc::alloc::Global>", 3, |buf| {
+                            assert_array(buf, "buf", "[i32]", |i, item| match i {
                                 0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
                                 1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
                                 2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
                                 _ => panic!("3 items expected"),
                             })
                         }),
-                        1 => assert_vec(item, "1", "Vec<i32, alloc::alloc::Global>", 3, |buff| {
-                            assert_array(buff, "buf", "[i32]", |i, item| match i {
+                        1 => assert_vec(item, "1", "Vec<i32, alloc::alloc::Global>", 3, |buf| {
+                            assert_array(buf, "buf", "[i32]", |i, item| match i {
                                 0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
                                 1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
                                 2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
@@ -845,20 +865,14 @@ fn test_arguments() {
         assert_pointer(&args[1], "by_ref", "&i32", |deref| {
             assert_scalar(deref, "*", "i32", Some(SupportedScalar::I32(2)))
         });
-        assert_vec(
-            &args[2],
-            "vec",
-            "Vec<u8, alloc::alloc::Global>",
-            3,
-            |buff| {
-                assert_array(buff, "buf", "[u8]", |i, item| match i {
-                    0 => assert_scalar(item, "0", "u8", Some(SupportedScalar::U8(3))),
-                    1 => assert_scalar(item, "1", "u8", Some(SupportedScalar::U8(4))),
-                    2 => assert_scalar(item, "2", "u8", Some(SupportedScalar::U8(5))),
-                    _ => panic!("3 items expected"),
-                })
-            },
-        );
+        assert_vec(&args[2], "vec", "Vec<u8, alloc::alloc::Global>", 3, |buf| {
+            assert_array(buf, "buf", "[u8]", |i, item| match i {
+                0 => assert_scalar(item, "0", "u8", Some(SupportedScalar::U8(3))),
+                1 => assert_scalar(item, "1", "u8", Some(SupportedScalar::U8(4))),
+                2 => assert_scalar(item, "2", "u8", Some(SupportedScalar::U8(5))),
+                _ => panic!("3 items expected"),
+            })
+        });
         assert_struct(
             &args[3],
             "box_arr",
@@ -895,6 +909,171 @@ fn test_read_union() {
             2 => assert_scalar(member, "u3", "u8", Some(SupportedScalar::U8(205))),
             _ => panic!("3 members expected"),
         });
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
+    });
+}
+
+#[test]
+#[serial]
+fn test_read_hashmap() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 267).unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(267));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_hashmap(
+            &vars[0],
+            "hm1",
+            "HashMap<bool, i64, std::collections::hash::map::RandomState>",
+            |items| {
+                assert_eq!(items.len(), 2);
+                assert_scalar(
+                    &items[0].0,
+                    "__0",
+                    "bool",
+                    Some(SupportedScalar::Bool(false)),
+                );
+                assert_scalar(&items[0].1, "__1", "i64", Some(SupportedScalar::I64(5)));
+                assert_scalar(
+                    &items[1].0,
+                    "__0",
+                    "bool",
+                    Some(SupportedScalar::Bool(true)),
+                );
+                assert_scalar(&items[1].1, "__1", "i64", Some(SupportedScalar::I64(3)));
+            },
+        );
+        assert_hashmap(
+            &vars[1],
+            "hm2",
+            "HashMap<&str, alloc::vec::Vec<i32, alloc::alloc::Global>, std::collections::hash::map::RandomState>",
+            |items| {
+                assert_eq!(items.len(), 2);
+                assert_str(
+                    &items[0].0,
+                    "__0",
+                    "abc",
+                );
+                assert_vec(&items[0].1, "__1", "Vec<i32, alloc::alloc::Global>", 3, |buf| {
+                    assert_array(buf, "buf", "[i32]", |i, item| match i {
+                        0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+                        1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
+                        2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
+                        _ => panic!("3 items expected"),
+                    })
+                });
+                assert_str(
+                    &items[1].0,
+                    "__0",
+                    "efg",
+                );
+                assert_vec(&items[1].1, "__1", "Vec<i32, alloc::alloc::Global>", 3, |buf| {
+                    assert_array(buf, "buf", "[i32]", |i, item| match i {
+                        0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(11))),
+                        1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(12))),
+                        2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(13))),
+                        _ => panic!("3 items expected"),
+                    })
+                });
+            },
+        );
+        assert_hashmap(
+            &vars[2],
+            "hm3",
+            "HashMap<i32, i32, std::collections::hash::map::RandomState>",
+            |items| {
+                assert_eq!(items.len(), 100);
+
+                let mut exp_items = (0..100).into_iter().collect::<Vec<_>>();
+                exp_items.sort_by_key(|i1| i1.to_string());
+
+                for i in 0..100 {
+                    assert_scalar(
+                        &items[i].0,
+                        "__0",
+                        "i32",
+                        Some(SupportedScalar::I32(exp_items[i])),
+                    );
+                }
+                for i in 0..100 {
+                    assert_scalar(
+                        &items[i].1,
+                        "__1",
+                        "i32",
+                        Some(SupportedScalar::I32(exp_items[i])),
+                    );
+                }
+            },
+        );
+        assert_hashmap(
+            &vars[3],
+            "hm4",
+            "HashMap<alloc::string::String, std::collections::hash::map::HashMap<i32, i32, std::collections::hash::map::RandomState>, std::collections::hash::map::RandomState>",
+            |items| {
+                assert_eq!(items.len(), 2);
+                assert_string(
+                    &items[0].0,
+                    "__0",
+                    "1",
+                );
+                assert_hashmap(
+                    &items[0].1,
+                    "__1",
+                    "HashMap<i32, i32, std::collections::hash::map::RandomState>",
+                    |items| {
+                        assert_eq!(items.len(), 2);
+                        assert_scalar(
+                            &items[0].0,
+                            "__0",
+                            "i32",
+                            Some(SupportedScalar::I32(1)),
+                        );
+                        assert_scalar(&items[0].1, "__1", "i32", Some(SupportedScalar::I32(1)));
+                        assert_scalar(
+                            &items[1].0,
+                            "__0",
+                            "i32",
+                            Some(SupportedScalar::I32(2)),
+                        );
+                        assert_scalar(&items[1].1, "__1", "i32", Some(SupportedScalar::I32(2)));
+                    },
+                );
+
+                assert_string(
+                    &items[1].0,
+                    "__0",
+                    "3",
+                );
+                assert_hashmap(
+                    &items[1].1,
+                    "__1",
+                    "HashMap<i32, i32, std::collections::hash::map::RandomState>",
+                    |items| {
+                        assert_eq!(items.len(), 2);
+                        assert_scalar(
+                            &items[0].0,
+                            "__0",
+                            "i32",
+                            Some(SupportedScalar::I32(3)),
+                        );
+                        assert_scalar(&items[0].1, "__1", "i32", Some(SupportedScalar::I32(3)));
+                        assert_scalar(
+                            &items[1].0,
+                            "__0",
+                            "i32",
+                            Some(SupportedScalar::I32(4)),
+                        );
+                        assert_scalar(&items[1].1, "__1", "i32", Some(SupportedScalar::I32(4)));
+                    },
+                );
+            },
+        );
 
         debugger.continue_debugee().unwrap();
         assert_no_proc!(child);

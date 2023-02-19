@@ -1,13 +1,17 @@
-use crate::debugger;
+mod hashbrown;
+
 use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::variable::render::RenderRepr;
+use crate::debugger::variable::specialization::hashbrown::HashmapReflection;
 use crate::debugger::variable::{
     ArrayVariable, AssumeError, ScalarVariable, StructVariable, SupportedScalar, VariableIR,
     VariableIdentity,
 };
 use crate::debugger::TypeDeclaration;
+use crate::{debugger, weak_error};
 use anyhow::{anyhow, bail};
 use bytes::Bytes;
+use fallible_iterator::FallibleIterator;
 use itertools::Itertools;
 use std::collections::HashMap;
 
@@ -72,6 +76,7 @@ impl VecVariable {
                         value: Some(SupportedScalar::Usize(cap as usize)),
                     }),
                 ],
+                type_params: type_params.clone(),
             },
         })
     }
@@ -79,7 +84,7 @@ impl VecVariable {
 
 #[derive(Clone)]
 pub struct StringVariable {
-    pub name: Option<String>,
+    pub identity: VariableIdentity,
     pub value: String,
 }
 
@@ -88,12 +93,11 @@ impl StringVariable {
         let len = ir.assume_field_as_scalar_number("len")?;
         let data_ptr = ir.assume_field_as_pointer("pointer")?;
 
-        let data = debugger::read_memory_by_pid(eval_ctx.pid, data_ptr as usize, len as usize)
-            .map(Bytes::from)?;
+        let data = debugger::read_memory_by_pid(eval_ctx.pid, data_ptr as usize, len as usize)?;
 
         Ok(Self {
-            name: Some(ir.name().to_owned()),
-            value: String::from_utf8(data.to_vec())?,
+            identity: ir.identity().clone(),
+            value: String::from_utf8(data)?,
         })
     }
 }
@@ -101,18 +105,69 @@ impl StringVariable {
 #[allow(unused)]
 #[derive(Clone)]
 pub struct HashMapVariable {
-    pub(super) name: Option<String>,
-    pub(super) type_name: Option<String>,
-    pub(super) kv_items: Vec<(VariableIR, VariableIR)>,
+    pub identity: VariableIdentity,
+    pub type_name: Option<String>,
+    pub kv_items: Vec<(VariableIR, VariableIR)>,
 }
 
 impl HashMapVariable {
-    // todo
+    pub fn from_struct_ir(
+        eval_ctx: &EvaluationContext,
+        ir: VariableIR,
+    ) -> anyhow::Result<HashMapVariable> {
+        let ctrl = ir.assume_field_as_pointer("pointer")?;
+        let bucket_mask = ir.assume_field_as_scalar_number("bucket_mask")?;
+
+        let table = ir.assume_field_as_struct("table")?;
+        let kv_type = table
+            .type_params
+            .get("T")
+            .ok_or_else(|| anyhow!("hashmap bucket type not found"))?
+            .as_ref();
+        let kv_size = kv_type
+            .map(|t| t.size_in_bytes(eval_ctx))
+            .unwrap_or_default()
+            .ok_or_else(|| anyhow!("unknown hashmap bucket size"))?;
+
+        let reflection =
+            HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
+
+        let iterator = reflection.iter(eval_ctx.pid)?;
+        let kv_items = iterator
+            .map_err(anyhow::Error::from)
+            .filter_map(|bucket| {
+                let data = bucket.read(eval_ctx.pid);
+
+                let tuple = VariableIR::new(
+                    eval_ctx,
+                    VariableIdentity::no_namespace(Some("kv".to_string())),
+                    weak_error!(data).map(Bytes::from),
+                    kv_type,
+                );
+
+                if let VariableIR::Struct(mut tuple) = tuple {
+                    if tuple.members.len() == 2 {
+                        let v = tuple.members.pop();
+                        let k = tuple.members.pop();
+                        return Ok(Some((k.unwrap(), v.unwrap())));
+                    }
+                }
+
+                Err(anyhow!("unexpected bucket type"))
+            })
+            .collect()?;
+
+        Ok(HashMapVariable {
+            identity: ir.identity().clone(),
+            type_name: Some(ir.r#type().to_owned()),
+            kv_items,
+        })
+    }
 }
 
 #[derive(Clone)]
 pub struct StrVariable {
-    pub name: Option<String>,
+    pub identity: VariableIdentity,
     pub value: String,
 }
 
@@ -125,7 +180,7 @@ impl StrVariable {
             .map(Bytes::from)?;
 
         Ok(Self {
-            name: Some(ir.name().to_owned()),
+            identity: ir.identity().clone(),
             value: String::from_utf8(data.to_vec())?,
         })
     }
@@ -133,7 +188,7 @@ impl StrVariable {
 
 #[derive(Clone)]
 pub struct TlsVariable {
-    pub name: Option<String>,
+    pub identity: VariableIdentity,
     pub inner_value: Option<Box<VariableIR>>,
     pub inner_type: Option<String>,
 }
@@ -181,7 +236,7 @@ impl TlsVariable {
             };
 
             return Ok(Self {
-                name,
+                identity: VariableIdentity::no_namespace(name),
                 inner_value: tls_value,
                 inner_type: inner_type.name(),
             });
@@ -197,6 +252,10 @@ impl TlsVariable {
 pub enum SpecializedVariableIR {
     Vector {
         vec: Option<VecVariable>,
+        original: StructVariable,
+    },
+    HashMap {
+        map: Option<HashMapVariable>,
         original: StructVariable,
     },
     String {

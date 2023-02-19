@@ -3,7 +3,7 @@ use crate::common::TestHooks;
 use crate::{assert_no_proc, CALC_APP};
 use crate::{debugger_env, HW_APP};
 use bugstalker::debugger::address::{PCValue, RelocatedAddress};
-use bugstalker::debugger::variable::render::{RenderRepr, ValueRepr};
+use bugstalker::debugger::variable::render::{RenderRepr, ValueLayout};
 use serial_test::serial;
 use std::borrow::Cow;
 
@@ -79,7 +79,7 @@ fn test_read_value_u64() {
         let _three = "3".to_string();
         assert!(matches!(
             vars[0].value().unwrap(),
-            ValueRepr::PreRendered(Cow::Owned(_three))
+            ValueLayout::PreRendered(Cow::Owned(_three))
         ));
 
         debugger.continue_debugee().unwrap();

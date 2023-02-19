@@ -170,6 +170,7 @@ dependencies = [
  "os_pipe",
  "ouroboros",
  "proc-maps",
+ "rand",
  "rexpect",
  "rustc-demangle",
  "rustyline",

@@ -249,6 +249,24 @@ fn unions() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn hashmap() {
+    use std::collections::HashMap;
+
+    let hm1 = HashMap::from([(true, 3i64), (false, 5i64)]);
+    let hm2 = HashMap::from([("abc", vec![1, 2, 3]), ("efg", vec![11, 12, 13])]);
+    let mut hm3 = HashMap::new();
+    for i in 0..100 {
+        hm3.insert(i, i);
+    }
+    let hm4 = HashMap::from([
+        ("1".to_string(), HashMap::from([(1, 1), (2, 2)])),
+        ("3".to_string(), HashMap::from([(3, 3), (4, 4)])),
+    ]);
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -265,4 +283,5 @@ pub fn main() {
     fn_and_closure();
     arguments(1, &2, vec![3, 4, 5], Box::new([6, 7, 8]));
     unions();
+    hashmap();
 }

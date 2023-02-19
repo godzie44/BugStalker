@@ -72,7 +72,6 @@ fn main() {
                     let app = AppBuilder::new()
                         .build(debugee, pid)
                         .expect("prepare application fail");
-
                     app.run().expect("run application fail");
                 }
             }

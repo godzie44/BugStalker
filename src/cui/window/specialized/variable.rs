@@ -1,6 +1,6 @@
 use crate::cui::window::specialized::PersistentList;
 use crate::cui::window::{CuiComponent, RenderOpts};
-use crate::debugger::variable::render::{RenderRepr, ValueRepr};
+use crate::debugger::variable::render::{RenderRepr, ValueLayout};
 use crate::debugger::variable::VariableIR;
 use crate::debugger::{command, Debugger};
 use crossterm::event::{KeyCode, KeyEvent};
@@ -48,12 +48,13 @@ impl CuiComponent for Variables {
                 let val = match view.value() {
                     None => String::default(),
                     Some(ref val) => match val {
-                        ValueRepr::PreRendered(r) => r.to_string(),
-                        ValueRepr::Referential { addr, .. } => {
+                        ValueLayout::PreRendered(r) => r.to_string(),
+                        ValueLayout::Referential { addr, .. } => {
                             format!("{addr:p} (...)")
                         }
-                        ValueRepr::Wrapped(_) => "(...)".to_string(),
-                        ValueRepr::Nested(_) => "(...)".to_string(),
+                        ValueLayout::Wrapped(_) => "(...)".to_string(),
+                        ValueLayout::Nested(_) => "(...)".to_string(),
+                        ValueLayout::Map(_) => "(...)".to_string(),
                     },
                 };
 

@@ -3,8 +3,8 @@ use crate::debugger::debugee::dwarf::r#type::{
 };
 use crate::debugger::debugee::dwarf::NamespaceHierarchy;
 use crate::debugger::variable::render::RenderRepr;
-use crate::debugger::variable::specialized::{
-    StrVariable, StringVariable, TlsVariable, VecVariable,
+use crate::debugger::variable::specialization::{
+    HashMapVariable, StrVariable, StringVariable, TlsVariable, VecVariable,
 };
 use crate::debugger::TypeDeclaration;
 use crate::{debugger, weak_error};
@@ -20,9 +20,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::mem;
 
 pub mod render;
-pub mod specialized;
-
-pub use specialized::SpecializedVariableIR;
+mod specialization;
+pub use specialization::SpecializedVariableIR;
 
 #[derive(Clone)]
 pub struct VariableIdentity {
@@ -162,7 +161,7 @@ impl ScalarVariable {
             Some(SupportedScalar::I8(num)) => Some(num as i64),
             Some(SupportedScalar::I16(num)) => Some(num as i64),
             Some(SupportedScalar::I32(num)) => Some(num as i64),
-            Some(SupportedScalar::I64(num)) => Some(num as i64),
+            Some(SupportedScalar::I64(num)) => Some(num),
             Some(SupportedScalar::Isize(num)) => Some(num as i64),
             Some(SupportedScalar::U8(num)) => Some(num as i64),
             Some(SupportedScalar::U16(num)) => Some(num as i64),
@@ -179,6 +178,7 @@ pub struct StructVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
     pub members: Vec<VariableIR>,
+    pub type_params: HashMap<String, Option<TypeDeclaration>>,
 }
 
 impl StructVariable {
@@ -187,6 +187,7 @@ impl StructVariable {
         identity: VariableIdentity,
         value: Option<Bytes>,
         type_name: Option<String>,
+        type_params: HashMap<String, Option<TypeDeclaration>>,
         members: &[StructureMember],
     ) -> Self {
         let children = members
@@ -198,6 +199,7 @@ impl StructVariable {
             identity,
             type_name,
             members: children,
+            type_params,
         }
     }
 }
@@ -407,14 +409,21 @@ impl VariableIR {
                     name: struct_name,
                     ..
                 } => {
-                    let struct_var =
-                        StructVariable::new(eval_ctx, identity, value, type_name, members);
+                    let struct_var = StructVariable::new(
+                        eval_ctx,
+                        identity,
+                        value,
+                        type_name,
+                        type_params.clone(),
+                        members,
+                    );
 
                     // Reinterpret structure if underline data type is:
                     // - Vector
                     // - String
                     // - &str
                     // - tls variable
+                    // - hashmaps
                     if struct_name.as_deref() == Some("&str") {
                         return VariableIR::Specialized(SpecializedVariableIR::Str {
                             string: weak_error!(StrVariable::from_struct_ir(
@@ -460,6 +469,19 @@ impl VariableIR {
                         });
                     }
 
+                    if struct_name.as_ref().map(|name| name.starts_with("HashMap")) == Some(true)
+                        && type_ns_h.contains(&["collections", "hash", "map"])
+                    {
+                        return VariableIR::Specialized(SpecializedVariableIR::HashMap {
+                            map: weak_error!(HashMapVariable::from_struct_ir(
+                                eval_ctx,
+                                VariableIR::Struct(struct_var.clone()),
+                            )
+                            .context("hashmap interpretation")),
+                            original: struct_var,
+                        });
+                    };
+
                     VariableIR::Struct(struct_var)
                 }
                 TypeDeclaration::Array(decl) => VariableIR::Array(ArrayVariable::new(
@@ -499,8 +521,14 @@ impl VariableIR {
                     ))
                 }
                 TypeDeclaration::Union { members, .. } => {
-                    let struct_var =
-                        StructVariable::new(eval_ctx, identity, value, type_name, members);
+                    let struct_var = StructVariable::new(
+                        eval_ctx,
+                        identity,
+                        value,
+                        type_name,
+                        HashMap::new(),
+                        members,
+                    );
                     VariableIR::Struct(struct_var)
                 }
             },
@@ -548,11 +576,9 @@ impl VariableIR {
         self.bfs_iterator()
             .find_map(|child| {
                 if let VariableIR::Pointer(pointer) = child {
-                    if pointer.identity.name.as_deref() != Some(field_name) {
-                        return None;
+                    if pointer.identity.name.as_deref()? == field_name {
+                        return pointer.value;
                     }
-
-                    return pointer.value;
                 }
                 None
             })
@@ -566,15 +592,29 @@ impl VariableIR {
         self.bfs_iterator()
             .find_map(|child| {
                 if let VariableIR::RustEnum(r_enum) = child {
-                    if r_enum.identity.name.as_deref() != Some(field_name) {
-                        return None;
+                    if r_enum.identity.name.as_deref()? == field_name {
+                        return Some(r_enum.clone());
                     }
-
-                    return Some(r_enum.clone());
                 }
                 None
             })
             .ok_or(AssumeError::IncompleteInterp("pointer"))
+    }
+
+    fn assume_field_as_struct(
+        &self,
+        field_name: &'static str,
+    ) -> Result<StructVariable, AssumeError> {
+        self.bfs_iterator()
+            .find_map(|child| {
+                if let VariableIR::Struct(structure) = child {
+                    if structure.identity.name.as_deref()? == field_name {
+                        return Some(structure.clone());
+                    }
+                }
+                None
+            })
+            .ok_or(AssumeError::IncompleteInterp("structure"))
     }
 
     fn identity(&self) -> &VariableIdentity {
@@ -590,6 +630,7 @@ impl VariableIR {
                 SpecializedVariableIR::String { original, .. } => &original.identity,
                 SpecializedVariableIR::Str { original, .. } => &original.identity,
                 SpecializedVariableIR::Tls { original, .. } => &original.identity,
+                SpecializedVariableIR::HashMap { original, .. } => &original.identity,
             },
         }
     }
@@ -657,6 +698,12 @@ impl<'a> Iterator for BfsIterator<'a> {
                         .for_each(|member| self.queue.push_back(member));
                 }
                 SpecializedVariableIR::Tls { original, .. } => {
+                    original
+                        .members
+                        .iter()
+                        .for_each(|member| self.queue.push_back(member));
+                }
+                SpecializedVariableIR::HashMap { original, .. } => {
                     original
                         .members
                         .iter()
@@ -736,6 +783,7 @@ mod test {
                             ]),
                         }),
                     ],
+                    type_params: Default::default(),
                 }),
                 expected_order: vec![
                     "struct_1", "array_1", "array_2", "scalar_1", "scalar_2", "scalar_3",
@@ -779,6 +827,7 @@ mod test {
                                     value: None,
                                 }),
                             ],
+                            type_params: Default::default(),
                         }),
                         VariableIR::Pointer(PointerVariable {
                             identity: VariableIdentity::no_namespace(Some("pointer_1".to_owned())),
@@ -793,6 +842,7 @@ mod test {
                             }))),
                         }),
                     ],
+                    type_params: Default::default(),
                 }),
                 expected_order: vec![
                     "struct_1",
