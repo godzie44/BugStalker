@@ -170,6 +170,26 @@ fn assert_hashmap(
     with_kv_items(&items);
 }
 
+fn assert_hashset(
+    var: &VariableIR,
+    exp_name: &str,
+    exp_type: &str,
+    with_items: impl FnOnce(&Vec<VariableIR>),
+) {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::HashSet {set: Some(set), ..}) = var else {
+        panic!("not a hashset");
+    };
+    assert_eq!(set.identity.name.as_ref().unwrap(), exp_name);
+    assert_eq!(set.type_name.as_ref().unwrap(), exp_type);
+    let mut items = set.items.clone();
+    items.sort_by(|v1, v2| {
+        let k1_render = format!("{:?}", v1.value());
+        let k2_render = format!("{:?}", v2.value());
+        k1_render.cmp(&k2_render)
+    });
+    with_items(&items);
+}
+
 #[test]
 #[serial]
 fn test_read_scalar_variables() {
@@ -1072,6 +1092,70 @@ fn test_read_hashmap() {
                         assert_scalar(&items[1].1, "__1", "i32", Some(SupportedScalar::I32(4)));
                     },
                 );
+            },
+        );
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
+    });
+}
+
+#[test]
+#[serial]
+fn test_read_hashset() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 281).unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(281));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_hashset(
+            &vars[0],
+            "hs1",
+            "HashSet<i32, std::collections::hash::map::RandomState>",
+            |items| {
+                assert_eq!(items.len(), 4);
+                assert_scalar(&items[0], "__0", "i32", Some(SupportedScalar::I32(1)));
+                assert_scalar(&items[1], "__0", "i32", Some(SupportedScalar::I32(2)));
+                assert_scalar(&items[2], "__0", "i32", Some(SupportedScalar::I32(3)));
+                assert_scalar(&items[3], "__0", "i32", Some(SupportedScalar::I32(4)));
+            },
+        );
+        assert_hashset(
+            &vars[1],
+            "hs2",
+            "HashSet<i32, std::collections::hash::map::RandomState>",
+            |items| {
+                assert_eq!(items.len(), 100);
+                let mut exp_items = (0..100).into_iter().collect::<Vec<_>>();
+                exp_items.sort_by_key(|i1| i1.to_string());
+
+                for i in 0..100 {
+                    assert_scalar(
+                        &items[i],
+                        "__0",
+                        "i32",
+                        Some(SupportedScalar::I32(exp_items[i])),
+                    );
+                }
+            },
+        );
+        assert_hashset(
+            &vars[2],
+            "hs3",
+            "HashSet<alloc::vec::Vec<i32, alloc::alloc::Global>, std::collections::hash::map::RandomState>",
+            |items| {
+                assert_eq!(items.len(), 1);
+                assert_vec(&items[0], "__0", "Vec<i32, alloc::alloc::Global>", 2, |buf| {
+                    assert_array(buf, "buf", "[i32]", |i, item| match i {
+                        0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+                        1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
+                        _ => panic!("2 items expected"),
+                    })
+                });
             },
         );
 

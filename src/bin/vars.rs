@@ -267,6 +267,20 @@ fn hashmap() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn hashset() {
+    use std::collections::HashSet;
+
+    let hs1 = HashSet::from([1, 2, 3, 4]);
+    let mut hs2 = HashSet::new();
+    for i in 0..100 {
+        hs2.insert(i);
+    }
+    let hs3 = HashSet::from([vec![1, 2]]);
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -284,4 +298,5 @@ pub fn main() {
     arguments(1, &2, vec![3, 4, 5], Box::new([6, 7, 8]));
     unions();
     hashmap();
+    hashset();
 }

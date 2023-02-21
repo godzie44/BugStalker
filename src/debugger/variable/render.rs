@@ -10,7 +10,10 @@ pub enum ValueLayout<'a> {
         val: &'a VariableIR,
     },
     Wrapped(&'a VariableIR),
-    Nested(&'a [VariableIR]),
+    Nested {
+        members: &'a [VariableIR],
+        named: bool,
+    },
     Map(&'a [(VariableIR, VariableIR)]),
 }
 
@@ -52,6 +55,10 @@ impl RenderRepr for VariableIR {
                     None => &original.identity.name,
                     Some(map) => &map.identity.name,
                 },
+                SpecializedVariableIR::HashSet { set, original } => match set {
+                    None => &original.identity.name,
+                    Some(set) => &set.identity.name,
+                },
             },
         };
 
@@ -92,6 +99,10 @@ impl RenderRepr for VariableIR {
                     None => &original.type_name,
                     Some(map) => &map.type_name,
                 },
+                SpecializedVariableIR::HashSet { set, original } => match set {
+                    None => &original.type_name,
+                    Some(set) => &set.type_name,
+                },
             },
         };
         r#type.as_deref().unwrap_or("unknown")
@@ -102,8 +113,14 @@ impl RenderRepr for VariableIR {
             VariableIR::Scalar(scalar) => {
                 ValueLayout::PreRendered(Cow::Owned(scalar.value.as_ref()?.to_string()))
             }
-            VariableIR::Struct(r#struct) => ValueLayout::Nested(r#struct.members.as_ref()),
-            VariableIR::Array(array) => ValueLayout::Nested(array.items.as_deref()?),
+            VariableIR::Struct(r#struct) => ValueLayout::Nested {
+                members: r#struct.members.as_ref(),
+                named: true,
+            },
+            VariableIR::Array(array) => ValueLayout::Nested {
+                members: array.items.as_deref()?,
+                named: true,
+            },
             VariableIR::CEnum(r#enum) => {
                 ValueLayout::PreRendered(Cow::Borrowed(r#enum.value.as_ref()?))
             }
@@ -115,30 +132,58 @@ impl RenderRepr for VariableIR {
             }
             VariableIR::Specialized(spec) => match spec {
                 SpecializedVariableIR::Vector { vec, original } => match vec {
-                    None => ValueLayout::Nested(original.members.as_ref()),
-                    Some(v) => ValueLayout::Nested(v.structure.members.as_ref()),
+                    None => ValueLayout::Nested {
+                        members: original.members.as_ref(),
+                        named: true,
+                    },
+                    Some(v) => ValueLayout::Nested {
+                        members: v.structure.members.as_ref(),
+                        named: true,
+                    },
                 },
                 SpecializedVariableIR::String { string, original } => match string {
-                    None => ValueLayout::Nested(original.members.as_ref()),
+                    None => ValueLayout::Nested {
+                        members: original.members.as_ref(),
+                        named: true,
+                    },
                     Some(s) => ValueLayout::PreRendered(Cow::Borrowed(&s.value)),
                 },
                 SpecializedVariableIR::Str { string, original } => match string {
-                    None => ValueLayout::Nested(original.members.as_ref()),
+                    None => ValueLayout::Nested {
+                        members: original.members.as_ref(),
+                        named: true,
+                    },
                     Some(s) => ValueLayout::PreRendered(Cow::Borrowed(&s.value)),
                 },
                 SpecializedVariableIR::Tls {
                     tls_var: value,
                     original,
                 } => match value {
-                    None => ValueLayout::Nested(original.members.as_ref()),
+                    None => ValueLayout::Nested {
+                        members: original.members.as_ref(),
+                        named: true,
+                    },
                     Some(ref tls_val) => match tls_val.inner_value.as_ref() {
                         None => ValueLayout::PreRendered(Cow::Borrowed("uninit")),
                         Some(tls_inner_val) => tls_inner_val.value()?,
                     },
                 },
                 SpecializedVariableIR::HashMap { map, original } => match map {
-                    None => ValueLayout::Nested(original.members.as_ref()),
+                    None => ValueLayout::Nested {
+                        members: original.members.as_ref(),
+                        named: true,
+                    },
                     Some(map) => ValueLayout::Map(&map.kv_items),
+                },
+                SpecializedVariableIR::HashSet { set, original } => match set {
+                    None => ValueLayout::Nested {
+                        members: original.members.as_ref(),
+                        named: true,
+                    },
+                    Some(set) => ValueLayout::Nested {
+                        members: &set.items,
+                        named: false,
+                    },
                 },
             },
         };

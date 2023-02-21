@@ -53,7 +53,7 @@ impl CuiComponent for Variables {
                             format!("{addr:p} (...)")
                         }
                         ValueLayout::Wrapped(_) => "(...)".to_string(),
-                        ValueLayout::Nested(_) => "(...)".to_string(),
+                        ValueLayout::Nested { .. } => "(...)".to_string(),
                         ValueLayout::Map(_) => "(...)".to_string(),
                     },
                 };

@@ -4,7 +4,7 @@ use crate::debugger::debugee::dwarf::r#type::{
 use crate::debugger::debugee::dwarf::NamespaceHierarchy;
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::specialization::{
-    HashMapVariable, StrVariable, StringVariable, TlsVariable, VecVariable,
+    HashMapVariable, HashSetVariable, StrVariable, StringVariable, TlsVariable, VecVariable,
 };
 use crate::debugger::TypeDeclaration;
 use crate::{debugger, weak_error};
@@ -424,6 +424,7 @@ impl VariableIR {
                     // - &str
                     // - tls variable
                     // - hashmaps
+                    // - hashset
                     if struct_name.as_deref() == Some("&str") {
                         return VariableIR::Specialized(SpecializedVariableIR::Str {
                             string: weak_error!(StrVariable::from_struct_ir(
@@ -474,6 +475,19 @@ impl VariableIR {
                     {
                         return VariableIR::Specialized(SpecializedVariableIR::HashMap {
                             map: weak_error!(HashMapVariable::from_struct_ir(
+                                eval_ctx,
+                                VariableIR::Struct(struct_var.clone()),
+                            )
+                            .context("hashmap interpretation")),
+                            original: struct_var,
+                        });
+                    };
+
+                    if struct_name.as_ref().map(|name| name.starts_with("HashSet")) == Some(true)
+                        && type_ns_h.contains(&["collections", "hash", "set"])
+                    {
+                        return VariableIR::Specialized(SpecializedVariableIR::HashSet {
+                            set: weak_error!(HashSetVariable::from_struct_ir(
                                 eval_ctx,
                                 VariableIR::Struct(struct_var.clone()),
                             )
@@ -631,6 +645,7 @@ impl VariableIR {
                 SpecializedVariableIR::Str { original, .. } => &original.identity,
                 SpecializedVariableIR::Tls { original, .. } => &original.identity,
                 SpecializedVariableIR::HashMap { original, .. } => &original.identity,
+                SpecializedVariableIR::HashSet { original, .. } => &original.identity,
             },
         }
     }
@@ -704,6 +719,12 @@ impl<'a> Iterator for BfsIterator<'a> {
                         .for_each(|member| self.queue.push_back(member));
                 }
                 SpecializedVariableIR::HashMap { original, .. } => {
+                    original
+                        .members
+                        .iter()
+                        .for_each(|member| self.queue.push_back(member));
+                }
+                SpecializedVariableIR::HashSet { original, .. } => {
                     original
                         .members
                         .iter()

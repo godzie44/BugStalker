@@ -102,7 +102,6 @@ impl StringVariable {
     }
 }
 
-#[allow(unused)]
 #[derive(Clone)]
 pub struct HashMapVariable {
     pub identity: VariableIdentity,
@@ -161,6 +160,68 @@ impl HashMapVariable {
             identity: ir.identity().clone(),
             type_name: Some(ir.r#type().to_owned()),
             kv_items,
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct HashSetVariable {
+    pub identity: VariableIdentity,
+    pub type_name: Option<String>,
+    pub items: Vec<VariableIR>,
+}
+
+impl HashSetVariable {
+    pub fn from_struct_ir(
+        eval_ctx: &EvaluationContext,
+        ir: VariableIR,
+    ) -> anyhow::Result<HashSetVariable> {
+        let ctrl = ir.assume_field_as_pointer("pointer")?;
+        let bucket_mask = ir.assume_field_as_scalar_number("bucket_mask")?;
+
+        let table = ir.assume_field_as_struct("table")?;
+        let kv_type = table
+            .type_params
+            .get("T")
+            .ok_or_else(|| anyhow!("hashmap bucket type not found"))?
+            .as_ref();
+        let kv_size = kv_type
+            .map(|t| t.size_in_bytes(eval_ctx))
+            .unwrap_or_default()
+            .ok_or_else(|| anyhow!("unknown hashmap bucket size"))?;
+
+        let reflection =
+            HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
+
+        let iterator = reflection.iter(eval_ctx.pid)?;
+        let items = iterator
+            .map_err(anyhow::Error::from)
+            .filter_map(|bucket| {
+                let data = bucket.read(eval_ctx.pid);
+
+                let tuple = VariableIR::new(
+                    eval_ctx,
+                    VariableIdentity::no_namespace(Some("kv".to_string())),
+                    weak_error!(data).map(Bytes::from),
+                    kv_type,
+                );
+
+                if let VariableIR::Struct(mut tuple) = tuple {
+                    if tuple.members.len() == 2 {
+                        let _ = tuple.members.pop();
+                        let k = tuple.members.pop().unwrap();
+                        return Ok(Some(k));
+                    }
+                }
+
+                Err(anyhow!("unexpected bucket type"))
+            })
+            .collect()?;
+
+        Ok(HashSetVariable {
+            identity: ir.identity().clone(),
+            type_name: Some(ir.r#type().to_owned()),
+            items,
         })
     }
 }
@@ -256,6 +317,10 @@ pub enum SpecializedVariableIR {
     },
     HashMap {
         map: Option<HashMapVariable>,
+        original: StructVariable,
+    },
+    HashSet {
+        set: Option<HashSetVariable>,
         original: StructVariable,
     },
     String {
