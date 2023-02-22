@@ -11,11 +11,14 @@ use gimli::{AttributeValue, DwAte, Expression};
 use log::warn;
 use nix::unistd::Pid;
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use uuid::Uuid;
 
-pub type TypeDeclarationCache = HashMap<(Uuid, DieRef), TypeDeclaration>;
+pub struct EvaluationContext<'a> {
+    pub evaluator: &'a ExpressionEvaluator<'a>,
+    pub pid: Pid,
+}
 
 #[derive(Clone)]
 pub struct MemberLocationExpression {
@@ -46,76 +49,17 @@ pub enum MemberLocation {
 pub struct StructureMember {
     pub in_struct_location: Option<MemberLocation>,
     pub name: Option<String>,
-    pub r#type: Option<TypeDeclaration>,
+    pub type_ref: Option<DieRef>,
 }
 
 impl StructureMember {
-    fn parse<'a>(ctx_die: ContextualDieRef<'a, TypeMemberDie>) -> Self {
-        let loc = ctx_die.die.location.as_ref().map(|attr| attr.value());
-        let in_struct_location = if let Some(offset) = loc.as_ref().and_then(|l| l.sdata_value()) {
-            Some(MemberLocation::Offset(offset))
-        } else if let Some(AttributeValue::Exprloc(ref expr)) = loc {
-            Some(MemberLocation::Expr(MemberLocationExpression {
-                expr: expr.clone(),
-            }))
-        } else {
-            None
-        };
-
-        // todo self refs
-        // идея такая, нужен некоторый парсинг контекст, представляет собой хэшмапу c ключем DieRef
-        // в котором находятся все разобранные на данный момент типы, если тип там уже есть - клонируем
-        // иначе - TypeDeclaration::from_type_ref
-
-        // идея выше скорее всего не рабочая
-        // вариант 2 - тип переменной это некоторый граф который замыкает в себе все необходимы типы
-        // все ссылки на типы в данном графе - индексы внутреннеого массива
-        let type_decl = ctx_die
-            .die
-            .type_ref
-            .and_then(|reference| TypeDeclaration::from_type_ref(ctx_die, reference));
-
-        StructureMember {
-            in_struct_location,
-            name: ctx_die.die.base_attributes.name.clone(),
-            r#type: type_decl,
-        }
-    }
-}
-
-// impl<'a> From<ContextualDieRef<'a, TypeMemberDie>> for StructureMember {
-//     fn from(ctx_die: ContextualDieRef<'a, TypeMemberDie>) -> Self {
-//         let loc = ctx_die.die.location.as_ref().map(|attr| attr.value());
-//         let in_struct_location = if let Some(offset) = loc.as_ref().and_then(|l| l.sdata_value()) {
-//             Some(MemberLocation::Offset(offset))
-//         } else if let Some(AttributeValue::Exprloc(ref expr)) = loc {
-//             Some(MemberLocation::Expr(MemberLocationExpression {
-//                 expr: expr.clone(),
-//             }))
-//         } else {
-//             None
-//         };
-//
-//         // todo self refs
-//         // идея такая, нужен некоторый парсинг контекст, представляет собой хэшмапу c ключем DieRef
-//         // в котором находятся все разобранные на данный момент типы, если тип там уже есть - клонируем
-//         // иначе - TypeDeclaration::from_type_ref
-//         let type_decl = ctx_die
-//             .die
-//             .type_ref
-//             .and_then(|reference| TypeDeclaration::from_type_ref(ctx_die, reference));
-//
-//         StructureMember {
-//             in_struct_location,
-//             name: ctx_die.die.base_attributes.name.clone(),
-//             r#type: type_decl,
-//         }
-//     }
-// }
-
-impl StructureMember {
-    pub fn value(&self, eval_ctx: &EvaluationContext, base_entity_addr: usize) -> Option<Bytes> {
-        let type_size = self.r#type.as_ref()?.size_in_bytes(eval_ctx)? as usize;
+    pub fn value(
+        &self,
+        eval_ctx: &EvaluationContext,
+        type_graph: &TypeGraph,
+        base_entity_addr: usize,
+    ) -> Option<Bytes> {
+        let type_size = type_graph.type_size_in_bytes(eval_ctx, self.type_ref?)? as usize;
 
         let addr = match self.in_struct_location.as_ref()? {
             MemberLocation::Offset(offset) => {
@@ -171,7 +115,7 @@ pub enum UpperBound {
 pub struct ArrayType {
     pub namespaces: NamespaceHierarchy,
     byte_size: Option<u64>,
-    pub element_type: Option<Box<TypeDeclaration>>,
+    pub element_type: Option<DieRef>,
     lower_bound: ArrayBoundValue,
     upper_bound: Option<UpperBound>,
     byte_size_memo: Cell<Option<u64>>,
@@ -182,7 +126,7 @@ impl ArrayType {
     pub fn new(
         namespaces: NamespaceHierarchy,
         byte_size: Option<u64>,
-        element_type: Option<Box<TypeDeclaration>>,
+        element_type: Option<DieRef>,
         lower_bound: ArrayBoundValue,
         upper_bound: Option<UpperBound>,
     ) -> Self {
@@ -213,15 +157,18 @@ impl ArrayType {
         self.bounds_memo.get()
     }
 
-    pub fn size_in_bytes(&self, eval_ctx: &EvaluationContext) -> Option<u64> {
+    pub fn size_in_bytes(
+        &self,
+        eval_ctx: &EvaluationContext,
+        type_graph: &TypeGraph,
+    ) -> Option<u64> {
         if self.byte_size.is_some() {
             return self.byte_size;
         }
 
         if self.byte_size_memo.get().is_none() {
             let bounds = self.bounds(eval_ctx)?;
-            let inner_type = self.element_type.as_ref()?;
-            let inner_type_size = inner_type.size_in_bytes(eval_ctx)?;
+            let inner_type_size = type_graph.type_size_in_bytes(eval_ctx, self.element_type?)?;
             self.byte_size_memo
                 .set(Some(inner_type_size * (bounds.1 - bounds.0) as u64));
         }
@@ -242,25 +189,30 @@ pub struct ScalarType {
 pub enum TypeDeclaration {
     Scalar(ScalarType),
     Array(ArrayType),
+    CStyleEnum {
+        namespaces: NamespaceHierarchy,
+        name: Option<String>,
+        byte_size: Option<u64>,
+        discr_type: Option<DieRef>,
+        enumerators: HashMap<i64, String>,
+    },
+    Pointer {
+        namespaces: NamespaceHierarchy,
+        name: Option<String>,
+        target_type: Option<DieRef>,
+    },
     Structure {
         namespaces: NamespaceHierarchy,
         name: Option<String>,
         byte_size: Option<u64>,
         members: Vec<StructureMember>,
-        type_params: HashMap<String, Option<TypeDeclaration>>,
+        type_params: HashMap<String, Option<DieRef>>,
     },
     Union {
         namespaces: NamespaceHierarchy,
         name: Option<String>,
         byte_size: Option<u64>,
         members: Vec<StructureMember>,
-    },
-    CStyleEnum {
-        namespaces: NamespaceHierarchy,
-        name: Option<String>,
-        byte_size: Option<u64>,
-        discr_type: Option<Box<TypeDeclaration>>,
-        enumerators: HashMap<i64, String>,
     },
     RustEnum {
         namespaces: NamespaceHierarchy,
@@ -270,25 +222,24 @@ pub enum TypeDeclaration {
         /// key `None` is default enumerator
         enumerators: HashMap<Option<i64>, StructureMember>,
     },
-    Pointer {
-        namespaces: NamespaceHierarchy,
-        name: Option<String>,
-        target_type: Option<Box<TypeDeclaration>>,
-    },
 }
 
-impl TypeDeclaration {
-    pub fn name(&self) -> Option<String> {
-        match self {
+#[derive(Clone)]
+pub struct TypeGraph {
+    pub types: HashMap<DieRef, TypeDeclaration>,
+    pub root: DieRef,
+}
+
+impl TypeGraph {
+    pub fn type_name(&self, typ: DieRef) -> Option<String> {
+        match &self.types[&typ] {
             TypeDeclaration::Scalar(s) => s.name.clone(),
             TypeDeclaration::Structure { name, .. } => name.clone(),
             TypeDeclaration::Array(arr) => Some(format!(
                 "[{}]",
                 arr.element_type
-                    .as_ref()
-                    .and_then(|t| { t.name() })
-                    .as_deref()
-                    .unwrap_or("unknown")
+                    .and_then(|t| self.type_name(t))
+                    .unwrap_or("unknown".to_string())
             )),
             TypeDeclaration::CStyleEnum { name, .. } => name.clone(),
             TypeDeclaration::RustEnum { name, .. } => name.clone(),
@@ -297,52 +248,81 @@ impl TypeDeclaration {
         }
     }
 
-    pub fn size_in_bytes(&self, eval_ctx: &EvaluationContext) -> Option<u64> {
-        match self {
+    pub fn type_size_in_bytes(&self, eval_ctx: &EvaluationContext, typ: DieRef) -> Option<u64> {
+        match &self.types[&typ] {
             TypeDeclaration::Scalar(s) => s.byte_size,
             TypeDeclaration::Structure { byte_size, .. } => *byte_size,
-            TypeDeclaration::Array(arr) => arr.size_in_bytes(eval_ctx),
+            TypeDeclaration::Array(arr) => arr.size_in_bytes(eval_ctx, self),
             TypeDeclaration::CStyleEnum { byte_size, .. } => *byte_size,
             TypeDeclaration::RustEnum { byte_size, .. } => *byte_size,
             TypeDeclaration::Pointer { .. } => Some(mem::size_of::<usize>() as u64),
             TypeDeclaration::Union { byte_size, .. } => *byte_size,
         }
     }
+}
 
-    pub fn from_type_ref<T>(ctx_die: ContextualDieRef<'_, T>, type_ref: DieRef) -> Option<Self> {
+pub struct TypeParser {
+    known_refs: HashSet<DieRef>,
+    seen_types: HashMap<DieRef, TypeDeclaration>,
+}
+
+impl TypeParser {
+    pub fn new() -> Self {
+        Self {
+            known_refs: HashSet::new(),
+            seen_types: HashMap::new(),
+        }
+    }
+
+    pub fn parse<T>(self, ctx_die: ContextualDieRef<'_, T>, type_ref: DieRef) -> TypeGraph {
+        let mut this = self;
+        this.parse_inner(ctx_die, type_ref);
+        TypeGraph {
+            types: this.seen_types,
+            root: type_ref,
+        }
+    }
+
+    fn parse_inner<T>(&mut self, ctx_die: ContextualDieRef<'_, T>, type_ref: DieRef) {
+        // guard from recursion types parsing
+        if self.known_refs.get(&type_ref).is_some() {
+            return;
+        }
+        self.known_refs.insert(type_ref);
+
         let mb_type_die = ctx_die.context.deref_die(ctx_die.unit, type_ref);
-        mb_type_die.and_then(|entry| match &entry.die {
-            DieVariant::BaseType(die) => Some(TypeDeclaration::from(ContextualDieRef {
+        let type_decl = mb_type_die.and_then(|entry| match &entry.die {
+            DieVariant::BaseType(die) => Some(self.parse_base_type(ContextualDieRef {
                 context: ctx_die.context,
                 unit: ctx_die.unit,
                 node: &entry.node,
                 die,
             })),
-            DieVariant::StructType(die) => Some(TypeDeclaration::from(ContextualDieRef {
+            DieVariant::StructType(die) => Some(self.parse_struct(ContextualDieRef {
                 context: ctx_die.context,
                 unit: ctx_die.unit,
                 node: &entry.node,
                 die,
             })),
-            DieVariant::ArrayType(die) => Some(TypeDeclaration::from(ContextualDieRef {
+            DieVariant::ArrayType(die) => Some(self.parse_array(ContextualDieRef {
                 context: ctx_die.context,
                 unit: ctx_die.unit,
                 node: &entry.node,
                 die,
             })),
-            DieVariant::EnumType(die) => Some(TypeDeclaration::from(ContextualDieRef {
+            DieVariant::EnumType(die) => Some(self.parse_enum(ContextualDieRef {
                 context: ctx_die.context,
                 unit: ctx_die.unit,
                 node: &entry.node,
                 die,
             })),
-            DieVariant::PointerType(die) => Some(TypeDeclaration::from(ContextualDieRef {
+            DieVariant::PointerType(die) => Some(self.parse_pointer(ContextualDieRef {
                 context: ctx_die.context,
                 unit: ctx_die.unit,
                 node: &entry.node,
                 die,
             })),
-            DieVariant::UnionTypeDie(die) => Some(TypeDeclaration::from(ContextualDieRef {
+            DieVariant::UnionTypeDie(die) => Some(self.parse_union(ContextualDieRef {
                 context: ctx_die.context,
                 unit: ctx_die.unit,
                 node: &entry.node,
@@ -352,129 +332,13 @@ impl TypeDeclaration {
                 warn!("unsupported type die: {:?}", entry.die);
                 None
             }
-        })
-    }
-
-    fn from_struct_type(ctx_die: ContextualDieRef<'_, StructTypeDie>) -> Self {
-        let name = ctx_die.die.base_attributes.name.clone();
-        let members = ctx_die
-            .node
-            .children
-            .iter()
-            .filter_map(|child_idx| {
-                let entry = &ctx_die.unit.entries[*child_idx];
-                if let DieVariant::TypeMember(member) = &entry.die {
-                    return Some(StructureMember::parse(ContextualDieRef {
-                        context: ctx_die.context,
-                        unit: ctx_die.unit,
-                        node: &entry.node,
-                        die: member,
-                    }));
-                }
-                None
-            })
-            .collect::<Vec<_>>();
-
-        let type_params = ctx_die
-            .node
-            .children
-            .iter()
-            .filter_map(|child_idx| {
-                let entry = &ctx_die.unit.entries[*child_idx];
-                if let DieVariant::TemplateType(param) = &entry.die {
-                    let name = param.base_attributes.name.clone()?;
-                    let mb_type_decl = TypeDeclaration::from_type_ref(ctx_die, param.type_ref?);
-                    return Some((name, mb_type_decl));
-                }
-                None
-            })
-            .collect::<HashMap<_, _>>();
-
-        TypeDeclaration::Structure {
-            namespaces: ctx_die.namespaces(),
-            name,
-            byte_size: ctx_die.die.byte_size,
-            members,
-            type_params,
+        });
+        if let Some(type_decl) = type_decl {
+            self.seen_types.insert(type_ref, type_decl);
         }
     }
 
-    fn from_struct_enum_type(ctx_die: ContextualDieRef<'_, StructTypeDie>) -> Self {
-        let name = ctx_die.die.base_attributes.name.clone();
-
-        let variant_part = ctx_die.node.children.iter().find_map(|c_idx| {
-            if let DieVariant::VariantPart(ref v) = ctx_die.unit.entries[*c_idx].die {
-                return Some((v, &ctx_die.unit.entries[*c_idx].node));
-            }
-            None
-        });
-
-        let member_from_ref = |type_ref: DieRef| -> Option<StructureMember> {
-            let entry = ctx_die.context.deref_die(ctx_die.unit, type_ref)?;
-            if let DieVariant::TypeMember(ref member) = &entry.die {
-                return Some(StructureMember::parse(ContextualDieRef {
-                    context: ctx_die.context,
-                    unit: ctx_die.unit,
-                    node: &entry.node,
-                    die: member,
-                }));
-            }
-            None
-        };
-
-        let discr_type = variant_part.and_then(|vp| {
-            let variant = vp.0;
-            variant
-                .discr_ref
-                .and_then(member_from_ref)
-                .or_else(|| variant.type_ref.and_then(member_from_ref))
-        });
-
-        let variants = variant_part
-            .map(|vp| {
-                let node = vp.1;
-                node.children
-                    .iter()
-                    .filter_map(|idx| {
-                        if let DieVariant::Variant(ref v) = ctx_die.unit.entries[*idx].die {
-                            return Some((v, &ctx_die.unit.entries[*idx].node));
-                        }
-                        None
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        let enumerators = variants
-            .iter()
-            .filter_map(|&(variant, node)| {
-                let member = node.children.iter().find_map(|&c_idx| {
-                    if let DieVariant::TypeMember(ref member) = ctx_die.unit.entries[c_idx].die {
-                        return Some(StructureMember::parse(ContextualDieRef {
-                            context: ctx_die.context,
-                            unit: ctx_die.unit,
-                            node: &ctx_die.unit.entries[c_idx].node,
-                            die: member,
-                        }));
-                    }
-                    None
-                })?;
-                Some((variant.discr_value, member))
-            })
-            .collect::<HashMap<_, _>>();
-
-        TypeDeclaration::RustEnum {
-            namespaces: ctx_die.namespaces(),
-            name,
-            byte_size: ctx_die.die.byte_size,
-            discr_type: discr_type.map(Box::new),
-            enumerators,
-        }
-    }
-}
-
-impl From<ContextualDieRef<'_, BaseTypeDie>> for TypeDeclaration {
-    fn from(ctx_die: ContextualDieRef<'_, BaseTypeDie>) -> Self {
+    fn parse_base_type(&mut self, ctx_die: ContextualDieRef<'_, BaseTypeDie>) -> TypeDeclaration {
         let name = ctx_die.die.base_attributes.name.clone();
         TypeDeclaration::Scalar(ScalarType {
             namespaces: ctx_die.namespaces(),
@@ -483,61 +347,12 @@ impl From<ContextualDieRef<'_, BaseTypeDie>> for TypeDeclaration {
             encoding: ctx_die.die.encoding,
         })
     }
-}
 
-impl<'a> From<ContextualDieRef<'a, StructTypeDie>> for TypeDeclaration {
-    /// Convert DW_TAG_structure_type into TypeDeclaration.
-    /// For rust DW_TAG_structure_type DIE can be interpreter as enum, see https://github.com/rust-lang/rust/issues/32920
-    fn from(ctx_die: ContextualDieRef<'a, StructTypeDie>) -> Self {
-        let is_enum =
-            ctx_die.node.children.iter().any(|c_idx| {
-                matches!(ctx_die.unit.entries[*c_idx].die, DieVariant::VariantPart(_))
-            });
-
-        if is_enum {
-            TypeDeclaration::from_struct_enum_type(ctx_die)
-        } else {
-            TypeDeclaration::from_struct_type(ctx_die)
+    fn parse_array(&mut self, ctx_die: ContextualDieRef<'_, ArrayDie>) -> TypeDeclaration {
+        let mb_type_ref = ctx_die.die.type_ref;
+        if let Some(reference) = mb_type_ref {
+            self.parse_inner(ctx_die, reference);
         }
-    }
-}
-
-impl<'a> From<ContextualDieRef<'a, UnionTypeDie>> for TypeDeclaration {
-    fn from(ctx_die: ContextualDieRef<'a, UnionTypeDie>) -> Self {
-        let name = ctx_die.die.base_attributes.name.clone();
-        let members = ctx_die
-            .node
-            .children
-            .iter()
-            .filter_map(|child_idx| {
-                let entry = &ctx_die.unit.entries[*child_idx];
-                if let DieVariant::TypeMember(member) = &entry.die {
-                    return Some(StructureMember::parse(ContextualDieRef {
-                        context: ctx_die.context,
-                        unit: ctx_die.unit,
-                        node: &entry.node,
-                        die: member,
-                    }));
-                }
-                None
-            })
-            .collect::<Vec<_>>();
-
-        TypeDeclaration::Union {
-            namespaces: ctx_die.namespaces(),
-            name,
-            byte_size: ctx_die.die.byte_size,
-            members,
-        }
-    }
-}
-
-impl<'a> From<ContextualDieRef<'a, ArrayDie>> for TypeDeclaration {
-    fn from(ctx_die: ContextualDieRef<'a, ArrayDie>) -> Self {
-        let type_decl = ctx_die
-            .die
-            .type_ref
-            .and_then(|reference| TypeDeclaration::from_type_ref(ctx_die, reference));
 
         let subrange = ctx_die.node.children.iter().find_map(|&child_idx| {
             let entry = &ctx_die.unit.entries[child_idx];
@@ -593,21 +408,181 @@ impl<'a> From<ContextualDieRef<'a, ArrayDie>> for TypeDeclaration {
         TypeDeclaration::Array(ArrayType::new(
             ctx_die.namespaces(),
             ctx_die.die.byte_size,
-            type_decl.map(Box::new),
+            mb_type_ref,
             lower_bound,
             upper_bound,
         ))
     }
-}
 
-impl<'a> From<ContextualDieRef<'a, EnumTypeDie>> for TypeDeclaration {
-    fn from(ctx_die: ContextualDieRef<'a, EnumTypeDie>) -> Self {
+    /// Convert DW_TAG_structure_type into TypeDeclaration.
+    /// In rust DW_TAG_structure_type DIE can be interpreter as enum, see https://github.com/rust-lang/rust/issues/32920
+    fn parse_struct(&mut self, ctx_die: ContextualDieRef<'_, StructTypeDie>) -> TypeDeclaration {
+        let is_enum =
+            ctx_die.node.children.iter().any(|c_idx| {
+                matches!(ctx_die.unit.entries[*c_idx].die, DieVariant::VariantPart(_))
+            });
+
+        if is_enum {
+            self.parse_struct_enum(ctx_die)
+        } else {
+            self.parse_struct_struct(ctx_die)
+        }
+    }
+
+    fn parse_struct_struct(
+        &mut self,
+        ctx_die: ContextualDieRef<'_, StructTypeDie>,
+    ) -> TypeDeclaration {
+        let name = ctx_die.die.base_attributes.name.clone();
+        let members = ctx_die
+            .node
+            .children
+            .iter()
+            .filter_map(|child_idx| {
+                let entry = &ctx_die.unit.entries[*child_idx];
+                if let DieVariant::TypeMember(member) = &entry.die {
+                    return Some(self.parse_member(ContextualDieRef {
+                        context: ctx_die.context,
+                        unit: ctx_die.unit,
+                        node: &entry.node,
+                        die: member,
+                    }));
+                }
+                None
+            })
+            .collect::<Vec<_>>();
+
+        let type_params = ctx_die
+            .node
+            .children
+            .iter()
+            .filter_map(|child_idx| {
+                let entry = &ctx_die.unit.entries[*child_idx];
+                if let DieVariant::TemplateType(param) = &entry.die {
+                    let name = param.base_attributes.name.clone()?;
+                    self.parse_inner(ctx_die, param.type_ref?);
+                    return Some((name, param.type_ref));
+                }
+                None
+            })
+            .collect::<HashMap<_, _>>();
+
+        TypeDeclaration::Structure {
+            namespaces: ctx_die.namespaces(),
+            name,
+            byte_size: ctx_die.die.byte_size,
+            members,
+            type_params,
+        }
+    }
+
+    fn parse_member(&mut self, ctx_die: ContextualDieRef<'_, TypeMemberDie>) -> StructureMember {
+        let loc = ctx_die.die.location.as_ref().map(|attr| attr.value());
+        let in_struct_location = if let Some(offset) = loc.as_ref().and_then(|l| l.sdata_value()) {
+            Some(MemberLocation::Offset(offset))
+        } else if let Some(AttributeValue::Exprloc(ref expr)) = loc {
+            Some(MemberLocation::Expr(MemberLocationExpression {
+                expr: expr.clone(),
+            }))
+        } else {
+            None
+        };
+
+        let mb_type_ref = ctx_die.die.type_ref;
+        if let Some(reference) = mb_type_ref {
+            self.parse_inner(ctx_die, reference);
+        }
+
+        StructureMember {
+            in_struct_location,
+            name: ctx_die.die.base_attributes.name.clone(),
+            type_ref: mb_type_ref,
+        }
+    }
+
+    fn parse_struct_enum(
+        &mut self,
+        ctx_die: ContextualDieRef<'_, StructTypeDie>,
+    ) -> TypeDeclaration {
         let name = ctx_die.die.base_attributes.name.clone();
 
-        let discr_type = ctx_die
-            .die
-            .type_ref
-            .and_then(|reference| TypeDeclaration::from_type_ref(ctx_die, reference));
+        let variant_part = ctx_die.node.children.iter().find_map(|c_idx| {
+            if let DieVariant::VariantPart(ref v) = ctx_die.unit.entries[*c_idx].die {
+                return Some((v, &ctx_die.unit.entries[*c_idx].node));
+            }
+            None
+        });
+
+        let mut member_from_ref = |type_ref: DieRef| -> Option<StructureMember> {
+            let entry = ctx_die.context.deref_die(ctx_die.unit, type_ref)?;
+            if let DieVariant::TypeMember(ref member) = &entry.die {
+                return Some(self.parse_member(ContextualDieRef {
+                    context: ctx_die.context,
+                    unit: ctx_die.unit,
+                    node: &entry.node,
+                    die: member,
+                }));
+            }
+            None
+        };
+
+        let discr_type = variant_part.and_then(|vp| {
+            let variant = vp.0;
+            variant
+                .discr_ref
+                .and_then(&mut member_from_ref)
+                .or_else(|| variant.type_ref.and_then(&mut member_from_ref))
+        });
+
+        let variants = variant_part
+            .map(|vp| {
+                let node = vp.1;
+                node.children
+                    .iter()
+                    .filter_map(|idx| {
+                        if let DieVariant::Variant(ref v) = ctx_die.unit.entries[*idx].die {
+                            return Some((v, &ctx_die.unit.entries[*idx].node));
+                        }
+                        None
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let enumerators = variants
+            .iter()
+            .filter_map(|&(variant, node)| {
+                let member = node.children.iter().find_map(|&c_idx| {
+                    if let DieVariant::TypeMember(ref member) = ctx_die.unit.entries[c_idx].die {
+                        return Some(self.parse_member(ContextualDieRef {
+                            context: ctx_die.context,
+                            unit: ctx_die.unit,
+                            node: &ctx_die.unit.entries[c_idx].node,
+                            die: member,
+                        }));
+                    }
+                    None
+                })?;
+                Some((variant.discr_value, member))
+            })
+            .collect::<HashMap<_, _>>();
+
+        TypeDeclaration::RustEnum {
+            namespaces: ctx_die.namespaces(),
+            name,
+            byte_size: ctx_die.die.byte_size,
+            discr_type: discr_type.map(Box::new),
+            enumerators,
+        }
+    }
+
+    fn parse_enum(&mut self, ctx_die: ContextualDieRef<'_, EnumTypeDie>) -> TypeDeclaration {
+        let name = ctx_die.die.base_attributes.name.clone();
+
+        let mb_discr_type = ctx_die.die.type_ref;
+        if let Some(reference) = mb_discr_type {
+            self.parse_inner(ctx_die, reference);
+        }
 
         let enumerators = ctx_die
             .node
@@ -630,29 +605,84 @@ impl<'a> From<ContextualDieRef<'a, EnumTypeDie>> for TypeDeclaration {
             namespaces: ctx_die.namespaces(),
             name,
             byte_size: ctx_die.die.byte_size,
-            discr_type: discr_type.map(Box::new),
+            discr_type: mb_discr_type,
             enumerators,
         }
     }
-}
 
-impl<'a> From<ContextualDieRef<'a, PointerType>> for TypeDeclaration {
-    fn from(ctx_die: ContextualDieRef<'a, PointerType>) -> Self {
+    fn parse_union(&mut self, ctx_die: ContextualDieRef<'_, UnionTypeDie>) -> TypeDeclaration {
         let name = ctx_die.die.base_attributes.name.clone();
-        let type_decl = ctx_die
-            .die
-            .type_ref
-            .and_then(|reference| TypeDeclaration::from_type_ref(ctx_die, reference));
+        let members = ctx_die
+            .node
+            .children
+            .iter()
+            .filter_map(|child_idx| {
+                let entry = &ctx_die.unit.entries[*child_idx];
+                if let DieVariant::TypeMember(member) = &entry.die {
+                    return Some(self.parse_member(ContextualDieRef {
+                        context: ctx_die.context,
+                        unit: ctx_die.unit,
+                        node: &entry.node,
+                        die: member,
+                    }));
+                }
+                None
+            })
+            .collect::<Vec<_>>();
+
+        TypeDeclaration::Union {
+            namespaces: ctx_die.namespaces(),
+            name,
+            byte_size: ctx_die.die.byte_size,
+            members,
+        }
+    }
+
+    fn parse_pointer(&mut self, ctx_die: ContextualDieRef<'_, PointerType>) -> TypeDeclaration {
+        let name = ctx_die.die.base_attributes.name.clone();
+
+        let mb_type_ref = ctx_die.die.type_ref;
+        if let Some(reference) = mb_type_ref {
+            self.parse_inner(ctx_die, reference);
+        }
 
         TypeDeclaration::Pointer {
             namespaces: ctx_die.namespaces(),
             name,
-            target_type: type_decl.map(Box::new),
+            target_type: mb_type_ref,
         }
     }
 }
 
-pub struct EvaluationContext<'a> {
-    pub evaluator: &'a ExpressionEvaluator<'a>,
-    pub pid: Pid,
+pub type TypeCache = HashMap<(Uuid, DieRef), TypeGraph>;
+
+#[cfg(test)]
+mod test {
+    use crate::debugger::debugee::dwarf::parser::unit::Unit;
+    use crate::debugger::debugee::dwarf::{DebugeeContext, EndianRcSlice};
+    use gimli::{Dwarf, EhFrame, RunTimeEndian};
+    use std::rc::Rc;
+
+    #[test]
+    fn test_parse_scalar_type() {
+        // let unit = Unit {
+        //     id: Default::default(),
+        //     properties: (),
+        //     files: vec![],
+        //     lines: vec![],
+        //     ranges: vec![],
+        //     entries: vec![],
+        //     die_ranges: vec![],
+        //     name: None,
+        //     variable_index: Default::default(),
+        //     die_offsets_index: Default::default(),
+        // };
+        let dc = DebugeeContext {
+            inner: Dwarf::default(),
+            eh_frame: EhFrame::new(&[], RunTimeEndian::Little),
+            bases: Default::default(),
+            units: vec![],
+            symbol_table: None,
+        };
+    }
 }

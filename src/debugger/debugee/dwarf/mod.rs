@@ -2,6 +2,7 @@ pub mod eval;
 pub mod parser;
 mod symbol;
 pub mod r#type;
+pub mod type_new;
 
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
@@ -12,6 +13,7 @@ use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::debugee::dwarf::r#type::TypeDeclaration;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
+use crate::debugger::debugee::dwarf::type_new::TypeGraph;
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register;
 use crate::debugger::utils::TryGetOrInsert;
@@ -620,6 +622,11 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
         TypeDeclaration::from_type_ref(*self, self.die.type_ref?)
     }
 
+    pub fn r#type2(&self) -> Option<TypeGraph> {
+        let parser = type_new::TypeParser::new();
+        Some(parser.parse(*self, self.die.type_ref?))
+    }
+
     pub fn valid_at(&self, pc: GlobalAddress) -> bool {
         self.die
             .lexical_block_idx
@@ -678,5 +685,10 @@ impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
 
     pub fn r#type(&self) -> Option<TypeDeclaration> {
         TypeDeclaration::from_type_ref(*self, self.die.type_ref?)
+    }
+
+    pub fn r#type2(&self) -> Option<TypeGraph> {
+        let parser = type_new::TypeParser::new();
+        Some(parser.parse(*self, self.die.type_ref?))
     }
 }

@@ -281,6 +281,34 @@ fn hashset() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn circular() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    enum List {
+        Cons(i32, RefCell<Rc<List>>),
+        Nil,
+    }
+    impl List {
+        fn tail(&self) -> Option<&RefCell<Rc<List>>> {
+            match self {
+                List::Cons(_, item) => Some(item),
+                List::Nil => None,
+            }
+        }
+    }
+
+    let a = Rc::new(List::Cons(5, RefCell::new(Rc::new(List::Nil))));
+    let b = Rc::new(List::Cons(10, RefCell::new(Rc::clone(&a))));
+
+    if let Some(link) = a.tail() {
+        *link.borrow_mut() = Rc::clone(&b);
+    }
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -299,4 +327,5 @@ pub fn main() {
     unions();
     hashmap();
     hashset();
+    circular();
 }

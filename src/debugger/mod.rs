@@ -8,6 +8,7 @@ pub mod rust;
 mod utils;
 pub mod uw;
 pub mod variable;
+pub mod variable_new;
 
 pub use debugee::dwarf::parser::unit::Place;
 pub use debugee::dwarf::r#type::TypeDeclaration;
@@ -17,9 +18,10 @@ use crate::debugger::address::{GlobalAddress, PCValue, RelocatedAddress};
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::debugee::dwarf::parser::unit::VariableDie;
 use crate::debugger::debugee::dwarf::r#type::{EvaluationContext, TypeDeclarationCache};
+use crate::debugger::debugee::dwarf::type_new::TypeCache;
 use crate::debugger::debugee::dwarf::{ContextualDieRef, NamespaceHierarchy, RegisterDump, Symbol};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
-use crate::debugger::debugee::{Debugee, FrameInfo, Location};
+use crate::debugger::debugee::{dwarf, Debugee, FrameInfo, Location};
 use crate::debugger::register::{get_register_from_name, get_register_value, set_register_value};
 use crate::debugger::uw::Backtrace;
 use crate::debugger::variable::{VariableIR, VariableIdentity};
@@ -61,6 +63,8 @@ pub struct Debugger {
     breakpoints: HashMap<PCValue, Breakpoint>,
     /// Type declaration cache.
     type_cache: RefCell<TypeDeclarationCache>,
+    /// Type declaration cache.
+    type_cache2: RefCell<TypeCache>,
     /// Debugger interrupt with UI by EventHook trait.
     hooks: Box<dyn EventHook>,
 }
@@ -88,6 +92,7 @@ impl Debugger {
             breakpoints,
             hooks: Box::new(hooks),
             type_cache: RefCell::default(),
+            type_cache2: RefCell::default(),
             debugee: Debugee::new_non_running(program_path, pid, &object)?,
         })
     }
@@ -426,6 +431,7 @@ impl Debugger {
         vars: &[ContextualDieRef<VariableDie>],
     ) -> anyhow::Result<Vec<VariableIR>> {
         let mut type_cache = self.type_cache.borrow_mut();
+        let mut type_cache2 = self.type_cache2.borrow_mut();
 
         Ok(vars
             .iter()
@@ -437,9 +443,30 @@ impl Debugger {
                     }
                 });
 
+                let mb_type2 = var.die.type_ref.and_then(|type_ref| {
+                    match type_cache2.entry((var.unit.id, type_ref)) {
+                        Entry::Occupied(o) => Some(&*o.into_mut()),
+                        Entry::Vacant(v) => var.r#type2().map(|t| &*v.insert(t)),
+                    }
+                });
+
                 let mb_value = mb_type.as_ref().and_then(|type_decl| {
                     var.read_value_at_location(location, &self.debugee, type_decl)
                 });
+
+                let evaluator = var.unit.evaluator(&self.debugee);
+                let parser = variable_new::VariableParser::new(mb_type2.unwrap().clone());
+                parser.parse(
+                    &dwarf::type_new::EvaluationContext {
+                        evaluator: &evaluator,
+                        pid: location.pid,
+                    },
+                    variable_new::VariableIdentity::new(
+                        var.namespaces(),
+                        var.die.base_attributes.name.clone(),
+                    ),
+                    mb_value.clone(),
+                );
 
                 let evaluator = var.unit.evaluator(&self.debugee);
                 VariableIR::new(
@@ -489,6 +516,7 @@ impl Debugger {
             .ok_or_else(|| anyhow!("not in function"))?;
         let params = current_func.parameters();
         let mut type_cache = self.type_cache.borrow_mut();
+        let mut type_cache2 = self.type_cache2.borrow_mut();
 
         Ok(params
             .iter()
@@ -500,9 +528,31 @@ impl Debugger {
                     }
                 });
 
+                let mb_type2 = param.die.type_ref.and_then(|type_ref| {
+                    match type_cache2.entry((param.unit.id, type_ref)) {
+                        Entry::Occupied(o) => Some(&*o.into_mut()),
+                        Entry::Vacant(v) => param.r#type2().map(|t| &*v.insert(t)),
+                    }
+                });
+
                 let mb_value = mb_type.as_ref().and_then(|type_decl| {
                     param.read_value_at_location(location, &self.debugee, type_decl)
                 });
+
+                let evaluator = param.unit.evaluator(&self.debugee);
+                let parser = variable_new::VariableParser::new(mb_type2.unwrap().clone());
+                parser.parse(
+                    &dwarf::type_new::EvaluationContext {
+                        evaluator: &evaluator,
+                        pid: location.pid,
+                    },
+                    variable_new::VariableIdentity::new(
+                        NamespaceHierarchy::default(),
+                        param.die.base_attributes.name.clone(),
+                    ),
+                    mb_value.clone(),
+                );
+
                 let evaluator = param.unit.evaluator(&self.debugee);
                 VariableIR::new(
                     &EvaluationContext {
