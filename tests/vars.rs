@@ -207,30 +207,22 @@ fn test_read_pointers() {
 
     session.send_line("vars").unwrap();
     session.exp_string("a = i32(2)").unwrap();
+    session.exp_regex(r"ref_a = &i32 \[0x.*\]").unwrap();
+    session.exp_regex(r"ptr_a = \*const i32 \[0x.*\]").unwrap();
     session
-        .exp_regex(r"ref_a = &i32 \[0x.*\] \(i32\(2\)\)")
-        .unwrap();
-    session
-        .exp_regex(r"ptr_a = \*const i32 \[0x.*\] \(i32\(2\)\)")
-        .unwrap();
-    session
-        .exp_regex(
-            r"ptr_ptr_a = \*const \*const i32 \[0x.*\] \(\*const i32 \[0x.*\] \(i32\(2\)\)\)",
-        )
+        .exp_regex(r"ptr_ptr_a = \*const \*const i32 \[0x.*\]")
         .unwrap();
 
     session.exp_string("b = i32(2)").unwrap();
-    session
-        .exp_regex(r"mut_ref_b = &mut i32 \[0x.*\] \(i32\(2\)\)")
-        .unwrap();
+    session.exp_regex(r"mut_ref_b = &mut i32 \[0x.*\]").unwrap();
 
     session.exp_string("c = i32(2)").unwrap();
     session
-        .exp_regex(r"mut_ptr_c = \*mut i32 \[0x.*\] \(i32\(2\)\)")
+        .exp_regex(r"mut_ptr_c = \*mut i32 \[0x.*\]")
         .unwrap();
 
     session
-        .exp_regex(r"box_d = alloc::boxed::Box<i32, alloc::alloc::Global> \[0x.*\] \(i32\(2\)\)")
+        .exp_regex(r"box_d = alloc::boxed::Box<i32, alloc::alloc::Global> \[0x.*\]")
         .unwrap();
 
     session.exp_string("f = Foo {").unwrap();
@@ -239,23 +231,59 @@ fn test_read_pointers() {
     session.exp_string("0: i32(1)").unwrap();
     session.exp_string("1: i32(2)").unwrap();
     session.exp_string("}").unwrap();
-    session
-        .exp_regex(r"foo: &i32 \[0x.*\] \(i32\(2\)\)")
-        .unwrap();
+    session.exp_regex(r"foo: &i32 \[0x.*\]").unwrap();
     session.exp_string("}").unwrap();
 
     session
-        .exp_regex(r"ref_f = &vars::references::Foo \[0x.*\] \(Foo \{")
+        .exp_regex(r"ref_f = &vars::references::Foo \[0x.*\]")
         .unwrap();
+}
+
+#[test]
+fn test_deref_pointers() {
+    let mut session = setup_vars_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break vars.rs:119").unwrap();
+    session.exp_string("break vars.rs:119").unwrap();
+
+    session.send_line("run").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars *ref_a").unwrap();
+    session.exp_string("*ref_a = i32(2)").unwrap();
+
+    session.send_line("vars *ptr_a").unwrap();
+    session.exp_string("*ptr_a = i32(2)").unwrap();
+
+    session.send_line("vars *ptr_ptr_a").unwrap();
+    session
+        .exp_regex(r"\*ptr_ptr_a = \*const i32 \[0x.*\]")
+        .unwrap();
+
+    session.send_line("vars **ptr_ptr_a").unwrap();
+    session.exp_string("**ptr_ptr_a = i32(2)").unwrap();
+
+    session.send_line("vars *mut_ref_b").unwrap();
+    session.exp_string("*mut_ref_b = i32(2)").unwrap();
+
+    session.send_line("vars *mut_ptr_c").unwrap();
+    session.exp_string("*mut_ptr_c = i32(2)").unwrap();
+
+    session.send_line("vars *box_d").unwrap();
+    session.exp_string("*box_d = i32(2)").unwrap();
+
+    session.send_line("vars *ref_f").unwrap();
+    session.exp_string("*ref_f = Foo {").unwrap();
     session.exp_string("bar: i32(1)").unwrap();
     session.exp_string("baz: [i32] {").unwrap();
     session.exp_string("0: i32(1)").unwrap();
     session.exp_string("1: i32(2)").unwrap();
     session.exp_string("}").unwrap();
-    session
-        .exp_regex(r"foo: &i32 \[0x.*\] \(i32\(2\)\)")
-        .unwrap();
-    session.exp_string("})").unwrap();
+    session.exp_regex(r"foo: &i32 \[0x.*\]").unwrap();
+    session.exp_string("}").unwrap();
 }
 
 #[test]
@@ -365,32 +393,24 @@ fn test_read_vec_and_slice() {
     session.exp_string("cap: usize(2)").unwrap();
     session.exp_string("}").unwrap();
 
+    session.exp_regex(r"slice1 = &\[i32; 3\] \[0x.*]").unwrap();
     session
-        .exp_regex(r"slice1 = &\[i32; 3\] \[0x.*] \(\[i32\] \{")
+        .exp_regex(r"slice2 = &\[&\[i32; 3\]; 2\] \[0x.*\]")
         .unwrap();
-    session.exp_string("0: i32(1)").unwrap();
-    session.exp_string("1: i32(2)").unwrap();
-    session.exp_string("2: i32(3)").unwrap();
-    session.exp_string("})").unwrap();
 
-    session
-        .exp_regex(r"slice2 = &\[&\[i32; 3\]; 2\] \[0x.*\] \(\[&\[i32; 3\]\] \{")
-        .unwrap();
-    session
-        .exp_regex(r"0: &\[i32; 3\] \[0x.*\] \(\[i32\] \{")
-        .unwrap();
+    session.send_line("vars *slice1").unwrap();
+    session.exp_string("*slice1 = [i32]").unwrap();
     session.exp_string("0: i32(1)").unwrap();
     session.exp_string("1: i32(2)").unwrap();
     session.exp_string("2: i32(3)").unwrap();
-    session.exp_string("})").unwrap();
-    session
-        .exp_regex(r"1: &\[i32; 3\] \[0x.*\] \(\[i32\] \{")
-        .unwrap();
-    session.exp_string("0: i32(1)").unwrap();
-    session.exp_string("1: i32(2)").unwrap();
-    session.exp_string("2: i32(3)").unwrap();
-    session.exp_string("})").unwrap();
-    session.exp_string("})").unwrap();
+    session.exp_string("}").unwrap();
+
+    //todo assert deeper when making read by path feature
+    session.send_line("vars *slice2").unwrap();
+    session.exp_string("*slice2 = [&[i32; 3]] {").unwrap();
+    session.exp_regex(r"0: &\[i32; 3\] \[0x.*]").unwrap();
+    session.exp_regex(r"1: &\[i32; 3\] \[0x.*]").unwrap();
+    session.exp_string("}").unwrap();
 }
 
 #[test]

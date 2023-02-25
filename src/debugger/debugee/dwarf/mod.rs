@@ -2,7 +2,6 @@ pub mod eval;
 pub mod parser;
 mod symbol;
 pub mod r#type;
-pub mod type_new;
 
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
@@ -10,10 +9,9 @@ use crate::debugger::debugee::dwarf::parser::unit::{
     DieVariant, Entry, FunctionDie, Node, ParameterDie, Unit, VariableDie,
 };
 use crate::debugger::debugee::dwarf::parser::DieRef;
+use crate::debugger::debugee::dwarf::r#type::ComplexType;
 use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
-use crate::debugger::debugee::dwarf::r#type::TypeDeclaration;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
-use crate::debugger::debugee::dwarf::type_new::TypeGraph;
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register;
 use crate::debugger::utils::TryGetOrInsert;
@@ -602,28 +600,25 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
         &self,
         location: Location,
         debugee: &Debugee,
-        type_decl: &TypeDeclaration,
+        r#type: &ComplexType,
     ) -> Option<Bytes> {
         self.die
             .location_expr(location.global_pc, self.context, self.unit)
             .and_then(|expr| {
                 let evaluator = self.unit.evaluator(debugee);
                 let eval_result = weak_error!(evaluator.evaluate(location.pid, expr))?;
-                weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
+                weak_error!(eval_result.into_raw_buffer(r#type.type_size_in_bytes(
                     &EvaluationContext {
                         evaluator: &evaluator,
                         pid: location.pid,
-                    }
+                    },
+                    r#type.root
                 )? as usize))
             })
     }
 
-    pub fn r#type(&self) -> Option<TypeDeclaration> {
-        TypeDeclaration::from_type_ref(*self, self.die.type_ref?)
-    }
-
-    pub fn r#type2(&self) -> Option<TypeGraph> {
-        let parser = type_new::TypeParser::new();
+    pub fn r#type(&self) -> Option<ComplexType> {
+        let parser = r#type::TypeParser::new();
         Some(parser.parse(*self, self.die.type_ref?))
     }
 
@@ -667,28 +662,25 @@ impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
         &self,
         location: Location,
         debugee: &Debugee,
-        type_decl: &TypeDeclaration,
+        r#type: &ComplexType,
     ) -> Option<Bytes> {
         self.die
             .location_expr(location.global_pc, self.context, self.unit)
             .and_then(|expr| {
                 let evaluator = self.unit.evaluator(debugee);
                 let eval_result = weak_error!(evaluator.evaluate(location.pid, expr))?;
-                weak_error!(eval_result.into_raw_buffer(type_decl.size_in_bytes(
+                weak_error!(eval_result.into_raw_buffer(r#type.type_size_in_bytes(
                     &EvaluationContext {
                         evaluator: &evaluator,
                         pid: location.pid,
-                    }
+                    },
+                    r#type.root
                 )? as usize))
             })
     }
 
-    pub fn r#type(&self) -> Option<TypeDeclaration> {
-        TypeDeclaration::from_type_ref(*self, self.die.type_ref?)
-    }
-
-    pub fn r#type2(&self) -> Option<TypeGraph> {
-        let parser = type_new::TypeParser::new();
+    pub fn r#type(&self) -> Option<ComplexType> {
+        let parser = r#type::TypeParser::new();
         Some(parser.parse(*self, self.die.type_ref?))
     }
 }

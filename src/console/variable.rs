@@ -10,12 +10,8 @@ pub fn render_variable_ir(view: &VariableIR, depth: usize) -> String {
                 VariableIR::CEnum(_) => format!("{}::{}", view.r#type(), rendered_value),
                 _ => format!("{}({})", view.r#type(), rendered_value),
             },
-            ValueLayout::Referential { addr, val } => {
-                format!(
-                    "{} [{addr:p}] ({})",
-                    view.r#type(),
-                    render_variable_ir(val, depth)
-                )
+            ValueLayout::Referential { addr } => {
+                format!("{} [{addr:p}]", view.r#type())
             }
             ValueLayout::Wrapped(val) => {
                 format!("{}::{}", view.r#type(), render_variable_ir(val, depth))

@@ -8,7 +8,6 @@ pub mod rust;
 mod utils;
 pub mod uw;
 pub mod variable;
-pub mod variable_new;
 
 pub use debugee::dwarf::parser::unit::Place;
 pub use debugee::dwarf::r#type::TypeDeclaration;
@@ -16,15 +15,15 @@ pub use debugee::ThreadDump;
 
 use crate::debugger::address::{GlobalAddress, PCValue, RelocatedAddress};
 use crate::debugger::breakpoint::Breakpoint;
-use crate::debugger::debugee::dwarf::parser::unit::VariableDie;
-use crate::debugger::debugee::dwarf::r#type::{EvaluationContext, TypeDeclarationCache};
-use crate::debugger::debugee::dwarf::type_new::TypeCache;
+use crate::debugger::debugee::dwarf::parser::unit::{ParameterDie, VariableDie};
+use crate::debugger::debugee::dwarf::r#type::TypeCache;
 use crate::debugger::debugee::dwarf::{ContextualDieRef, NamespaceHierarchy, RegisterDump, Symbol};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
 use crate::debugger::debugee::{dwarf, Debugee, FrameInfo, Location};
 use crate::debugger::register::{get_register_from_name, get_register_value, set_register_value};
 use crate::debugger::uw::Backtrace;
-use crate::debugger::variable::{VariableIR, VariableIdentity};
+use crate::debugger::variable::VariableIR;
+use crate::weak_error;
 use anyhow::anyhow;
 use nix::libc::{c_int, c_void, uintptr_t};
 use nix::sys;
@@ -46,6 +45,12 @@ pub trait EventHook {
     fn on_exit(&self, code: i32);
 }
 
+/// Modifiers applied to read variables.
+#[derive(Clone, Copy, Debug)]
+pub enum ReadModifier {
+    Deref,
+}
+
 macro_rules! disable_when_not_stared {
     ($this: expr) => {
         use anyhow::bail;
@@ -62,9 +67,7 @@ pub struct Debugger {
     /// Active and non-active breakpoint list.
     breakpoints: HashMap<PCValue, Breakpoint>,
     /// Type declaration cache.
-    type_cache: RefCell<TypeDeclarationCache>,
-    /// Type declaration cache.
-    type_cache2: RefCell<TypeCache>,
+    type_cache: RefCell<TypeCache>,
     /// Debugger interrupt with UI by EventHook trait.
     hooks: Box<dyn EventHook>,
 }
@@ -85,14 +88,13 @@ impl Debugger {
         let entry_point = GlobalAddress::from(object.entry());
         let breakpoints = HashMap::from([(
             PCValue::Global(entry_point),
-            breakpoint::Breakpoint::new(PCValue::Global(entry_point), pid),
+            Breakpoint::new(PCValue::Global(entry_point), pid),
         )]);
 
         Ok(Self {
             breakpoints,
             hooks: Box::new(hooks),
             type_cache: RefCell::default(),
-            type_cache2: RefCell::default(),
             debugee: Debugee::new_non_running(program_path, pid, &object)?,
         })
     }
@@ -428,56 +430,55 @@ impl Debugger {
     fn variables_into_variable_ir(
         &self,
         location: Location,
-        vars: &[ContextualDieRef<VariableDie>],
+        vars: &[(&[ReadModifier], ContextualDieRef<VariableDie>)],
     ) -> anyhow::Result<Vec<VariableIR>> {
         let mut type_cache = self.type_cache.borrow_mut();
-        let mut type_cache2 = self.type_cache2.borrow_mut();
 
         Ok(vars
             .iter()
-            .map(|var| {
-                let mb_type = var.die.type_ref.and_then(|type_ref| {
-                    match type_cache.entry((var.unit.id, type_ref)) {
+            .filter_map(|(modifiers, var)| {
+                let var_name = var.die.base_attributes.name.clone();
+                let mb_type = var
+                    .die
+                    .type_ref
+                    .and_then(|type_ref| match type_cache.entry((var.unit.id, type_ref)) {
                         Entry::Occupied(o) => Some(&*o.into_mut()),
                         Entry::Vacant(v) => var.r#type().map(|t| &*v.insert(t)),
-                    }
-                });
-
-                let mb_type2 = var.die.type_ref.and_then(|type_ref| {
-                    match type_cache2.entry((var.unit.id, type_ref)) {
-                        Entry::Occupied(o) => Some(&*o.into_mut()),
-                        Entry::Vacant(v) => var.r#type2().map(|t| &*v.insert(t)),
-                    }
-                });
-
-                let mb_value = mb_type.as_ref().and_then(|type_decl| {
-                    var.read_value_at_location(location, &self.debugee, type_decl)
-                });
+                    })
+                    .ok_or(anyhow!(
+                        "unknown type for variable {name}",
+                        name = var_name.as_deref().unwrap_or_default()
+                    ));
+                let r#type = weak_error!(mb_type)?;
+                let mb_value = var.read_value_at_location(location, &self.debugee, r#type);
 
                 let evaluator = var.unit.evaluator(&self.debugee);
-                let parser = variable_new::VariableParser::new(mb_type2.unwrap().clone());
-                parser.parse(
-                    &dwarf::type_new::EvaluationContext {
-                        evaluator: &evaluator,
-                        pid: location.pid,
-                    },
-                    variable_new::VariableIdentity::new(
-                        var.namespaces(),
-                        var.die.base_attributes.name.clone(),
-                    ),
-                    mb_value.clone(),
+                let parser = variable::VariableParser::new(r#type);
+                let evaluation_context = &dwarf::r#type::EvaluationContext {
+                    evaluator: &evaluator,
+                    pid: location.pid,
+                };
+
+                let mut var = parser.parse(
+                    evaluation_context,
+                    variable::VariableIdentity::new(var.namespaces(), var_name),
+                    mb_value,
                 );
 
-                let evaluator = var.unit.evaluator(&self.debugee);
-                VariableIR::new(
-                    &EvaluationContext {
-                        evaluator: &evaluator,
-                        pid: location.pid,
-                    },
-                    VariableIdentity::new(var.namespaces(), var.die.base_attributes.name.clone()),
-                    mb_value,
-                    mb_type,
-                )
+                for &modifier in modifiers.iter() {
+                    match modifier {
+                        ReadModifier::Deref => {
+                            if let VariableIR::Pointer(mut ptr) = var {
+                                var = ptr.deref(
+                                    evaluation_context,
+                                    &variable::VariableParser::new(r#type),
+                                )?;
+                            }
+                        }
+                    }
+                }
+
+                Some(var)
             })
             .collect())
     }
@@ -492,16 +493,88 @@ impl Debugger {
             .dwarf
             .find_function_by_pc(location.global_pc)
             .ok_or_else(|| anyhow!("not in function"))?;
-        let vars = current_func.local_variables(location.global_pc);
+        let modifiers = vec![];
+        let vars = current_func
+            .local_variables(location.global_pc)
+            .into_iter()
+            .map(|var| (modifiers.as_slice(), var))
+            .collect::<Vec<_>>();
         self.variables_into_variable_ir(location, &vars)
     }
 
     // Read any variable from current thread.
-    pub fn read_variable(&self, name: &str) -> anyhow::Result<Vec<VariableIR>> {
+    pub fn read_variable(
+        &self,
+        path: &str,
+        modifiers: &[ReadModifier],
+    ) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
 
-        let vars = self.debugee.dwarf.find_variables(name);
+        let vars = self
+            .debugee
+            .dwarf
+            .find_variables(path)
+            .into_iter()
+            .map(|var| (modifiers, var))
+            .collect::<Vec<_>>();
         self.variables_into_variable_ir(self.current_thread_stop_at()?, &vars)
+    }
+
+    fn arguments_into_argument_ir(
+        &self,
+        location: Location,
+        params: &[(&[ReadModifier], ContextualDieRef<ParameterDie>)],
+    ) -> anyhow::Result<Vec<VariableIR>> {
+        let mut type_cache = self.type_cache.borrow_mut();
+
+        Ok(params
+            .iter()
+            .filter_map(|(modifiers, param)| {
+                let arg_name = param.die.base_attributes.name.clone();
+                let mb_type = param
+                    .die
+                    .type_ref
+                    .and_then(
+                        |type_ref| match type_cache.entry((param.unit.id, type_ref)) {
+                            Entry::Occupied(o) => Some(&*o.into_mut()),
+                            Entry::Vacant(v) => param.r#type().map(|t| &*v.insert(t)),
+                        },
+                    )
+                    .ok_or(anyhow!(
+                        "unknown type for argument {name}",
+                        name = arg_name.as_deref().unwrap_or_default()
+                    ));
+                let r#type = weak_error!(mb_type)?;
+
+                let mb_value = param.read_value_at_location(location, &self.debugee, r#type);
+
+                let evaluator = param.unit.evaluator(&self.debugee);
+                let parser = variable::VariableParser::new(r#type);
+                let evaluation_context = &dwarf::r#type::EvaluationContext {
+                    evaluator: &evaluator,
+                    pid: location.pid,
+                };
+                let mut param = parser.parse(
+                    evaluation_context,
+                    variable::VariableIdentity::new(NamespaceHierarchy::default(), arg_name),
+                    mb_value,
+                );
+
+                for &modifier in modifiers.iter() {
+                    match modifier {
+                        ReadModifier::Deref => {
+                            if let VariableIR::Pointer(mut ptr) = param {
+                                param = ptr.deref(
+                                    evaluation_context,
+                                    &variable::VariableParser::new(r#type),
+                                )?;
+                            }
+                        }
+                    }
+                }
+                Some(param)
+            })
+            .collect())
     }
 
     // Read current function parameters.
@@ -515,59 +588,41 @@ impl Debugger {
             .find_function_by_pc(location.global_pc)
             .ok_or_else(|| anyhow!("not in function"))?;
         let params = current_func.parameters();
-        let mut type_cache = self.type_cache.borrow_mut();
-        let mut type_cache2 = self.type_cache2.borrow_mut();
+        let modifiers = vec![];
+        let params = params
+            .into_iter()
+            .map(|param| (modifiers.as_slice(), param))
+            .collect::<Vec<_>>();
+        self.arguments_into_argument_ir(location, &params)
+    }
 
-        Ok(params
-            .iter()
-            .map(|param| {
-                let mb_type = param.die.type_ref.and_then(|type_ref| {
-                    match type_cache.entry((param.unit.id, type_ref)) {
-                        Entry::Occupied(o) => Some(&*o.into_mut()),
-                        Entry::Vacant(v) => param.r#type().map(|t| &*v.insert(t)),
-                    }
-                });
+    // Read any argument from current function.
+    pub fn read_argument(
+        &self,
+        path: &str,
+        modifiers: &[ReadModifier],
+    ) -> anyhow::Result<Vec<VariableIR>> {
+        disable_when_not_stared!(self);
 
-                let mb_type2 = param.die.type_ref.and_then(|type_ref| {
-                    match type_cache2.entry((param.unit.id, type_ref)) {
-                        Entry::Occupied(o) => Some(&*o.into_mut()),
-                        Entry::Vacant(v) => param.r#type2().map(|t| &*v.insert(t)),
-                    }
-                });
-
-                let mb_value = mb_type.as_ref().and_then(|type_decl| {
-                    param.read_value_at_location(location, &self.debugee, type_decl)
-                });
-
-                let evaluator = param.unit.evaluator(&self.debugee);
-                let parser = variable_new::VariableParser::new(mb_type2.unwrap().clone());
-                parser.parse(
-                    &dwarf::type_new::EvaluationContext {
-                        evaluator: &evaluator,
-                        pid: location.pid,
-                    },
-                    variable_new::VariableIdentity::new(
-                        NamespaceHierarchy::default(),
-                        param.die.base_attributes.name.clone(),
-                    ),
-                    mb_value.clone(),
-                );
-
-                let evaluator = param.unit.evaluator(&self.debugee);
-                VariableIR::new(
-                    &EvaluationContext {
-                        evaluator: &evaluator,
-                        pid: location.pid,
-                    },
-                    VariableIdentity::new(
-                        NamespaceHierarchy::default(),
-                        param.die.base_attributes.name.clone(),
-                    ),
-                    mb_value,
-                    mb_type,
-                )
+        let location = self.current_thread_stop_at()?;
+        let current_func = self
+            .debugee
+            .dwarf
+            .find_function_by_pc(location.global_pc)
+            .ok_or_else(|| anyhow!("not in function"))?;
+        let params = current_func.parameters();
+        let params = params
+            .into_iter()
+            .filter_map(|param| {
+                let found = param.die.base_attributes.name.as_ref().map(|n| n == path)?;
+                if found {
+                    Some((modifiers, param))
+                } else {
+                    None
+                }
             })
-            .collect())
+            .collect::<Vec<_>>();
+        self.arguments_into_argument_ir(location, &params)
     }
 
     pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {

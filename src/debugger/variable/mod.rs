@@ -1,14 +1,11 @@
 use crate::debugger::debugee::dwarf::r#type::{
-    ArrayType, EvaluationContext, ScalarType, StructureMember,
+    ArrayType, EvaluationContext, ScalarType, StructureMember, TypeIdentity,
 };
 use crate::debugger::debugee::dwarf::NamespaceHierarchy;
 use crate::debugger::variable::render::RenderRepr;
-use crate::debugger::variable::specialization::{
-    HashMapVariable, HashSetVariable, StrVariable, StringVariable, TlsVariable, VecVariable,
-};
-use crate::debugger::TypeDeclaration;
+use crate::debugger::variable::specialization::VariableParserExtension;
 use crate::{debugger, weak_error};
-use anyhow::Context;
+use anyhow::anyhow;
 use bytes::Bytes;
 use gimli::{
     DW_ATE_address, DW_ATE_boolean, DW_ATE_float, DW_ATE_signed, DW_ATE_signed_char,
@@ -21,6 +18,7 @@ use std::mem;
 
 pub mod render;
 mod specialization;
+use crate::debugger::debugee::dwarf::r#type::{ComplexType, TypeDeclaration};
 pub use specialization::SpecializedVariableIR;
 
 #[derive(Clone)]
@@ -39,6 +37,16 @@ impl VariableIdentity {
             namespace: NamespaceHierarchy::default(),
             name,
         }
+    }
+}
+
+impl Display for VariableIdentity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "{}::{}",
+            self.namespace.join("::"),
+            self.name.as_deref().unwrap_or_default()
+        ))
     }
 }
 
@@ -95,67 +103,6 @@ pub struct ScalarVariable {
 }
 
 impl ScalarVariable {
-    fn new(identity: VariableIdentity, value: Option<Bytes>, r#type: &ScalarType) -> Self {
-        fn render_scalar<S: Copy + Display>(data: Option<Bytes>) -> Option<S> {
-            data.as_ref().map(|v| *scalar_from_bytes::<S>(v))
-        }
-
-        #[allow(non_upper_case_globals)]
-        let value_view = r#type.encoding.and_then(|encoding| match encoding {
-            DW_ATE_address => render_scalar::<usize>(value).map(SupportedScalar::Usize),
-            DW_ATE_signed_char => render_scalar::<i8>(value).map(SupportedScalar::I8),
-            DW_ATE_unsigned_char => render_scalar::<u8>(value).map(SupportedScalar::U8),
-            DW_ATE_signed => match r#type.byte_size.unwrap_or(0) {
-                0 => Some(SupportedScalar::Empty()),
-                1 => render_scalar::<i8>(value).map(SupportedScalar::I8),
-                2 => render_scalar::<i16>(value).map(SupportedScalar::I16),
-                4 => render_scalar::<i32>(value).map(SupportedScalar::I32),
-                8 => render_scalar::<i64>(value).map(SupportedScalar::I64),
-                16 => render_scalar::<i128>(value).map(SupportedScalar::I128),
-                _ => {
-                    warn!("unsupported signed size: {size:?}", size = r#type.byte_size);
-                    None
-                }
-            },
-            DW_ATE_unsigned => match r#type.byte_size.unwrap_or(0) {
-                0 => Some(SupportedScalar::Empty()),
-                1 => render_scalar::<u8>(value).map(SupportedScalar::U8),
-                2 => render_scalar::<u16>(value).map(SupportedScalar::U16),
-                4 => render_scalar::<u32>(value).map(SupportedScalar::U32),
-                8 => render_scalar::<u64>(value).map(SupportedScalar::U64),
-                16 => render_scalar::<u128>(value).map(SupportedScalar::U128),
-                _ => {
-                    warn!(
-                        "unsupported unsigned size: {size:?}",
-                        size = r#type.byte_size
-                    );
-                    None
-                }
-            },
-            DW_ATE_float => match r#type.byte_size.unwrap_or(0) {
-                4 => render_scalar::<f32>(value).map(SupportedScalar::F32),
-                8 => render_scalar::<f64>(value).map(SupportedScalar::F64),
-                _ => {
-                    warn!("unsupported float size: {size:?}", size = r#type.byte_size);
-                    None
-                }
-            },
-            DW_ATE_boolean => render_scalar::<bool>(value).map(SupportedScalar::Bool),
-            DW_ATE_UTF => render_scalar::<char>(value).map(SupportedScalar::Char),
-            DW_ATE_ASCII => render_scalar::<char>(value).map(SupportedScalar::Char),
-            _ => {
-                warn!("unsupported base type encoding: {encoding}");
-                None
-            }
-        });
-
-        ScalarVariable {
-            identity,
-            type_name: r#type.name.clone(),
-            value: value_view,
-        }
-    }
-
     fn try_as_number(&self) -> Option<i64> {
         match self.value {
             Some(SupportedScalar::I8(num)) => Some(num as i64),
@@ -178,30 +125,7 @@ pub struct StructVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
     pub members: Vec<VariableIR>,
-    pub type_params: HashMap<String, Option<TypeDeclaration>>,
-}
-
-impl StructVariable {
-    fn new(
-        eval_ctx: &EvaluationContext,
-        identity: VariableIdentity,
-        value: Option<Bytes>,
-        type_name: Option<String>,
-        type_params: HashMap<String, Option<TypeDeclaration>>,
-        members: &[StructureMember],
-    ) -> Self {
-        let children = members
-            .iter()
-            .map(|member| VariableIR::from_member(eval_ctx, member, value.as_ref()))
-            .collect();
-
-        StructVariable {
-            identity,
-            type_name,
-            members: children,
-            type_params,
-        }
-    }
+    pub type_params: HashMap<String, Option<TypeIdentity>>,
 }
 
 #[derive(Clone)]
@@ -211,79 +135,11 @@ pub struct ArrayVariable {
     pub items: Option<Vec<VariableIR>>,
 }
 
-impl ArrayVariable {
-    fn new(
-        eval_ctx: &EvaluationContext,
-        identity: VariableIdentity,
-        value: Option<Bytes>,
-        type_name: Option<String>,
-        array_decl: &ArrayType,
-    ) -> Self {
-        let items = array_decl.bounds(eval_ctx).and_then(|bounds| {
-            let len = bounds.1 - bounds.0;
-            let el_size = array_decl.size_in_bytes(eval_ctx)? / len as u64;
-            let bytes = value.as_ref()?;
-            Some(
-                bytes
-                    .chunks(el_size as usize)
-                    .enumerate()
-                    .map(|(i, chunk)| {
-                        VariableIR::new(
-                            eval_ctx,
-                            VariableIdentity::no_namespace(Some(format!(
-                                "{}",
-                                bounds.0 + i as i64
-                            ))),
-                            Some(bytes.slice_ref(chunk)),
-                            array_decl.element_type.as_ref().map(|t| t.as_ref()),
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        });
-
-        ArrayVariable {
-            identity,
-            items,
-            type_name,
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct CEnumVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
     pub value: Option<String>,
-}
-
-impl CEnumVariable {
-    fn new(
-        eval_ctx: &EvaluationContext,
-        identity: VariableIdentity,
-        value: Option<Bytes>,
-        type_name: Option<String>,
-        discr_type: Option<&TypeDeclaration>,
-        enumerators: &HashMap<i64, String>,
-    ) -> Self {
-        let discr = VariableIR::new(
-            eval_ctx,
-            VariableIdentity::no_namespace(None),
-            value,
-            discr_type,
-        );
-        let value = if let VariableIR::Scalar(scalar) = discr {
-            scalar.try_as_number()
-        } else {
-            None
-        };
-
-        CEnumVariable {
-            identity,
-            type_name,
-            value: value.and_then(|val| enumerators.get(&(val as i64)).cloned()),
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -293,81 +149,33 @@ pub struct RustEnumVariable {
     pub value: Option<Box<VariableIR>>,
 }
 
-impl RustEnumVariable {
-    fn new(
-        eval_ctx: &EvaluationContext,
-        identity: VariableIdentity,
-        value: Option<Bytes>,
-        type_name: Option<String>,
-        discr_member: Option<&StructureMember>,
-        enumerators: &HashMap<Option<i64>, StructureMember>,
-    ) -> Self {
-        let discr_value = discr_member.and_then(|member| {
-            let discr = VariableIR::from_member(eval_ctx, member, value.as_ref());
-            if let VariableIR::Scalar(scalar) = discr {
-                return scalar.try_as_number();
-            }
-            None
-        });
-
-        let enumerator =
-            discr_value.and_then(|v| enumerators.get(&Some(v)).or_else(|| enumerators.get(&None)));
-
-        let enumerator = enumerator
-            .map(|member| Box::new(VariableIR::from_member(eval_ctx, member, value.as_ref())));
-
-        RustEnumVariable {
-            identity,
-            type_name,
-            value: enumerator,
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct PointerVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
     pub value: Option<*const ()>,
-    pub deref: Option<Box<VariableIR>>,
+    target_type: Option<TypeIdentity>,
 }
 
 impl PointerVariable {
-    fn new(
+    pub fn deref(
+        &mut self,
         eval_ctx: &EvaluationContext,
-        identity: VariableIdentity,
-        value: Option<Bytes>,
-        type_name: Option<String>,
-        target_type: Option<&TypeDeclaration>,
-    ) -> Self {
-        let mb_ptr = value.as_ref().map(scalar_from_bytes::<*const ()>).copied();
-        let deref_size = target_type
-            .as_ref()
-            .and_then(|&t| t.size_in_bytes(eval_ctx));
+        parser: &VariableParser,
+    ) -> Option<VariableIR> {
+        let deref_size = self
+            .target_type
+            .and_then(|t| parser.r#type.type_size_in_bytes(eval_ctx, t));
+        let target_type = self.target_type?;
 
-        let deref_var = mb_ptr.map(|ptr| {
+        self.value.map(|ptr| {
             let val = deref_size.and_then(|sz| {
                 debugger::read_memory_by_pid(eval_ctx.pid, ptr as usize, sz as usize).ok()
             });
-
-            Box::new(VariableIR::new(
-                eval_ctx,
-                VariableIdentity::no_namespace(Some(String::from("*"))),
-                val.map(Bytes::from),
-                target_type,
-            ))
-        });
-
-        PointerVariable {
-            identity,
-            type_name: type_name.or_else(|| {
-                deref_var
-                    .as_ref()
-                    .map(|dv| format!("*{deref_type}", deref_type = dv.r#type()))
-            }),
-            value: mb_ptr,
-            deref: deref_var,
-        }
+            let mut identity = self.identity.clone();
+            identity.name = identity.name.map(|n| format!("*{n}"));
+            parser.parse_inner(eval_ctx, identity, val.map(Bytes::from), target_type)
+        })
     }
 }
 
@@ -389,183 +197,6 @@ impl Debug for VariableIR {
 }
 
 impl VariableIR {
-    pub fn new(
-        eval_ctx: &EvaluationContext,
-        identity: VariableIdentity,
-        value: Option<Bytes>,
-        r#type: Option<&TypeDeclaration>,
-    ) -> Self {
-        let type_name = r#type.as_ref().and_then(|t| t.name());
-
-        match r#type {
-            Some(type_decl) => match type_decl {
-                TypeDeclaration::Scalar(scalar_type) => {
-                    VariableIR::Scalar(ScalarVariable::new(identity, value, scalar_type))
-                }
-                TypeDeclaration::Structure {
-                    namespaces: type_ns_h,
-                    members,
-                    type_params,
-                    name: struct_name,
-                    ..
-                } => {
-                    let struct_var = StructVariable::new(
-                        eval_ctx,
-                        identity,
-                        value,
-                        type_name,
-                        type_params.clone(),
-                        members,
-                    );
-
-                    // Reinterpret structure if underline data type is:
-                    // - Vector
-                    // - String
-                    // - &str
-                    // - tls variable
-                    // - hashmaps
-                    // - hashset
-                    if struct_name.as_deref() == Some("&str") {
-                        return VariableIR::Specialized(SpecializedVariableIR::Str {
-                            string: weak_error!(StrVariable::from_struct_ir(
-                                eval_ctx,
-                                VariableIR::Struct(struct_var.clone()),
-                            )
-                            .context("&str interpretation")),
-                            original: struct_var,
-                        });
-                    };
-
-                    if struct_name.as_deref() == Some("String") {
-                        return VariableIR::Specialized(SpecializedVariableIR::String {
-                            string: weak_error!(StringVariable::from_struct_ir(
-                                eval_ctx,
-                                VariableIR::Struct(struct_var.clone()),
-                            )
-                            .context("string interpretation")),
-                            original: struct_var,
-                        });
-                    };
-
-                    if struct_name.as_ref().map(|name| name.starts_with("Vec")) == Some(true) {
-                        return VariableIR::Specialized(SpecializedVariableIR::Vector {
-                            vec: weak_error!(VecVariable::from_struct_ir(
-                                eval_ctx,
-                                VariableIR::Struct(struct_var.clone()),
-                                type_params,
-                            )
-                            .context("vec interpretation")),
-                            original: struct_var,
-                        });
-                    };
-
-                    if type_ns_h.contains(&["std", "thread", "local", "fast"]) {
-                        return VariableIR::Specialized(SpecializedVariableIR::Tls {
-                            tls_var: weak_error!(TlsVariable::from_struct_ir(
-                                VariableIR::Struct(struct_var.clone()),
-                                type_params,
-                            )
-                            .context("tls interpretation")),
-                            original: struct_var,
-                        });
-                    }
-
-                    if struct_name.as_ref().map(|name| name.starts_with("HashMap")) == Some(true)
-                        && type_ns_h.contains(&["collections", "hash", "map"])
-                    {
-                        return VariableIR::Specialized(SpecializedVariableIR::HashMap {
-                            map: weak_error!(HashMapVariable::from_struct_ir(
-                                eval_ctx,
-                                VariableIR::Struct(struct_var.clone()),
-                            )
-                            .context("hashmap interpretation")),
-                            original: struct_var,
-                        });
-                    };
-
-                    if struct_name.as_ref().map(|name| name.starts_with("HashSet")) == Some(true)
-                        && type_ns_h.contains(&["collections", "hash", "set"])
-                    {
-                        return VariableIR::Specialized(SpecializedVariableIR::HashSet {
-                            set: weak_error!(HashSetVariable::from_struct_ir(
-                                eval_ctx,
-                                VariableIR::Struct(struct_var.clone()),
-                            )
-                            .context("hashmap interpretation")),
-                            original: struct_var,
-                        });
-                    };
-
-                    VariableIR::Struct(struct_var)
-                }
-                TypeDeclaration::Array(decl) => VariableIR::Array(ArrayVariable::new(
-                    eval_ctx, identity, value, type_name, decl,
-                )),
-                TypeDeclaration::CStyleEnum {
-                    discr_type,
-                    enumerators,
-                    ..
-                } => VariableIR::CEnum(CEnumVariable::new(
-                    eval_ctx,
-                    identity,
-                    value,
-                    type_name,
-                    discr_type.as_ref().map(|t| t.as_ref()),
-                    enumerators,
-                )),
-                TypeDeclaration::RustEnum {
-                    discr_type,
-                    enumerators,
-                    ..
-                } => VariableIR::RustEnum(RustEnumVariable::new(
-                    eval_ctx,
-                    identity,
-                    value,
-                    type_name,
-                    discr_type.as_ref().map(|t| t.as_ref()),
-                    enumerators,
-                )),
-                TypeDeclaration::Pointer { target_type, .. } => {
-                    VariableIR::Pointer(PointerVariable::new(
-                        eval_ctx,
-                        identity,
-                        value,
-                        type_name,
-                        target_type.as_ref().map(|t| t.as_ref()),
-                    ))
-                }
-                TypeDeclaration::Union { members, .. } => {
-                    let struct_var = StructVariable::new(
-                        eval_ctx,
-                        identity,
-                        value,
-                        type_name,
-                        HashMap::new(),
-                        members,
-                    );
-                    VariableIR::Struct(struct_var)
-                }
-            },
-            _ => {
-                todo!()
-            }
-        }
-    }
-
-    fn from_member(
-        eval_ctx: &EvaluationContext,
-        member: &StructureMember,
-        parent_value: Option<&Bytes>,
-    ) -> Self {
-        let member_val = parent_value.and_then(|val| member.value(eval_ctx, val.as_ptr() as usize));
-        Self::new(
-            eval_ctx,
-            VariableIdentity::no_namespace(member.name.clone()),
-            member_val,
-            member.r#type.as_ref(),
-        )
-    }
-
     /// Visit variable children in bfs order.
     fn bfs_iterator(&self) -> BfsIterator {
         BfsIterator {
@@ -651,6 +282,379 @@ impl VariableIR {
     }
 }
 
+pub struct VariableParser<'a> {
+    r#type: &'a ComplexType,
+}
+
+impl<'a> VariableParser<'a> {
+    pub fn new(r#type: &'a ComplexType) -> Self {
+        Self { r#type }
+    }
+
+    fn parse_scalar(
+        &self,
+        identity: VariableIdentity,
+        value: Option<Bytes>,
+        r#type: &ScalarType,
+    ) -> ScalarVariable {
+        fn render_scalar<S: Copy + Display>(data: Option<Bytes>) -> Option<S> {
+            data.as_ref().map(|v| *scalar_from_bytes::<S>(v))
+        }
+
+        #[allow(non_upper_case_globals)]
+        let value_view = r#type.encoding.and_then(|encoding| match encoding {
+            DW_ATE_address => render_scalar::<usize>(value).map(SupportedScalar::Usize),
+            DW_ATE_signed_char => render_scalar::<i8>(value).map(SupportedScalar::I8),
+            DW_ATE_unsigned_char => render_scalar::<u8>(value).map(SupportedScalar::U8),
+            DW_ATE_signed => match r#type.byte_size.unwrap_or(0) {
+                0 => Some(SupportedScalar::Empty()),
+                1 => render_scalar::<i8>(value).map(SupportedScalar::I8),
+                2 => render_scalar::<i16>(value).map(SupportedScalar::I16),
+                4 => render_scalar::<i32>(value).map(SupportedScalar::I32),
+                8 => render_scalar::<i64>(value).map(SupportedScalar::I64),
+                16 => render_scalar::<i128>(value).map(SupportedScalar::I128),
+                _ => {
+                    warn!("unsupported signed size: {size:?}", size = r#type.byte_size);
+                    None
+                }
+            },
+            DW_ATE_unsigned => match r#type.byte_size.unwrap_or(0) {
+                0 => Some(SupportedScalar::Empty()),
+                1 => render_scalar::<u8>(value).map(SupportedScalar::U8),
+                2 => render_scalar::<u16>(value).map(SupportedScalar::U16),
+                4 => render_scalar::<u32>(value).map(SupportedScalar::U32),
+                8 => render_scalar::<u64>(value).map(SupportedScalar::U64),
+                16 => render_scalar::<u128>(value).map(SupportedScalar::U128),
+                _ => {
+                    warn!(
+                        "unsupported unsigned size: {size:?}",
+                        size = r#type.byte_size
+                    );
+                    None
+                }
+            },
+            DW_ATE_float => match r#type.byte_size.unwrap_or(0) {
+                4 => render_scalar::<f32>(value).map(SupportedScalar::F32),
+                8 => render_scalar::<f64>(value).map(SupportedScalar::F64),
+                _ => {
+                    warn!("unsupported float size: {size:?}", size = r#type.byte_size);
+                    None
+                }
+            },
+            DW_ATE_boolean => render_scalar::<bool>(value).map(SupportedScalar::Bool),
+            DW_ATE_UTF => render_scalar::<char>(value).map(SupportedScalar::Char),
+            DW_ATE_ASCII => render_scalar::<char>(value).map(SupportedScalar::Char),
+            _ => {
+                warn!("unsupported base type encoding: {encoding}");
+                None
+            }
+        });
+
+        ScalarVariable {
+            identity,
+            type_name: r#type.name.clone(),
+            value: value_view,
+        }
+    }
+
+    fn parse_struct_variable(
+        &self,
+        eval_ctx: &EvaluationContext,
+        identity: VariableIdentity,
+        value: Option<Bytes>,
+        type_name: Option<String>,
+        type_params: HashMap<String, Option<TypeIdentity>>,
+        members: &[StructureMember],
+    ) -> StructVariable {
+        let children = members
+            .iter()
+            .filter_map(|member| self.parse_struct_member(eval_ctx, member, value.as_ref()))
+            .collect();
+
+        StructVariable {
+            identity,
+            type_name,
+            members: children,
+            type_params,
+        }
+    }
+
+    fn parse_struct_member(
+        &self,
+        eval_ctx: &EvaluationContext,
+        member: &StructureMember,
+        parent_value: Option<&Bytes>,
+    ) -> Option<VariableIR> {
+        let name = member.name.clone();
+        let type_ref = weak_error!(member.type_ref.ok_or(anyhow!(
+            "unknown type for member {}",
+            name.as_deref().unwrap_or_default()
+        )))?;
+        let member_val =
+            parent_value.and_then(|val| member.value(eval_ctx, self.r#type, val.as_ptr() as usize));
+
+        Some(self.parse_inner(
+            eval_ctx,
+            VariableIdentity::no_namespace(member.name.clone()),
+            member_val,
+            type_ref,
+        ))
+    }
+
+    fn parse_array(
+        &self,
+        eval_ctx: &EvaluationContext,
+        identity: VariableIdentity,
+        value: Option<Bytes>,
+        type_name: Option<String>,
+        array_decl: &ArrayType,
+    ) -> ArrayVariable {
+        let items = array_decl.bounds(eval_ctx).and_then(|bounds| {
+            let len = bounds.1 - bounds.0;
+            let el_size = array_decl.size_in_bytes(eval_ctx, self.r#type)? / len as u64;
+            let bytes = value.as_ref()?;
+            let el_type_id = array_decl.element_type?;
+            Some(
+                bytes
+                    .chunks(el_size as usize)
+                    .enumerate()
+                    .map(|(i, chunk)| {
+                        self.parse_inner(
+                            eval_ctx,
+                            VariableIdentity::no_namespace(Some(format!(
+                                "{}",
+                                bounds.0 + i as i64
+                            ))),
+                            Some(bytes.slice_ref(chunk)),
+                            el_type_id,
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        });
+
+        ArrayVariable {
+            identity,
+            items,
+            type_name,
+        }
+    }
+
+    fn parse_c_enum(
+        &self,
+        eval_ctx: &EvaluationContext,
+        identity: VariableIdentity,
+        value: Option<Bytes>,
+        type_name: Option<String>,
+        discr_type: Option<TypeIdentity>,
+        enumerators: &HashMap<i64, String>,
+    ) -> CEnumVariable {
+        let mb_discr = discr_type.map(|type_id| {
+            self.parse_inner(
+                eval_ctx,
+                VariableIdentity::no_namespace(None),
+                value,
+                type_id,
+            )
+        });
+
+        let value = mb_discr.and_then(|discr| {
+            if let VariableIR::Scalar(scalar) = discr {
+                scalar.try_as_number()
+            } else {
+                None
+            }
+        });
+
+        CEnumVariable {
+            identity,
+            type_name,
+            value: value.and_then(|val| enumerators.get(&val).cloned()),
+        }
+    }
+
+    fn parse_rust_enum(
+        &self,
+        eval_ctx: &EvaluationContext,
+        identity: VariableIdentity,
+        value: Option<Bytes>,
+        type_name: Option<String>,
+        discr_member: Option<&StructureMember>,
+        enumerators: &HashMap<Option<i64>, StructureMember>,
+    ) -> RustEnumVariable {
+        let discr_value = discr_member.and_then(|member| {
+            let discr = self.parse_struct_member(eval_ctx, member, value.as_ref())?;
+            if let VariableIR::Scalar(scalar) = discr {
+                return scalar.try_as_number();
+            }
+            None
+        });
+
+        let enumerator =
+            discr_value.and_then(|v| enumerators.get(&Some(v)).or_else(|| enumerators.get(&None)));
+
+        let enumerator = enumerator.and_then(|member| {
+            Some(Box::new(self.parse_struct_member(
+                eval_ctx,
+                member,
+                value.as_ref(),
+            )?))
+        });
+
+        RustEnumVariable {
+            identity,
+            type_name,
+            value: enumerator,
+        }
+    }
+
+    fn parse_pointer(
+        &self,
+        identity: VariableIdentity,
+        value: Option<Bytes>,
+        type_name: Option<String>,
+        target_type: Option<TypeIdentity>,
+    ) -> PointerVariable {
+        let mb_ptr = value.as_ref().map(scalar_from_bytes::<*const ()>).copied();
+
+        PointerVariable {
+            identity,
+            type_name: type_name.or_else(|| {
+                Some(format!(
+                    "*{deref_type}",
+                    deref_type = self.r#type.type_name(target_type?)?
+                ))
+            }),
+            value: mb_ptr,
+            target_type,
+        }
+    }
+
+    fn parse_inner(
+        &self,
+        eval_ctx: &EvaluationContext,
+        identity: VariableIdentity,
+        value: Option<Bytes>,
+        type_id: TypeIdentity,
+    ) -> VariableIR {
+        let type_name = self.r#type.type_name(type_id);
+
+        match &self.r#type.types[&type_id] {
+            TypeDeclaration::Scalar(scalar_type) => {
+                VariableIR::Scalar(self.parse_scalar(identity, value, scalar_type))
+            }
+            TypeDeclaration::Structure {
+                namespaces: type_ns_h,
+                members,
+                type_params,
+                name: struct_name,
+                ..
+            } => {
+                let struct_var = self.parse_struct_variable(
+                    eval_ctx,
+                    identity,
+                    value,
+                    type_name,
+                    type_params.clone(),
+                    members,
+                );
+
+                let parser_ext = VariableParserExtension::new(self);
+                // Reinterpret structure if underline data type is:
+                // - Vector
+                // - String
+                // - &str
+                // - tls variable
+                // - hashmaps
+                // - hashset
+                if struct_name.as_deref() == Some("&str") {
+                    return VariableIR::Specialized(parser_ext.parse_str(eval_ctx, struct_var));
+                };
+
+                if struct_name.as_deref() == Some("String") {
+                    return VariableIR::Specialized(parser_ext.parse_string(eval_ctx, struct_var));
+                };
+
+                if struct_name.as_ref().map(|name| name.starts_with("Vec")) == Some(true) {
+                    return VariableIR::Specialized(parser_ext.parse_vector(
+                        eval_ctx,
+                        struct_var,
+                        type_params,
+                    ));
+                };
+
+                if type_ns_h.contains(&["std", "thread", "local", "fast"]) {
+                    return VariableIR::Specialized(parser_ext.parse_tls(struct_var, type_params));
+                }
+
+                if struct_name.as_ref().map(|name| name.starts_with("HashMap")) == Some(true)
+                    && type_ns_h.contains(&["collections", "hash", "map"])
+                {
+                    return VariableIR::Specialized(parser_ext.parse_hashmap(eval_ctx, struct_var));
+                };
+
+                if struct_name.as_ref().map(|name| name.starts_with("HashSet")) == Some(true)
+                    && type_ns_h.contains(&["collections", "hash", "set"])
+                {
+                    return VariableIR::Specialized(parser_ext.parse_hashset(eval_ctx, struct_var));
+                };
+
+                VariableIR::Struct(struct_var)
+            }
+            TypeDeclaration::Array(decl) => {
+                VariableIR::Array(self.parse_array(eval_ctx, identity, value, type_name, decl))
+            }
+            TypeDeclaration::CStyleEnum {
+                discr_type,
+                enumerators,
+                ..
+            } => VariableIR::CEnum(self.parse_c_enum(
+                eval_ctx,
+                identity,
+                value,
+                type_name,
+                *discr_type,
+                enumerators,
+            )),
+            TypeDeclaration::RustEnum {
+                discr_type,
+                enumerators,
+                ..
+            } => VariableIR::RustEnum(self.parse_rust_enum(
+                eval_ctx,
+                identity,
+                value,
+                type_name,
+                discr_type.as_ref().map(|t| t.as_ref()),
+                enumerators,
+            )),
+            TypeDeclaration::Pointer { target_type, .. } => {
+                VariableIR::Pointer(self.parse_pointer(identity, value, type_name, *target_type))
+            }
+            TypeDeclaration::Union { members, .. } => {
+                let struct_var = self.parse_struct_variable(
+                    eval_ctx,
+                    identity,
+                    value,
+                    type_name,
+                    HashMap::new(),
+                    members,
+                );
+                VariableIR::Struct(struct_var)
+            }
+        }
+    }
+
+    pub fn parse(
+        self,
+        eval_ctx: &EvaluationContext,
+        identity: VariableIdentity,
+        value: Option<Bytes>,
+    ) -> VariableIR {
+        self.parse_inner(eval_ctx, identity, value, self.r#type.root)
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 enum AssumeError {
     #[error("field `{0}` not found")]
@@ -688,11 +692,7 @@ impl<'a> Iterator for BfsIterator<'a> {
                     self.queue.push_back(enumerator)
                 }
             }
-            VariableIR::Pointer(pointer) => {
-                if let Some(val) = pointer.deref.as_ref() {
-                    self.queue.push_back(val)
-                }
-            }
+            VariableIR::Pointer(_) => {}
             VariableIR::Specialized(spec) => match spec {
                 SpecializedVariableIR::Vector { original, .. } => {
                     original
@@ -854,13 +854,14 @@ mod test {
                             identity: VariableIdentity::no_namespace(Some("pointer_1".to_owned())),
                             type_name: None,
                             value: None,
-                            deref: Some(Box::new(VariableIR::Scalar(ScalarVariable {
-                                identity: VariableIdentity::no_namespace(Some(
-                                    "scalar_4".to_owned(),
-                                )),
-                                type_name: None,
-                                value: None,
-                            }))),
+                            // deref: Some(Box::new(VariableIR::Scalar(ScalarVariable {
+                            //     identity: VariableIdentity::no_namespace(Some(
+                            //         "scalar_4".to_owned(),
+                            //     )),
+                            //     type_name: None,
+                            //     value: None,
+                            // }))),
+                            target_type: None,
                         }),
                     ],
                     type_params: Default::default(),
@@ -872,7 +873,6 @@ mod test {
                     "scalar_1",
                     "enum_1",
                     "scalar_3",
-                    "scalar_4",
                     "scalar_2",
                 ],
             },

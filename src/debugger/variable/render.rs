@@ -7,7 +7,6 @@ pub enum ValueLayout<'a> {
     PreRendered(Cow<'a, str>),
     Referential {
         addr: *const (),
-        val: &'a VariableIR,
     },
     Wrapped(&'a VariableIR),
     Nested {
@@ -127,8 +126,7 @@ impl RenderRepr for VariableIR {
             VariableIR::RustEnum(r#enum) => ValueLayout::Wrapped(r#enum.value.as_ref()?),
             VariableIR::Pointer(pointer) => {
                 let ptr = pointer.value?;
-                let val = pointer.deref.as_ref()?;
-                ValueLayout::Referential { addr: ptr, val }
+                ValueLayout::Referential { addr: ptr }
             }
             VariableIR::Specialized(spec) => match spec {
                 SpecializedVariableIR::Vector { vec, original } => match vec {

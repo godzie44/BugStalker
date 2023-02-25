@@ -299,11 +299,11 @@ fn circular() {
         }
     }
 
-    let a = Rc::new(List::Cons(5, RefCell::new(Rc::new(List::Nil))));
-    let b = Rc::new(List::Cons(10, RefCell::new(Rc::clone(&a))));
+    let a_circ = Rc::new(List::Cons(5, RefCell::new(Rc::new(List::Nil))));
+    let b_circ = Rc::new(List::Cons(10, RefCell::new(Rc::clone(&a_circ))));
 
-    if let Some(link) = a.tail() {
-        *link.borrow_mut() = Rc::clone(&b);
+    if let Some(link) = a_circ.tail() {
+        *link.borrow_mut() = Rc::clone(&b_circ);
     }
 
     let nop: Option<u8> = None;
