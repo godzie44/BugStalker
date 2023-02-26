@@ -409,7 +409,11 @@ impl DebugeeContext {
     }
 }
 
-trait LocatedValue {
+pub trait AsAllocatedValue {
+    fn name(&self) -> Option<&str>;
+
+    fn type_ref(&self) -> Option<DieRef>;
+
     fn location(&self) -> Option<&Attribute<EndianRcSlice>>;
 
     fn location_expr(
@@ -449,13 +453,29 @@ trait LocatedValue {
     }
 }
 
-impl LocatedValue for VariableDie {
+impl AsAllocatedValue for VariableDie {
+    fn name(&self) -> Option<&str> {
+        self.base_attributes.name.as_deref()
+    }
+
+    fn type_ref(&self) -> Option<DieRef> {
+        self.type_ref
+    }
+
     fn location(&self) -> Option<&Attribute<EndianRcSlice>> {
         self.location.as_ref()
     }
 }
 
-impl LocatedValue for ParameterDie {
+impl AsAllocatedValue for ParameterDie {
+    fn name(&self) -> Option<&str> {
+        self.base_attributes.name.as_deref()
+    }
+
+    fn type_ref(&self) -> Option<DieRef> {
+        self.type_ref
+    }
+
     fn location(&self) -> Option<&Attribute<EndianRcSlice>> {
         self.location.as_ref()
     }
@@ -596,32 +616,6 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
 }
 
 impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
-    pub fn read_value_at_location(
-        &self,
-        location: Location,
-        debugee: &Debugee,
-        r#type: &ComplexType,
-    ) -> Option<Bytes> {
-        self.die
-            .location_expr(location.global_pc, self.context, self.unit)
-            .and_then(|expr| {
-                let evaluator = self.unit.evaluator(debugee);
-                let eval_result = weak_error!(evaluator.evaluate(location.pid, expr))?;
-                weak_error!(eval_result.into_raw_buffer(r#type.type_size_in_bytes(
-                    &EvaluationContext {
-                        evaluator: &evaluator,
-                        pid: location.pid,
-                    },
-                    r#type.root
-                )? as usize))
-            })
-    }
-
-    pub fn r#type(&self) -> Option<ComplexType> {
-        let parser = r#type::TypeParser::new();
-        Some(parser.parse(*self, self.die.type_ref?))
-    }
-
     pub fn valid_at(&self, pc: GlobalAddress) -> bool {
         self.die
             .lexical_block_idx
@@ -657,7 +651,12 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
     }
 }
 
-impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
+impl<'ctx, D: AsAllocatedValue> ContextualDieRef<'ctx, D> {
+    pub fn r#type(&self) -> Option<ComplexType> {
+        let parser = r#type::TypeParser::new();
+        Some(parser.parse(*self, self.die.type_ref()?))
+    }
+
     pub fn read_value_at_location(
         &self,
         location: Location,
@@ -677,10 +676,5 @@ impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
                     r#type.root
                 )? as usize))
             })
-    }
-
-    pub fn r#type(&self) -> Option<ComplexType> {
-        let parser = r#type::TypeParser::new();
-        Some(parser.parse(*self, self.die.type_ref?))
     }
 }

@@ -2,6 +2,7 @@ mod arguments;
 mod backtrace;
 mod r#break;
 mod r#continue;
+pub mod expression;
 mod frame;
 mod memory;
 mod quit;
@@ -33,8 +34,6 @@ pub use symbol::Symbol;
 pub use trace::Trace;
 pub use variables::Variables;
 
-use std::result;
-
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {
     #[error("invalid command arguments (see help `command`)")]
@@ -43,9 +42,11 @@ pub enum CommandError {
     InvalidArgumentsEx(String),
     #[error(transparent)]
     Debugger(#[from] anyhow::Error),
+    #[error("invalid command argument (see help `command`): {0}")]
+    ParseArgument(#[from] expression::ParseError),
 }
 
-pub type Result<T> = result::Result<T, CommandError>;
+pub type Result<T> = std::result::Result<T, CommandError>;
 
 pub mod helper {
     use crate::debugger::command;

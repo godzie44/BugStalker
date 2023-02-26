@@ -405,11 +405,24 @@ fn test_read_vec_and_slice() {
     session.exp_string("2: i32(3)").unwrap();
     session.exp_string("}").unwrap();
 
-    //todo assert deeper when making read by path feature
     session.send_line("vars *slice2").unwrap();
     session.exp_string("*slice2 = [&[i32; 3]] {").unwrap();
     session.exp_regex(r"0: &\[i32; 3\] \[0x.*]").unwrap();
     session.exp_regex(r"1: &\[i32; 3\] \[0x.*]").unwrap();
+    session.exp_string("}").unwrap();
+
+    session.send_line("vars *(*slice2)[0]").unwrap();
+    session.exp_string("*0 = [i32] {").unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(2)").unwrap();
+    session.exp_string("2: i32(3)").unwrap();
+    session.exp_string("}").unwrap();
+
+    session.send_line("vars *(*slice2)[1]").unwrap();
+    session.exp_string("*1 = [i32] {").unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(2)").unwrap();
+    session.exp_string("2: i32(3)").unwrap();
     session.exp_string("}").unwrap();
 }
 
@@ -525,6 +538,62 @@ fn test_read_tls_variables() {
     session.exp_string("value: UnsafeCell<i32> {").unwrap();
     session.exp_string("value: i32(1)").unwrap();
     session.exp_string("}").unwrap();
+    session.exp_string("}").unwrap();
+}
+
+#[test]
+fn test_custom_select() {
+    let mut session = setup_vars_debugee();
+    session.exp_string("No previous history.").unwrap();
+
+    session.send_line("break vars.rs:59").unwrap();
+    session.exp_string("break vars.rs:59").unwrap();
+    session.send_line("run").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars arr_2[0][2]").unwrap();
+    session.exp_string("2 = i32(2)").unwrap();
+
+    session.send_line("break vars.rs:92").unwrap();
+    session.exp_string("break vars.rs:92").unwrap();
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars enum_6.0.a").unwrap();
+    session.exp_string("a = i32(1)").unwrap();
+
+    session.send_line("break vars.rs:119").unwrap();
+    session.exp_string("break vars.rs:119").unwrap();
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars *((*ref_f).foo)").unwrap();
+    session.exp_string("*foo = i32(2)").unwrap();
+
+    session.send_line("break vars.rs:267").unwrap();
+    session.exp_string("break vars.rs:267").unwrap();
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+
+    session.send_line("vars hm2.abc").unwrap();
+    // todo fix '1 = ... '
+    session
+        .exp_string("1 = Vec<i32, alloc::alloc::Global> {")
+        .unwrap();
+    session.exp_string("buf: [i32] {").unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(2)").unwrap();
+    session.exp_string("2: i32(3)").unwrap();
+    session.exp_string("}").unwrap();
+    session.exp_string("cap: usize(3)").unwrap();
     session.exp_string("}").unwrap();
 }
 

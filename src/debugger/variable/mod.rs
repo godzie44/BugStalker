@@ -18,6 +18,7 @@ use std::mem;
 
 pub mod render;
 mod specialization;
+use crate::debugger::command::expression::{Operation, SelectPlan};
 use crate::debugger::debugee::dwarf::r#type::{ComplexType, TypeDeclaration};
 pub use specialization::SpecializedVariableIR;
 
@@ -159,7 +160,7 @@ pub struct PointerVariable {
 
 impl PointerVariable {
     pub fn deref(
-        &mut self,
+        &self,
         eval_ctx: &EvaluationContext,
         parser: &VariableParser,
     ) -> Option<VariableIR> {
@@ -278,6 +279,109 @@ impl VariableIR {
                 SpecializedVariableIR::HashMap { original, .. } => &original.identity,
                 SpecializedVariableIR::HashSet { original, .. } => &original.identity,
             },
+        }
+    }
+
+    pub fn apply_select_plan(
+        self,
+        eval_ctx: &EvaluationContext,
+        variable_parser: &VariableParser,
+        select_plan: &SelectPlan,
+    ) -> Option<Self> {
+        let mut variable = self;
+
+        for op in select_plan.plan.iter() {
+            match op {
+                Operation::Deref => {
+                    variable = variable.deref(eval_ctx, variable_parser)?;
+                }
+                Operation::FindVariable(_) => {}
+                Operation::GetByIndex(idx) => {
+                    variable = variable.get_by_index(*idx)?;
+                }
+                Operation::GetField(field) => {
+                    variable = variable.get_field(field)?;
+                }
+            }
+        }
+
+        Some(variable)
+    }
+
+    fn deref(self, eval_ctx: &EvaluationContext, variable_parser: &VariableParser) -> Option<Self> {
+        match self {
+            VariableIR::Pointer(ptr) => ptr.deref(eval_ctx, variable_parser),
+            VariableIR::RustEnum(r_enum) => r_enum
+                .value
+                .and_then(|v| v.deref(eval_ctx, variable_parser)),
+            VariableIR::Specialized(SpecializedVariableIR::Tls { tls_var, .. }) => tls_var
+                .and_then(|var| {
+                    var.inner_value
+                        .and_then(|inner| inner.deref(eval_ctx, variable_parser))
+                }),
+            _ => None,
+        }
+    }
+
+    fn get_field(self, field_name: &str) -> Option<Self> {
+        match self {
+            VariableIR::Struct(structure) => structure
+                .members
+                .into_iter()
+                .find(|member| field_name == member.name()),
+            VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.get_field(field_name)),
+            VariableIR::Specialized(spec) => match spec {
+                SpecializedVariableIR::HashMap { map, .. } => map.and_then(|map| {
+                    map.kv_items.into_iter().find_map(|(key, value)| match key {
+                        VariableIR::Specialized(spec) => match spec {
+                            SpecializedVariableIR::String { string, .. } => {
+                                string.and_then(|string| {
+                                    if string.value == field_name {
+                                        return Some(value);
+                                    }
+                                    None
+                                })
+                            }
+                            SpecializedVariableIR::Str { string: str, .. } => str.and_then(|str| {
+                                if str.value == field_name {
+                                    return Some(value);
+                                }
+                                None
+                            }),
+                            _ => None,
+                        },
+                        _ => None,
+                    })
+                }),
+                SpecializedVariableIR::Tls { tls_var, .. } => tls_var.and_then(|var| {
+                    var.inner_value
+                        .and_then(|inner| inner.get_field(field_name))
+                }),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn get_by_index(self, idx: usize) -> Option<Self> {
+        match self {
+            VariableIR::Array(array) => array.items.and_then(|mut items| {
+                if idx < items.len() {
+                    return Some(items.swap_remove(idx));
+                }
+                None
+            }),
+            VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.get_by_index(idx)),
+            VariableIR::Specialized(spec) => match spec {
+                SpecializedVariableIR::Vector { vec, .. } => vec.and_then(|mut v| {
+                    let inner_array = v.structure.members.swap_remove(0);
+                    inner_array.get_by_index(idx)
+                }),
+                SpecializedVariableIR::Tls { tls_var, .. } => tls_var
+                    .and_then(|var| var.inner_value.and_then(|inner| inner.get_by_index(idx))),
+                _ => None,
+            },
+            _ => None,
         }
     }
 }

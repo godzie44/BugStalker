@@ -3,9 +3,10 @@ use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
 use crate::{debugger_env, VARS_APP};
 use bugstalker::debugger;
+use bugstalker::debugger::command::expression::{SelectPlan, SelectPlanParser};
 use bugstalker::debugger::variable::render::RenderRepr;
 use bugstalker::debugger::variable::VariableIR;
-use bugstalker::debugger::{variable, Debugger, ReadModifier};
+use bugstalker::debugger::{variable, Debugger};
 use debugger::variable::SupportedScalar;
 use serial_test::serial;
 
@@ -78,64 +79,7 @@ fn assert_rust_enum(
     with_value(rust_enum.value.as_ref().unwrap());
 }
 
-fn assert_pointer(
-    debugger: &Debugger,
-    var: &VariableIR,
-    exp_name: &str,
-    exp_type: &str,
-    with_deref: impl FnOnce(&VariableIR),
-) {
-    let VariableIR::Pointer(ptr) = var else {
-        panic!("not a pointer");
-    };
-    assert_eq!(ptr.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(ptr.type_name.as_ref().unwrap(), exp_type);
-
-    let mut modifiers = vec![ReadModifier::Deref];
-
-    // transform * in name into Deref modifiers
-    let mut path = ptr.identity.name.clone().unwrap();
-    while path.starts_with('*') {
-        path.remove(0);
-        modifiers.push(ReadModifier::Deref);
-    }
-
-    let deref = &debugger.read_variable(&path, &modifiers).unwrap()[0];
-    with_deref(deref)
-}
-
-fn assert_pointer_arg(
-    debugger: &Debugger,
-    var: &VariableIR,
-    exp_name: &str,
-    exp_type: &str,
-    with_deref: impl FnOnce(&VariableIR),
-) {
-    let VariableIR::Pointer(ptr) = var else {
-        panic!("not a pointer");
-    };
-    assert_eq!(ptr.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(ptr.type_name.as_ref().unwrap(), exp_type);
-
-    let mut modifiers = vec![ReadModifier::Deref];
-
-    // transform * in name into Deref modifiers
-    let mut path = ptr.identity.name.clone().unwrap();
-    while path.starts_with('*') {
-        path.remove(0);
-        modifiers.push(ReadModifier::Deref);
-    }
-
-    let deref = &debugger.read_argument(&path, &modifiers).unwrap()[0];
-    with_deref(deref)
-}
-
-fn assert_pointer_without_deref(
-    #[allow(unused)] debugger: &Debugger,
-    var: &VariableIR,
-    exp_name: &str,
-    exp_type: &str,
-) {
+fn assert_pointer(var: &VariableIR, exp_name: &str, exp_type: &str) {
     let VariableIR::Pointer(ptr) = var else {
         panic!("not a pointer");
     };
@@ -491,6 +435,27 @@ fn test_read_enum() {
     });
 }
 
+fn make_select_plan(expr: &str) -> SelectPlan {
+    let parser = SelectPlanParser::new(expr);
+    parser.parse().unwrap()
+}
+
+fn read_single_var(debugger: &Debugger, expr: &str) -> VariableIR {
+    debugger
+        .read_variable(make_select_plan(expr))
+        .unwrap()
+        .pop()
+        .unwrap()
+}
+
+fn read_single_arg(debugger: &Debugger, expr: &str) -> VariableIR {
+    debugger
+        .read_argument(make_select_plan(expr))
+        .unwrap()
+        .pop()
+        .unwrap()
+}
+
 #[test]
 #[serial]
 fn test_read_pointers() {
@@ -504,38 +469,41 @@ fn test_read_pointers() {
 
         let vars = debugger.read_local_variables().unwrap();
         assert_scalar(&vars[0], "a", "i32", Some(SupportedScalar::I32(2)));
-        assert_pointer(&debugger, &vars[1], "ref_a", "&i32", |deref| {
-            assert_scalar(deref, "*ref_a", "i32", Some(SupportedScalar::I32(2)))
-        });
-        assert_pointer(&debugger, &vars[2], "ptr_a", "*const i32", |deref| {
-            assert_scalar(deref, "*ptr_a", "i32", Some(SupportedScalar::I32(2)))
-        });
-        assert_pointer(
-            &debugger,
-            &vars[3],
-            "ptr_ptr_a",
-            "*const *const i32",
-            |deref| {
-                assert_pointer(&debugger, deref, "*ptr_ptr_a", "*const i32", |deref| {
-                    assert_scalar(deref, "**ptr_ptr_a", "i32", Some(SupportedScalar::I32(2)))
-                });
-            },
-        );
+
+        assert_pointer(&vars[1], "ref_a", "&i32");
+        let deref = read_single_var(&debugger, "*ref_a");
+        assert_scalar(&deref, "*ref_a", "i32", Some(SupportedScalar::I32(2)));
+
+        assert_pointer(&vars[2], "ptr_a", "*const i32");
+        let deref = read_single_var(&debugger, "*ptr_a");
+        assert_scalar(&deref, "*ptr_a", "i32", Some(SupportedScalar::I32(2)));
+
+        assert_pointer(&vars[3], "ptr_ptr_a", "*const *const i32");
+        let deref = read_single_var(&debugger, "*ptr_ptr_a");
+        assert_pointer(&deref, "*ptr_ptr_a", "*const i32");
+        let deref = read_single_var(&debugger, "**ptr_ptr_a");
+        assert_scalar(&deref, "**ptr_ptr_a", "i32", Some(SupportedScalar::I32(2)));
+
         assert_scalar(&vars[4], "b", "i32", Some(SupportedScalar::I32(2)));
-        assert_pointer(&debugger, &vars[5], "mut_ref_b", "&mut i32", |deref| {
-            assert_scalar(deref, "*mut_ref_b", "i32", Some(SupportedScalar::I32(2)))
-        });
+
+        assert_pointer(&vars[5], "mut_ref_b", "&mut i32");
+        let deref = read_single_var(&debugger, "*mut_ref_b");
+        assert_scalar(&deref, "*mut_ref_b", "i32", Some(SupportedScalar::I32(2)));
+
         assert_scalar(&vars[6], "c", "i32", Some(SupportedScalar::I32(2)));
-        assert_pointer(&debugger, &vars[7], "mut_ptr_c", "*mut i32", |deref| {
-            assert_scalar(deref, "*mut_ptr_c", "i32", Some(SupportedScalar::I32(2)))
-        });
+
+        assert_pointer(&vars[7], "mut_ptr_c", "*mut i32");
+        let deref = read_single_var(&debugger, "*mut_ptr_c");
+        assert_scalar(&deref, "*mut_ptr_c", "i32", Some(SupportedScalar::I32(2)));
+
         assert_pointer(
-            &debugger,
             &vars[8],
             "box_d",
             "alloc::boxed::Box<i32, alloc::alloc::Global>",
-            |deref| assert_scalar(deref, "*box_d", "i32", Some(SupportedScalar::I32(2))),
         );
+        let deref = read_single_var(&debugger, "*box_d");
+        assert_scalar(&deref, "*box_d", "i32", Some(SupportedScalar::I32(2)));
+
         assert_struct(&vars[9], "f", "Foo", |i, member| match i {
             0 => assert_scalar(member, "bar", "i32", Some(SupportedScalar::I32(1))),
             1 => assert_array(member, "baz", "[i32]", |i, item| match i {
@@ -544,44 +512,29 @@ fn test_read_pointers() {
                 _ => panic!("2 items expected"),
             }),
             2 => {
-                // todo make this assert when adding path support for read_variable
-                assert_pointer_without_deref(
-                    &debugger, member, "foo",
-                    "&i32",
-                    // |deref| {
-                    //     assert_scalar(deref, "*foo", "i32", Some(SupportedScalar::I32(2)))
-                    // }
-                )
+                assert_pointer(member, "foo", "&i32");
+                let deref = read_single_var(&debugger, "*f.foo");
+                assert_scalar(&deref, "*foo", "i32", Some(SupportedScalar::I32(2)));
             }
             _ => panic!("3 members expected"),
         });
-        assert_pointer(
-            &debugger,
-            &vars[10],
-            "ref_f",
-            "&vars::references::Foo",
-            |deref| {
-                assert_struct(deref, "*ref_f", "Foo", |i, member| match i {
-                    0 => assert_scalar(member, "bar", "i32", Some(SupportedScalar::I32(1))),
-                    1 => assert_array(member, "baz", "[i32]", |i, item| match i {
-                        0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
-                        1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
-                        _ => panic!("2 items expected"),
-                    }),
-                    2 => {
-                        // todo make this assert when adding path support for read_variable
-                        assert_pointer_without_deref(
-                            &debugger, member, "foo",
-                            "&i32",
-                            // |deref| {
-                            //                         assert_scalar(deref, "*foo", "i32", Some(SupportedScalar::I32(2)))
-                            //                     }
-                        )
-                    }
-                    _ => panic!("3 members expected"),
-                });
-            },
-        );
+
+        assert_pointer(&vars[10], "ref_f", "&vars::references::Foo");
+        let deref = read_single_var(&debugger, "*ref_f");
+        assert_struct(&deref, "*ref_f", "Foo", |i, member| match i {
+            0 => assert_scalar(member, "bar", "i32", Some(SupportedScalar::I32(1))),
+            1 => assert_array(member, "baz", "[i32]", |i, item| match i {
+                0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+                1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
+                _ => panic!("2 items expected"),
+            }),
+            2 => {
+                assert_pointer(member, "foo", "&i32");
+                let deref = read_single_var(&debugger, "*(*ref_f).foo");
+                assert_scalar(&deref, "*foo", "i32", Some(SupportedScalar::I32(2)));
+            }
+            _ => panic!("3 members expected"),
+        });
 
         debugger.continue_debugee().unwrap();
         assert_no_proc!(child);
@@ -706,41 +659,40 @@ fn test_read_vec_and_slice() {
                 )
             },
         );
-        assert_pointer(&debugger, &vars[3], "slice1", "&[i32; 3]", |deref| {
-            assert_array(deref, "*slice1", "[i32]", |i, item| match i {
-                0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
-                1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
-                2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
-                _ => panic!("3 items expected"),
-            });
+
+        assert_pointer(&vars[3], "slice1", "&[i32; 3]");
+        let deref = read_single_var(&debugger, "*slice1");
+        assert_array(&deref, "*slice1", "[i32]", |i, item| match i {
+            0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+            1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
+            2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
+            _ => panic!("3 items expected"),
         });
-        assert_pointer(&debugger, &vars[4], "slice2", "&[&[i32; 3]; 2]", |deref| {
-            assert_array(deref, "*slice2", "[&[i32; 3]]", |i, item| match i {
-                0 => {
-                    assert_pointer_without_deref(&debugger, item, "0", "&[i32; 3]")
-                    // todo make this assert when adding path support for read_variable
-                    // assert_pointer(&debugger, item, "0", "&[i32; 3]", |deref| {
-                    // assert_array(deref, "*", "[i32]", |i, item| match i {
-                    //     0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
-                    //     1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
-                    //     2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
-                    //     _ => panic!("3 items expected"),
-                    // });
-                }
-                1 => {
-                    assert_pointer_without_deref(&debugger, item, "1", "&[i32; 3]")
-                    // todo make this assert when adding path support for read_variable
-                    // assert_pointer(&debugger, item, "1", "&[i32; 3]", |deref| {
-                    //     assert_array(deref, "*", "[i32]", |i, item| match i {
-                    //         0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
-                    //         1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
-                    //         2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
-                    //         _ => panic!("3 items expected"),
-                    //     });
-                    // })
-                }
-                _ => panic!("2 items expected"),
-            });
+
+        assert_pointer(&vars[4], "slice2", "&[&[i32; 3]; 2]");
+        let deref = read_single_var(&debugger, "*slice2");
+        assert_array(&deref, "*slice2", "[&[i32; 3]]", |i, item| match i {
+            0 => {
+                assert_pointer(item, "0", "&[i32; 3]");
+                let deref = read_single_var(&debugger, "*(*slice2)[0]");
+                assert_array(&deref, "*0", "[i32]", |i, item| match i {
+                    0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+                    1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
+                    2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
+                    _ => panic!("3 items expected"),
+                });
+            }
+            1 => {
+                assert_pointer(item, "1", "&[i32; 3]");
+                let deref = read_single_var(&debugger, "*(*slice2)[1]");
+                assert_array(&deref, "*1", "[i32]", |i, item| match i {
+                    0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+                    1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
+                    2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
+                    _ => panic!("3 items expected"),
+                });
+            }
+            _ => panic!("2 items expected"),
         });
 
         debugger.continue_debugee().unwrap();
@@ -780,11 +732,15 @@ fn test_read_static_variables() {
         debugger.run_debugee().unwrap();
         assert_eq!(info.line.take(), Some(173));
 
-        let vars = debugger.read_variable("GLOB_1", &[]).unwrap();
+        let vars = debugger
+            .read_variable(SelectPlan::select_variable("GLOB_1"))
+            .unwrap();
         assert_eq!(vars.len(), 1);
         assert_str(&vars[0], "GLOB_1", "glob_1");
 
-        let vars = debugger.read_variable("GLOB_2", &[]).unwrap();
+        let vars = debugger
+            .read_variable(SelectPlan::select_variable("GLOB_2"))
+            .unwrap();
         assert_eq!(vars.len(), 1);
         assert_scalar(&vars[0], "GLOB_2", "i32", Some(SupportedScalar::I32(2)));
 
@@ -804,7 +760,9 @@ fn test_read_static_variables_different_modules() {
         debugger.run_debugee().unwrap();
         assert_eq!(info.line.take(), Some(185));
 
-        let mut vars = debugger.read_variable("GLOB_3", &[]).unwrap();
+        let mut vars = debugger
+            .read_variable(SelectPlan::select_variable("GLOB_3"))
+            .unwrap();
         assert_eq!(vars.len(), 2);
         vars.sort_by(|v1, v2| v1.r#type().cmp(v2.r#type()));
 
@@ -827,7 +785,9 @@ fn test_read_tls_variables() {
         debugger.run_debugee().unwrap();
         assert_eq!(info.line.take(), Some(201));
 
-        let vars = debugger.read_variable("THREAD_LOCAL_VAR_1", &[]).unwrap();
+        let vars = debugger
+            .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_1"))
+            .unwrap();
         assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>", |inner| {
             assert_struct(inner, "__0", "Cell<i32>", |_, member| {
                 assert_struct(member, "value", "UnsafeCell<i32>", |_, member| {
@@ -836,7 +796,9 @@ fn test_read_tls_variables() {
             })
         });
 
-        let vars = debugger.read_variable("THREAD_LOCAL_VAR_2", &[]).unwrap();
+        let vars = debugger
+            .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_2"))
+            .unwrap();
         assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_2", "Cell<&str>", |inner| {
             assert_struct(inner, "__0", "Cell<&str>", |_, member| {
                 assert_struct(member, "value", "UnsafeCell<&str>", |_, member| {
@@ -850,7 +812,9 @@ fn test_read_tls_variables() {
         debugger.continue_debugee().unwrap();
         assert_eq!(info.line.take(), Some(206));
 
-        let vars = debugger.read_variable("THREAD_LOCAL_VAR_1", &[]).unwrap();
+        let vars = debugger
+            .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_1"))
+            .unwrap();
         assert_uninit_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>");
 
         // assert tls variables changes in another thread
@@ -858,7 +822,9 @@ fn test_read_tls_variables() {
         debugger.continue_debugee().unwrap();
         assert_eq!(info.line.take(), Some(210));
 
-        let vars = debugger.read_variable("THREAD_LOCAL_VAR_1", &[]).unwrap();
+        let vars = debugger
+            .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_1"))
+            .unwrap();
         assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>", |inner| {
             assert_struct(inner, "__0", "Cell<i32>", |_, member| {
                 assert_struct(member, "value", "UnsafeCell<i32>", |_, member| {
@@ -896,23 +862,17 @@ fn test_read_closures() {
         assert_struct(&vars[7], "trait_once", "alloc::boxed::Box<dyn core::ops::function::FnOnce<(), Output=()>, alloc::alloc::Global>", |i, member| {
             match i {
                 0 => {
-                    assert_pointer_without_deref(&debugger, member, "pointer", "*dyn core::ops::function::FnOnce<(), Output=()>",)
-                    // todo make this assert when adding path support for read_variable
-                    // assert_pointer(&debugger, member, "pointer", "*dyn core::ops::function::FnOnce<(), Output=()>", |deref| {
-                    //     assert_struct(deref, "*", "dyn core::ops::function::FnOnce<(), Output=()>" ,|_, _| {});
-                    // })
+                    assert_pointer(member, "pointer", "*dyn core::ops::function::FnOnce<(), Output=()>");
+                    let deref = read_single_var(&debugger, "*trait_once.pointer");
+                    assert_struct(&deref, "*pointer", "dyn core::ops::function::FnOnce<(), Output=()>", |_, _| {});
                 },
                 1 => {
-                    assert_pointer_without_deref(&debugger, member, "vtable", "&[usize; 3]",)
-                    // todo make this assert when adding path support for read_variable
-                    //assert_pointer(&debugger, member, "vtable", "&[usize; 3]", |deref| {
-                    //                     assert_array(deref, "*", "[usize]", |i, _| match i {
-                    //                         0 | 1 | 2 => {},
-                    //                         _ => panic!("3 items expected"),
-                    //                     });
-                    //                  })
-
-
+                    assert_pointer(member, "vtable", "&[usize; 3]");
+                    let deref = read_single_var(&debugger, "*trait_once.vtable");
+                    assert_array(&deref, "*vtable", "[usize]", |i, _| match i {
+                        0 | 1 | 2 => {},
+                        _ => panic!("3 items expected"),
+                    });
                 },
                 _ => panic!("2 members expected"),
             }
@@ -920,21 +880,17 @@ fn test_read_closures() {
         assert_struct(&vars[8], "trait_mut", "alloc::boxed::Box<dyn core::ops::function::FnMut<(), Output=()>, alloc::alloc::Global>", |i, member| {
             match i {
                 0 => {
-                    assert_pointer_without_deref(&debugger, member, "pointer", "*dyn core::ops::function::FnMut<(), Output=()>")
-                    // todo make this assert when adding path support for read_variable
-                    // assert_pointer(&debugger, member, "pointer", "*dyn core::ops::function::FnMut<(), Output=()>", |deref| {
-                    //                     assert_struct(deref, "*", "dyn core::ops::function::FnMut<(), Output=()>" ,|_, _| {});
-                    //                 })
+                    assert_pointer(member, "pointer", "*dyn core::ops::function::FnMut<(), Output=()>");
+                    let deref = read_single_var(&debugger, "*trait_mut.pointer");
+                    assert_struct(&deref, "*pointer", "dyn core::ops::function::FnMut<(), Output=()>", |_, _| {});
                 },
                 1 => {
-                    assert_pointer_without_deref(&debugger, member, "vtable", "&[usize; 3]")
-                    // todo make this assert when adding path support for read_variable
-                    // assert_pointer(&debugger, member, "vtable", "&[usize; 3]", |deref| {
-                    //                     assert_array(deref, "*", "[usize]", |i, _| match i {
-                    //                         0 | 1 | 2 => {},
-                    //                         _ => panic!("3 items expected"),
-                    //                     });
-                    //                  })
+                    assert_pointer(member, "vtable", "&[usize; 3]");
+                    let deref = read_single_var(&debugger, "*trait_mut.vtable");
+                    assert_array(&deref, "*vtable", "[usize]", |i, _| match i {
+                        0 | 1 | 2 => {},
+                        _ => panic!("3 items expected"),
+                    });
                 },
                 _ => panic!("2 members expected"),
             }
@@ -945,39 +901,26 @@ fn test_read_closures() {
             "alloc::boxed::Box<dyn core::ops::function::Fn<(), Output=()>, alloc::alloc::Global>",
             |i, member| match i {
                 0 => {
-                    assert_pointer_without_deref(
-                        &debugger,
+                    assert_pointer(
                         member,
                         "pointer",
                         "*dyn core::ops::function::Fn<(), Output=()>",
-                    )
-                    // todo make this assert when adding path support for read_variable
-
-                    // assert_pointer(
-                    //                     &debugger,
-                    //                     member,
-                    //                     "pointer",
-                    //                     "*dyn core::ops::function::Fn<(), Output=()>",
-                    //                     |deref| {
-                    //                         assert_struct(
-                    //                             deref,
-                    //                             "*",
-                    //                             "dyn core::ops::function::Fn<(), Output=()>",
-                    //                             |_, _| {},
-                    //                         );
-                    //                     },
-                    //                 )
+                    );
+                    let deref = read_single_var(&debugger, "*trait_fn.pointer");
+                    assert_struct(
+                        &deref,
+                        "*pointer",
+                        "dyn core::ops::function::Fn<(), Output=()>",
+                        |_, _| {},
+                    );
                 }
                 1 => {
-                    assert_pointer_without_deref(&debugger, member, "vtable", "&[usize; 3]")
-                    // todo make this assert when adding path support for read_variable
-
-                    //     assert_pointer(&debugger, member, "vtable", "&[usize; 3]", |deref| {
-                    //     assert_array(deref, "*", "[usize]", |i, _| match i {
-                    //         0 | 1 | 2 => {}
-                    //         _ => panic!("3 items expected"),
-                    //     });
-                    // })
+                    assert_pointer(member, "vtable", "&[usize; 3]");
+                    let deref = read_single_var(&debugger, "*trait_fn.vtable");
+                    assert_array(&deref, "*vtable", "[usize]", |i, _| match i {
+                        0 | 1 | 2 => {}
+                        _ => panic!("3 items expected"),
+                    });
                 }
                 _ => panic!("2 members expected"),
             },
@@ -1001,9 +944,10 @@ fn test_arguments() {
 
         let args = debugger.read_arguments().unwrap();
         assert_scalar(&args[0], "by_val", "i32", Some(SupportedScalar::I32(1)));
-        assert_pointer_arg(&debugger, &args[1], "by_ref", "&i32", |deref| {
-            assert_scalar(deref, "*by_ref", "i32", Some(SupportedScalar::I32(2)))
-        });
+        assert_pointer(&args[1], "by_ref", "&i32");
+        let deref = read_single_arg(&debugger, "*by_ref");
+        assert_scalar(&deref, "*by_ref", "i32", Some(SupportedScalar::I32(2)));
+
         assert_vec(&args[2], "vec", "Vec<u8, alloc::alloc::Global>", 3, |buf| {
             assert_array(buf, "buf", "[u8]", |i, item| match i {
                 0 => assert_scalar(item, "0", "u8", Some(SupportedScalar::U8(3))),
@@ -1018,11 +962,9 @@ fn test_arguments() {
             "alloc::boxed::Box<[u8], alloc::alloc::Global>",
             |i, member| match i {
                 0 => {
-                    assert_pointer_without_deref(&debugger, member, "data_ptr", "*u8")
-                    // todo make this assert when adding path support for read_variable
-                    // assert_pointer(&debugger, member, "data_ptr", "*u8", |deref| {
-                    //                     assert_scalar(deref, "*", "u8", Some(SupportedScalar::U8(6)));
-                    //                 })
+                    assert_pointer(member, "data_ptr", "*u8");
+                    let deref = read_single_arg(&debugger, "*box_arr.data_ptr");
+                    assert_scalar(&deref, "*data_ptr", "u8", Some(SupportedScalar::U8(6)));
                 }
                 1 => assert_scalar(member, "length", "usize", Some(SupportedScalar::U64(3))),
                 _ => panic!("2 members expected"),
@@ -1308,17 +1250,13 @@ fn test_circular_ref_types() {
                     member,
                     "ptr",
                     "NonNull<alloc::rc::RcBox<vars::circular::List>>",
-                    |i, member| {
-                        match i {
-                            //todo assert deref when path supported
-                            0 => assert_pointer_without_deref(
-                                &debugger,
-                                member,
-                                "pointer",
-                                "*const alloc::rc::RcBox<vars::circular::List>",
-                            ),
-                            _ => panic!("1 members expected"),
-                        }
+                    |i, member| match i {
+                        0 => assert_pointer(
+                            member,
+                            "pointer",
+                            "*const alloc::rc::RcBox<vars::circular::List>",
+                        ),
+                        _ => panic!("1 members expected"),
                     },
                 ),
                 1 => assert_struct(
@@ -1340,17 +1278,13 @@ fn test_circular_ref_types() {
                     member,
                     "ptr",
                     "NonNull<alloc::rc::RcBox<vars::circular::List>>",
-                    |i, member| {
-                        match i {
-                            //todo assert deref when path supported
-                            0 => assert_pointer_without_deref(
-                                &debugger,
-                                member,
-                                "pointer",
-                                "*const alloc::rc::RcBox<vars::circular::List>",
-                            ),
-                            _ => panic!("1 members expected"),
-                        }
+                    |i, member| match i {
+                        0 => assert_pointer(
+                            member,
+                            "pointer",
+                            "*const alloc::rc::RcBox<vars::circular::List>",
+                        ),
+                        _ => panic!("1 members expected"),
                     },
                 ),
                 1 => assert_struct(

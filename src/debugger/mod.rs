@@ -15,9 +15,9 @@ pub use debugee::ThreadDump;
 
 use crate::debugger::address::{GlobalAddress, PCValue, RelocatedAddress};
 use crate::debugger::breakpoint::Breakpoint;
-use crate::debugger::debugee::dwarf::parser::unit::{ParameterDie, VariableDie};
+use crate::debugger::command::expression::SelectPlan;
 use crate::debugger::debugee::dwarf::r#type::TypeCache;
-use crate::debugger::debugee::dwarf::{ContextualDieRef, NamespaceHierarchy, RegisterDump, Symbol};
+use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef, RegisterDump, Symbol};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
 use crate::debugger::debugee::{dwarf, Debugee, FrameInfo, Location};
 use crate::debugger::register::{get_register_from_name, get_register_value, set_register_value};
@@ -43,12 +43,6 @@ pub trait EventHook {
     fn on_trap(&self, pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()>;
     fn on_signal(&self, signo: c_int, code: c_int);
     fn on_exit(&self, code: i32);
-}
-
-/// Modifiers applied to read variables.
-#[derive(Clone, Copy, Debug)]
-pub enum ReadModifier {
-    Deref,
 }
 
 macro_rules! disable_when_not_stared {
@@ -427,27 +421,28 @@ impl Debugger {
         Ok(())
     }
 
-    fn variables_into_variable_ir(
+    fn variables_into_variable_ir<D: AsAllocatedValue>(
         &self,
         location: Location,
-        vars: &[(&[ReadModifier], ContextualDieRef<VariableDie>)],
+        vars: &[ContextualDieRef<D>],
+        select_plan: SelectPlan,
     ) -> anyhow::Result<Vec<VariableIR>> {
         let mut type_cache = self.type_cache.borrow_mut();
 
         Ok(vars
             .iter()
-            .filter_map(|(modifiers, var)| {
-                let var_name = var.die.base_attributes.name.clone();
+            .filter_map(|var| {
+                let var_name = var.die.name();
                 let mb_type = var
                     .die
-                    .type_ref
+                    .type_ref()
                     .and_then(|type_ref| match type_cache.entry((var.unit.id, type_ref)) {
                         Entry::Occupied(o) => Some(&*o.into_mut()),
                         Entry::Vacant(v) => var.r#type().map(|t| &*v.insert(t)),
                     })
                     .ok_or(anyhow!(
                         "unknown type for variable {name}",
-                        name = var_name.as_deref().unwrap_or_default()
+                        name = var_name.unwrap_or_default()
                     ));
                 let r#type = weak_error!(mb_type)?;
                 let mb_value = var.read_value_at_location(location, &self.debugee, r#type);
@@ -459,26 +454,17 @@ impl Debugger {
                     pid: location.pid,
                 };
 
-                let mut var = parser.parse(
+                let var = parser.parse(
                     evaluation_context,
-                    variable::VariableIdentity::new(var.namespaces(), var_name),
+                    variable::VariableIdentity::new(var.namespaces(), var_name.map(String::from)),
                     mb_value,
                 );
 
-                for &modifier in modifiers.iter() {
-                    match modifier {
-                        ReadModifier::Deref => {
-                            if let VariableIR::Pointer(mut ptr) = var {
-                                var = ptr.deref(
-                                    evaluation_context,
-                                    &variable::VariableParser::new(r#type),
-                                )?;
-                            }
-                        }
-                    }
-                }
-
-                Some(var)
+                var.apply_select_plan(
+                    evaluation_context,
+                    &variable::VariableParser::new(r#type),
+                    &select_plan,
+                )
             })
             .collect())
     }
@@ -493,88 +479,19 @@ impl Debugger {
             .dwarf
             .find_function_by_pc(location.global_pc)
             .ok_or_else(|| anyhow!("not in function"))?;
-        let modifiers = vec![];
-        let vars = current_func
-            .local_variables(location.global_pc)
-            .into_iter()
-            .map(|var| (modifiers.as_slice(), var))
-            .collect::<Vec<_>>();
-        self.variables_into_variable_ir(location, &vars)
+        let vars = current_func.local_variables(location.global_pc);
+        self.variables_into_variable_ir(location, &vars, SelectPlan::empty())
     }
 
     // Read any variable from current thread.
-    pub fn read_variable(
-        &self,
-        path: &str,
-        modifiers: &[ReadModifier],
-    ) -> anyhow::Result<Vec<VariableIR>> {
+    pub fn read_variable(&self, select_plan: SelectPlan) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
 
-        let vars = self
-            .debugee
-            .dwarf
-            .find_variables(path)
-            .into_iter()
-            .map(|var| (modifiers, var))
-            .collect::<Vec<_>>();
-        self.variables_into_variable_ir(self.current_thread_stop_at()?, &vars)
-    }
-
-    fn arguments_into_argument_ir(
-        &self,
-        location: Location,
-        params: &[(&[ReadModifier], ContextualDieRef<ParameterDie>)],
-    ) -> anyhow::Result<Vec<VariableIR>> {
-        let mut type_cache = self.type_cache.borrow_mut();
-
-        Ok(params
-            .iter()
-            .filter_map(|(modifiers, param)| {
-                let arg_name = param.die.base_attributes.name.clone();
-                let mb_type = param
-                    .die
-                    .type_ref
-                    .and_then(
-                        |type_ref| match type_cache.entry((param.unit.id, type_ref)) {
-                            Entry::Occupied(o) => Some(&*o.into_mut()),
-                            Entry::Vacant(v) => param.r#type().map(|t| &*v.insert(t)),
-                        },
-                    )
-                    .ok_or(anyhow!(
-                        "unknown type for argument {name}",
-                        name = arg_name.as_deref().unwrap_or_default()
-                    ));
-                let r#type = weak_error!(mb_type)?;
-
-                let mb_value = param.read_value_at_location(location, &self.debugee, r#type);
-
-                let evaluator = param.unit.evaluator(&self.debugee);
-                let parser = variable::VariableParser::new(r#type);
-                let evaluation_context = &dwarf::r#type::EvaluationContext {
-                    evaluator: &evaluator,
-                    pid: location.pid,
-                };
-                let mut param = parser.parse(
-                    evaluation_context,
-                    variable::VariableIdentity::new(NamespaceHierarchy::default(), arg_name),
-                    mb_value,
-                );
-
-                for &modifier in modifiers.iter() {
-                    match modifier {
-                        ReadModifier::Deref => {
-                            if let VariableIR::Pointer(mut ptr) = param {
-                                param = ptr.deref(
-                                    evaluation_context,
-                                    &variable::VariableParser::new(r#type),
-                                )?;
-                            }
-                        }
-                    }
-                }
-                Some(param)
-            })
-            .collect())
+        let variable_name = select_plan
+            .base_variable_name()
+            .ok_or(anyhow!("invalid select expression"))?;
+        let vars = self.debugee.dwarf.find_variables(variable_name);
+        self.variables_into_variable_ir(self.current_thread_stop_at()?, &vars, select_plan)
     }
 
     // Read current function parameters.
@@ -588,21 +505,16 @@ impl Debugger {
             .find_function_by_pc(location.global_pc)
             .ok_or_else(|| anyhow!("not in function"))?;
         let params = current_func.parameters();
-        let modifiers = vec![];
-        let params = params
-            .into_iter()
-            .map(|param| (modifiers.as_slice(), param))
-            .collect::<Vec<_>>();
-        self.arguments_into_argument_ir(location, &params)
+        self.variables_into_variable_ir(location, &params, SelectPlan::empty())
     }
 
     // Read any argument from current function.
-    pub fn read_argument(
-        &self,
-        path: &str,
-        modifiers: &[ReadModifier],
-    ) -> anyhow::Result<Vec<VariableIR>> {
+    pub fn read_argument(&self, select_plan: SelectPlan) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
+
+        let arg_name = select_plan
+            .base_variable_name()
+            .ok_or(anyhow!("invalid select expression"))?;
 
         let location = self.current_thread_stop_at()?;
         let current_func = self
@@ -613,16 +525,17 @@ impl Debugger {
         let params = current_func.parameters();
         let params = params
             .into_iter()
-            .filter_map(|param| {
-                let found = param.die.base_attributes.name.as_ref().map(|n| n == path)?;
-                if found {
-                    Some((modifiers, param))
-                } else {
-                    None
-                }
+            .filter(|param| {
+                param
+                    .die
+                    .base_attributes
+                    .name
+                    .as_ref()
+                    .map(|n| n == arg_name)
+                    .unwrap_or_default()
             })
             .collect::<Vec<_>>();
-        self.arguments_into_argument_ir(location, &params)
+        self.variables_into_variable_ir(location, &params, select_plan)
     }
 
     pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {
