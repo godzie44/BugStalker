@@ -2,7 +2,7 @@ use crate::cui::hook::CuiHook;
 use crate::debugger::Debugger;
 use crossterm::cursor::Show;
 use crossterm::event;
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use nix::unistd::Pid;
@@ -119,6 +119,17 @@ impl CuiApplication {
         enable_raw_mode()?;
 
         let (tx, rx) = mpsc::channel();
+        {
+            let tx = tx.clone();
+            ctrlc::set_handler(move || {
+                tx.send(Event::Input(KeyEvent::new(
+                    KeyCode::Char('q'),
+                    KeyModifiers::empty(),
+                )))
+                .unwrap()
+            })?;
+        }
+
         let tick_rate = Duration::from_millis(200);
         thread::spawn(move || {
             let mut last_tick = Instant::now();

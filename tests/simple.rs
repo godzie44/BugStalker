@@ -1,4 +1,5 @@
 use assert_cmd::cargo::CommandCargoExt;
+use rexpect::process::signal::SIGINT;
 use rexpect::session::PtySession;
 use std::ops::Add;
 use std::process::Command;
@@ -11,6 +12,8 @@ fn test_debugee_execute() {
     session.send_line("run").unwrap();
     session.exp_string("Hello, world!").unwrap();
     session.exp_string("bye!").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -29,6 +32,8 @@ fn test_address_breakpoint_set() {
 
     session.send_line("continue").unwrap();
     session.exp_string("bye!").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -58,6 +63,8 @@ fn test_multiple_address_breakpoint_set() {
 
     session.send_line("continue").unwrap();
     session.exp_string("bye!").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -83,6 +90,8 @@ fn test_read_write_register() {
     session.send_line("continue").unwrap();
     session.exp_string("Hello, world!").unwrap();
     session.exp_string("bye!").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -106,6 +115,8 @@ fn test_step_in() {
 
     session.send_line("step").unwrap();
     session.exp_string(">    println!(\"{}\", s)").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -128,6 +139,8 @@ fn test_step_out() {
     session
         .exp_string(">    sleep(Duration::from_secs(1));")
         .unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -149,6 +162,8 @@ fn test_step_over() {
     session.exp_string(">    myprint(\"bye!\")").unwrap();
     session.send_line("next").unwrap();
     session.exp_string(">}").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -164,6 +179,8 @@ fn test_step_over_on_fn_decl() {
 
     session.send_line("next").unwrap();
     session.exp_string(">    println!(\"{}\", s)").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -183,6 +200,8 @@ fn test_function_breakpoint() {
 
     session.send_line("continue").unwrap();
     session.exp_string("bye!").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -202,6 +221,8 @@ fn test_line_breakpoint() {
 
     session.send_line("continue").unwrap();
     session.exp_string("bye!").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -214,6 +235,8 @@ fn test_symbol() {
 
     session.send_line("symbol myprint").unwrap();
     session.exp_string("Text 0x00000000007D70").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -232,6 +255,8 @@ fn test_backtrace() {
     session
         .exp_string("hello_world::main (0x0055555555BD20)")
         .unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -247,6 +272,8 @@ fn test_read_value_u64() {
 
     session.send_line("vars").unwrap();
     session.exp_string("s = i64(3)").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 fn setup_hello_world_debugee() -> PtySession {

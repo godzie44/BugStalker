@@ -46,10 +46,17 @@ pub struct Location {
     pub pid: Pid,
 }
 
+#[derive(PartialEq)]
+pub enum ExecutionStatus {
+    Unload,
+    InProgress,
+    Exited,
+}
+
 /// Debugee - represent static and runtime debugee information.
 pub struct Debugee {
-    /// true if debugee currently start.
-    pub in_progress: bool,
+    /// debugee running-status.
+    pub execution_status: ExecutionStatus,
     /// path to debugee file.
     pub path: PathBuf,
     /// debugee process map address.
@@ -76,7 +83,7 @@ impl Debugee {
     {
         let dwarf_builder = dwarf::DebugeeContextBuilder::default();
         Ok(Self {
-            in_progress: false,
+            execution_status: ExecutionStatus::Unload,
             path: path.into(),
             mapping_addr: None,
             dwarf: dwarf_builder.build(object)?,
@@ -121,10 +128,10 @@ impl Debugee {
         let event = self.control_flow.tick(self.mapping_addr)?;
         match event {
             DebugeeEvent::DebugeeExit(_) => {
-                self.in_progress = false;
+                self.execution_status = ExecutionStatus::Exited;
             }
             DebugeeEvent::DebugeeStart => {
-                self.in_progress = true;
+                self.execution_status = ExecutionStatus::InProgress;
                 self.mapping_addr = Some(self.define_mapping_addr()?);
             }
             flow::DebugeeEvent::AtEntryPoint(tid) => {

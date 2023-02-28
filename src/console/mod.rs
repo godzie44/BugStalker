@@ -3,15 +3,16 @@ use crate::console::hook::TerminalHook;
 use crate::console::variable::render_variable_ir;
 use crate::console::view::FileView;
 use crate::debugger::command::{
-    Arguments, Backtrace, Break, Frame, Quit, Run, StepI, StepInto, StepOut, StepOver, Symbol,
-    Trace, Variables,
+    Arguments, Backtrace, Break, Frame, Run, StepI, StepInto, StepOut, StepOver, Symbol, Trace,
+    Variables,
 };
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::{command, Debugger};
 use command::{Memory, Register};
 use nix::unistd::Pid;
-use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use std::sync::mpsc;
+use std::thread;
 
 pub mod hook;
 mod variable;
@@ -40,6 +41,11 @@ impl AppBuilder {
     }
 }
 
+enum ControlAction {
+    Cmd(String),
+    Terminate,
+}
+
 pub struct TerminalApplication {
     debugger: Debugger,
 }
@@ -48,27 +54,50 @@ impl TerminalApplication {
     pub fn run(mut self) -> anyhow::Result<()> {
         env_logger::init();
 
-        let mut rl = Editor::<()>::new()?;
-        if rl.load_history("history.txt").is_err() {
-            println!("No previous history.");
+        let (control_tx, control_rx) = mpsc::channel::<ControlAction>();
+
+        {
+            let control_tx = control_tx.clone();
+            thread::spawn(move || {
+                let mut rl = Editor::<()>::new().expect("create editor");
+                if rl.load_history("history.txt").is_err() {
+                    println!("No previous history.");
+                }
+
+                loop {
+                    let readline = rl.readline(">> ");
+                    match readline {
+                        Ok(input) => {
+                            if input == "q" || input == "quit" {
+                                control_tx.send(ControlAction::Terminate).unwrap();
+                            } else {
+                                rl.add_history_entry(&input);
+                                control_tx.send(ControlAction::Cmd(input)).unwrap();
+                            }
+                        }
+                        Err(err) => {
+                            println!("error: {:?}", err);
+                            control_tx.send(ControlAction::Terminate).unwrap();
+                            break;
+                        }
+                    }
+                }
+            });
         }
 
-        loop {
-            let readline = rl.readline(">> ");
-            match readline {
-                Ok(input) => {
-                    rl.add_history_entry(input.as_str());
-                    println!("> {}", input);
-                    if let Err(e) = self.handle_cmd(&input) {
-                        println!("Error: {:?}", e);
-                        break;
+        {
+            ctrlc::set_handler(move || control_tx.send(ControlAction::Terminate).unwrap())?;
+        }
+
+        for action in control_rx {
+            match action {
+                ControlAction::Cmd(command) => {
+                    println!("> {}", command);
+                    if let Err(e) = self.handle_cmd(&command) {
+                        println!("error: {:?}", e);
                     }
-                    rl.add_history_entry(input.as_str());
                 }
-                Err(ReadlineError::Interrupted) => break,
-                Err(ReadlineError::Eof) => break,
-                Err(err) => {
-                    println!("Error: {:?}", err);
+                ControlAction::Terminate => {
                     break;
                 }
             }
@@ -116,7 +145,7 @@ impl TerminalApplication {
                     println!(
                         "thread {} - {}",
                         thread.thread.pid,
-                        thread.pc.unwrap_or((0 as usize).into())
+                        thread.pc.unwrap_or(0_usize.into())
                     );
                     if let Some(ref bt) = thread.bt {
                         bt.iter().for_each(|part| match part.place.as_ref() {
@@ -164,10 +193,7 @@ impl TerminalApplication {
                 let symbol = cmd.run()?;
                 println!("{:?} {:#016X}", symbol.kind, symbol.addr);
             }
-
             "help" => todo!(),
-            "q" | "quit" => Quit::new().run(),
-
             _ => eprintln!("unknown command"),
         }
 

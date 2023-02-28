@@ -19,7 +19,7 @@ use crate::debugger::command::expression::SelectPlan;
 use crate::debugger::debugee::dwarf::r#type::TypeCache;
 use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef, RegisterDump, Symbol};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
-use crate::debugger::debugee::{dwarf, Debugee, FrameInfo, Location};
+use crate::debugger::debugee::{dwarf, Debugee, ExecutionStatus, FrameInfo, Location};
 use crate::debugger::register::{get_register_from_name, get_register_value, set_register_value};
 use crate::debugger::uw::Backtrace;
 use crate::debugger::variable::VariableIR;
@@ -48,7 +48,7 @@ pub trait EventHook {
 macro_rules! disable_when_not_stared {
     ($this: expr) => {
         use anyhow::bail;
-        if !$this.debugee.in_progress {
+        if $this.debugee.execution_status != ExecutionStatus::InProgress {
             bail!("The program is not being started.")
         }
     };
@@ -203,7 +203,7 @@ impl Debugger {
     pub fn set_breakpoint(&mut self, addr: PCValue) -> anyhow::Result<()> {
         // todo make method idempotence
         let brkpt = Breakpoint::new(addr, self.debugee.threads_ctl().proc_pid());
-        if self.debugee.in_progress {
+        if self.debugee.execution_status == ExecutionStatus::InProgress {
             brkpt.enable()?;
         }
         self.breakpoints.insert(addr, brkpt);
@@ -399,7 +399,7 @@ impl Debugger {
             .next()
             .ok_or_else(|| anyhow!("invalid function entry"))?;
 
-        let addr = if self.debugee.in_progress {
+        let addr = if self.debugee.execution_status == ExecutionStatus::InProgress {
             PCValue::Relocated(entry.address.relocate(self.debugee.mapping_offset()))
         } else {
             PCValue::Global(entry.address)
@@ -410,7 +410,7 @@ impl Debugger {
 
     pub fn set_breakpoint_at_line(&mut self, fine_name: &str, line: u64) -> anyhow::Result<()> {
         if let Some(place) = self.debugee.dwarf.find_stmt_line(fine_name, line) {
-            let addr = if self.debugee.in_progress {
+            let addr = if self.debugee.execution_status == ExecutionStatus::InProgress {
                 PCValue::Relocated(place.address.relocate(self.debugee.mapping_offset()))
             } else {
                 PCValue::Global(place.address)
@@ -579,18 +579,22 @@ impl Debugger {
 
 impl Drop for Debugger {
     fn drop(&mut self) {
-        if !self.debugee.in_progress {
-            return;
+        match self.debugee.execution_status {
+            ExecutionStatus::Unload => {
+                signal::kill(self.debugee.threads_ctl().proc_pid(), Signal::SIGKILL)
+                    .expect("kill debugee");
+                waitpid(self.debugee.threads_ctl().proc_pid(), None).expect("waiting child");
+            }
+            ExecutionStatus::InProgress => {
+                self.debugee.threads_ctl().dump().iter().for_each(|thread| {
+                    sys::ptrace::detach(thread.pid, None).expect("detach thread")
+                });
+                signal::kill(self.debugee.threads_ctl().proc_pid(), Signal::SIGKILL)
+                    .expect("kill debugee");
+                waitpid(self.debugee.threads_ctl().proc_pid(), None).expect("waiting child");
+            }
+            ExecutionStatus::Exited => {}
         }
-
-        self.step_over_breakpoint().expect("continue debugee");
-        self.debugee
-            .threads_ctl()
-            .dump()
-            .iter()
-            .for_each(|thread| sys::ptrace::detach(thread.pid, None).expect("detach thread"));
-        signal::kill(self.debugee.threads_ctl().proc_pid(), Signal::SIGKILL).expect("kill debugee");
-        waitpid(self.debugee.threads_ctl().proc_pid(), None).expect("waiting child");
     }
 }
 

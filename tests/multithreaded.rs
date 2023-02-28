@@ -1,4 +1,5 @@
 use assert_cmd::cargo::CommandCargoExt;
+use rexpect::process::signal::SIGINT;
 use rexpect::session::PtySession;
 use std::ops::Add;
 use std::process::Command;
@@ -16,6 +17,8 @@ fn test_multithreaded_app_running() {
     session.exp_string("sum1: 49995000").unwrap();
     session.exp_string("total 249985000").unwrap();
     session.exp_string("Program exit with code: 0").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -59,6 +62,8 @@ fn test_multithreaded_breakpoints() {
     session.send_line("continue").unwrap();
     session.exp_string("total 249985000").unwrap();
     session.exp_string("Program exit with code: 0").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -79,6 +84,8 @@ fn test_multithreaded_backtrace() {
     session
         .exp_string("std::sys::unix::thread::Thread::new::thread_start")
         .unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -100,6 +107,8 @@ fn test_multithreaded_trace() {
     session.exp_string("std::thread::sleep").unwrap();
     session.exp_string("thread ").unwrap();
     session.exp_string("mt::sum2").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 fn setup_vars_debugee() -> PtySession {

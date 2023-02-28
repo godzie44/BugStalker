@@ -1,4 +1,5 @@
 use assert_cmd::cargo::CommandCargoExt;
+use rexpect::process::signal::SIGINT;
 use rexpect::session::PtySession;
 use std::ops::Add;
 use std::process::Command;
@@ -37,6 +38,8 @@ fn test_read_scalar_variables() {
     session
         .exp_string("char_non_ascii = char(ð\u{9f}\u{98}\u{8a})")
         .unwrap(); // char(😊)
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -56,6 +59,8 @@ fn test_read_scalar_variables_at_place() {
     session.exp_string("int32 = i32(2)").unwrap();
     session.exp_string("int64 = i64(-2)").unwrap();
     assert!(session.exp_string("int128 = i128(3)").is_err());
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -99,6 +104,8 @@ fn test_read_struct() {
     session.exp_string("}").unwrap();
     session.exp_string("additional: bool(true)").unwrap();
     session.exp_string("}").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -144,6 +151,8 @@ fn test_read_array() {
     session.exp_string("4: i32(-4)").unwrap();
     session.exp_string("}").unwrap();
     session.exp_string("}").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -190,6 +199,8 @@ fn test_read_enum() {
     session.exp_string("enum_7 = EnumF::J {").unwrap();
     session.exp_string("0: EnumA::A").unwrap();
     session.exp_string("}").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -237,6 +248,8 @@ fn test_read_pointers() {
     session
         .exp_regex(r"ref_f = &vars::references::Foo \[0x.*\]")
         .unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -284,6 +297,8 @@ fn test_deref_pointers() {
     session.exp_string("}").unwrap();
     session.exp_regex(r"foo: &i32 \[0x.*\]").unwrap();
     session.exp_string("}").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -301,6 +316,8 @@ fn test_read_type_alias() {
 
     session.send_line("vars").unwrap();
     session.exp_string("a_alias = i32(1)").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -320,6 +337,8 @@ fn test_type_parameters() {
     session.exp_string("a = Foo<i32> {").unwrap();
     session.exp_string("bar: i32(1)").unwrap();
     session.exp_string("}").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -424,6 +443,8 @@ fn test_read_vec_and_slice() {
     session.exp_string("1: i32(2)").unwrap();
     session.exp_string("2: i32(3)").unwrap();
     session.exp_string("}").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -443,6 +464,8 @@ fn test_read_strings() {
     session.exp_string("s1 = String(hello world)").unwrap();
     session.exp_string("s2 = &str(hello world)").unwrap();
     session.exp_string("s3 = &str(hello world)").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -462,6 +485,8 @@ fn test_read_static_variables() {
     session.exp_string("GLOB_1 = &str(glob_1)").unwrap();
     session.send_line("vars GLOB_2").unwrap();
     session.exp_string("GLOB_2 = i32(2)").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -480,6 +505,8 @@ fn test_read_static_variables_different_modules() {
     session.send_line("vars GLOB_3").unwrap();
     session.exp_string("GLOB_3").unwrap();
     session.exp_string("GLOB_3").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -539,6 +566,8 @@ fn test_read_tls_variables() {
     session.exp_string("value: i32(1)").unwrap();
     session.exp_string("}").unwrap();
     session.exp_string("}").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 #[test]
@@ -595,6 +624,8 @@ fn test_custom_select() {
     session.exp_string("}").unwrap();
     session.exp_string("cap: usize(3)").unwrap();
     session.exp_string("}").unwrap();
+
+    session.process.kill(SIGINT).unwrap();
 }
 
 fn setup_vars_debugee() -> PtySession {
