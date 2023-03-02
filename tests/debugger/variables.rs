@@ -1301,3 +1301,48 @@ fn test_circular_ref_types() {
         assert_no_proc!(child);
     });
 }
+
+#[test]
+#[serial]
+fn test_lexical_blocks() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+
+        debugger.set_breakpoint_at_line("vars.rs", 316).unwrap();
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(316));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_eq!(vars.len(), 1);
+        assert_eq!(vars[0].name(), "alpha");
+
+        debugger.set_breakpoint_at_line("vars.rs", 318).unwrap();
+        debugger.continue_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(318));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_eq!(vars.len(), 2);
+        assert_eq!(vars[0].name(), "alpha");
+        assert_eq!(vars[1].name(), "beta");
+
+        debugger.set_breakpoint_at_line("vars.rs", 319).unwrap();
+        debugger.continue_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(319));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_eq!(vars.len(), 3);
+        assert_eq!(vars[0].name(), "alpha");
+        assert_eq!(vars[1].name(), "beta");
+        assert_eq!(vars[2].name(), "gama");
+
+        debugger.set_breakpoint_at_line("vars.rs", 325).unwrap();
+        debugger.continue_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(325));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_eq!(vars.len(), 2);
+        assert_eq!(vars[0].name(), "alpha");
+        assert_eq!(vars[1].name(), "delta");
+    });
+}

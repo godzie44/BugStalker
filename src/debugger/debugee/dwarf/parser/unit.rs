@@ -172,7 +172,6 @@ pub struct FunctionDie {
 #[derive(Debug)]
 pub struct LexicalBlockDie {
     pub base_attributes: DieAttributes,
-    pub ranges: Box<[Range]>,
 }
 
 #[derive(Debug)]

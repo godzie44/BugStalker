@@ -486,11 +486,11 @@ impl Debugger {
     // Read any variable from current thread.
     pub fn read_variable(&self, select_plan: SelectPlan) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
-
+        let location = self.current_thread_stop_at()?;
         let variable_name = select_plan
             .base_variable_name()
             .ok_or(anyhow!("invalid select expression"))?;
-        let vars = self.debugee.dwarf.find_variables(variable_name);
+        let vars = self.debugee.dwarf.find_variables(location, variable_name);
         self.variables_into_variable_ir(self.current_thread_stop_at()?, &vars, select_plan)
     }
 

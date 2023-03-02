@@ -309,6 +309,22 @@ fn circular() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn lexical_blocks() {
+    let alpha = 1;
+    {
+        let beta = 2;
+        {
+            let mut gama = 3;
+            gama += 1;
+        }
+    }
+    let mut delta = 4;
+    delta += 1;
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -328,4 +344,5 @@ pub fn main() {
     hashmap();
     hashset();
     circular();
+    lexical_blocks();
 }

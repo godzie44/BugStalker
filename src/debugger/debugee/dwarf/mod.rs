@@ -275,7 +275,7 @@ impl DebugeeContext {
                 Err(pos) => unit.ranges[..pos]
                     .iter()
                     .rev()
-                    .any(|range| range.begin <= u64::from(pc) && u64::from(pc) <= range.end),
+                    .any(|range| range.begin <= u64::from(pc) && u64::from(pc) < range.end),
             }
         })
     }
@@ -304,7 +304,7 @@ impl DebugeeContext {
 
         unit.die_ranges[..find_pos].iter().rev().find_map(|dr| {
             if let DieVariant::Function(ref func) = unit.entries[dr.die_idx].die {
-                if dr.range.begin <= pc && pc <= dr.range.end {
+                if dr.range.begin <= pc && pc < dr.range.end {
                     return Some(ContextualDieRef {
                         context: self,
                         node: &unit.entries[dr.die_idx].node,
@@ -367,18 +367,26 @@ impl DebugeeContext {
         }
     }
 
-    pub fn find_variables(&self, name: &str) -> Vec<ContextualDieRef<'_, VariableDie>> {
+    pub fn find_variables(
+        &self,
+        location: Location,
+        name: &str,
+    ) -> Vec<ContextualDieRef<'_, VariableDie>> {
         let mut found = vec![];
         for unit in &self.units {
             if let Some(vars) = unit.variable_index.get(name) {
                 vars.iter().for_each(|(_, entry_idx)| {
                     if let DieVariant::Variable(ref var) = unit.entries[*entry_idx].die {
-                        found.push(ContextualDieRef {
+                        let variable = ContextualDieRef {
                             context: self,
                             unit,
                             node: &unit.entries[*entry_idx].node,
                             die: var,
-                        });
+                        };
+
+                        if variable.valid_at(location.global_pc) {
+                            found.push(variable);
+                        }
                     }
                 });
             }
@@ -624,9 +632,10 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
                     unreachable!();
                 };
 
-                lb.ranges
+                lb.base_attributes
+                    .ranges
                     .iter()
-                    .any(|r| u64::from(pc) >= r.begin && u64::from(pc) <= r.end)
+                    .any(|r| u64::from(pc) >= r.begin && u64::from(pc) < r.end)
             })
             .unwrap_or(true)
     }

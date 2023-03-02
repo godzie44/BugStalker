@@ -202,11 +202,6 @@ impl<'a> DwarfUnitParser<'a> {
                 }),
                 gimli::DW_TAG_lexical_block => DieVariant::LexicalBlock(LexicalBlockDie {
                     base_attributes: base_attrs,
-                    ranges: self
-                        .dwarf
-                        .die_ranges(unit, die)?
-                        .collect::<Vec<Range>>()?
-                        .into(),
                 }),
                 gimli::DW_TAG_array_type => DieVariant::ArrayType(ArrayDie {
                     base_attributes: base_attrs,
