@@ -185,6 +185,20 @@ fn assert_hashset(
     with_items(&items);
 }
 
+fn assert_btree_map(
+    var: &VariableIR,
+    exp_name: &str,
+    exp_type: &str,
+    with_kv_items: impl FnOnce(&Vec<(VariableIR, VariableIR)>),
+) {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::BtreeMap {map: Some(map), ..}) = var else {
+        panic!("not a btree map");
+    };
+    assert_eq!(map.identity.name.as_ref().unwrap(), exp_name);
+    assert_eq!(map.type_name.as_ref().unwrap(), exp_type);
+    with_kv_items(&map.kv_items);
+}
+
 #[test]
 #[serial]
 fn test_read_scalar_variables() {
@@ -1344,5 +1358,139 @@ fn test_lexical_blocks() {
         assert_eq!(vars.len(), 2);
         assert_eq!(vars[0].name(), "alpha");
         assert_eq!(vars[1].name(), "delta");
+    });
+}
+
+#[test]
+#[serial]
+fn test_btree_map() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+
+        debugger.set_breakpoint_at_line("vars.rs", 344).unwrap();
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(344));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_btree_map(
+            &vars[0],
+            "hm1",
+            "BTreeMap<bool, i64, alloc::alloc::Global>",
+            |items| {
+                assert_eq!(items.len(), 2);
+                assert_scalar(&items[0].0, "k", "bool", Some(SupportedScalar::Bool(false)));
+                assert_scalar(&items[0].1, "v", "i64", Some(SupportedScalar::I64(5)));
+                assert_scalar(&items[1].0, "k", "bool", Some(SupportedScalar::Bool(true)));
+                assert_scalar(&items[1].1, "v", "i64", Some(SupportedScalar::I64(3)));
+            },
+        );
+        assert_btree_map(
+            &vars[1],
+            "hm2",
+            "BTreeMap<&str, alloc::vec::Vec<i32, alloc::alloc::Global>, alloc::alloc::Global>",
+            |items| {
+                assert_eq!(items.len(), 2);
+                assert_str(&items[0].0, "k", "abc");
+                assert_vec(
+                    &items[0].1,
+                    "v",
+                    "Vec<i32, alloc::alloc::Global>",
+                    3,
+                    |buf| {
+                        assert_array(buf, "buf", "[i32]", |i, item| match i {
+                            0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+                            1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
+                            2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
+                            _ => panic!("3 items expected"),
+                        })
+                    },
+                );
+                assert_str(&items[1].0, "k", "efg");
+                assert_vec(
+                    &items[1].1,
+                    "v",
+                    "Vec<i32, alloc::alloc::Global>",
+                    3,
+                    |buf| {
+                        assert_array(buf, "buf", "[i32]", |i, item| match i {
+                            0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(11))),
+                            1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(12))),
+                            2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(13))),
+                            _ => panic!("3 items expected"),
+                        })
+                    },
+                );
+            },
+        );
+        assert_btree_map(
+            &vars[2],
+            "hm3",
+            "BTreeMap<i32, i32, alloc::alloc::Global>",
+            |items| {
+                assert_eq!(items.len(), 100);
+
+                let exp_items = (0..100).into_iter().collect::<Vec<_>>();
+
+                for i in 0..100 {
+                    assert_scalar(
+                        &items[i].0,
+                        "k",
+                        "i32",
+                        Some(SupportedScalar::I32(exp_items[i])),
+                    );
+                }
+                for i in 0..100 {
+                    assert_scalar(
+                        &items[i].1,
+                        "v",
+                        "i32",
+                        Some(SupportedScalar::I32(exp_items[i])),
+                    );
+                }
+            },
+        );
+        assert_btree_map(
+            &vars[3],
+            "hm4",
+            "BTreeMap<alloc::string::String, alloc::collections::btree::map::BTreeMap<i32, i32, alloc::alloc::Global>, alloc::alloc::Global>",
+            |items| {
+                assert_eq!(items.len(), 2);
+                assert_string(&items[0].0, "k", "1");
+                assert_btree_map(
+                    &items[0].1,
+                    "v",
+                    "BTreeMap<i32, i32, alloc::alloc::Global>",
+                    |items| {
+                        assert_eq!(items.len(), 2);
+                        assert_scalar(&items[0].0, "k", "i32", Some(SupportedScalar::I32(1)));
+                        assert_scalar(&items[0].1, "v", "i32", Some(SupportedScalar::I32(1)));
+                        assert_scalar(&items[1].0, "k", "i32", Some(SupportedScalar::I32(2)));
+                        assert_scalar(&items[1].1, "v", "i32", Some(SupportedScalar::I32(2)));
+                    },
+                );
+
+                assert_string(
+                    &items[1].0,
+                    "k",
+                    "3",
+                );
+                assert_btree_map(
+                    &items[1].1,
+                    "v",
+                    "BTreeMap<i32, i32, alloc::alloc::Global>",
+                    |items| {
+                        assert_eq!(items.len(), 2);
+                        assert_scalar(&items[0].0, "k", "i32", Some(SupportedScalar::I32(3)));
+                        assert_scalar(&items[0].1, "v", "i32", Some(SupportedScalar::I32(3)));
+                        assert_scalar(&items[1].0, "k", "i32", Some(SupportedScalar::I32(4)));
+                        assert_scalar(&items[1].1, "v", "i32", Some(SupportedScalar::I32(4)));
+                    },
+                );
+            },
+        );
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
     });
 }

@@ -278,6 +278,7 @@ impl VariableIR {
                 SpecializedVariableIR::Tls { original, .. } => &original.identity,
                 SpecializedVariableIR::HashMap { original, .. } => &original.identity,
                 SpecializedVariableIR::HashSet { original, .. } => &original.identity,
+                SpecializedVariableIR::BtreeMap { original, .. } => &original.identity,
             },
         }
     }
@@ -703,6 +704,20 @@ impl<'a> VariableParser<'a> {
                     return VariableIR::Specialized(parser_ext.parse_hashset(eval_ctx, struct_var));
                 };
 
+                if struct_name
+                    .as_ref()
+                    .map(|name| name.starts_with("BTreeMap"))
+                    == Some(true)
+                    && type_ns_h.contains(&["collections", "btree", "map"])
+                {
+                    return VariableIR::Specialized(parser_ext.parse_btree_map(
+                        eval_ctx,
+                        struct_var,
+                        type_id,
+                        type_params,
+                    ));
+                };
+
                 VariableIR::Struct(struct_var)
             }
             TypeDeclaration::Array(decl) => {
@@ -829,6 +844,12 @@ impl<'a> Iterator for BfsIterator<'a> {
                         .for_each(|member| self.queue.push_back(member));
                 }
                 SpecializedVariableIR::HashSet { original, .. } => {
+                    original
+                        .members
+                        .iter()
+                        .for_each(|member| self.queue.push_back(member));
+                }
+                SpecializedVariableIR::BtreeMap { original, .. } => {
                     original
                         .members
                         .iter()

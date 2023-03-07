@@ -11,7 +11,7 @@ use gimli::{AttributeValue, DwAte, Expression};
 use log::warn;
 use nix::unistd::Pid;
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem;
 use uuid::Uuid;
 
@@ -55,6 +55,9 @@ pub struct StructureMember {
 }
 
 impl StructureMember {
+    /// Calculate structure member value.
+    /// `base_entity_addr` must points to first byte of entity value in debugger memory,
+    /// typically its points to start of the buffer.
     pub fn value(
         &self,
         eval_ctx: &EvaluationContext,
@@ -269,6 +272,87 @@ impl ComplexType {
             TypeDeclaration::Pointer { .. } => Some(mem::size_of::<usize>() as u64),
             TypeDeclaration::Union { byte_size, .. } => *byte_size,
         }
+    }
+
+    /// Visit type children in bfs order, `start_at` - identity of root type.
+    pub fn bfs_iterator(&self, start_at: TypeIdentity) -> BfsIterator {
+        BfsIterator {
+            complex_type: self,
+            queue: VecDeque::from([start_at]),
+        }
+    }
+}
+
+/// Bfs iterator over related types.
+/// Note that this iterator may be infinite.
+pub struct BfsIterator<'a> {
+    complex_type: &'a ComplexType,
+    queue: VecDeque<TypeIdentity>,
+}
+
+impl<'a> Iterator for BfsIterator<'a> {
+    type Item = &'a TypeDeclaration;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let el_id = self.queue.pop_back()?;
+        let type_decl = &self.complex_type.types[&el_id];
+        match type_decl {
+            TypeDeclaration::Scalar(_) => {}
+            TypeDeclaration::Array(arr) => {
+                if let Some(el) = arr.element_type {
+                    self.queue.push_front(el);
+                }
+            }
+            TypeDeclaration::CStyleEnum { discr_type, .. } => {
+                if let Some(el) = discr_type {
+                    self.queue.push_front(*el);
+                }
+            }
+            TypeDeclaration::Pointer { target_type, .. } => {
+                if let Some(el) = target_type {
+                    self.queue.push_front(*el);
+                }
+            }
+            TypeDeclaration::Structure {
+                members,
+                type_params,
+                ..
+            } => {
+                members.iter().for_each(|m| {
+                    if let Some(el) = m.type_ref {
+                        self.queue.push_front(el);
+                    }
+                });
+                type_params.values().for_each(|t| {
+                    if let Some(el) = t {
+                        self.queue.push_front(*el);
+                    }
+                });
+            }
+            TypeDeclaration::Union { members, .. } => {
+                members.iter().for_each(|m| {
+                    if let Some(el) = m.type_ref {
+                        self.queue.push_front(el);
+                    }
+                });
+            }
+            TypeDeclaration::RustEnum {
+                discr_type,
+                enumerators,
+                ..
+            } => {
+                if let Some(el) = discr_type.as_ref().and_then(|member| member.type_ref) {
+                    self.queue.push_front(el);
+                }
+                enumerators.values().for_each(|member| {
+                    if let Some(el) = member.type_ref {
+                        self.queue.push_front(el);
+                    }
+                });
+            }
+        }
+
+        Some(type_decl)
     }
 }
 

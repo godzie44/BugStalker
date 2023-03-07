@@ -325,6 +325,25 @@ fn lexical_blocks() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn btree_map() {
+    use std::collections::BTreeMap;
+
+    let hm1 = BTreeMap::from([(true, 3i64), (false, 5i64)]);
+    let hm2 = BTreeMap::from([("abc", vec![1, 2, 3]), ("efg", vec![11, 12, 13])]);
+    let mut hm3 = BTreeMap::new();
+    for i in 0..100 {
+        hm3.insert(i, i);
+    }
+
+    let hm4 = BTreeMap::from([
+        ("1".to_string(), BTreeMap::from([(1, 1), (2, 2)])),
+        ("3".to_string(), BTreeMap::from([(3, 3), (4, 4)])),
+    ]);
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -345,4 +364,5 @@ pub fn main() {
     hashset();
     circular();
     lexical_blocks();
+    btree_map();
 }

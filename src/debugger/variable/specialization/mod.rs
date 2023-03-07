@@ -1,7 +1,9 @@
+mod btree;
 mod hashbrown;
 
 use crate::debugger::debugee::dwarf::r#type::{EvaluationContext, TypeIdentity};
 use crate::debugger::variable::render::RenderRepr;
+use crate::debugger::variable::specialization::btree::BTreeReflection;
 use crate::debugger::variable::specialization::hashbrown::HashmapReflection;
 use crate::debugger::variable::{
     ArrayVariable, AssumeError, ScalarVariable, StructVariable, SupportedScalar, VariableIR,
@@ -65,6 +67,10 @@ pub enum SpecializedVariableIR {
     },
     HashSet {
         set: Option<HashSetVariable>,
+        original: StructVariable,
+    },
+    BtreeMap {
+        map: Option<HashMapVariable>,
         original: StructVariable,
     },
     String {
@@ -427,6 +433,82 @@ impl<'a> VariableParserExtension<'a> {
             identity: ir.identity().clone(),
             type_name: Some(ir.r#type().to_owned()),
             items,
+        })
+    }
+
+    pub fn parse_btree_map(
+        &self,
+        eval_ctx: &EvaluationContext,
+        structure: StructVariable,
+        identity: TypeIdentity,
+        type_params: &HashMap<String, Option<TypeIdentity>>,
+    ) -> SpecializedVariableIR {
+        SpecializedVariableIR::BtreeMap {
+            map: weak_error!(self
+                .parse_btree_map_inner(
+                    eval_ctx,
+                    VariableIR::Struct(structure.clone()),
+                    identity,
+                    type_params
+                )
+                .context("btree map interpretation")),
+            original: structure,
+        }
+    }
+
+    pub fn parse_btree_map_inner(
+        &self,
+        eval_ctx: &EvaluationContext,
+        ir: VariableIR,
+        identity: TypeIdentity,
+        type_params: &HashMap<String, Option<TypeIdentity>>,
+    ) -> anyhow::Result<HashMapVariable> {
+        let height = ir.assume_field_as_scalar_number("height")?;
+        let ptr = ir.assume_field_as_pointer("pointer")?;
+
+        let k_type = type_params
+            .get("K")
+            .ok_or_else(|| anyhow!("btree map bucket type not found"))?
+            .ok_or_else(|| anyhow!("unknown btree map bucket type"))?;
+        let v_type = type_params
+            .get("V")
+            .ok_or_else(|| anyhow!("btree map bucket type not found"))?
+            .ok_or_else(|| anyhow!("unknown btree map bucket type"))?;
+
+        let reflection = BTreeReflection::new(
+            self.parser.r#type,
+            ptr,
+            height as usize,
+            identity,
+            k_type,
+            v_type,
+        )?;
+        let iterator = reflection.iter(eval_ctx)?;
+        let kv_items = iterator
+            .map_err(anyhow::Error::from)
+            .map(|(k, v)| {
+                let key = self.parser.parse_inner(
+                    eval_ctx,
+                    VariableIdentity::no_namespace(Some("k".to_string())),
+                    Some(Bytes::from(k)),
+                    k_type,
+                );
+
+                let value = self.parser.parse_inner(
+                    eval_ctx,
+                    VariableIdentity::no_namespace(Some("v".to_string())),
+                    Some(Bytes::from(v)),
+                    v_type,
+                );
+
+                Ok((key, value))
+            })
+            .collect::<Vec<_>>()?;
+
+        Ok(HashMapVariable {
+            identity: ir.identity().clone(),
+            type_name: Some(ir.r#type().to_owned()),
+            kv_items,
         })
     }
 }
