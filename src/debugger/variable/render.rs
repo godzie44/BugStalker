@@ -32,7 +32,8 @@ impl RenderRepr for VariableIR {
             VariableIR::RustEnum(e) => &e.identity.name,
             VariableIR::Pointer(p) => return p.identity.name.as_deref().unwrap_or("anon"),
             VariableIR::Specialized(spec) => match spec {
-                SpecializedVariableIR::Vector { vec, original } => match vec {
+                SpecializedVariableIR::Vector { vec, original }
+                | SpecializedVariableIR::VecDeque { vec, original } => match vec {
                     None => &original.identity.name,
                     Some(v) => &v.structure.identity.name,
                 },
@@ -88,7 +89,8 @@ impl RenderRepr for VariableIR {
             VariableIR::RustEnum(e) => &e.type_name,
             VariableIR::Pointer(p) => &p.type_name,
             VariableIR::Specialized(spec) => match spec {
-                SpecializedVariableIR::Vector { vec, original } => match vec {
+                SpecializedVariableIR::Vector { vec, original }
+                | SpecializedVariableIR::VecDeque { vec, original } => match vec {
                     None => &original.type_name,
                     Some(v) => &v.structure.type_name,
                 },
@@ -145,7 +147,8 @@ impl RenderRepr for VariableIR {
                 ValueLayout::Referential { addr: ptr }
             }
             VariableIR::Specialized(spec) => match spec {
-                SpecializedVariableIR::Vector { vec, original } => match vec {
+                SpecializedVariableIR::Vector { vec, original }
+                | SpecializedVariableIR::VecDeque { vec, original } => match vec {
                     None => ValueLayout::Nested {
                         members: original.members.as_ref(),
                         named: true,

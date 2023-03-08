@@ -213,6 +213,25 @@ fn assert_btree_set(
     with_items(&set.items);
 }
 
+fn assert_vec_deque(
+    var: &VariableIR,
+    exp_name: &str,
+    exp_type: &str,
+    exp_cap: usize,
+    with_buf: impl FnOnce(&VariableIR),
+) {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::VecDeque {vec: Some(vector), ..}) = var else {
+        panic!("not a VecDeque");
+    };
+    assert_eq!(vector.structure.identity.name.as_ref().unwrap(), exp_name);
+    assert_eq!(vector.structure.type_name.as_ref().unwrap(), exp_type);
+    let VariableIR::Scalar(capacity) = &vector.structure.members[1] else {
+        panic!("no capacity");
+    };
+    assert_eq!(capacity.value, Some(SupportedScalar::Usize(exp_cap)));
+    with_buf(&vector.structure.members[0]);
+}
+
 #[test]
 #[serial]
 fn test_read_scalar_variables() {
@@ -1564,6 +1583,76 @@ fn test_read_btree_set() {
                         _ => panic!("2 items expected"),
                     })
                 });
+            },
+        );
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
+    });
+}
+
+#[test]
+#[serial]
+fn test_read_vec_deque() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 377).unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(377));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_vec_deque(
+            &vars[0],
+            "vd1",
+            "VecDeque<i32, alloc::alloc::Global>",
+            8,
+            |buf| {
+                assert_array(buf, "buf", "[i32]", |i, item| match i {
+                    0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(9))),
+                    1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(10))),
+                    2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(0))),
+                    3 => assert_scalar(item, "3", "i32", Some(SupportedScalar::I32(1))),
+                    4 => assert_scalar(item, "4", "i32", Some(SupportedScalar::I32(2))),
+                    _ => panic!("5 items expected"),
+                })
+            },
+        );
+
+        assert_vec_deque(
+            &vars[1],
+            "vd2",
+            "VecDeque<alloc::collections::vec_deque::VecDeque<i32, alloc::alloc::Global>, alloc::alloc::Global>",
+            4,
+            |buf| {
+                assert_array(buf, "buf", "[VecDeque<i32, alloc::alloc::Global>]", |i, item| match i {
+                    0 => assert_vec_deque(item, "0", "VecDeque<i32, alloc::alloc::Global>", 3, |buf| {
+                        assert_array(buf, "buf", "[i32]", |i, item| match i {
+                            0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(-2))),
+                            1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(-1))),
+                            2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(0))),
+                            _ => panic!("3 items expected"),
+                        })
+                    }),
+                    1 => assert_vec_deque(item, "1", "VecDeque<i32, alloc::alloc::Global>", 3, |buf| {
+                        assert_array(buf, "buf", "[i32]", |i, item| match i {
+                            0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+                            1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
+                            2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
+                            _ => panic!("3 items expected"),
+                        })
+                    }),
+                    2 => assert_vec_deque(item, "2", "VecDeque<i32, alloc::alloc::Global>", 3, |buf| {
+                        assert_array(buf, "buf", "[i32]", |i, item| match i {
+                            0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(4))),
+                            1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(5))),
+                            2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(6))),
+                            _ => panic!("3 items expected"),
+                        })
+                    }),
+                    _ => panic!("3 items expected"),
+                })
             },
         );
 

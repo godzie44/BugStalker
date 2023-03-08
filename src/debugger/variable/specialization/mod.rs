@@ -61,6 +61,10 @@ pub enum SpecializedVariableIR {
         vec: Option<VecVariable>,
         original: StructVariable,
     },
+    VecDeque {
+        vec: Option<VecVariable>,
+        original: StructVariable,
+    },
     HashMap {
         map: Option<HashMapVariable>,
         original: StructVariable,
@@ -455,7 +459,7 @@ impl<'a> VariableParserExtension<'a> {
                     identity,
                     type_params
                 )
-                .context("btree map interpretation")),
+                .context("BTreeMap interpretation")),
             original: structure,
         }
     }
@@ -473,11 +477,11 @@ impl<'a> VariableParserExtension<'a> {
         let k_type = type_params
             .get("K")
             .ok_or_else(|| anyhow!("btree map bucket type not found"))?
-            .ok_or_else(|| anyhow!("unknown btree map bucket type"))?;
+            .ok_or_else(|| anyhow!("unknown BTreeMap bucket type"))?;
         let v_type = type_params
             .get("V")
             .ok_or_else(|| anyhow!("btree map bucket type not found"))?
-            .ok_or_else(|| anyhow!("unknown btree map bucket type"))?;
+            .ok_or_else(|| anyhow!("unknown BTreeMap bucket type"))?;
 
         let reflection = BTreeReflection::new(
             self.parser.r#type,
@@ -516,16 +520,16 @@ impl<'a> VariableParserExtension<'a> {
         })
     }
 
-    pub fn parse_btreeset(&self, structure: StructVariable) -> SpecializedVariableIR {
+    pub fn parse_btree_set(&self, structure: StructVariable) -> SpecializedVariableIR {
         SpecializedVariableIR::BTreeSet {
             set: weak_error!(self
-                .parse_btreeset_inner(VariableIR::Struct(structure.clone()))
-                .context("btreeset interpretation")),
+                .parse_btree_set_inner(VariableIR::Struct(structure.clone()))
+                .context("BTreeSet interpretation")),
             original: structure,
         }
     }
 
-    pub fn parse_btreeset_inner(&self, ir: VariableIR) -> anyhow::Result<HashSetVariable> {
+    pub fn parse_btree_set_inner(&self, ir: VariableIR) -> anyhow::Result<HashSetVariable> {
         let inner_map = ir
             .bfs_iterator()
             .find_map(|child| {
@@ -546,6 +550,107 @@ impl<'a> VariableParserExtension<'a> {
             identity: ir.identity().clone(),
             type_name: Some(ir.r#type().to_owned()),
             items: inner_map.kv_items.into_iter().map(|(k, _)| k).collect(),
+        })
+    }
+
+    pub fn parse_vec_dequeue(
+        &self,
+        eval_ctx: &EvaluationContext,
+        structure: StructVariable,
+        type_params: &HashMap<String, Option<TypeIdentity>>,
+    ) -> SpecializedVariableIR {
+        SpecializedVariableIR::VecDeque {
+            vec: weak_error!(self
+                .parse_vec_dequeue_inner(
+                    eval_ctx,
+                    VariableIR::Struct(structure.clone()),
+                    type_params
+                )
+                .context("VeqDequeue interpretation")),
+            original: structure,
+        }
+    }
+
+    pub fn parse_vec_dequeue_inner(
+        &self,
+        eval_ctx: &EvaluationContext,
+        ir: VariableIR,
+        type_params: &HashMap<String, Option<TypeIdentity>>,
+    ) -> anyhow::Result<VecVariable> {
+        let inner_type = type_params
+            .get("T")
+            .ok_or_else(|| anyhow!("template parameter `T`"))?
+            .ok_or_else(|| anyhow!("unreachable: template param die without type"))?;
+        let len = ir.assume_field_as_scalar_number("len")?;
+        let cap = ir.assume_field_as_scalar_number("cap")?;
+        let head = ir.assume_field_as_scalar_number("head")?;
+
+        let wrapped_start = if head >= cap { head - cap } else { head };
+        let head_len = cap - wrapped_start;
+
+        let slice_ranges = if head_len >= len {
+            // we know that `len + wrapped_start <= self.capacity <= usize::MAX`, so this addition can't overflow
+            (wrapped_start..wrapped_start + len, 0..0)
+        } else {
+            // can't overflow because of the if condition
+            let tail_len = len - head_len;
+            (wrapped_start..cap, 0..tail_len)
+        };
+
+        let data_ptr = ir.assume_field_as_pointer("pointer")?;
+
+        let el_type_size = self
+            .parser
+            .r#type
+            .type_size_in_bytes(eval_ctx, inner_type)
+            .ok_or_else(|| anyhow!("unknown element size"))? as usize;
+
+        let data = debugger::read_memory_by_pid(
+            eval_ctx.pid,
+            data_ptr as usize,
+            cap as usize * el_type_size,
+        )
+        .map(Bytes::from)?;
+
+        let items = slice_ranges
+            .0
+            .into_iter()
+            .chain(slice_ranges.1.into_iter())
+            .enumerate()
+            .map(|(i, real_idx)| {
+                let real_idx = real_idx as usize;
+                let el_data = &data[real_idx * el_type_size..(real_idx + 1) * el_type_size];
+                self.parser.parse_inner(
+                    eval_ctx,
+                    VariableIdentity::no_namespace(Some(format!("{}", i as i64))),
+                    Some(data.slice_ref(el_data)),
+                    inner_type,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        Ok(VecVariable {
+            structure: StructVariable {
+                identity: ir.identity().clone(),
+                type_name: Some(ir.r#type().to_owned()),
+                members: vec![
+                    VariableIR::Array(ArrayVariable {
+                        identity: VariableIdentity::no_namespace(Some("buf".to_owned())),
+                        type_name: self
+                            .parser
+                            .r#type
+                            .type_name(inner_type)
+                            .map(|tp| format!("[{tp}]")),
+                        items: Some(items),
+                    }),
+                    VariableIR::Scalar(ScalarVariable {
+                        identity: VariableIdentity::no_namespace(Some("cap".to_owned())),
+                        type_name: Some("usize".to_owned()),
+                        value: Some(SupportedScalar::Usize(cap as usize)),
+                    }),
+                ],
+                type_params: type_params.clone(),
+            },
         })
     }
 }

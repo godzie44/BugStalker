@@ -273,6 +273,7 @@ impl VariableIR {
             VariableIR::Pointer(p) => &p.identity,
             VariableIR::Specialized(s) => match s {
                 SpecializedVariableIR::Vector { original, .. } => &original.identity,
+                SpecializedVariableIR::VecDeque { original, .. } => &original.identity,
                 SpecializedVariableIR::String { original, .. } => &original.identity,
                 SpecializedVariableIR::Str { original, .. } => &original.identity,
                 SpecializedVariableIR::Tls { original, .. } => &original.identity,
@@ -681,7 +682,9 @@ impl<'a> VariableParser<'a> {
                     return VariableIR::Specialized(parser_ext.parse_string(eval_ctx, struct_var));
                 };
 
-                if struct_name.as_ref().map(|name| name.starts_with("Vec")) == Some(true) {
+                if struct_name.as_ref().map(|name| name.starts_with("Vec")) == Some(true)
+                    && type_ns_h.contains(&["vec"])
+                {
                     return VariableIR::Specialized(parser_ext.parse_vector(
                         eval_ctx,
                         struct_var,
@@ -725,7 +728,20 @@ impl<'a> VariableParser<'a> {
                     == Some(true)
                     && type_ns_h.contains(&["collections", "btree", "set"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_btreeset(struct_var));
+                    return VariableIR::Specialized(parser_ext.parse_btree_set(struct_var));
+                };
+
+                if struct_name
+                    .as_ref()
+                    .map(|name| name.starts_with("VecDeque"))
+                    == Some(true)
+                    && type_ns_h.contains(&["collections", "vec_deque"])
+                {
+                    return VariableIR::Specialized(parser_ext.parse_vec_dequeue(
+                        eval_ctx,
+                        struct_var,
+                        type_params,
+                    ));
                 };
 
                 VariableIR::Struct(struct_var)
@@ -823,7 +839,8 @@ impl<'a> Iterator for BfsIterator<'a> {
             }
             VariableIR::Pointer(_) => {}
             VariableIR::Specialized(spec) => match spec {
-                SpecializedVariableIR::Vector { original, .. } => {
+                SpecializedVariableIR::Vector { original, .. }
+                | SpecializedVariableIR::VecDeque { original, .. } => {
                     original
                         .members
                         .iter()

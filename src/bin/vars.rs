@@ -358,6 +358,25 @@ fn btreeset() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn vecdeque() {
+    use std::collections::VecDeque;
+
+    let mut vd1 = VecDeque::new();
+    vd1.push_back(0);
+    vd1.push_back(1);
+    vd1.push_back(2);
+    vd1.push_front(10);
+    vd1.push_front(9);
+
+    let mut vd2 = VecDeque::new();
+    vd2.push_back(VecDeque::from([1, 2, 3]));
+    vd2.push_back(VecDeque::from([4, 5, 6]));
+    vd2.push_front(VecDeque::from([-2, -1, 0]));
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -380,4 +399,5 @@ pub fn main() {
     lexical_blocks();
     btree_map();
     btreeset();
+    vecdeque();
 }
