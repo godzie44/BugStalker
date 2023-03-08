@@ -281,6 +281,8 @@ impl VariableIR {
                 SpecializedVariableIR::HashSet { original, .. } => &original.identity,
                 SpecializedVariableIR::BTreeMap { original, .. } => &original.identity,
                 SpecializedVariableIR::BTreeSet { original, .. } => &original.identity,
+                SpecializedVariableIR::Cell { original, .. } => &original.identity,
+                SpecializedVariableIR::RefCell { original, .. } => &original.identity,
             },
         }
     }
@@ -744,6 +746,18 @@ impl<'a> VariableParser<'a> {
                     ));
                 };
 
+                if struct_name.as_ref().map(|name| name.starts_with("Cell")) == Some(true)
+                    && type_ns_h.contains(&["cell"])
+                {
+                    return VariableIR::Specialized(parser_ext.parse_cell(struct_var));
+                };
+
+                if struct_name.as_ref().map(|name| name.starts_with("RefCell")) == Some(true)
+                    && type_ns_h.contains(&["cell"])
+                {
+                    return VariableIR::Specialized(parser_ext.parse_refcell(struct_var));
+                };
+
                 VariableIR::Struct(struct_var)
             }
             TypeDeclaration::Array(decl) => {
@@ -873,6 +887,13 @@ impl<'a> Iterator for BfsIterator<'a> {
                 }
                 SpecializedVariableIR::HashSet { original, .. }
                 | SpecializedVariableIR::BTreeSet { original, .. } => {
+                    original
+                        .members
+                        .iter()
+                        .for_each(|member| self.queue.push_back(member));
+                }
+                SpecializedVariableIR::Cell { original, .. }
+                | SpecializedVariableIR::RefCell { original, .. } => {
                     original
                         .members
                         .iter()

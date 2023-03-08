@@ -377,6 +377,30 @@ fn vecdeque() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn atomics() {
+    use std::sync::atomic;
+
+    let int32_atomic = atomic::AtomicI32::new(1);
+    let mut int32 = 2;
+    let int32_atomic_ptr = atomic::AtomicPtr::new(&mut int32 as *mut i32);
+
+    let nop: Option<u8> = None;
+}
+
+#[allow(unused)]
+fn shared_ptrs() {
+    use std::cell::Cell;
+    use std::cell::RefCell;
+
+    let a_cell = Cell::new(1);
+    let b_refcell = RefCell::new(vec![1, 2, 3]);
+    let b_refcell_borrow_1 = b_refcell.borrow();
+    let b_refcell_borrow_2 = b_refcell.borrow();
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -400,4 +424,6 @@ pub fn main() {
     btree_map();
     btreeset();
     vecdeque();
+    atomics();
+    shared_ptrs();
 }

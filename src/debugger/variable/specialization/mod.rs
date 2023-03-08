@@ -93,6 +93,14 @@ pub enum SpecializedVariableIR {
         tls_var: Option<TlsVariable>,
         original: StructVariable,
     },
+    Cell {
+        value: Option<Box<VariableIR>>,
+        original: StructVariable,
+    },
+    RefCell {
+        value: Option<Box<VariableIR>>,
+        original: StructVariable,
+    },
 }
 
 pub struct VariableParserExtension<'a> {
@@ -589,10 +597,8 @@ impl<'a> VariableParserExtension<'a> {
         let head_len = cap - wrapped_start;
 
         let slice_ranges = if head_len >= len {
-            // we know that `len + wrapped_start <= self.capacity <= usize::MAX`, so this addition can't overflow
             (wrapped_start..wrapped_start + len, 0..0)
         } else {
-            // can't overflow because of the if condition
             let tail_len = len - head_len;
             (wrapped_start..cap, 0..tail_len)
         };
@@ -652,5 +658,68 @@ impl<'a> VariableParserExtension<'a> {
                 type_params: type_params.clone(),
             },
         })
+    }
+
+    pub fn parse_cell(&self, structure: StructVariable) -> SpecializedVariableIR {
+        SpecializedVariableIR::Cell {
+            value: weak_error!(self
+                .parse_cell_inner(VariableIR::Struct(structure.clone()))
+                .context("cell interpretation"))
+            .map(Box::new),
+            original: structure,
+        }
+    }
+
+    pub fn parse_cell_inner(&self, ir: VariableIR) -> anyhow::Result<VariableIR> {
+        let unsafe_cell = ir.assume_field_as_struct("value")?;
+        let value = unsafe_cell
+            .members
+            .get(0)
+            .ok_or(AssumeError::IncompleteInterp("UnsafeCell"))?;
+        Ok(value.clone())
+    }
+
+    pub fn parse_refcell(&self, structure: StructVariable) -> SpecializedVariableIR {
+        SpecializedVariableIR::RefCell {
+            value: weak_error!(self
+                .parse_refcell_inner(VariableIR::Struct(structure.clone()))
+                .context("refcell interpretation"))
+            .map(Box::new),
+            original: structure,
+        }
+    }
+
+    pub fn parse_refcell_inner(&self, ir: VariableIR) -> anyhow::Result<VariableIR> {
+        let borrow = ir
+            .bfs_iterator()
+            .find_map(|child| {
+                if let VariableIR::Specialized(SpecializedVariableIR::Cell {
+                    value: Some(val),
+                    ..
+                }) = child
+                {
+                    return Some(val.clone());
+                }
+                None
+            })
+            .ok_or(AssumeError::IncompleteInterp("Cell"))?;
+        let VariableIR::Scalar(mut var) = *borrow else {
+          return Err(AssumeError::IncompleteInterp("Cell").into());
+        };
+        var.identity = VariableIdentity::no_namespace(Some("borrow".to_string()));
+        let borrow = VariableIR::Scalar(var);
+
+        let unsafe_cell = ir.assume_field_as_struct("value")?;
+        let value = unsafe_cell
+            .members
+            .get(0)
+            .ok_or(AssumeError::IncompleteInterp("UnsafeCell"))?;
+
+        Ok(VariableIR::Struct(StructVariable {
+            identity: ir.identity().clone(),
+            type_name: Some(ir.r#type().to_owned()),
+            members: vec![borrow, value.clone()],
+            type_params: Default::default(),
+        }))
     }
 }

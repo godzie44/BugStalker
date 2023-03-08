@@ -232,6 +232,47 @@ fn assert_vec_deque(
     with_buf(&vector.structure.members[0]);
 }
 
+fn assert_cell(
+    var: &VariableIR,
+    exp_name: &str,
+    exp_type: &str,
+    with_value: impl FnOnce(&VariableIR),
+) {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::Cell {value, ..}) = var else {
+        panic!("not a Cell");
+    };
+    assert_eq!(var.name(), exp_name);
+    assert_eq!(var.r#type(), exp_type);
+    with_value(value.as_ref().unwrap());
+}
+
+fn assert_refcell(
+    var: &VariableIR,
+    exp_name: &str,
+    exp_type: &str,
+    exp_borrow: i64,
+    with_value: impl FnOnce(&VariableIR),
+) {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::RefCell {value, ..}) = var else {
+        panic!("not a Cell");
+    };
+    assert_eq!(var.name(), exp_name);
+    assert_eq!(var.r#type(), exp_type);
+    let value = &**value.as_ref().unwrap();
+    let VariableIR::Struct(as_struct) = value else {
+        panic!("not a struct")
+    };
+
+    let VariableIR::Scalar(borrow) = &as_struct.members[0] else {
+        panic!("no capacity");
+    };
+    assert_eq!(
+        borrow.value.as_ref().unwrap(),
+        &SupportedScalar::I64(exp_borrow)
+    );
+    with_value(&as_struct.members[1]);
+}
+
 #[test]
 #[serial]
 fn test_read_scalar_variables() {
@@ -836,10 +877,8 @@ fn test_read_tls_variables() {
             .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_1"))
             .unwrap();
         assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>", |inner| {
-            assert_struct(inner, "__0", "Cell<i32>", |_, member| {
-                assert_struct(member, "value", "UnsafeCell<i32>", |_, member| {
-                    assert_scalar(member, "value", "i32", Some(SupportedScalar::I32(2)))
-                })
+            assert_cell(inner, "0", "Cell<i32>", |value| {
+                assert_scalar(value, "value", "i32", Some(SupportedScalar::I32(2)))
             })
         });
 
@@ -847,10 +886,8 @@ fn test_read_tls_variables() {
             .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_2"))
             .unwrap();
         assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_2", "Cell<&str>", |inner| {
-            assert_struct(inner, "__0", "Cell<&str>", |_, member| {
-                assert_struct(member, "value", "UnsafeCell<&str>", |_, member| {
-                    assert_str(member, "value", "2")
-                })
+            assert_cell(inner, "0", "Cell<&str>", |value| {
+                assert_str(value, "value", "2")
             })
         });
 
@@ -873,10 +910,8 @@ fn test_read_tls_variables() {
             .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_1"))
             .unwrap();
         assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>", |inner| {
-            assert_struct(inner, "__0", "Cell<i32>", |_, member| {
-                assert_struct(member, "value", "UnsafeCell<i32>", |_, member| {
-                    assert_scalar(member, "value", "i32", Some(SupportedScalar::I32(1)))
-                })
+            assert_cell(inner, "0", "Cell<i32>", |value| {
+                assert_scalar(value, "value", "i32", Some(SupportedScalar::I32(1)))
             })
         });
 
@@ -1652,6 +1687,85 @@ fn test_read_vec_deque() {
                         })
                     }),
                     _ => panic!("3 items expected"),
+                })
+            },
+        );
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
+    });
+}
+
+#[test]
+#[serial]
+fn test_read_atomic() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 388).unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(388));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_struct(&vars[0], "int32_atomic", "AtomicI32", |i, member| match i {
+            0 => assert_struct(member, "v", "UnsafeCell<i32>", |i, member| match i {
+                0 => assert_scalar(member, "value", "i32", Some(SupportedScalar::I32(1))),
+                _ => panic!("1 members expected"),
+            }),
+            _ => panic!("1 members expected"),
+        });
+
+        assert_struct(
+            &vars[2],
+            "int32_atomic_ptr",
+            "AtomicPtr<i32>",
+            |i, member| match i {
+                0 => assert_struct(member, "p", "UnsafeCell<*mut i32>", |i, member| match i {
+                    0 => assert_pointer(member, "value", "*mut i32"),
+                    _ => panic!("1 members expected"),
+                }),
+                _ => panic!("1 members expected"),
+            },
+        );
+
+        let deref = read_single_var(&debugger, "*int32_atomic_ptr.p.value");
+        assert_scalar(&deref, "*value", "i32", Some(SupportedScalar::I32(2)));
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
+    });
+}
+
+#[test]
+#[serial]
+fn test_cell() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 401).unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(401));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_cell(&vars[0], "a_cell", "Cell<i32>", |value| {
+            assert_scalar(value, "value", "i32", Some(SupportedScalar::I32(1)))
+        });
+
+        assert_refcell(
+            &vars[1],
+            "b_refcell",
+            "RefCell<alloc::vec::Vec<i32, alloc::alloc::Global>>",
+            2,
+            |value| {
+                assert_vec(value, "value", "Vec<i32, alloc::alloc::Global>", 3, |buf| {
+                    assert_array(buf, "buf", "[i32]", |i, item| match i {
+                        0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+                        1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
+                        2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
+                        _ => panic!("3 items expected"),
+                    })
                 })
             },
         );

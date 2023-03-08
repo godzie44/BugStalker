@@ -524,20 +524,12 @@ fn test_read_tls_variables() {
         .unwrap();
     session.send_line("vars THREAD_LOCAL_VAR_1").unwrap();
     session
-        .exp_string("THREAD_LOCAL_VAR_1 = Cell<i32> {")
+        .exp_string("THREAD_LOCAL_VAR_1 = Cell<i32>(2)")
         .unwrap();
-    session.exp_string("value: UnsafeCell<i32> {").unwrap();
-    session.exp_string("value: i32(2)").unwrap();
-    session.exp_string("}").unwrap();
-    session.exp_string("}").unwrap();
     session.send_line("vars THREAD_LOCAL_VAR_2").unwrap();
     session
-        .exp_string("THREAD_LOCAL_VAR_2 = Cell<&str> {")
+        .exp_string("THREAD_LOCAL_VAR_2 = Cell<&str>(2)")
         .unwrap();
-    session.exp_string("value: UnsafeCell<&str> {").unwrap();
-    session.exp_string("value: &str(2)").unwrap();
-    session.exp_string("}").unwrap();
-    session.exp_string("}").unwrap();
 
     // assert uninit tls variables
     session.send_line("break vars.rs:206").unwrap();
@@ -560,12 +552,8 @@ fn test_read_tls_variables() {
         .unwrap();
     session.send_line("vars THREAD_LOCAL_VAR_1").unwrap();
     session
-        .exp_string("THREAD_LOCAL_VAR_1 = Cell<i32> {")
+        .exp_string("THREAD_LOCAL_VAR_1 = Cell<i32>(1)")
         .unwrap();
-    session.exp_string("value: UnsafeCell<i32> {").unwrap();
-    session.exp_string("value: i32(1)").unwrap();
-    session.exp_string("}").unwrap();
-    session.exp_string("}").unwrap();
 
     session.process.kill(SIGINT).unwrap();
 }

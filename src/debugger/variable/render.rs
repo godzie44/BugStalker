@@ -67,6 +67,8 @@ impl RenderRepr for VariableIR {
                     None => &original.identity.name,
                     Some(set) => &set.identity.name,
                 },
+                SpecializedVariableIR::Cell { original, .. } => &original.identity.name,
+                SpecializedVariableIR::RefCell { original, .. } => &original.identity.name,
             },
         };
 
@@ -120,6 +122,8 @@ impl RenderRepr for VariableIR {
                     None => &original.type_name,
                     Some(set) => &set.type_name,
                 },
+                SpecializedVariableIR::Cell { original, .. } => &original.type_name,
+                SpecializedVariableIR::RefCell { original, .. } => &original.type_name,
             },
         };
         r#type.as_deref().unwrap_or("unknown")
@@ -218,6 +222,20 @@ impl RenderRepr for VariableIR {
                         members: &set.items,
                         named: false,
                     },
+                },
+                SpecializedVariableIR::Cell { value, original } => match value {
+                    Some(v) => v.value()?,
+                    None => ValueLayout::Nested {
+                        members: original.members.as_ref(),
+                        named: true,
+                    },
+                },
+                SpecializedVariableIR::RefCell { value, original } => match value {
+                    None => ValueLayout::Nested {
+                        members: original.members.as_ref(),
+                        named: true,
+                    },
+                    Some(v) => v.value()?,
                 },
             },
         };
