@@ -278,7 +278,8 @@ impl VariableIR {
                 SpecializedVariableIR::Tls { original, .. } => &original.identity,
                 SpecializedVariableIR::HashMap { original, .. } => &original.identity,
                 SpecializedVariableIR::HashSet { original, .. } => &original.identity,
-                SpecializedVariableIR::BtreeMap { original, .. } => &original.identity,
+                SpecializedVariableIR::BTreeMap { original, .. } => &original.identity,
+                SpecializedVariableIR::BTreeSet { original, .. } => &original.identity,
             },
         }
     }
@@ -718,6 +719,15 @@ impl<'a> VariableParser<'a> {
                     ));
                 };
 
+                if struct_name
+                    .as_ref()
+                    .map(|name| name.starts_with("BTreeSet"))
+                    == Some(true)
+                    && type_ns_h.contains(&["collections", "btree", "set"])
+                {
+                    return VariableIR::Specialized(parser_ext.parse_btreeset(struct_var));
+                };
+
                 VariableIR::Struct(struct_var)
             }
             TypeDeclaration::Array(decl) => {
@@ -837,19 +847,15 @@ impl<'a> Iterator for BfsIterator<'a> {
                         .iter()
                         .for_each(|member| self.queue.push_back(member));
                 }
-                SpecializedVariableIR::HashMap { original, .. } => {
+                SpecializedVariableIR::HashMap { original, .. }
+                | SpecializedVariableIR::BTreeMap { original, .. } => {
                     original
                         .members
                         .iter()
                         .for_each(|member| self.queue.push_back(member));
                 }
-                SpecializedVariableIR::HashSet { original, .. } => {
-                    original
-                        .members
-                        .iter()
-                        .for_each(|member| self.queue.push_back(member));
-                }
-                SpecializedVariableIR::BtreeMap { original, .. } => {
+                SpecializedVariableIR::HashSet { original, .. }
+                | SpecializedVariableIR::BTreeSet { original, .. } => {
                     original
                         .members
                         .iter()

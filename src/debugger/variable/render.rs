@@ -58,9 +58,13 @@ impl RenderRepr for VariableIR {
                     None => &original.identity.name,
                     Some(set) => &set.identity.name,
                 },
-                SpecializedVariableIR::BtreeMap { map, original } => match map {
+                SpecializedVariableIR::BTreeMap { map, original } => match map {
                     None => &original.identity.name,
                     Some(map) => &map.identity.name,
+                },
+                SpecializedVariableIR::BTreeSet { set, original } => match set {
+                    None => &original.identity.name,
+                    Some(set) => &set.identity.name,
                 },
             },
         };
@@ -106,9 +110,13 @@ impl RenderRepr for VariableIR {
                     None => &original.type_name,
                     Some(set) => &set.type_name,
                 },
-                SpecializedVariableIR::BtreeMap { map, original } => match map {
+                SpecializedVariableIR::BTreeMap { map, original } => match map {
                     None => &original.type_name,
                     Some(map) => &map.type_name,
+                },
+                SpecializedVariableIR::BTreeSet { set, original } => match set {
+                    None => &original.type_name,
+                    Some(set) => &set.type_name,
                 },
             },
         };
@@ -191,12 +199,22 @@ impl RenderRepr for VariableIR {
                         named: false,
                     },
                 },
-                SpecializedVariableIR::BtreeMap { map, original } => match map {
+                SpecializedVariableIR::BTreeMap { map, original } => match map {
                     None => ValueLayout::Nested {
                         members: original.members.as_ref(),
                         named: true,
                     },
                     Some(map) => ValueLayout::Map(&map.kv_items),
+                },
+                SpecializedVariableIR::BTreeSet { set, original } => match set {
+                    None => ValueLayout::Nested {
+                        members: original.members.as_ref(),
+                        named: true,
+                    },
+                    Some(set) => ValueLayout::Nested {
+                        members: &set.items,
+                        named: false,
+                    },
                 },
             },
         };

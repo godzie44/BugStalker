@@ -69,8 +69,12 @@ pub enum SpecializedVariableIR {
         set: Option<HashSetVariable>,
         original: StructVariable,
     },
-    BtreeMap {
+    BTreeMap {
         map: Option<HashMapVariable>,
+        original: StructVariable,
+    },
+    BTreeSet {
+        set: Option<HashSetVariable>,
         original: StructVariable,
     },
     String {
@@ -443,7 +447,7 @@ impl<'a> VariableParserExtension<'a> {
         identity: TypeIdentity,
         type_params: &HashMap<String, Option<TypeIdentity>>,
     ) -> SpecializedVariableIR {
-        SpecializedVariableIR::BtreeMap {
+        SpecializedVariableIR::BTreeMap {
             map: weak_error!(self
                 .parse_btree_map_inner(
                     eval_ctx,
@@ -509,6 +513,39 @@ impl<'a> VariableParserExtension<'a> {
             identity: ir.identity().clone(),
             type_name: Some(ir.r#type().to_owned()),
             kv_items,
+        })
+    }
+
+    pub fn parse_btreeset(&self, structure: StructVariable) -> SpecializedVariableIR {
+        SpecializedVariableIR::BTreeSet {
+            set: weak_error!(self
+                .parse_btreeset_inner(VariableIR::Struct(structure.clone()))
+                .context("btreeset interpretation")),
+            original: structure,
+        }
+    }
+
+    pub fn parse_btreeset_inner(&self, ir: VariableIR) -> anyhow::Result<HashSetVariable> {
+        let inner_map = ir
+            .bfs_iterator()
+            .find_map(|child| {
+                if let VariableIR::Specialized(SpecializedVariableIR::BTreeMap {
+                    map: Some(ref map),
+                    ..
+                }) = child
+                {
+                    if map.identity.name.as_deref() == Some("map") {
+                        return Some(map.clone());
+                    }
+                }
+                None
+            })
+            .ok_or(AssumeError::IncompleteInterp("BTreeMap"))?;
+
+        Ok(HashSetVariable {
+            identity: ir.identity().clone(),
+            type_name: Some(ir.r#type().to_owned()),
+            items: inner_map.kv_items.into_iter().map(|(k, _)| k).collect(),
         })
     }
 }

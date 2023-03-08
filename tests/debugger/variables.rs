@@ -191,12 +191,26 @@ fn assert_btree_map(
     exp_type: &str,
     with_kv_items: impl FnOnce(&Vec<(VariableIR, VariableIR)>),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::BtreeMap {map: Some(map), ..}) = var else {
-        panic!("not a btree map");
+    let VariableIR::Specialized(variable::SpecializedVariableIR::BTreeMap {map: Some(map), ..}) = var else {
+        panic!("not a BTreeMap");
     };
     assert_eq!(map.identity.name.as_ref().unwrap(), exp_name);
     assert_eq!(map.type_name.as_ref().unwrap(), exp_type);
     with_kv_items(&map.kv_items);
+}
+
+fn assert_btree_set(
+    var: &VariableIR,
+    exp_name: &str,
+    exp_type: &str,
+    with_items: impl FnOnce(&Vec<VariableIR>),
+) {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::BTreeSet {set: Some(set), ..}) = var else {
+        panic!("not a BTreeSet");
+    };
+    assert_eq!(set.identity.name.as_ref().unwrap(), exp_name);
+    assert_eq!(set.type_name.as_ref().unwrap(), exp_type);
+    with_items(&set.items);
 }
 
 #[test]
@@ -1487,6 +1501,69 @@ fn test_btree_map() {
                         assert_scalar(&items[1].1, "v", "i32", Some(SupportedScalar::I32(4)));
                     },
                 );
+            },
+        );
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
+    });
+}
+
+#[test]
+#[serial]
+fn test_read_btree_set() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 358).unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(358));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_btree_set(
+            &vars[0],
+            "hs1",
+            "BTreeSet<i32, alloc::alloc::Global>",
+            |items| {
+                assert_eq!(items.len(), 4);
+                assert_scalar(&items[0], "k", "i32", Some(SupportedScalar::I32(1)));
+                assert_scalar(&items[1], "k", "i32", Some(SupportedScalar::I32(2)));
+                assert_scalar(&items[2], "k", "i32", Some(SupportedScalar::I32(3)));
+                assert_scalar(&items[3], "k", "i32", Some(SupportedScalar::I32(4)));
+            },
+        );
+        assert_btree_set(
+            &vars[1],
+            "hs2",
+            "BTreeSet<i32, alloc::alloc::Global>",
+            |items| {
+                assert_eq!(items.len(), 100);
+                let exp_items = (0..100).into_iter().collect::<Vec<_>>();
+
+                for i in 0..100 {
+                    assert_scalar(
+                        &items[i],
+                        "k",
+                        "i32",
+                        Some(SupportedScalar::I32(exp_items[i])),
+                    );
+                }
+            },
+        );
+        assert_btree_set(
+            &vars[2],
+            "hs3",
+            "BTreeSet<alloc::vec::Vec<i32, alloc::alloc::Global>, alloc::alloc::Global>",
+            |items| {
+                assert_eq!(items.len(), 1);
+                assert_vec(&items[0], "k", "Vec<i32, alloc::alloc::Global>", 2, |buf| {
+                    assert_array(buf, "buf", "[i32]", |i, item| match i {
+                        0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+                        1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
+                        _ => panic!("2 items expected"),
+                    })
+                });
             },
         );
 

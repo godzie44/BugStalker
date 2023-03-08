@@ -344,6 +344,20 @@ fn btree_map() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn btreeset() {
+    use std::collections::BTreeSet;
+
+    let hs1 = BTreeSet::from([1, 2, 3, 4]);
+    let mut hs2 = BTreeSet::new();
+    for i in 0..100 {
+        hs2.insert(i);
+    }
+    let hs3 = BTreeSet::from([vec![1, 2]]);
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -365,4 +379,5 @@ pub fn main() {
     circular();
     lexical_blocks();
     btree_map();
+    btreeset();
 }
