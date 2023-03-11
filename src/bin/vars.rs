@@ -401,6 +401,14 @@ fn shared_ptrs() {
     let nop: Option<u8> = None;
 }
 
+#[allow(unused)]
+fn ptr_to_array() {
+    let arr = [1, 2, 3, 4];
+    let ptr = arr.as_ptr();
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -426,4 +434,5 @@ pub fn main() {
     vecdeque();
     atomics();
     shared_ptrs();
+    ptr_to_array();
 }

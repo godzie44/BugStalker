@@ -613,6 +613,21 @@ fn test_custom_select() {
     session.exp_string("cap: usize(3)").unwrap();
     session.exp_string("}").unwrap();
 
+    session.send_line("break vars.rs:409").unwrap();
+    session.exp_string("break vars.rs:409").unwrap();
+    session.send_line("continue").unwrap();
+    session
+        .exp_string(">    let nop: Option<u8> = None;")
+        .unwrap();
+    session.send_line("vars ptr[..4]").unwrap();
+
+    session.exp_string("[*ptr] = [i32] {").unwrap();
+    session.exp_string("0: i32(1)").unwrap();
+    session.exp_string("1: i32(2)").unwrap();
+    session.exp_string("2: i32(3)").unwrap();
+    session.exp_string("3: i32(4)").unwrap();
+    session.exp_string("}").unwrap();
+
     session.process.kill(SIGINT).unwrap();
 }
 

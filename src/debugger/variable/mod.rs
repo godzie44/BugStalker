@@ -178,6 +178,51 @@ impl PointerVariable {
             parser.parse_inner(eval_ctx, identity, val.map(Bytes::from), target_type)
         })
     }
+
+    pub fn slice(
+        &self,
+        eval_ctx: &EvaluationContext,
+        parser: &VariableParser,
+        len: usize,
+    ) -> Option<VariableIR> {
+        let deref_size =
+            self.target_type
+                .and_then(|t| parser.r#type.type_size_in_bytes(eval_ctx, t))? as usize;
+        let target_type = self.target_type?;
+
+        self.value.and_then(|ptr| {
+            let val = weak_error!(debugger::read_memory_by_pid(
+                eval_ctx.pid,
+                ptr as usize,
+                deref_size * len
+            ))?;
+            let val = bytes::Bytes::from(val);
+            let mut identity = self.identity.clone();
+            identity.name = identity.name.map(|n| format!("[*{n}]"));
+
+            let items = val
+                .chunks(deref_size)
+                .enumerate()
+                .map(|(i, chunk)| {
+                    parser.parse_inner(
+                        eval_ctx,
+                        VariableIdentity::no_namespace(Some(format!("{}", i as i64))),
+                        Some(val.slice_ref(chunk)),
+                        target_type,
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            Some(VariableIR::Array(ArrayVariable {
+                identity,
+                items: Some(items),
+                type_name: parser
+                    .r#type
+                    .type_name(target_type)
+                    .map(|t| format!("[{t}]")),
+            }))
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -307,6 +352,9 @@ impl VariableIR {
                 Operation::GetField(field) => {
                     variable = variable.get_field(field)?;
                 }
+                Operation::Slice(len) => {
+                    variable = variable.slice(eval_ctx, variable_parser, *len)?;
+                }
             }
         }
 
@@ -386,6 +434,26 @@ impl VariableIR {
                     .and_then(|var| var.inner_value.and_then(|inner| inner.get_by_index(idx))),
                 _ => None,
             },
+            _ => None,
+        }
+    }
+
+    fn slice(
+        self,
+        eval_ctx: &EvaluationContext,
+        variable_parser: &VariableParser,
+        len: usize,
+    ) -> Option<Self> {
+        match self {
+            VariableIR::Pointer(ptr) => ptr.slice(eval_ctx, variable_parser, len),
+            VariableIR::RustEnum(r_enum) => r_enum
+                .value
+                .and_then(|v| v.deref(eval_ctx, variable_parser)),
+            VariableIR::Specialized(SpecializedVariableIR::Tls { tls_var, .. }) => tls_var
+                .and_then(|var| {
+                    var.inner_value
+                        .and_then(|inner| inner.deref(eval_ctx, variable_parser))
+                }),
             _ => None,
         }
     }

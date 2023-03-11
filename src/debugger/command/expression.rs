@@ -2,12 +2,13 @@ use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::mem;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     Deref,
     OpenBracket,
     ClosedBracket,
     Dot,
+    DoubleDot,
     OpenSquareBracket,
     ClosedSquareBracket,
     Text(String),
@@ -28,7 +29,7 @@ impl Token {
                 )
             },
             Token::Dot => |tok| matches!(tok, Token::Text(_)),
-            Token::OpenSquareBracket => |tok| matches!(tok, Token::Text(_)),
+            Token::OpenSquareBracket => |tok| matches!(tok, Token::Text(_) | Token::DoubleDot),
             Token::ClosedSquareBracket => |tok| {
                 matches!(
                     tok,
@@ -45,6 +46,7 @@ impl Token {
                         | Token::End
                 )
             },
+            Token::DoubleDot => |tok| matches!(tok, Token::Text(_)),
             Token::End => |_| true,
         }
     }
@@ -66,12 +68,24 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn tokenize(mut self) -> Vec<Token> {
-        for char in self.string.chars() {
+        let mut skip = false;
+        for (i, char) in self.string.chars().enumerate() {
+            if skip {
+                skip = false;
+                continue;
+            }
             match char {
                 '*' => self.push_text_and_token(Token::Deref),
                 '(' => self.push_text_and_token(Token::OpenBracket),
                 ')' => self.push_text_and_token(Token::ClosedBracket),
-                '.' => self.push_text_and_token(Token::Dot),
+                '.' => {
+                    if self.string.chars().nth(i + 1) == Some('.') {
+                        self.push_text_and_token(Token::DoubleDot);
+                        skip = true;
+                    } else {
+                        self.push_text_and_token(Token::Dot)
+                    }
+                }
                 '[' => self.push_text_and_token(Token::OpenSquareBracket),
                 ']' => self.push_text_and_token(Token::ClosedSquareBracket),
                 _ => self.accum.push(char),
@@ -101,6 +115,7 @@ enum Operator {
     Deref,
     Field,
     Index,
+    Slice,
 }
 
 impl Operator {
@@ -109,6 +124,7 @@ impl Operator {
             Operator::Deref => false,
             Operator::Field => true,
             Operator::Index => true,
+            Operator::Slice => true,
         }
     }
 }
@@ -120,16 +136,25 @@ impl PartialOrd for Operator {
                 Operator::Deref => Some(Ordering::Equal),
                 Operator::Field => Some(Ordering::Less),
                 Operator::Index => Some(Ordering::Less),
+                Operator::Slice => Some(Ordering::Less),
             },
             Operator::Field => match other {
                 Operator::Deref => Some(Ordering::Greater),
                 Operator::Field => Some(Ordering::Equal),
                 Operator::Index => Some(Ordering::Equal),
+                Operator::Slice => Some(Ordering::Equal),
             },
             Operator::Index => match other {
                 Operator::Deref => Some(Ordering::Greater),
                 Operator::Field => Some(Ordering::Equal),
                 Operator::Index => Some(Ordering::Equal),
+                Operator::Slice => Some(Ordering::Equal),
+            },
+            Operator::Slice => match other {
+                Operator::Deref => Some(Ordering::Greater),
+                Operator::Field => Some(Ordering::Equal),
+                Operator::Index => Some(Ordering::Equal),
+                Operator::Slice => Some(Ordering::Equal),
             },
         }
     }
@@ -156,6 +181,7 @@ pub enum Operation {
     FindVariable(String),
     GetByIndex(usize),
     GetField(String),
+    Slice(usize),
 }
 
 /// List of operations for further execution.
@@ -231,16 +257,17 @@ impl<'a> SelectPlanParser<'a> {
         }
 
         let mut next_valid: fn(&Token) -> bool = |_: &Token| true;
+        let mut tokens = tokenizer.tokenize();
 
-        for token in tokenizer.tokenize() {
-            if !next_valid(&token) {
-                return Err(ParseError::UnexpectedToken(token));
+        for i in 0..tokens.len() {
+            if !next_valid(&tokens[i]) {
+                return Err(ParseError::UnexpectedToken(tokens.swap_remove(i)));
             }
-            next_valid = token.next_valid();
+            next_valid = tokens[i].next_valid();
 
-            match token {
+            match &tokens[i] {
                 Token::Text(s) => {
-                    output.push_back(OperatorOrOperand::Operand(s));
+                    output.push_back(OperatorOrOperand::Operand(s.clone()));
                 }
                 Token::Deref => {
                     let op1 = Operator::Deref;
@@ -269,11 +296,16 @@ impl<'a> SelectPlanParser<'a> {
                     stack.push(StackItem::Operator(op1));
                 }
                 Token::OpenSquareBracket => {
-                    let op1 = Operator::Index;
+                    let op1 = if tokens[i + 1] == Token::DoubleDot {
+                        Operator::Slice
+                    } else {
+                        Operator::Index
+                    };
                     pop_high_prio(&mut stack, &mut output, op1);
                     stack.push(StackItem::Operator(op1));
                 }
                 Token::ClosedSquareBracket => {}
+                Token::DoubleDot => {}
                 Token::End => {}
             }
         }
@@ -315,6 +347,15 @@ impl<'a> SelectPlanParser<'a> {
                             .parse::<usize>()
                             .map_err(|_| ParseError::InvalidOperand(operand))?;
                         plan.push_back(Operation::GetByIndex(index));
+                    }
+                    Operator::Slice => {
+                        let operand = operand_stack
+                            .pop()
+                            .ok_or(ParseError::OperandNotFound("slice"))?;
+                        let index = operand
+                            .parse::<usize>()
+                            .map_err(|_| ParseError::InvalidOperand(operand))?;
+                        plan.push_back(Operation::Slice(index));
                     }
                 },
                 OperatorOrOperand::Operand(text) => {
@@ -409,6 +450,19 @@ mod test {
                     Token::End,
                 ],
             },
+            TestCase {
+                string: "var1.field1[..5]",
+                tokens: vec![
+                    Token::Text("var1".into()),
+                    Token::Dot,
+                    Token::Text("field1".into()),
+                    Token::OpenSquareBracket,
+                    Token::DoubleDot,
+                    Token::Text("5".into()),
+                    Token::ClosedSquareBracket,
+                    Token::End,
+                ],
+            },
         ];
 
         for tc in test_cases {
@@ -496,6 +550,16 @@ mod test {
                     plan: VecDeque::from(vec![
                         Operation::FindVariable("var1".to_string()),
                         Operation::GetField("field1".to_string()),
+                    ]),
+                }),
+            },
+            TestCase {
+                string: "var1[..5]",
+                out: Ok(SelectPlan {
+                    source: "var1[..5]".to_string(),
+                    plan: VecDeque::from(vec![
+                        Operation::FindVariable("var1".to_string()),
+                        Operation::Slice(5),
                     ]),
                 }),
             },
