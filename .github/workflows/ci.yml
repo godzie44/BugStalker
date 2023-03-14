@@ -1,0 +1,47 @@
+on: [push, pull_request]
+
+name: CI
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python 3.7
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.7
+      - name: Install libunwind
+        run: sudo apt-get install libunwind-dev
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+      - name: Build debugger and test programs
+        run: make build-all
+      - name: Run functional tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+      - name: Run integration tests
+        run: make int-test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install libunwind
+        run: sudo apt-get install libunwind-dev
+      - name: Build debugger and test programs
+        run: make build-all
+      - name: Run cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+      - name: Run cargo clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -- -D warnings

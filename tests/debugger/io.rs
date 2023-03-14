@@ -2,32 +2,28 @@ use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
 use crate::{assert_no_proc, CALC_APP};
 use crate::{debugger_env, HW_APP};
-use bugstalker::debugger::address::{PCValue, RelocatedAddress};
 use bugstalker::debugger::variable::render::{RenderRepr, ValueLayout};
 use serial_test::serial;
 use std::borrow::Cow;
+use std::mem;
 
 #[test]
 #[serial]
 fn test_read_register_write() {
     debugger_env!(HW_APP, child, {
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::default()).unwrap();
-        let brkpt_addr = PCValue::Relocated(RelocatedAddress::from(0x55555555BD6C_usize));
-        debugger.set_breakpoint(brkpt_addr).unwrap();
+        debugger
+            .set_breakpoint_at_line("hello_world.rs", 10)
+            .unwrap();
 
         debugger.run_debugee().unwrap();
 
-        // move pc to program start
         debugger.set_register_value("rip", 0x55555555BD20).unwrap();
 
-        debugger.continue_debugee().unwrap();
+        let val = debugger.get_register_value("rip");
+        assert_eq!(val.unwrap(), 0x55555555BD20);
 
-        // assert that breakpoint hit again
-        let pc = debugger.current_thread_stop_at().unwrap().pc;
-        assert_eq!(pc, RelocatedAddress::from(0x55555555BD6C_usize));
-
-        debugger.continue_debugee().unwrap();
-
+        mem::drop(debugger);
         assert_no_proc!(child);
     });
 }
@@ -48,9 +44,9 @@ fn test_backtrace() {
         let bt = debugger.backtrace(child).unwrap();
         assert_eq!(bt.len(), 2);
 
-        assert_eq!(bt[0].place.as_ref().unwrap().start_ip, 0x0055555555BD70);
+        assert!(bt[0].place.as_ref().unwrap().start_ip != 0);
         assert_eq!(bt[0].place.as_ref().unwrap().func_name, ("myprint"));
-        assert_eq!(bt[1].place.as_ref().unwrap().start_ip, 0x0055555555BD20);
+        assert!(bt[1].place.as_ref().unwrap().start_ip != 0);
         assert_eq!(bt[1].place.as_ref().unwrap().func_name, "hello_world::main");
 
         debugger.continue_debugee().unwrap();

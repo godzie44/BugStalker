@@ -33,7 +33,7 @@ impl<'a> Register<'a> {
                 command::helper::check_args_count(&args, 4)?;
                 SubCommand::Write(
                     args[2].to_string(),
-                    u64::from_str_radix(args[3], 16)
+                    u64::from_str_radix(args[3].trim_start_matches("0x"), 16)
                         .map_err(|e| CommandError::InvalidArgumentsEx(e.to_string()))?,
                 )
             }

@@ -1,10 +1,12 @@
+import re
 import unittest
 import pexpect
 
 
 class CommandTestCase(unittest.TestCase):
     def setUp(self):
-        debugger = pexpect.spawn('./target/debug/bugstalker ./tests/hello_world')
+        debugger = pexpect.spawn(
+            './target/debug/bugstalker ./target/debug/hello_world')
         debugger.expect('No previous history.')
         self.debugger = debugger
 
@@ -13,105 +15,6 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect('Hello, world!')
         self.debugger.expect('bye!')
-
-    def test_address_breakpoint_set(self):
-        """Sets breakpoints at address"""
-        self.debugger.sendline('break 0x55555555BD63')
-        self.debugger.expect('break 0x55555555BD63')
-        self.debugger.sendline('run')
-        self.debugger.expect('Hello, world!')
-        self.debugger.expect('Hit breakpoint at address 0x0055555555BD63')
-        self.debugger.expect_exact('myprint("bye!")')
-        self.debugger.sendline('continue')
-        self.debugger.expect('bye!')
-
-    def test_multiple_address_breakpoint_set(self):
-        """Sets multiple breakpoints at address"""
-        self.debugger.sendline('break 0x55555555BD30')
-        self.debugger.expect('break 0x55555555BD30')
-        self.debugger.sendline('break 0x55555555BD63')
-        self.debugger.expect('break 0x55555555BD63')
-
-        self.debugger.sendline('run')
-        self.debugger.expect('Hit breakpoint at address 0x0055555555BD30')
-        self.debugger.expect_exact('myprint("Hello, world!")')
-
-        self.debugger.sendline('continue')
-        self.debugger.expect('Hello, world!')
-        self.debugger.expect('Hit breakpoint at address 0x0055555555BD63')
-        self.debugger.expect_exact('myprint("bye!")')
-
-        self.debugger.sendline('continue')
-        self.debugger.expect('bye!')
-
-    def test_write_register(self):
-        """Register writes (by moving pc counter into program start)"""
-        self.debugger.sendline('break 0x55555555BD6C')
-        self.debugger.expect('break 0x55555555BD6C')
-
-        self.debugger.sendline('run')
-        self.debugger.expect('Hello, world!')
-        self.debugger.expect('bye!')
-
-        self.debugger.sendline('register write rip 55555555BD20')
-        self.debugger.expect('register write rip 55555555BD20')
-
-        self.debugger.sendline('continue')
-        self.debugger.expect('Hello, world!')
-        self.debugger.expect('bye!')
-
-    def test_step_in(self):
-        """Debugger step in command (move to next line)"""
-        self.debugger.sendline('break 0x55555555BD20')
-        self.debugger.expect('break 0x55555555BD20')
-
-        self.debugger.sendline('run')
-        self.debugger.expect('>fn main()')
-        self.debugger.sendline('step')
-        self.debugger.expect_exact('>    myprint("Hello, world!");')
-        self.debugger.sendline('step')
-        self.debugger.expect_exact('>fn myprint(s: &str)')
-        self.debugger.sendline('step')
-        self.debugger.expect_exact('>    println!("{}", s)')
-
-    def test_step_out(self):
-        """Debugger step out command (move out from current function)"""
-        self.debugger.sendline('break 0x55555555BD30')
-        self.debugger.expect('break 0x55555555BD30')
-
-        self.debugger.sendline('run')
-        self.debugger.expect_exact('myprint("Hello, world!");')
-        self.debugger.sendline('step')
-        self.debugger.expect_exact('>fn myprint(s: &str)')
-        self.debugger.sendline('step')
-        self.debugger.expect_exact('>    println!("{}", s)')
-        self.debugger.sendline('stepout')
-        self.debugger.expect_exact('>    sleep(Duration::from_secs(1));')
-
-    def test_step_over(self):
-        """Debugger step over command (move to next line without
-        entering functions)"""
-        self.debugger.sendline('break 0x55555555BD30')
-        self.debugger.expect('break 0x55555555BD30')
-
-        self.debugger.sendline('run')
-        self.debugger.expect_exact('myprint("Hello, world!");')
-        self.debugger.sendline('next')
-        self.debugger.expect_exact('>    sleep(Duration::from_secs(1));')
-        self.debugger.sendline('next')
-        self.debugger.expect_exact('>    myprint("bye!")')
-        self.debugger.sendline('next')
-        self.debugger.expect_exact('>}')
-
-    def test_step_over_on_fn_decl(self):
-        """Stop debugee at function declaration line"""
-        self.debugger.sendline('break hello_world.rs:14')
-        self.debugger.expect('break hello_world.rs:14')
-
-        self.debugger.sendline('run')
-        self.debugger.expect('Hit breakpoint at address')
-        self.debugger.sendline('next')
-        self.debugger.expect_exact('>    println!("{}", s)')
 
     def test_function_breakpoint(self):
         """Stop debugee at function by its name"""
@@ -139,10 +42,166 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.sendline('continue')
         self.debugger.expect('bye!')
 
+    def test_multiple_breakpoints_set(self):
+        """Sets multiple breakpoints at line"""
+        self.debugger.sendline('break hello_world.rs:5')
+        self.debugger.expect('break hello_world.rs:5')
+        self.debugger.sendline('break hello_world.rs:9')
+        self.debugger.expect('break hello_world.rs:9')
+
+        self.debugger.sendline('run')
+        self.debugger.expect('Hit breakpoint at address')
+        self.debugger.expect_exact('myprint("Hello, world!")')
+
+        self.debugger.sendline('continue')
+        self.debugger.expect('Hello, world!')
+        self.debugger.expect('Hit breakpoint at address')
+        self.debugger.expect_exact('myprint("bye!")')
+
+        self.debugger.sendline('continue')
+        self.debugger.expect('bye!')
+
+    # maps 555555554000-55555555a000
+    def test_address_breakpoint_set(self):
+        """Sets breakpoints at address"""
+        # determine address first
+        self.debugger.sendline('break hello_world.rs:5')
+        self.debugger.expect('break hello_world.rs:5')
+        self.debugger.sendline('run')
+
+        addr = ""
+        for x in range(10):
+            line = self.debugger.readline().decode("utf-8")
+            result = re.search(r'Hit breakpoint at address (.*)', line)
+            if result:
+                addr = result.group(1)
+                break
+
+        self.assertNotEqual(addr, "")
+        self.debugger.sendline('q')
+
+        # respawn debugger and test address breakpoint
+        self.debugger = pexpect.spawn(
+            './target/debug/bugstalker ./target/debug/hello_world')
+        self.debugger.expect('No previous history.')
+        self.debugger.sendline('break ' + addr)
+        self.debugger.expect('break ' + addr)
+        self.debugger.sendline('run')
+        self.debugger.expect('Hit breakpoint at address ' + addr)
+        self.debugger.sendline('continue')
+        self.debugger.expect('Hello, world!')
+        self.debugger.expect('bye!')
+
+    def test_write_register(self):
+        """Register writes (by moving pc counter into program start)"""
+        # determine program start and main ret addresses first
+        self.debugger.sendline('break hello_world.rs:4')
+        self.debugger.expect('break hello_world.rs:4')
+        self.debugger.sendline('break hello_world.rs:10')
+        self.debugger.expect('break hello_world.rs:10')
+        self.debugger.sendline('run')
+
+        start_addr = ""
+        for x in range(10):
+            line = self.debugger.readline().decode("utf-8")
+            result = re.search(r'Hit breakpoint at address (.*)', line)
+            if result:
+                start_addr = result.group(1)
+                break
+
+        self.assertNotEqual(start_addr, "")
+        self.debugger.sendline('continue')
+
+        addr = ""
+        for x in range(20):
+            line = self.debugger.readline().decode("utf-8")
+            result = re.search(r'Hit breakpoint at address (.*)', line)
+            if result:
+                addr = result.group(1)
+                break
+
+        self.assertNotEqual(addr, "")
+        self.debugger.sendline('q')
+
+        # assume that address of ret instruction at 1 byte offset
+        addr_as_integer = int(addr, 16) + 1
+        ret_addr = hex(addr_as_integer)
+
+        # respawn debugger and move pc counter
+        self.debugger = pexpect.spawn(
+            './target/debug/bugstalker ./target/debug/hello_world')
+        self.debugger.expect('No previous history.')
+        self.debugger.sendline('break ' + ret_addr)
+        self.debugger.expect('break ' + ret_addr)
+
+        self.debugger.sendline('run')
+        self.debugger.expect('Hello, world!')
+        self.debugger.expect('bye!')
+
+        self.debugger.sendline('register write rip ' + start_addr)
+        self.debugger.expect('register write rip ' + start_addr)
+
+        self.debugger.sendline('continue')
+        self.debugger.expect('Hello, world!')
+        self.debugger.expect('bye!')
+
+    def test_step_in(self):
+        """Debugger step in command (move to next line)"""
+        self.debugger.sendline('break hello_world.rs:4')
+        self.debugger.sendline('break hello_world.rs:4')
+
+        self.debugger.sendline('run')
+        self.debugger.expect('>fn main()')
+        self.debugger.sendline('step')
+        self.debugger.expect_exact('>    myprint("Hello, world!");')
+        self.debugger.sendline('step')
+        self.debugger.expect_exact('>fn myprint(s: &str)')
+        self.debugger.sendline('step')
+        self.debugger.expect_exact('>    println!("{}", s)')
+
+    def test_step_out(self):
+        """Debugger step out command (move out from current function)"""
+        self.debugger.sendline('break hello_world.rs:5')
+        self.debugger.expect('break hello_world.rs:5')
+
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('myprint("Hello, world!");')
+        self.debugger.sendline('step')
+        self.debugger.expect_exact('>fn myprint(s: &str)')
+        self.debugger.sendline('step')
+        self.debugger.expect_exact('>    println!("{}", s)')
+        self.debugger.sendline('stepout')
+        self.debugger.expect_exact('>    sleep(Duration::from_secs(1));')
+
+    def test_step_over(self):
+        """Debugger step over command (move to next line without
+        entering functions)"""
+        self.debugger.sendline('break hello_world.rs:5')
+        self.debugger.expect('break hello_world.rs:5')
+
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('myprint("Hello, world!");')
+        self.debugger.sendline('next')
+        self.debugger.expect_exact('>    sleep(Duration::from_secs(1));')
+        self.debugger.sendline('next')
+        self.debugger.expect_exact('>    myprint("bye!")')
+        self.debugger.sendline('next')
+        self.debugger.expect_exact('>}')
+
+    def test_step_over_on_fn_decl(self):
+        """Stop debugee at function declaration line"""
+        self.debugger.sendline('break hello_world.rs:14')
+        self.debugger.expect('break hello_world.rs:14')
+
+        self.debugger.sendline('run')
+        self.debugger.expect('Hit breakpoint at address')
+        self.debugger.sendline('next')
+        self.debugger.expect_exact('>    println!("{}", s)')
+
     def test_get_symbol(self):
         """Get debugee symbol"""
         self.debugger.sendline('symbol main')
-        self.debugger.expect('Text 0x00000000007DE0')
+        self.debugger.expect('Text 0x[0-9A-F]{,16}')
 
     def test_backtrace(self):
         """Backtrace"""
@@ -153,13 +212,14 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect_exact('>    println!("{}", s)')
 
         self.debugger.sendline('bt')
-        self.debugger.expect_exact('myprint (0x0055555555BD70)')
-        self.debugger.expect_exact('hello_world::main (0x0055555555BD20)')
+        self.debugger.expect(r'myprint \(0x[0-9A-F]{,16}\)')
+        self.debugger.expect(r'hello_world::main \(0x[0-9A-F]{,16}\)')
 
     @staticmethod
     def test_read_value_u64():
         """Get program variable"""
-        debugger = pexpect.spawn('./target/debug/bugstalker ./tests/calc')
+        debugger = pexpect.spawn(
+            './target/debug/bugstalker ./target/debug/calc')
         debugger.expect('No previous history.')
         debugger.sendline('break calc.rs:3')
         debugger.expect('break calc.rs:3')

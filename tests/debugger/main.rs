@@ -13,8 +13,8 @@ use bugstalker::debugger::register::Register;
 use serial_test::serial;
 use std::mem;
 
-const HW_APP: &str = "./tests/hello_world";
-const CALC_APP: &str = "./tests/calc";
+const HW_APP: &str = "./target/debug/hello_world";
+const CALC_APP: &str = "./target/debug/calc";
 const MT_APP: &str = "./target/debug/mt";
 const VARS_APP: &str = "./target/debug/vars";
 

@@ -76,7 +76,7 @@ impl TerminalApplication {
                             }
                         }
                         Err(err) => {
-                            println!("error: {:?}", err);
+                            println!("error: {:#}", err);
                             control_tx.send(ControlAction::Terminate).unwrap();
                             break;
                         }
@@ -94,7 +94,7 @@ impl TerminalApplication {
                 ControlAction::Cmd(command) => {
                     println!("> {}", command);
                     if let Err(e) = self.handle_cmd(&command) {
-                        println!("error: {:?}", e);
+                        println!("error: {:#}", e);
                     }
                 }
                 ControlAction::Terminate => {
