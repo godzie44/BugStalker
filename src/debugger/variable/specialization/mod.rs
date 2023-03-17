@@ -620,8 +620,7 @@ impl<'a> VariableParserExtension<'a> {
 
         let items = slice_ranges
             .0
-            .into_iter()
-            .chain(slice_ranges.1.into_iter())
+            .chain(slice_ranges.1)
             .enumerate()
             .map(|(i, real_idx)| {
                 let real_idx = real_idx as usize;
