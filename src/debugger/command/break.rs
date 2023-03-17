@@ -20,8 +20,8 @@ impl<'a> Break<'a> {
 
         let break_point_place = args[1];
         let break_point_type;
-        if break_point_place.starts_with("0x") {
-            let addr = usize::from_str_radix(&break_point_place[2..], 16)
+        if let Some(addr) = break_point_place.strip_prefix("0x") {
+            let addr = usize::from_str_radix(addr, 16)
                 .map_err(|e| CommandError::InvalidArgumentsEx(e.to_string()))?;
             break_point_type = Breakpoint::Address(addr);
         } else if break_point_place.find(':').is_some() {

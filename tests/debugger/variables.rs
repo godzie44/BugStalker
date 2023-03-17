@@ -279,10 +279,10 @@ fn test_read_scalar_variables() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 26).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 30).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(26));
+        assert_eq!(info.line.take(), Some(30));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_scalar(&vars[0], "int8", "i8", Some(SupportedScalar::I8(1)));
@@ -335,10 +335,10 @@ fn test_read_scalar_variables_at_place() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 7).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 11).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(7));
+        assert_eq!(info.line.take(), Some(11));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_eq!(vars.len(), 4)
@@ -351,10 +351,10 @@ fn test_read_struct() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 50).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 53).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(50));
+        assert_eq!(info.line.take(), Some(53));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_scalar(&vars[0], "tuple_0", "()", Some(SupportedScalar::Empty()));
@@ -406,10 +406,10 @@ fn test_read_array() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 59).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 61).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(59));
+        assert_eq!(info.line.take(), Some(61));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_array(&vars[0], "arr_1", "[i32]", |i, item| match i {
@@ -459,10 +459,10 @@ fn test_read_enum() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 92).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 93).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(92));
+        assert_eq!(info.line.take(), Some(93));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_c_enum(&vars[0], "enum_1", "EnumA", Some("B".to_string()));
@@ -635,10 +635,10 @@ fn test_read_type_alias() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 127).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 126).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(127));
+        assert_eq!(info.line.take(), Some(126));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_scalar(&vars[0], "a_alias", "i32", Some(SupportedScalar::I32(1)));
@@ -654,10 +654,10 @@ fn test_type_parameters() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 137).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 135).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(137));
+        assert_eq!(info.line.take(), Some(135));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_struct(&vars[0], "a", "Foo<i32>", |i, member| match i {
@@ -676,10 +676,10 @@ fn test_read_vec_and_slice() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 154).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 151).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(154));
+        assert_eq!(info.line.take(), Some(151));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_vec(
@@ -794,10 +794,10 @@ fn test_read_strings() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 163).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 159).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(163));
+        assert_eq!(info.line.take(), Some(159));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_string(&vars[0], "s1", "hello world");
@@ -815,10 +815,10 @@ fn test_read_static_variables() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 173).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 168).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(173));
+        assert_eq!(info.line.take(), Some(168));
 
         let vars = debugger
             .read_variable(SelectPlan::select_variable("GLOB_1"))
@@ -843,10 +843,10 @@ fn test_read_static_variables_different_modules() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 185).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 179).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(185));
+        assert_eq!(info.line.take(), Some(179));
 
         let mut vars = debugger
             .read_variable(SelectPlan::select_variable("GLOB_3"))
@@ -868,10 +868,10 @@ fn test_read_tls_variables() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 201).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 194).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(201));
+        assert_eq!(info.line.take(), Some(194));
 
         let vars = debugger
             .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_1"))
@@ -892,9 +892,9 @@ fn test_read_tls_variables() {
         });
 
         // assert uninit tls variables
-        debugger.set_breakpoint_at_line("vars.rs", 206).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 199).unwrap();
         debugger.continue_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(206));
+        assert_eq!(info.line.take(), Some(199));
 
         let vars = debugger
             .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_1"))
@@ -902,9 +902,9 @@ fn test_read_tls_variables() {
         assert_uninit_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>");
 
         // assert tls variables changes in another thread
-        debugger.set_breakpoint_at_line("vars.rs", 210).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 203).unwrap();
         debugger.continue_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(210));
+        assert_eq!(info.line.take(), Some(203));
 
         let vars = debugger
             .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_1"))
@@ -926,10 +926,10 @@ fn test_read_closures() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 226).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 218).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(226));
+        assert_eq!(info.line.take(), Some(218));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_struct(&vars[0], "inc", "{closure_env#0}", |_, _| {
@@ -1019,10 +1019,10 @@ fn test_arguments() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 236).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 227).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(236));
+        assert_eq!(info.line.take(), Some(227));
 
         let args = debugger.read_arguments().unwrap();
         assert_scalar(&args[0], "by_val", "i32", Some(SupportedScalar::I32(1)));
@@ -1064,10 +1064,10 @@ fn test_read_union() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 249).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 239).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(249));
+        assert_eq!(info.line.take(), Some(239));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_struct(&vars[0], "union", "Union1", |i, member| match i {
@@ -1088,10 +1088,10 @@ fn test_read_hashmap() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 267).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 256).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(267));
+        assert_eq!(info.line.take(), Some(256));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_hashmap(
@@ -1253,10 +1253,10 @@ fn test_read_hashset() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 281).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 269).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(281));
+        assert_eq!(info.line.take(), Some(269));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_hashset(
@@ -1317,10 +1317,10 @@ fn test_circular_ref_types() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 309).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 296).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(309));
+        assert_eq!(info.line.take(), Some(296));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_struct(
@@ -1391,26 +1391,26 @@ fn test_lexical_blocks() {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
 
-        debugger.set_breakpoint_at_line("vars.rs", 316).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 302).unwrap();
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(316));
+        assert_eq!(info.line.take(), Some(302));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_eq!(vars.len(), 1);
         assert_eq!(vars[0].name(), "alpha");
 
-        debugger.set_breakpoint_at_line("vars.rs", 318).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 304).unwrap();
         debugger.continue_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(318));
+        assert_eq!(info.line.take(), Some(304));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_eq!(vars.len(), 2);
         assert_eq!(vars[0].name(), "alpha");
         assert_eq!(vars[1].name(), "beta");
 
-        debugger.set_breakpoint_at_line("vars.rs", 319).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 305).unwrap();
         debugger.continue_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(319));
+        assert_eq!(info.line.take(), Some(305));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_eq!(vars.len(), 3);
@@ -1418,9 +1418,9 @@ fn test_lexical_blocks() {
         assert_eq!(vars[1].name(), "beta");
         assert_eq!(vars[2].name(), "gama");
 
-        debugger.set_breakpoint_at_line("vars.rs", 325).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 311).unwrap();
         debugger.continue_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(325));
+        assert_eq!(info.line.take(), Some(311));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_eq!(vars.len(), 2);
@@ -1436,9 +1436,9 @@ fn test_btree_map() {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
 
-        debugger.set_breakpoint_at_line("vars.rs", 344).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 329).unwrap();
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(344));
+        assert_eq!(info.line.take(), Some(329));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_btree_map(
@@ -1569,10 +1569,10 @@ fn test_read_btree_set() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 358).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 342).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(358));
+        assert_eq!(info.line.take(), Some(342));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_btree_set(
@@ -1632,10 +1632,10 @@ fn test_read_vec_deque() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 377).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 360).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(377));
+        assert_eq!(info.line.take(), Some(360));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_vec_deque(
@@ -1702,10 +1702,10 @@ fn test_read_atomic() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 388).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 370).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(388));
+        assert_eq!(info.line.take(), Some(370));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_struct(&vars[0], "int32_atomic", "AtomicI32", |i, member| match i {
@@ -1743,10 +1743,10 @@ fn test_cell() {
     debugger_env!(VARS_APP, child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("vars.rs", 401).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 382).unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(401));
+        assert_eq!(info.line.take(), Some(382));
 
         let vars = debugger.read_local_variables().unwrap();
         assert_cell(&vars[0], "a_cell", "Cell<i32>", |value| {

@@ -12,8 +12,8 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_read_scalar_variables(self):
         """Reading rust scalar values"""
-        self.debugger.sendline('break vars.rs:26')
-        self.debugger.expect('break vars.rs:26')
+        self.debugger.sendline('break vars.rs:30')
+        self.debugger.expect('break vars.rs:30')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
@@ -40,8 +40,8 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_read_scalar_variables_at_place(self):
         """Local variables reading only from current lexical block"""
-        self.debugger.sendline('break vars.rs:7')
-        self.debugger.expect('break vars.rs:7')
+        self.debugger.sendline('break vars.rs:11')
+        self.debugger.expect('break vars.rs:11')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let int128 = 3_i128;')
@@ -56,8 +56,8 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_read_struct(self):
         """Reading rust structs"""
-        self.debugger.sendline('break vars.rs:50')
-        self.debugger.expect('break vars.rs:50')
+        self.debugger.sendline('break vars.rs:53')
+        self.debugger.expect('break vars.rs:53')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
@@ -90,8 +90,8 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_read_array(self):
         """Reading rust arrays"""
-        self.debugger.sendline('break vars.rs:59')
-        self.debugger.expect('break vars.rs:59')
+        self.debugger.sendline('break vars.rs:61')
+        self.debugger.expect('break vars.rs:61')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
@@ -131,8 +131,8 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_read_enum(self):
         """Reading rust enums"""
-        self.debugger.sendline('break vars.rs:92')
-        self.debugger.expect('break vars.rs:92')
+        self.debugger.sendline('break vars.rs:93')
+        self.debugger.expect('break vars.rs:93')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
@@ -239,8 +239,8 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_read_type_alias(self):
         """Reading rust variables with type aliases"""
-        self.debugger.sendline('break vars.rs:127')
-        self.debugger.expect('break vars.rs:127')
+        self.debugger.sendline('break vars.rs:126')
+        self.debugger.expect('break vars.rs:126')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
@@ -250,8 +250,8 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_read_vec_and_slice(self):
         """Reading rust vectors and slices"""
-        self.debugger.sendline('break vars.rs:154')
-        self.debugger.expect('break vars.rs:154')
+        self.debugger.sendline('break vars.rs:151')
+        self.debugger.expect('break vars.rs:151')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
@@ -334,8 +334,8 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_read_strings(self):
         """Reading rust strings and &str"""
-        self.debugger.sendline('break vars.rs:163')
-        self.debugger.expect('break vars.rs:163')
+        self.debugger.sendline('break vars.rs:159')
+        self.debugger.expect('break vars.rs:159')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
@@ -347,8 +347,8 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_read_static_variables(self):
         """Reading rust static's"""
-        self.debugger.sendline('break vars.rs:173')
-        self.debugger.expect('break vars.rs:173')
+        self.debugger.sendline('break vars.rs:168')
+        self.debugger.expect('break vars.rs:168')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
@@ -360,8 +360,8 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_read_static_variables_different_modules(self):
         """Reading rust static's from another module"""
-        self.debugger.sendline('break vars.rs:185')
-        self.debugger.expect('break vars.rs:185')
+        self.debugger.sendline('break vars.rs:179')
+        self.debugger.expect('break vars.rs:179')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
@@ -372,8 +372,8 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_read_tls_variables(self):
         """Reading rust tls variables"""
-        self.debugger.sendline('break vars.rs:201')
-        self.debugger.expect('break vars.rs:201')
+        self.debugger.sendline('break vars.rs:194')
+        self.debugger.expect('break vars.rs:194')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>        let nop: Option<u8> = None;')
@@ -384,8 +384,8 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('THREAD_LOCAL_VAR_2 = Cell<&str>(2)')
 
         # assert uninit tls variables
-        self.debugger.sendline('break vars.rs:206')
-        self.debugger.expect('break vars.rs:206')
+        self.debugger.sendline('break vars.rs:199')
+        self.debugger.expect('break vars.rs:199')
         self.debugger.sendline('continue')
         self.debugger.expect_exact('>        let nop: Option<u8> = None;')
 
@@ -393,8 +393,8 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('THREAD_LOCAL_VAR_1 = Cell<i32>(uninit)')
 
         # assert tls variables changes in another thread
-        self.debugger.sendline('break vars.rs:210')
-        self.debugger.expect('break vars.rs:210')
+        self.debugger.sendline('break vars.rs:203')
+        self.debugger.expect('break vars.rs:203')
         self.debugger.sendline('continue')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
@@ -403,8 +403,8 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_custom_select(self):
         """Reading memory by select expressions"""
-        self.debugger.sendline('break vars.rs:59')
-        self.debugger.expect_exact('break vars.rs:59')
+        self.debugger.sendline('break vars.rs:61')
+        self.debugger.expect_exact('break vars.rs:61')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
@@ -412,8 +412,8 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('vars arr_2[0][2]')
         self.debugger.expect_exact('2 = i32(2)')
 
-        self.debugger.sendline('break vars.rs:92')
-        self.debugger.expect_exact('break vars.rs:92')
+        self.debugger.sendline('break vars.rs:93')
+        self.debugger.expect_exact('break vars.rs:93')
         self.debugger.sendline('continue')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
@@ -428,8 +428,8 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('vars *((*ref_f).foo)')
         self.debugger.expect_exact('*foo = i32(2)')
 
-        self.debugger.sendline('break vars.rs:267')
-        self.debugger.expect_exact('break vars.rs:267')
+        self.debugger.sendline('break vars.rs:256')
+        self.debugger.expect_exact('break vars.rs:256')
         self.debugger.sendline('continue')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
@@ -443,8 +443,8 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('cap: usize(3)')
         self.debugger.expect_exact('}')
 
-        self.debugger.sendline('break vars.rs:409')
-        self.debugger.expect_exact('break vars.rs:409')
+        self.debugger.sendline('break vars.rs:389')
+        self.debugger.expect_exact('break vars.rs:389')
         self.debugger.sendline('continue')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 

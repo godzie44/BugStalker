@@ -60,7 +60,7 @@ impl CuiComponent for DebugeeView {
                 let lines = match cache.entry(file.clone()) {
                     Entry::Occupied(o) => o.into_mut(),
                     Entry::Vacant(v) => {
-                        let lines = fs::File::open(file.clone())
+                        let lines = fs::File::open(file)
                             .map(|file| {
                                 io::BufReader::new(file)
                                     .lines()

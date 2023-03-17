@@ -52,9 +52,9 @@ impl FileView {
             .take((bounds * 2 + 1) as usize)
             .fold(DELIMITER.to_string(), |acc, (pos, line)| {
                 if pos as u64 == line_pos {
-                    acc + "\n" + ">" + &line
+                    acc + "\n" + ">" + line
                 } else {
-                    acc + "\n" + &line
+                    acc + "\n" + line
                 }
             });
 

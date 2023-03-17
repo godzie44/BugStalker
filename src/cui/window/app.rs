@@ -45,7 +45,7 @@ impl AppWindow {
         let variables: Box<dyn CuiComponent> = Box::new(Variables::new(debugger.clone()));
         let threads: Box<dyn CuiComponent> = Box::new(ThreadTrace::new(debugger));
         let debugee_view: Box<dyn CuiComponent> = Box::new(DebugeeView::new());
-        let logs: Box<dyn CuiComponent> = Box::new(Logs::default());
+        let logs: Box<dyn CuiComponent> = Box::<Logs>::default();
         let debugee_out: Box<dyn CuiComponent> = Box::new(DebugeeOut::new(stream_buff));
 
         let left_deck_states = HashMap::from([

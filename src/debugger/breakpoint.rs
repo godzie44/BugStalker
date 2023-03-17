@@ -41,7 +41,7 @@ impl Breakpoint {
     pub fn enable(&self) -> nix::Result<()> {
         let data = sys::ptrace::read(self.pid, self.addr.as_ptr())?;
         self.saved_data.set((data & 0xff) as u8);
-        let int3 = 0xCC as u64;
+        let int3 = 0xCC_u64;
         let data_with_pb = (data & !0xff) as u64 | int3;
         unsafe {
             sys::ptrace::write(self.pid, self.addr.as_ptr(), data_with_pb as *mut c_void)?;

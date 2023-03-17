@@ -185,7 +185,7 @@ impl ThreadCtl {
     }
 
     pub fn dump(&self) -> Vec<TraceeThread> {
-        self.threads_state.iter().map(|(_, v)| v.clone()).collect()
+        self.threads_state.values().cloned().collect()
     }
 
     /// Load libthread_db and init libthread_db process handle.

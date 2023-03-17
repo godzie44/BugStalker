@@ -292,13 +292,13 @@ where
     while let Some((_, line_row)) = rows.next_row()? {
         let column = match line_row.column() {
             gimli::ColumnType::LeftEdge => 0,
-            gimli::ColumnType::Column(x) => x.get() as u64,
+            gimli::ColumnType::Column(x) => x.get(),
         };
 
         lines.push(LineRow {
             address: line_row.address(),
             file_index: line_row.file_index(),
-            line: line_row.line().map(NonZeroU64::get).unwrap_or(0) as u64,
+            line: line_row.line().map(NonZeroU64::get).unwrap_or(0),
             column,
             is_stmt: line_row.is_stmt(),
         })

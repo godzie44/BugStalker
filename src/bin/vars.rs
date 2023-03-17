@@ -1,4 +1,8 @@
-#[allow(unused)]
+#![allow(unused)]
+#![allow(clippy::let_unit_value)]
+#![allow(clippy::redundant_clone)]
+#![allow(clippy::disallowed_names)]
+
 fn scalar_types() {
     let int8 = 1_i8;
     let int16 = -1_i16;
@@ -26,7 +30,6 @@ fn scalar_types() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn compound_types() {
     let tuple_0 = ();
     let tuple_1 = (0f64, 1.1f64);
@@ -50,7 +53,6 @@ fn compound_types() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn array() {
     let arr_1 = [1, -1, 2, -2, 3];
 
@@ -59,7 +61,6 @@ fn array() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn enums() {
     enum EnumA {
         A,
@@ -92,7 +93,6 @@ fn enums() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn references() {
     let a = 2;
     let ref_a = &a;
@@ -119,7 +119,6 @@ fn references() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn type_alias() {
     type I32Alias = i32;
     let a_alias: I32Alias = 1;
@@ -127,7 +126,6 @@ fn type_alias() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn type_params() {
     struct Foo<T> {
         bar: T,
@@ -137,7 +135,6 @@ fn type_params() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn vec_and_slice_types() {
     let vec1 = vec![1, 2, 3];
 
@@ -154,7 +151,6 @@ fn vec_and_slice_types() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn string_types() {
     let s1 = "hello world".to_string();
     let s2 = s1.as_str();
@@ -166,7 +162,6 @@ fn string_types() {
 static GLOB_1: &str = "glob_1";
 static GLOB_2: i32 = 2;
 
-#[allow(unused)]
 fn static_vars() {
     println!("{GLOB_1}");
     println!("{GLOB_2}");
@@ -178,7 +173,6 @@ mod ns_1 {
     pub static GLOB_3: &str = "glob_3";
 }
 
-#[allow(unused)]
 fn static_vars_same_name() {
     println!("{GLOB_3}");
     println!("{}", ns_1::GLOB_3);
@@ -190,7 +184,6 @@ thread_local! {
     static THREAD_LOCAL_VAR_2: std::cell::Cell<&'static str> = std::cell::Cell::new("0");
 }
 
-#[allow(unused)]
 fn thread_local() {
     THREAD_LOCAL_VAR_1.with(|tl1| tl1.set(1));
     THREAD_LOCAL_VAR_2.with(|tl2| tl2.set("1"));
@@ -210,7 +203,6 @@ fn thread_local() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn fn_and_closure() {
     let inc = |a: i32| -> i32 { a + 1 };
     let inc_mut = |a: &mut i32| *a += 1;
@@ -226,7 +218,6 @@ fn fn_and_closure() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn arguments(by_val: i32, by_ref: &i32, vec: Vec<u8>, box_arr: Box<[u8]>) {
     println!("{by_val}");
     println!("{by_ref}");
@@ -236,7 +227,6 @@ fn arguments(by_val: i32, by_ref: &i32, vec: Vec<u8>, box_arr: Box<[u8]>) {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn unions() {
     #[repr(C)]
     union Union1 {
@@ -249,7 +239,6 @@ fn unions() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn hashmap() {
     use std::collections::HashMap;
 
@@ -267,7 +256,6 @@ fn hashmap() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn hashset() {
     use std::collections::HashSet;
 
@@ -281,7 +269,6 @@ fn hashset() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn circular() {
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -309,7 +296,6 @@ fn circular() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn lexical_blocks() {
     let alpha = 1;
     {
@@ -325,7 +311,6 @@ fn lexical_blocks() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn btree_map() {
     use std::collections::BTreeMap;
 
@@ -344,7 +329,6 @@ fn btree_map() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn btreeset() {
     use std::collections::BTreeSet;
 
@@ -358,7 +342,6 @@ fn btreeset() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn vecdeque() {
     use std::collections::VecDeque;
 
@@ -377,7 +360,6 @@ fn vecdeque() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn atomics() {
     use std::sync::atomic;
 
@@ -388,8 +370,7 @@ fn atomics() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
-fn shared_ptrs() {
+fn inner_mut() {
     use std::cell::Cell;
     use std::cell::RefCell;
 
@@ -401,7 +382,6 @@ fn shared_ptrs() {
     let nop: Option<u8> = None;
 }
 
-#[allow(unused)]
 fn ptr_to_array() {
     let arr = [1, 2, 3, 4];
     let ptr = arr.as_ptr();
@@ -433,6 +413,6 @@ pub fn main() {
     btreeset();
     vecdeque();
     atomics();
-    shared_ptrs();
+    inner_mut();
     ptr_to_array();
 }
