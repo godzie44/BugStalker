@@ -62,10 +62,10 @@ impl<'a> DwarfUnitParser<'a> {
             parsed_unit.lines = parse_lines(&mut rows)?;
             parsed_unit.files = parse_files(self.dwarf, unit, &rows)?;
         }
-        parsed_unit.lines.sort_by_key(|x| x.address);
+        parsed_unit.lines.sort_unstable_by_key(|x| x.address);
 
         parsed_unit.ranges = self.dwarf.unit_ranges(unit)?.collect::<Vec<_>>()?;
-        parsed_unit.ranges.sort_by_key(|r| r.begin);
+        parsed_unit.ranges.sort_unstable_by_key(|r| r.begin);
 
         let mut cursor = unit.entries();
         while let Some((delta_depth, die)) = cursor.next_dfs()? {
@@ -259,7 +259,9 @@ impl<'a> DwarfUnitParser<'a> {
                 .die_offsets_index
                 .insert(die.offset(), current_idx);
         }
-        parsed_unit.die_ranges.sort_by_key(|dr| dr.range.begin);
+        parsed_unit
+            .die_ranges
+            .sort_unstable_by_key(|dr| dr.range.begin);
 
         Ok(parsed_unit)
     }

@@ -105,7 +105,7 @@ impl DebugeeContextBuilder {
             .units()
             .map(|header| parser.parse(dwarf.unit(header)?))
             .collect::<Vec<_>>()?;
-        units.sort_by_key(|u| u.offset());
+        units.sort_unstable_by_key(|u| u.offset());
 
         Ok(DebugeeContext {
             inner: dwarf,
