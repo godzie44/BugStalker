@@ -389,6 +389,21 @@ fn ptr_to_array() {
     let nop: Option<u8> = None;
 }
 
+fn shared_ptrs() {
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    let rc0 = Rc::new(1);
+    let rc1 = rc0.clone();
+    let weak_rc2 = Rc::downgrade(&rc1);
+
+    let arc0 = Arc::new(2);
+    let arc1 = arc0.clone();
+    let weak_arc2 = Arc::downgrade(&arc1);
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -415,4 +430,5 @@ pub fn main() {
     atomics();
     inner_mut();
     ptr_to_array();
+    shared_ptrs();
 }

@@ -328,6 +328,8 @@ impl VariableIR {
                 SpecializedVariableIR::BTreeSet { original, .. } => &original.identity,
                 SpecializedVariableIR::Cell { original, .. } => &original.identity,
                 SpecializedVariableIR::RefCell { original, .. } => &original.identity,
+                SpecializedVariableIR::Rc { original, .. } => &original.identity,
+                SpecializedVariableIR::Arc { original, .. } => &original.identity,
             },
         }
     }
@@ -367,6 +369,12 @@ impl VariableIR {
             VariableIR::RustEnum(r_enum) => r_enum
                 .value
                 .and_then(|v| v.deref(eval_ctx, variable_parser)),
+            VariableIR::Specialized(SpecializedVariableIR::Rc { value, .. }) => {
+                value.and_then(|var| var.deref(eval_ctx, variable_parser))
+            }
+            VariableIR::Specialized(SpecializedVariableIR::Arc { value, .. }) => {
+                value.and_then(|var| var.deref(eval_ctx, variable_parser))
+            }
             VariableIR::Specialized(SpecializedVariableIR::Tls { tls_var, .. }) => tls_var
                 .and_then(|var| {
                     var.inner_value
@@ -756,6 +764,11 @@ impl<'a> VariableParser<'a> {
                 // - tls variable
                 // - hashmaps
                 // - hashset
+                // - btree map
+                // - btree set
+                // - vecdeque
+                // - cell/refcell
+                // - rc/arc
                 if struct_name.as_deref() == Some("&str") {
                     return VariableIR::Specialized(parser_ext.parse_str(eval_ctx, struct_var));
                 };
@@ -836,6 +849,24 @@ impl<'a> VariableParser<'a> {
                     && type_ns_h.contains(&["cell"])
                 {
                     return VariableIR::Specialized(parser_ext.parse_refcell(struct_var));
+                };
+
+                if struct_name
+                    .as_ref()
+                    .map(|name| name.starts_with("Rc<") | name.starts_with("Weak<"))
+                    == Some(true)
+                    && type_ns_h.contains(&["rc"])
+                {
+                    return VariableIR::Specialized(parser_ext.parse_rc(struct_var));
+                };
+
+                if struct_name
+                    .as_ref()
+                    .map(|name| name.starts_with("Arc<") | name.starts_with("Weak<"))
+                    == Some(true)
+                    && type_ns_h.contains(&["sync"])
+                {
+                    return VariableIR::Specialized(parser_ext.parse_arc(struct_var));
                 };
 
                 VariableIR::Struct(struct_var)
@@ -979,6 +1010,7 @@ impl<'a> Iterator for BfsIterator<'a> {
                         .iter()
                         .for_each(|member| self.queue.push_back(member));
                 }
+                SpecializedVariableIR::Rc { .. } | SpecializedVariableIR::Arc { .. } => {}
             },
             _ => {}
         }

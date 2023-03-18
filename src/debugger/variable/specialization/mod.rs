@@ -6,8 +6,8 @@ use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::specialization::btree::BTreeReflection;
 use crate::debugger::variable::specialization::hashbrown::HashmapReflection;
 use crate::debugger::variable::{
-    ArrayVariable, AssumeError, ScalarVariable, StructVariable, SupportedScalar, VariableIR,
-    VariableIdentity, VariableParser,
+    ArrayVariable, AssumeError, PointerVariable, ScalarVariable, StructVariable, SupportedScalar,
+    VariableIR, VariableIdentity, VariableParser,
 };
 use crate::{debugger, weak_error};
 use anyhow::Context;
@@ -99,6 +99,14 @@ pub enum SpecializedVariableIR {
     },
     RefCell {
         value: Option<Box<VariableIR>>,
+        original: StructVariable,
+    },
+    Rc {
+        value: Option<PointerVariable>,
+        original: StructVariable,
+    },
+    Arc {
+        value: Option<PointerVariable>,
         original: StructVariable,
     },
 }
@@ -720,5 +728,55 @@ impl<'a> VariableParserExtension<'a> {
             members: vec![borrow, value.clone()],
             type_params: Default::default(),
         }))
+    }
+
+    pub fn parse_rc(&self, structure: StructVariable) -> SpecializedVariableIR {
+        SpecializedVariableIR::Rc {
+            value: weak_error!(self
+                .parse_rc_inner(VariableIR::Struct(structure.clone()))
+                .context("rc interpretation")),
+            original: structure,
+        }
+    }
+
+    pub fn parse_rc_inner(&self, ir: VariableIR) -> anyhow::Result<PointerVariable> {
+        Ok(ir
+            .bfs_iterator()
+            .find_map(|child| {
+                if let VariableIR::Pointer(pointer) = child {
+                    if pointer.identity.name.as_deref()? == "pointer" {
+                        let mut new_pointer = pointer.clone();
+                        new_pointer.identity = ir.identity().clone();
+                        return Some(new_pointer);
+                    }
+                }
+                None
+            })
+            .ok_or(AssumeError::IncompleteInterp("rc"))?)
+    }
+
+    pub fn parse_arc(&self, structure: StructVariable) -> SpecializedVariableIR {
+        SpecializedVariableIR::Arc {
+            value: weak_error!(self
+                .parse_arc_inner(VariableIR::Struct(structure.clone()))
+                .context("arc interpretation")),
+            original: structure,
+        }
+    }
+
+    pub fn parse_arc_inner(&self, ir: VariableIR) -> anyhow::Result<PointerVariable> {
+        Ok(ir
+            .bfs_iterator()
+            .find_map(|child| {
+                if let VariableIR::Pointer(pointer) = child {
+                    if pointer.identity.name.as_deref()? == "pointer" {
+                        let mut new_pointer = pointer.clone();
+                        new_pointer.identity = ir.identity().clone();
+                        return Some(new_pointer);
+                    }
+                }
+                None
+            })
+            .ok_or(AssumeError::IncompleteInterp("arc"))?)
     }
 }

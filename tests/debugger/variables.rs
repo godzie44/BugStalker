@@ -273,6 +273,22 @@ fn assert_refcell(
     with_value(&as_struct.members[1]);
 }
 
+fn assert_rc(var: &VariableIR, exp_name: &str, exp_type: &str) {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::Rc {..}) = var else {
+        panic!("not an rc");
+    };
+    assert_eq!(var.name(), exp_name);
+    assert_eq!(var.r#type(), exp_type);
+}
+
+fn assert_arc(var: &VariableIR, exp_name: &str, exp_type: &str) {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::Arc {..}) = var else {
+        panic!("not an arc");
+    };
+    assert_eq!(var.name(), exp_name);
+    assert_eq!(var.r#type(), exp_type);
+}
+
 #[test]
 #[serial]
 fn test_read_scalar_variables() {
@@ -1323,59 +1339,42 @@ fn test_circular_ref_types() {
         assert_eq!(info.line.take(), Some(296));
 
         let vars = debugger.read_local_variables().unwrap();
-        assert_struct(
-            &vars[0],
-            "a_circ",
-            "Rc<vars::circular::List>",
-            |i, member| match i {
-                0 => assert_struct(
-                    member,
-                    "ptr",
-                    "NonNull<alloc::rc::RcBox<vars::circular::List>>",
-                    |i, member| match i {
-                        0 => assert_pointer(
-                            member,
-                            "pointer",
-                            "*const alloc::rc::RcBox<vars::circular::List>",
-                        ),
-                        _ => panic!("1 members expected"),
-                    },
-                ),
-                1 => assert_struct(
-                    member,
-                    "phantom",
-                    "PhantomData<alloc::rc::RcBox<vars::circular::List>>",
-                    |_, _| {},
-                ),
-                _ => panic!("2 members expected"),
-            },
-        );
+        assert_rc(&vars[0], "a_circ", "Rc<vars::circular::List>");
+        assert_rc(&vars[1], "b_circ", "Rc<vars::circular::List>");
 
+        let deref = read_single_var(&debugger, "*a_circ");
         assert_struct(
-            &vars[1],
-            "b_circ",
-            "Rc<vars::circular::List>",
+            &deref,
+            "*a_circ",
+            "RcBox<vars::circular::List>",
             |i, member| match i {
-                0 => assert_struct(
-                    member,
-                    "ptr",
-                    "NonNull<alloc::rc::RcBox<vars::circular::List>>",
-                    |i, member| match i {
-                        0 => assert_pointer(
-                            member,
-                            "pointer",
-                            "*const alloc::rc::RcBox<vars::circular::List>",
-                        ),
-                        _ => panic!("1 members expected"),
-                    },
-                ),
-                1 => assert_struct(
-                    member,
-                    "phantom",
-                    "PhantomData<alloc::rc::RcBox<vars::circular::List>>",
-                    |_, _| {},
-                ),
-                _ => panic!("2 members expected"),
+                0 => assert_cell(member, "strong", "Cell<usize>", |inner| {
+                    assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(2)))
+                }),
+                1 => assert_cell(member, "weak", "Cell<usize>", |inner| {
+                    assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(1)))
+                }),
+                2 => {
+                    assert_rust_enum(member, "value", "List", |enum_member| {
+                        assert_struct(enum_member, "Cons", "Cons", |i, cons_member| match i {
+                            0 => assert_scalar(
+                                cons_member,
+                                "__0",
+                                "i32",
+                                Some(SupportedScalar::I32(5)),
+                            ),
+                            1 => assert_refcell(
+                                cons_member,
+                                "1",
+                                "RefCell<alloc::rc::Rc<vars::circular::List>>",
+                                0,
+                                |inner| assert_rc(inner, "value", "Rc<vars::circular::List>"),
+                            ),
+                            _ => panic!("2 members expected"),
+                        });
+                    });
+                }
+                _ => panic!("3 members expected"),
             },
         );
 
@@ -1769,6 +1768,115 @@ fn test_cell() {
                 })
             },
         );
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
+    });
+}
+
+#[test]
+#[serial]
+fn test_shared_ptr() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 404).unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(404));
+
+        let vars = debugger.read_local_variables().unwrap();
+        assert_rc(&vars[0], "rc0", "Rc<i32>");
+        let deref = read_single_var(&debugger, "*rc0");
+        assert_struct(&deref, "*rc0", "RcBox<i32>", |i, member| match i {
+            0 => assert_cell(member, "strong", "Cell<usize>", |inner| {
+                assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(2)))
+            }),
+            1 => assert_cell(member, "weak", "Cell<usize>", |inner| {
+                assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(2)))
+            }),
+            2 => assert_scalar(member, "value", "i32", Some(SupportedScalar::I32(1))),
+            _ => panic!("3 members expected"),
+        });
+        assert_rc(&vars[1], "rc1", "Rc<i32>");
+        let deref = read_single_var(&debugger, "*rc1");
+        assert_struct(&deref, "*rc1", "RcBox<i32>", |i, member| match i {
+            0 => assert_cell(member, "strong", "Cell<usize>", |inner| {
+                assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(2)))
+            }),
+            1 => assert_cell(member, "weak", "Cell<usize>", |inner| {
+                assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(2)))
+            }),
+            2 => assert_scalar(member, "value", "i32", Some(SupportedScalar::I32(1))),
+            _ => panic!("3 members expected"),
+        });
+        assert_rc(&vars[2], "weak_rc2", "Weak<i32>");
+        let deref = read_single_var(&debugger, "*weak_rc2");
+        assert_struct(&deref, "*weak_rc2", "RcBox<i32>", |i, member| match i {
+            0 => assert_cell(member, "strong", "Cell<usize>", |inner| {
+                assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(2)))
+            }),
+            1 => assert_cell(member, "weak", "Cell<usize>", |inner| {
+                assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(2)))
+            }),
+            2 => assert_scalar(member, "value", "i32", Some(SupportedScalar::I32(1))),
+            _ => panic!("3 members expected"),
+        });
+
+        assert_arc(&vars[3], "arc0", "Arc<i32>");
+        let deref = read_single_var(&debugger, "*arc0");
+        assert_struct(&deref, "*arc0", "ArcInner<i32>", |i, member| match i {
+            0 => assert_struct(member, "strong", "AtomicUsize", |i, member| match i {
+                0 => assert_struct(member, "v", "UnsafeCell<usize>", |_, member| {
+                    assert_scalar(member, "value", "usize", Some(SupportedScalar::Usize(2)))
+                }),
+                _ => panic!("1 member expected"),
+            }),
+            1 => assert_struct(member, "weak", "AtomicUsize", |i, member| match i {
+                0 => assert_struct(member, "v", "UnsafeCell<usize>", |_, member| {
+                    assert_scalar(member, "value", "usize", Some(SupportedScalar::Usize(2)))
+                }),
+                _ => panic!("1 member expected"),
+            }),
+            2 => assert_scalar(member, "data", "i32", Some(SupportedScalar::I32(2))),
+            _ => panic!("3 members expected"),
+        });
+        assert_arc(&vars[4], "arc1", "Arc<i32>");
+        let deref = read_single_var(&debugger, "*arc1");
+        assert_struct(&deref, "*arc1", "ArcInner<i32>", |i, member| match i {
+            0 => assert_struct(member, "strong", "AtomicUsize", |i, member| match i {
+                0 => assert_struct(member, "v", "UnsafeCell<usize>", |_, member| {
+                    assert_scalar(member, "value", "usize", Some(SupportedScalar::Usize(2)))
+                }),
+                _ => panic!("1 member expected"),
+            }),
+            1 => assert_struct(member, "weak", "AtomicUsize", |i, member| match i {
+                0 => assert_struct(member, "v", "UnsafeCell<usize>", |_, member| {
+                    assert_scalar(member, "value", "usize", Some(SupportedScalar::Usize(2)))
+                }),
+                _ => panic!("1 member expected"),
+            }),
+            2 => assert_scalar(member, "data", "i32", Some(SupportedScalar::I32(2))),
+            _ => panic!("3 members expected"),
+        });
+        assert_arc(&vars[5], "weak_arc2", "Weak<i32>");
+        let deref = read_single_var(&debugger, "*weak_arc2");
+        assert_struct(&deref, "*weak_arc2", "ArcInner<i32>", |i, member| match i {
+            0 => assert_struct(member, "strong", "AtomicUsize", |i, member| match i {
+                0 => assert_struct(member, "v", "UnsafeCell<usize>", |_, member| {
+                    assert_scalar(member, "value", "usize", Some(SupportedScalar::Usize(2)))
+                }),
+                _ => panic!("1 member expected"),
+            }),
+            1 => assert_struct(member, "weak", "AtomicUsize", |i, member| match i {
+                0 => assert_struct(member, "v", "UnsafeCell<usize>", |_, member| {
+                    assert_scalar(member, "value", "usize", Some(SupportedScalar::Usize(2)))
+                }),
+                _ => panic!("1 member expected"),
+            }),
+            2 => assert_scalar(member, "data", "i32", Some(SupportedScalar::I32(2))),
+            _ => panic!("3 members expected"),
+        });
 
         debugger.continue_debugee().unwrap();
         assert_no_proc!(child);
