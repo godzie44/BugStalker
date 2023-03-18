@@ -250,7 +250,7 @@ fn assert_refcell(
     var: &VariableIR,
     exp_name: &str,
     exp_type: &str,
-    exp_borrow: i64,
+    exp_borrow: isize,
     with_value: impl FnOnce(&VariableIR),
 ) {
     let VariableIR::Specialized(variable::SpecializedVariableIR::RefCell {value, ..}) = var else {
@@ -268,7 +268,7 @@ fn assert_refcell(
     };
     assert_eq!(
         borrow.value.as_ref().unwrap(),
-        &SupportedScalar::I64(exp_borrow)
+        &SupportedScalar::Isize(exp_borrow)
     );
     with_value(&as_struct.members[1]);
 }
@@ -290,13 +290,13 @@ fn test_read_scalar_variables() {
         assert_scalar(&vars[2], "int32", "i32", Some(SupportedScalar::I32(2)));
         assert_scalar(&vars[3], "int64", "i64", Some(SupportedScalar::I64(-2)));
         assert_scalar(&vars[4], "int128", "i128", Some(SupportedScalar::I128(3)));
-        assert_scalar(&vars[5], "isize", "isize", Some(SupportedScalar::I64(-3)));
+        assert_scalar(&vars[5], "isize", "isize", Some(SupportedScalar::Isize(-3)));
         assert_scalar(&vars[6], "uint8", "u8", Some(SupportedScalar::U8(1)));
         assert_scalar(&vars[7], "uint16", "u16", Some(SupportedScalar::U16(2)));
         assert_scalar(&vars[8], "uint32", "u32", Some(SupportedScalar::U32(3)));
         assert_scalar(&vars[9], "uint64", "u64", Some(SupportedScalar::U64(4)));
         assert_scalar(&vars[10], "uint128", "u128", Some(SupportedScalar::U128(5)));
-        assert_scalar(&vars[11], "usize", "usize", Some(SupportedScalar::U64(6)));
+        assert_scalar(&vars[11], "usize", "usize", Some(SupportedScalar::Usize(6)));
         assert_scalar(&vars[12], "f32", "f32", Some(SupportedScalar::F32(1.1)));
         assert_scalar(&vars[13], "f64", "f64", Some(SupportedScalar::F64(1.2)));
         assert_scalar(
@@ -1048,7 +1048,7 @@ fn test_arguments() {
                     let deref = read_single_arg(&debugger, "*box_arr.data_ptr");
                     assert_scalar(&deref, "*data_ptr", "u8", Some(SupportedScalar::U8(6)));
                 }
-                1 => assert_scalar(member, "length", "usize", Some(SupportedScalar::U64(3))),
+                1 => assert_scalar(member, "length", "usize", Some(SupportedScalar::Usize(3))),
                 _ => panic!("2 members expected"),
             },
         );

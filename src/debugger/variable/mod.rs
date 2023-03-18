@@ -488,7 +488,13 @@ impl<'a> VariableParser<'a> {
                 1 => render_scalar::<i8>(value).map(SupportedScalar::I8),
                 2 => render_scalar::<i16>(value).map(SupportedScalar::I16),
                 4 => render_scalar::<i32>(value).map(SupportedScalar::I32),
-                8 => render_scalar::<i64>(value).map(SupportedScalar::I64),
+                8 => {
+                    if r#type.name.as_deref() == Some("isize") {
+                        render_scalar::<isize>(value).map(SupportedScalar::Isize)
+                    } else {
+                        render_scalar::<i64>(value).map(SupportedScalar::I64)
+                    }
+                }
                 16 => render_scalar::<i128>(value).map(SupportedScalar::I128),
                 _ => {
                     warn!("unsupported signed size: {size:?}", size = r#type.byte_size);
@@ -500,7 +506,13 @@ impl<'a> VariableParser<'a> {
                 1 => render_scalar::<u8>(value).map(SupportedScalar::U8),
                 2 => render_scalar::<u16>(value).map(SupportedScalar::U16),
                 4 => render_scalar::<u32>(value).map(SupportedScalar::U32),
-                8 => render_scalar::<u64>(value).map(SupportedScalar::U64),
+                8 => {
+                    if r#type.name.as_deref() == Some("usize") {
+                        render_scalar::<usize>(value).map(SupportedScalar::Usize)
+                    } else {
+                        render_scalar::<u64>(value).map(SupportedScalar::U64)
+                    }
+                }
                 16 => render_scalar::<u128>(value).map(SupportedScalar::U128),
                 _ => {
                     warn!(
