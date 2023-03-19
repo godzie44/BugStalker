@@ -25,11 +25,12 @@ use crate::debugger::uw::Backtrace;
 use crate::debugger::variable::VariableIR;
 use crate::weak_error;
 use anyhow::anyhow;
-use nix::libc::{c_int, c_void, uintptr_t};
+use log::warn;
+use nix::libc::{c_int, c_void, pid_t, uintptr_t};
 use nix::sys;
 use nix::sys::signal;
 use nix::sys::signal::Signal;
-use nix::sys::wait::waitpid;
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
 use object::Object;
 use std::cell::RefCell;
@@ -37,7 +38,8 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ffi::c_long;
 use std::path::Path;
-use std::{fs, mem, u64};
+use std::time::Duration;
+use std::{fs, mem, thread, u64};
 
 pub trait EventHook {
     fn on_trap(&self, pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()>;
@@ -587,11 +589,36 @@ impl Drop for Debugger {
             }
             ExecutionStatus::InProgress => {
                 self.debugee.threads_ctl().dump().iter().for_each(|thread| {
-                    sys::ptrace::detach(thread.pid, None).expect("detach thread")
+                    sys::ptrace::cont(thread.pid, Signal::SIGSTOP).unwrap();
                 });
+
+                loop {
+                    let wait_status = waitpid(self.debugee.threads_ctl().proc_pid(), None)
+                        .expect("waiting child");
+                    if matches!(wait_status, WaitStatus::Stopped(_, _))
+                        | matches!(wait_status, WaitStatus::PtraceEvent(_, signal::SIGSTOP, _))
+                    {
+                        break;
+                    }
+                }
+
+                self.debugee.threads_ctl().dump().iter().for_each(|thread| {
+                    sys::ptrace::detach(thread.pid, None).unwrap_or(());
+                });
+
                 signal::kill(self.debugee.threads_ctl().proc_pid(), Signal::SIGKILL)
                     .expect("kill debugee");
-                waitpid(self.debugee.threads_ctl().proc_pid(), None).expect("waiting child");
+
+                for _poll_cnt in 0..20 {
+                    let wait_res = waitpid(Pid::from_raw(-1 as pid_t), Some(WaitPidFlag::WNOHANG))
+                        .expect("waiting child");
+                    if !matches!(wait_res, WaitStatus::StillAlive) {
+                        return;
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+
+                warn!("Wait debugee fail, stop debugger");
             }
             ExecutionStatus::Exited => {}
         }
