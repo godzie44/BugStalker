@@ -354,9 +354,9 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
         self.debugger.sendline('vars GLOB_1')
-        self.debugger.expect_exact('GLOB_1 = &str(glob_1)')
+        self.debugger.expect_exact('vars::GLOB_1 = &str(glob_1)')
         self.debugger.sendline('vars GLOB_2')
-        self.debugger.expect_exact('GLOB_2 = i32(2)')
+        self.debugger.expect_exact('vars::GLOB_2 = i32(2)')
 
     def test_read_static_variables_different_modules(self):
         """Reading rust static's from another module"""
@@ -367,8 +367,8 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
         self.debugger.sendline('vars GLOB_3')
-        self.debugger.expect_exact('GLOB_3')
-        self.debugger.expect_exact('GLOB_3')
+        self.debugger.expect_exact(r'vars::ns_1::GLOB_3 = &str(glob_3)')
+        self.debugger.expect_exact(r'vars::GLOB_3 = i32(3)')
 
     def test_read_tls_variables(self):
         """Reading rust tls variables"""
@@ -379,9 +379,9 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('>        let nop: Option<u8> = None;')
 
         self.debugger.sendline('vars THREAD_LOCAL_VAR_1')
-        self.debugger.expect_exact('THREAD_LOCAL_VAR_1 = Cell<i32>(2)')
+        self.debugger.expect_exact('vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(2)')
         self.debugger.sendline('vars THREAD_LOCAL_VAR_2')
-        self.debugger.expect_exact('THREAD_LOCAL_VAR_2 = Cell<&str>(2)')
+        self.debugger.expect_exact('vars::THREAD_LOCAL_VAR_2::__getit::__KEY = Cell<&str>(2)')
 
         # assert uninit tls variables
         self.debugger.sendline('break vars.rs:199')
@@ -390,7 +390,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('>        let nop: Option<u8> = None;')
 
         self.debugger.sendline('vars THREAD_LOCAL_VAR_1')
-        self.debugger.expect_exact('THREAD_LOCAL_VAR_1 = Cell<i32>(uninit)')
+        self.debugger.expect_exact('vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(uninit)')
 
         # assert tls variables changes in another thread
         self.debugger.sendline('break vars.rs:203')
@@ -399,7 +399,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
         self.debugger.sendline('vars THREAD_LOCAL_VAR_1')
-        self.debugger.expect_exact('THREAD_LOCAL_VAR_1 = Cell<i32>(1)')
+        self.debugger.expect_exact('vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(1)')
 
     def test_custom_select(self):
         """Reading memory by select expressions"""

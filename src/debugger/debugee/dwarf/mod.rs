@@ -502,23 +502,20 @@ impl Deref for NamespaceHierarchy {
 
 impl NamespaceHierarchy {
     pub fn for_node(node: &Node, unit: &Unit) -> Self {
-        NamespaceHierarchy(
-            node.parent
-                .map(|p_idx| {
-                    let mut ns_chain = vec![];
-                    let mut p_idx = Some(p_idx);
-                    while let Some(parent_idx) = p_idx {
-                        let parent = &unit.entries[parent_idx];
-                        if let DieVariant::Namespace(ref ns) = parent.die {
-                            ns_chain.push(ns.base_attributes.name.clone().unwrap_or_default());
-                        }
-                        p_idx = parent.node.parent;
-                    }
-                    ns_chain.reverse();
-                    ns_chain
-                })
-                .unwrap_or_default(),
-        )
+        let mut ns_chain = vec![];
+
+        let mut p_idx = node.parent;
+        let mut next_parent = || -> Option<&Entry> {
+            let parent = &unit.entries[p_idx?];
+            p_idx = parent.node.parent;
+            Some(parent)
+        };
+        while let Some(DieVariant::Namespace(ns)) = next_parent().map(|e| &e.die) {
+            ns_chain.push(ns.base_attributes.name.clone().unwrap_or_default());
+        }
+        ns_chain.reverse();
+
+        NamespaceHierarchy(ns_chain)
     }
 
     pub fn contains(&self, needle: &[&str]) -> bool {

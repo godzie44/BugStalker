@@ -43,11 +43,25 @@ impl VariableIdentity {
 
 impl Display for VariableIdentity {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!(
-            "{}::{}",
-            self.namespace.join("::"),
-            self.name.as_deref().unwrap_or_default()
-        ))
+        let namespaces = if self.namespace.is_empty() {
+            String::default()
+        } else {
+            self.namespace.join("::") + "::"
+        };
+
+        match self.name.as_deref() {
+            None => f.write_fmt(format_args!("{namespaces}{{unknown}}")),
+            Some(mut name) => {
+                if name.starts_with("__") {
+                    let mb_num = name.trim_start_matches('_');
+                    if mb_num.parse::<u64>().is_ok() {
+                        name = mb_num
+                    }
+                }
+
+                f.write_fmt(format_args!("{namespaces}{name}"))
+            }
+        }
     }
 }
 
@@ -238,7 +252,7 @@ pub enum VariableIR {
 
 impl Debug for VariableIR {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.name())
+        f.write_str(&self.name())
     }
 }
 

@@ -17,71 +17,14 @@ pub enum ValueLayout<'a> {
 }
 
 pub trait RenderRepr {
-    fn name(&self) -> &str;
+    fn name(&self) -> String;
     fn r#type(&self) -> &str;
     fn value(&self) -> Option<ValueLayout>;
 }
 
 impl RenderRepr for VariableIR {
-    fn name(&self) -> &str {
-        let name = match self {
-            VariableIR::Scalar(s) => &s.identity.name,
-            VariableIR::Struct(s) => &s.identity.name,
-            VariableIR::Array(a) => &a.identity.name,
-            VariableIR::CEnum(e) => &e.identity.name,
-            VariableIR::RustEnum(e) => &e.identity.name,
-            VariableIR::Pointer(p) => return p.identity.name.as_deref().unwrap_or("anon"),
-            VariableIR::Specialized(spec) => match spec {
-                SpecializedVariableIR::Vector { vec, original }
-                | SpecializedVariableIR::VecDeque { vec, original } => match vec {
-                    None => &original.identity.name,
-                    Some(v) => &v.structure.identity.name,
-                },
-                SpecializedVariableIR::String { string, original } => match string {
-                    None => &original.identity.name,
-                    Some(s) => &s.identity.name,
-                },
-                SpecializedVariableIR::Str { string, original } => match string {
-                    None => &original.identity.name,
-                    Some(s) => &s.identity.name,
-                },
-                SpecializedVariableIR::Tls {
-                    tls_var, original, ..
-                } => match tls_var {
-                    None => &original.identity.name,
-                    Some(tls) => &tls.identity.name,
-                },
-                SpecializedVariableIR::HashMap { map, original } => match map {
-                    None => &original.identity.name,
-                    Some(map) => &map.identity.name,
-                },
-                SpecializedVariableIR::HashSet { set, original } => match set {
-                    None => &original.identity.name,
-                    Some(set) => &set.identity.name,
-                },
-                SpecializedVariableIR::BTreeMap { map, original } => match map {
-                    None => &original.identity.name,
-                    Some(map) => &map.identity.name,
-                },
-                SpecializedVariableIR::BTreeSet { set, original } => match set {
-                    None => &original.identity.name,
-                    Some(set) => &set.identity.name,
-                },
-                SpecializedVariableIR::Cell { original, .. }
-                | SpecializedVariableIR::RefCell { original, .. } => &original.identity.name,
-                SpecializedVariableIR::Rc { original, .. }
-                | SpecializedVariableIR::Arc { original, .. } => &original.identity.name,
-            },
-        };
-
-        let name = name.as_deref().unwrap_or("unknown");
-        if name.starts_with("__") {
-            let mb_num = name.trim_start_matches('_');
-            if mb_num.parse::<u32>().is_ok() {
-                return mb_num;
-            }
-        }
-        name
+    fn name(&self) -> String {
+        self.identity().to_string()
     }
 
     fn r#type(&self) -> &str {
