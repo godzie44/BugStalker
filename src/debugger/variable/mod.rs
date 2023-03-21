@@ -625,16 +625,26 @@ impl<'a> VariableParser<'a> {
             let el_size = array_decl.size_in_bytes(eval_ctx, self.r#type)? / len as u64;
             let bytes = value.as_ref()?;
             let el_type_id = array_decl.element_type?;
+
+            let (mut bytes_chunks, mut empty_chunks);
+            let raw_items_iter: &mut dyn Iterator<Item = (usize, &[u8])> = if el_size != 0 {
+                bytes_chunks = bytes.chunks(el_size as usize).enumerate();
+                &mut bytes_chunks
+            } else {
+                // if items type is zst
+                let v: Vec<&[u8]> = vec![&[]; len as usize];
+                empty_chunks = v.into_iter().enumerate();
+                &mut empty_chunks
+            };
+
             Some(
-                bytes
-                    .chunks(el_size as usize)
-                    .enumerate()
+                raw_items_iter
                     .map(|(i, chunk)| {
                         self.parse_inner(
                             eval_ctx,
                             VariableIdentity::no_namespace(Some(format!(
-                                "{}",
-                                bounds.0 + i as i64
+                                "{index}",
+                                index = bounds.0 + i as i64
                             ))),
                             Some(bytes.slice_ref(chunk)),
                             el_type_id,

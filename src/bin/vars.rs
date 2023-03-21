@@ -404,6 +404,27 @@ fn shared_ptrs() {
     let nop: Option<u8> = None;
 }
 
+fn zst() {
+    let ptr_zst = &();
+    let array_zst = [(); 2];
+    let vec_zst = vec![(); 3];
+    let slice_zst = &[(), (), (), ()];
+    struct StructZst(());
+    let struct_zst = StructZst(());
+    let enum_zst = Option::Some(());
+    let vecdeque_zst = std::collections::VecDeque::from(vec![(); 5]);
+    let hash_map_zst_key = std::collections::HashMap::from([((), 1)]);
+    let hash_map_zst_val = std::collections::HashMap::from([(1, ())]);
+    let hash_map_zst = std::collections::HashMap::from([((), ())]);
+    let hash_set_zst = std::collections::HashSet::from([(), (), ()]);
+    let btree_map_zst_key = std::collections::BTreeMap::from([((), 1)]);
+    let btree_map_zst_val = std::collections::BTreeMap::from([(1, ()), (2, ())]);
+    let btree_map_zst = std::collections::BTreeMap::from([((), ())]);
+    let btree_set_zst = std::collections::BTreeSet::from([(), (), ()]);
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -431,4 +452,5 @@ pub fn main() {
     inner_mut();
     ptr_to_array();
     shared_ptrs();
+    zst();
 }

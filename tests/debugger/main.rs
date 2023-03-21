@@ -35,7 +35,7 @@ fn test_debugger_graceful_shutdown() {
 
 #[test]
 #[serial]
-fn test_debugger_graceful_shutdown_multiprocess() {
+fn test_debugger_graceful_shutdown_multithread() {
     debugger_env!(MT_APP, child, {
         let mut debugger = Debugger::new(MT_APP, child, TestHooks::default()).unwrap();
         debugger.set_breakpoint_at_line("mt.rs", 31).unwrap();

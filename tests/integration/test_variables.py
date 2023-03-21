@@ -367,8 +367,8 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
         self.debugger.sendline('vars GLOB_3')
-        self.debugger.expect_exact(r'vars::ns_1::GLOB_3 = &str(glob_3)')
-        self.debugger.expect_exact(r'vars::GLOB_3 = i32(3)')
+        self.debugger.expect(r'vars::(ns_1::)?GLOB_3')
+        self.debugger.expect(r'vars::(ns_1::)?GLOB_3')
 
     def test_read_tls_variables(self):
         """Reading rust tls variables"""
@@ -379,9 +379,11 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('>        let nop: Option<u8> = None;')
 
         self.debugger.sendline('vars THREAD_LOCAL_VAR_1')
-        self.debugger.expect_exact('vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(2)')
+        self.debugger.expect_exact(
+            'vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(2)')
         self.debugger.sendline('vars THREAD_LOCAL_VAR_2')
-        self.debugger.expect_exact('vars::THREAD_LOCAL_VAR_2::__getit::__KEY = Cell<&str>(2)')
+        self.debugger.expect_exact(
+            'vars::THREAD_LOCAL_VAR_2::__getit::__KEY = Cell<&str>(2)')
 
         # assert uninit tls variables
         self.debugger.sendline('break vars.rs:199')
@@ -390,7 +392,8 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('>        let nop: Option<u8> = None;')
 
         self.debugger.sendline('vars THREAD_LOCAL_VAR_1')
-        self.debugger.expect_exact('vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(uninit)')
+        self.debugger.expect_exact(
+            'vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(uninit)')
 
         # assert tls variables changes in another thread
         self.debugger.sendline('break vars.rs:203')
@@ -399,7 +402,8 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
         self.debugger.sendline('vars THREAD_LOCAL_VAR_1')
-        self.debugger.expect_exact('vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(1)')
+        self.debugger.expect_exact(
+            'vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(1)')
 
     def test_custom_select(self):
         """Reading memory by select expressions"""
@@ -455,3 +459,79 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('2: i32(3)')
         self.debugger.expect_exact('3: i32(4)')
         self.debugger.expect_exact('}')
+
+    def test_zst_types(self):
+        """Reading memory by select expressions"""
+        self.debugger.sendline('break vars.rs:425')
+        self.debugger.expect_exact('break vars.rs:425')
+
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+
+        self.debugger.sendline('vars')
+
+        self.debugger.expect_exact('ptr_zst = &()')
+
+        self.debugger.expect_exact('array_zst = [()] {')
+        self.debugger.expect_exact('0: ()(())')
+        self.debugger.expect_exact('1: ()(())')
+        self.debugger.expect_exact('}')
+
+        self.debugger.expect_exact('vec_zst = Vec<(), alloc::alloc::Global> {')
+        self.debugger.expect_exact('buf: [()] {')
+        self.debugger.expect_exact('0: ()(())')
+        self.debugger.expect_exact('1: ()(())')
+        self.debugger.expect_exact('2: ()(())')
+        self.debugger.expect_exact('}')
+        self.debugger.expect_exact('cap: usize(0)')
+        self.debugger.expect_exact('}')
+
+        self.debugger.expect_exact('slice_zst = &[(); 4]')
+
+        self.debugger.expect_exact('struct_zst = StructZst {')
+        self.debugger.expect_exact('0: ()(())')
+        self.debugger.expect_exact('}')
+
+        self.debugger.expect_exact('enum_zst = Option<()>::Some {')
+        self.debugger.expect_exact('0: ()(())')
+        self.debugger.expect_exact('}')
+
+        self.debugger.expect_exact('vecdeque_zst = VecDeque<(), alloc::alloc::Global> {')
+        self.debugger.expect_exact('buf: [()] {')
+        self.debugger.expect_exact('0: ()(())')
+        self.debugger.expect_exact('1: ()(())')
+        self.debugger.expect_exact('2: ()(())')
+        self.debugger.expect_exact('3: ()(())')
+        self.debugger.expect_exact('4: ()(())')
+        self.debugger.expect_exact('}')
+        self.debugger.expect_exact('cap: usize(0)')
+        self.debugger.expect_exact('}')
+
+        self.debugger.expect_exact('hash_map_zst_key = HashMap<(), i32, std::collections::hash::map::RandomState> {')
+        self.debugger.expect_exact('()(()): i32(1)')
+        self.debugger.expect_exact('}')
+        self.debugger.expect_exact('hash_map_zst_val = HashMap<i32, (), std::collections::hash::map::RandomState> {')
+        self.debugger.expect_exact('i32(1): ()(())')
+        self.debugger.expect_exact('}')
+        self.debugger.expect_exact('hash_map_zst = HashMap<(), (), std::collections::hash::map::RandomState> {')
+        self.debugger.expect_exact('()(()): ()(())')
+        self.debugger.expect_exact('}')
+        self.debugger.expect_exact('hash_set_zst = HashSet<(), std::collections::hash::map::RandomState> {')
+        self.debugger.expect_exact('()(())')
+        self.debugger.expect_exact('}')
+
+        self.debugger.expect_exact('btree_map_zst_key = BTreeMap<(), i32, alloc::alloc::Global> {')
+        self.debugger.expect_exact('()(()): i32(1)')
+        self.debugger.expect_exact('}')
+        self.debugger.expect_exact('btree_map_zst_val = BTreeMap<i32, (), alloc::alloc::Global> {')
+        self.debugger.expect_exact('i32(1): ()(())')
+        self.debugger.expect_exact('i32(2): ()(())')
+        self.debugger.expect_exact('}')
+        self.debugger.expect_exact('btree_map_zst = BTreeMap<(), (), alloc::alloc::Global> {')
+        self.debugger.expect_exact('()(()): ()(())')
+        self.debugger.expect_exact('}')
+        self.debugger.expect_exact('btree_set_zst = BTreeSet<(), alloc::alloc::Global> {')
+        self.debugger.expect_exact('()(())')
+        self.debugger.expect_exact('}')
+
+

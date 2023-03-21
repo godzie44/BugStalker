@@ -1882,3 +1882,182 @@ fn test_shared_ptr() {
         assert_no_proc!(child);
     });
 }
+
+#[test]
+#[serial]
+fn test_zst_types() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 425).unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(425));
+
+        let vars = debugger.read_local_variables().unwrap();
+
+        assert_pointer(&vars[0], "ptr_zst", "&()");
+        let deref = read_single_var(&debugger, "*ptr_zst");
+        assert_scalar(&deref, "*ptr_zst", "()", Some(SupportedScalar::Empty()));
+
+        assert_array(&vars[1], "array_zst", "[()]", |i, item| match i {
+            0 => assert_scalar(item, "0", "()", Some(SupportedScalar::Empty())),
+            1 => assert_scalar(item, "1", "()", Some(SupportedScalar::Empty())),
+            _ => panic!("2 members expected"),
+        });
+
+        assert_vec(
+            &vars[2],
+            "vec_zst",
+            "Vec<(), alloc::alloc::Global>",
+            0,
+            |buf| {
+                assert_array(buf, "buf", "[()]", |i, item| match i {
+                    0 => assert_scalar(item, "0", "()", Some(SupportedScalar::Empty())),
+                    1 => assert_scalar(item, "1", "()", Some(SupportedScalar::Empty())),
+                    2 => assert_scalar(item, "2", "()", Some(SupportedScalar::Empty())),
+                    _ => panic!("3 members expected"),
+                })
+            },
+        );
+
+        assert_vec(
+            &vars[2],
+            "vec_zst",
+            "Vec<(), alloc::alloc::Global>",
+            0,
+            |buf| {
+                assert_array(buf, "buf", "[()]", |i, item| match i {
+                    0 => assert_scalar(item, "0", "()", Some(SupportedScalar::Empty())),
+                    1 => assert_scalar(item, "1", "()", Some(SupportedScalar::Empty())),
+                    2 => assert_scalar(item, "2", "()", Some(SupportedScalar::Empty())),
+                    _ => panic!("3 members expected"),
+                })
+            },
+        );
+
+        assert_pointer(&vars[3], "slice_zst", "&[(); 4]");
+        let deref = read_single_var(&debugger, "*slice_zst");
+        assert_array(&deref, "*slice_zst", "[()]", |i, item| match i {
+            0 => assert_scalar(item, "0", "()", Some(SupportedScalar::Empty())),
+            1 => assert_scalar(item, "1", "()", Some(SupportedScalar::Empty())),
+            2 => assert_scalar(item, "2", "()", Some(SupportedScalar::Empty())),
+            3 => assert_scalar(item, "3", "()", Some(SupportedScalar::Empty())),
+            _ => panic!("4 members expected"),
+        });
+
+        assert_struct(&vars[4], "struct_zst", "StructZst", |i, member| match i {
+            0 => assert_scalar(member, "__0", "()", Some(SupportedScalar::Empty())),
+            _ => panic!("1 member expected"),
+        });
+
+        assert_rust_enum(&vars[5], "enum_zst", "Option<()>", |member| {
+            assert_struct(member, "Some", "Some", |i, member| match i {
+                0 => assert_scalar(member, "__0", "()", Some(SupportedScalar::Empty())),
+                _ => panic!("1 member expected"),
+            })
+        });
+
+        assert_vec_deque(
+            &vars[6],
+            "vecdeque_zst",
+            "VecDeque<(), alloc::alloc::Global>",
+            0,
+            |buf| {
+                assert_array(buf, "buf", "[()]", |i, item| match i {
+                    0 => assert_scalar(item, "0", "()", Some(SupportedScalar::Empty())),
+                    1 => assert_scalar(item, "1", "()", Some(SupportedScalar::Empty())),
+                    2 => assert_scalar(item, "2", "()", Some(SupportedScalar::Empty())),
+                    3 => assert_scalar(item, "3", "()", Some(SupportedScalar::Empty())),
+                    4 => assert_scalar(item, "4", "()", Some(SupportedScalar::Empty())),
+                    _ => panic!("5 members expected"),
+                })
+            },
+        );
+
+        assert_hashmap(
+            &vars[7],
+            "hash_map_zst_key",
+            "HashMap<(), i32, std::collections::hash::map::RandomState>",
+            |items| {
+                assert_eq!(items.len(), 1);
+                assert_scalar(&items[0].0, "__0", "()", Some(SupportedScalar::Empty()));
+                assert_scalar(&items[0].1, "__1", "i32", Some(SupportedScalar::I32(1)));
+            },
+        );
+        assert_hashmap(
+            &vars[8],
+            "hash_map_zst_val",
+            "HashMap<i32, (), std::collections::hash::map::RandomState>",
+            |items| {
+                assert_eq!(items.len(), 1);
+                assert_scalar(&items[0].0, "__0", "i32", Some(SupportedScalar::I32(1)));
+                assert_scalar(&items[0].1, "__1", "()", Some(SupportedScalar::Empty()));
+            },
+        );
+        assert_hashmap(
+            &vars[9],
+            "hash_map_zst",
+            "HashMap<(), (), std::collections::hash::map::RandomState>",
+            |items| {
+                assert_eq!(items.len(), 1);
+                assert_scalar(&items[0].0, "__0", "()", Some(SupportedScalar::Empty()));
+                assert_scalar(&items[0].1, "__1", "()", Some(SupportedScalar::Empty()));
+            },
+        );
+        assert_hashset(
+            &vars[10],
+            "hash_set_zst",
+            "HashSet<(), std::collections::hash::map::RandomState>",
+            |items| {
+                assert_eq!(items.len(), 1);
+                assert_scalar(&items[0], "__0", "()", Some(SupportedScalar::Empty()));
+            },
+        );
+
+        assert_btree_map(
+            &vars[11],
+            "btree_map_zst_key",
+            "BTreeMap<(), i32, alloc::alloc::Global>",
+            |items| {
+                assert_eq!(items.len(), 1);
+                assert_scalar(&items[0].0, "k", "()", Some(SupportedScalar::Empty()));
+                assert_scalar(&items[0].1, "v", "i32", Some(SupportedScalar::I32(1)));
+            },
+        );
+        assert_btree_map(
+            &vars[12],
+            "btree_map_zst_val",
+            "BTreeMap<i32, (), alloc::alloc::Global>",
+            |items| {
+                assert_eq!(items.len(), 2);
+                assert_scalar(&items[0].0, "k", "i32", Some(SupportedScalar::I32(1)));
+                assert_scalar(&items[0].1, "v", "()", Some(SupportedScalar::Empty()));
+                assert_scalar(&items[1].0, "k", "i32", Some(SupportedScalar::I32(2)));
+                assert_scalar(&items[1].1, "v", "()", Some(SupportedScalar::Empty()));
+            },
+        );
+        assert_btree_map(
+            &vars[13],
+            "btree_map_zst",
+            "BTreeMap<(), (), alloc::alloc::Global>",
+            |items| {
+                assert_eq!(items.len(), 1);
+                assert_scalar(&items[0].0, "k", "()", Some(SupportedScalar::Empty()));
+                assert_scalar(&items[0].1, "v", "()", Some(SupportedScalar::Empty()));
+            },
+        );
+        assert_btree_set(
+            &vars[14],
+            "btree_set_zst",
+            "BTreeSet<(), alloc::alloc::Global>",
+            |items| {
+                assert_eq!(items.len(), 1);
+                assert_scalar(&items[0], "k", "()", Some(SupportedScalar::Empty()));
+            },
+        );
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
+    });
+}

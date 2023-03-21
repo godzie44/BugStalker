@@ -221,9 +221,18 @@ impl<'a> VariableParserExtension<'a> {
         )
         .map(Bytes::from)?;
 
-        let items = data
-            .chunks(el_type_size as usize)
-            .enumerate()
+        let (mut bytes_chunks, mut empty_chunks);
+        let raw_items_iter: &mut dyn Iterator<Item = (usize, &[u8])> = if el_type_size != 0 {
+            bytes_chunks = data.chunks(el_type_size as usize).enumerate();
+            &mut bytes_chunks
+        } else {
+            // if items type is zst
+            let v: Vec<&[u8]> = vec![&[]; len as usize];
+            empty_chunks = v.into_iter().enumerate();
+            &mut empty_chunks
+        };
+
+        let items = raw_items_iter
             .map(|(i, chunk)| {
                 self.parser.parse_inner(
                     eval_ctx,
@@ -597,9 +606,18 @@ impl<'a> VariableParserExtension<'a> {
             .get("T")
             .ok_or_else(|| anyhow!("template parameter `T`"))?
             .ok_or_else(|| anyhow!("unreachable: template param die without type"))?;
-        let len = ir.assume_field_as_scalar_number("len")?;
-        let cap = ir.assume_field_as_scalar_number("cap")?;
-        let head = ir.assume_field_as_scalar_number("head")?;
+        let len = ir.assume_field_as_scalar_number("len")? as usize;
+        let el_type_size = self
+            .parser
+            .r#type
+            .type_size_in_bytes(eval_ctx, inner_type)
+            .ok_or_else(|| anyhow!("unknown element size"))? as usize;
+        let cap = if el_type_size == 0 {
+            usize::MAX
+        } else {
+            ir.assume_field_as_scalar_number("cap")? as usize
+        };
+        let head = ir.assume_field_as_scalar_number("head")? as usize;
 
         let wrapped_start = if head >= cap { head - cap } else { head };
         let head_len = cap - wrapped_start;
@@ -613,25 +631,15 @@ impl<'a> VariableParserExtension<'a> {
 
         let data_ptr = ir.assume_field_as_pointer("pointer")?;
 
-        let el_type_size = self
-            .parser
-            .r#type
-            .type_size_in_bytes(eval_ctx, inner_type)
-            .ok_or_else(|| anyhow!("unknown element size"))? as usize;
-
-        let data = debugger::read_memory_by_pid(
-            eval_ctx.pid,
-            data_ptr as usize,
-            cap as usize * el_type_size,
-        )
-        .map(Bytes::from)?;
+        let data =
+            debugger::read_memory_by_pid(eval_ctx.pid, data_ptr as usize, cap * el_type_size)
+                .map(Bytes::from)?;
 
         let items = slice_ranges
             .0
             .chain(slice_ranges.1)
             .enumerate()
             .map(|(i, real_idx)| {
-                let real_idx = real_idx as usize;
                 let el_data = &data[real_idx * el_type_size..(real_idx + 1) * el_type_size];
                 self.parser.parse_inner(
                     eval_ctx,
@@ -659,7 +667,11 @@ impl<'a> VariableParserExtension<'a> {
                     VariableIR::Scalar(ScalarVariable {
                         identity: VariableIdentity::no_namespace(Some("cap".to_owned())),
                         type_name: Some("usize".to_owned()),
-                        value: Some(SupportedScalar::Usize(cap as usize)),
+                        value: Some(SupportedScalar::Usize(if el_type_size == 0 {
+                            0
+                        } else {
+                            cap
+                        })),
                     }),
                 ],
                 type_params: type_params.clone(),
