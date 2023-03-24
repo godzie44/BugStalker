@@ -3,7 +3,7 @@ use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
 use crate::{debugger_env, VARS_APP};
 use bugstalker::debugger;
-use bugstalker::debugger::command::expression::{SelectPlan, SelectPlanParser};
+use bugstalker::debugger::command::expression::{ExprPlan, ExprPlanParser};
 use bugstalker::debugger::variable::render::RenderRepr;
 use bugstalker::debugger::variable::VariableIR;
 use bugstalker::debugger::{variable, Debugger};
@@ -539,8 +539,8 @@ fn test_read_enum() {
     });
 }
 
-fn make_select_plan(expr: &str) -> SelectPlan {
-    let parser = SelectPlanParser::new(expr);
+fn make_select_plan(expr: &str) -> ExprPlan {
+    let parser = ExprPlanParser::new(expr);
     parser.parse().unwrap()
 }
 
@@ -837,13 +837,13 @@ fn test_read_static_variables() {
         assert_eq!(info.line.take(), Some(168));
 
         let vars = debugger
-            .read_variable(SelectPlan::select_variable("GLOB_1"))
+            .read_variable(ExprPlan::select_variable("GLOB_1"))
             .unwrap();
         assert_eq!(vars.len(), 1);
         assert_str(&vars[0], "GLOB_1", "glob_1");
 
         let vars = debugger
-            .read_variable(SelectPlan::select_variable("GLOB_2"))
+            .read_variable(ExprPlan::select_variable("GLOB_2"))
             .unwrap();
         assert_eq!(vars.len(), 1);
         assert_scalar(&vars[0], "GLOB_2", "i32", Some(SupportedScalar::I32(2)));
@@ -865,7 +865,7 @@ fn test_read_static_variables_different_modules() {
         assert_eq!(info.line.take(), Some(179));
 
         let mut vars = debugger
-            .read_variable(SelectPlan::select_variable("GLOB_3"))
+            .read_variable(ExprPlan::select_variable("GLOB_3"))
             .unwrap();
         assert_eq!(vars.len(), 2);
         vars.sort_by(|v1, v2| v1.r#type().cmp(v2.r#type()));
@@ -890,7 +890,7 @@ fn test_read_tls_variables() {
         assert_eq!(info.line.take(), Some(194));
 
         let vars = debugger
-            .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_1"))
+            .read_variable(ExprPlan::select_variable("THREAD_LOCAL_VAR_1"))
             .unwrap();
         assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>", |inner| {
             assert_cell(inner, "0", "Cell<i32>", |value| {
@@ -899,7 +899,7 @@ fn test_read_tls_variables() {
         });
 
         let vars = debugger
-            .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_2"))
+            .read_variable(ExprPlan::select_variable("THREAD_LOCAL_VAR_2"))
             .unwrap();
         assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_2", "Cell<&str>", |inner| {
             assert_cell(inner, "0", "Cell<&str>", |value| {
@@ -913,7 +913,7 @@ fn test_read_tls_variables() {
         assert_eq!(info.line.take(), Some(199));
 
         let vars = debugger
-            .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_1"))
+            .read_variable(ExprPlan::select_variable("THREAD_LOCAL_VAR_1"))
             .unwrap();
         assert_uninit_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>");
 
@@ -923,7 +923,7 @@ fn test_read_tls_variables() {
         assert_eq!(info.line.take(), Some(203));
 
         let vars = debugger
-            .read_variable(SelectPlan::select_variable("THREAD_LOCAL_VAR_1"))
+            .read_variable(ExprPlan::select_variable("THREAD_LOCAL_VAR_1"))
             .unwrap();
         assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>", |inner| {
             assert_cell(inner, "0", "Cell<i32>", |value| {

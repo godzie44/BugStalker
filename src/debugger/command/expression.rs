@@ -1,160 +1,196 @@
+use nom::branch::alt;
+use nom::bytes::complete::tag;
+use nom::character::complete::{alpha1, alphanumeric1, char, digit1};
+use nom::combinator::{cut, eof, map, map_res, peek};
+use nom::error::{context, Error};
+use nom::multi::{many0, many0_count};
+use nom::sequence::{delimited, pair, preceded, terminated};
+use nom::{combinator::recognize, Finish, IResult, Parser};
 use std::cmp::Ordering;
 use std::collections::VecDeque;
-use std::mem;
+use std::num::ParseIntError;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum Token {
     Deref,
     OpenBracket,
     ClosedBracket,
-    Dot,
-    DoubleDot,
-    OpenSquareBracket,
-    ClosedSquareBracket,
-    Text(String),
-    End,
+    GetField(String),
+    Root(String),
+    Slice(usize),
+    GetByIndex(usize),
+    EOF,
 }
 
-impl Token {
-    fn next_valid(&self) -> fn(tok: &Token) -> bool {
-        match self {
-            Token::Deref => |tok| matches!(tok, Token::Deref | Token::OpenBracket | Token::Text(_)),
-            Token::OpenBracket => {
-                |tok| matches!(tok, Token::Deref | Token::OpenBracket | Token::Text(_))
-            }
-            Token::ClosedBracket => |tok| {
-                matches!(
-                    tok,
-                    Token::ClosedBracket | Token::Dot | Token::OpenSquareBracket | Token::End
-                )
-            },
-            Token::Dot => |tok| matches!(tok, Token::Text(_)),
-            Token::OpenSquareBracket => |tok| matches!(tok, Token::Text(_) | Token::DoubleDot),
-            Token::ClosedSquareBracket => |tok| {
-                matches!(
-                    tok,
-                    Token::ClosedBracket | Token::Dot | Token::OpenSquareBracket | Token::End
-                )
-            },
-            Token::Text(_) => |tok| {
-                matches!(
-                    tok,
-                    Token::ClosedBracket
-                        | Token::Dot
-                        | Token::OpenSquareBracket
-                        | Token::ClosedSquareBracket
-                        | Token::End
-                )
-            },
-            Token::DoubleDot => |tok| matches!(tok, Token::Text(_)),
-            Token::End => |_| true,
-        }
-    }
-}
+#[derive(Debug, PartialEq)]
+pub struct RustIdentify(String);
 
 struct Tokenizer<'a> {
     string: &'a str,
-    accum: String,
-    tokens: Vec<Token>,
 }
 
 impl<'a> Tokenizer<'a> {
     fn new(string: &'a str) -> Self {
         Self {
-            string,
-            accum: String::default(),
-            tokens: vec![],
+            string: string.trim(),
         }
     }
 
-    fn tokenize(mut self) -> Vec<Token> {
-        let mut skip = false;
-        for (i, char) in self.string.chars().enumerate() {
-            if skip {
-                skip = false;
-                continue;
-            }
-            match char {
-                '*' => self.push_text_and_token(Token::Deref),
-                '(' => self.push_text_and_token(Token::OpenBracket),
-                ')' => self.push_text_and_token(Token::ClosedBracket),
-                '.' => {
-                    if self.string.chars().nth(i + 1) == Some('.') {
-                        self.push_text_and_token(Token::DoubleDot);
-                        skip = true;
-                    } else {
-                        self.push_text_and_token(Token::Dot)
-                    }
-                }
-                '[' => self.push_text_and_token(Token::OpenSquareBracket),
-                ']' => self.push_text_and_token(Token::ClosedSquareBracket),
-                _ => self.accum.push(char),
-            }
+    fn tokenize(&self) -> Result<(&str, Vec<Token>), Error<String>> {
+        fn rust_identifier(input: &str) -> IResult<&str, &str> {
+            recognize(pair(
+                alt((alpha1, tag("_"))),
+                many0_count(alt((alphanumeric1, tag("_")))),
+            ))(input)
         }
-        self.push_text();
-        self.tokens.push(Token::End);
 
-        self.tokens
-    }
-
-    fn push_text(&mut self) {
-        let text = mem::take(&mut self.accum);
-        if !text.is_empty() {
-            self.tokens.push(Token::Text(text))
+        fn left_op<'a, O1, F>(
+            ctx: &'static str,
+            inner: F,
+        ) -> impl FnMut(&'a str) -> IResult<&'a str, O1, Error<&'a str>>
+        where
+            F: Parser<&'a str, O1, Error<&'a str>>,
+        {
+            context(
+                ctx,
+                terminated(inner, cut(peek(alt((open_bracket, deref, root))))),
+            )
         }
-    }
 
-    fn push_text_and_token(&mut self, tok: Token) {
-        self.push_text();
-        self.tokens.push(tok);
+        fn right_op<'a, O1, F>(
+            ctx: &'static str,
+            inner: F,
+        ) -> impl FnMut(&'a str) -> IResult<&'a str, O1, Error<&'a str>>
+        where
+            F: Parser<&'a str, O1, Error<&'a str>>,
+        {
+            context(
+                ctx,
+                terminated(
+                    inner,
+                    cut(peek(alt((
+                        close_bracket,
+                        field,
+                        slice,
+                        index,
+                        map(eof, |_| Token::EOF),
+                    )))),
+                ),
+            )
+        }
+
+        fn deref(input: &str) -> IResult<&str, Token> {
+            map(left_op("deref", tag("*")), |_| Token::Deref)(input)
+        }
+        fn open_bracket(input: &str) -> IResult<&str, Token> {
+            map(left_op("opened bracket", tag("(")), |_| Token::OpenBracket)(input)
+        }
+        fn root(input: &str) -> IResult<&str, Token> {
+            map(right_op("root", rust_identifier), |s: &str| {
+                Token::Root(s.into())
+            })(input)
+        }
+        fn close_bracket(input: &str) -> IResult<&str, Token> {
+            map(right_op("closed bracket", tag(")")), |_| {
+                Token::ClosedBracket
+            })(input)
+        }
+        fn field(input: &str) -> IResult<&str, Token> {
+            map(
+                right_op("field", preceded(tag("."), cut(rust_identifier))),
+                |s| Token::GetField(s.into()),
+            )(input)
+        }
+        fn slice(input: &str) -> IResult<&str, Token> {
+            map_res(
+                right_op("slice", delimited(tag("[.."), cut(digit1), char(']'))),
+                |digits: &str| -> Result<Token, ParseIntError> {
+                    Ok(Token::Slice(digits.parse()?))
+                },
+            )(input)
+        }
+        fn index(input: &str) -> IResult<&str, Token> {
+            map_res(
+                right_op("index", delimited(tag("["), cut(digit1), char(']'))),
+                |digits: &str| -> Result<Token, ParseIntError> {
+                    Ok(Token::GetByIndex(digits.parse()?))
+                },
+            )(input)
+        }
+
+        many0(alt((
+            deref,
+            open_bracket,
+            close_bracket,
+            field,
+            slice,
+            index,
+            root,
+        )))(self.string)
+        .map_err(|e| e.to_owned())
+        .finish()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Operator {
+/// `ExprPlan` item.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Operation {
     Deref,
-    Field,
-    Index,
-    Slice,
+    Root(String),
+    Index(usize),
+    Field(String),
+    Slice(usize),
 }
 
-impl Operator {
+impl Operation {
     fn left_associative(&self) -> bool {
         match self {
-            Operator::Deref => false,
-            Operator::Field => true,
-            Operator::Index => true,
-            Operator::Slice => true,
+            Operation::Deref => false,
+            Operation::Field(_) => true,
+            Operation::Index(_) => true,
+            Operation::Slice(_) => true,
+            Operation::Root(_) => true,
         }
     }
 }
 
-impl PartialOrd for Operator {
+impl PartialOrd for Operation {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match self {
-            Operator::Deref => match other {
-                Operator::Deref => Some(Ordering::Equal),
-                Operator::Field => Some(Ordering::Less),
-                Operator::Index => Some(Ordering::Less),
-                Operator::Slice => Some(Ordering::Less),
+            Operation::Deref => match other {
+                Operation::Deref => Some(Ordering::Equal),
+                Operation::Field(_) => Some(Ordering::Less),
+                Operation::Index(_) => Some(Ordering::Less),
+                Operation::Slice(_) => Some(Ordering::Less),
+                Operation::Root(_) => Some(Ordering::Less),
             },
-            Operator::Field => match other {
-                Operator::Deref => Some(Ordering::Greater),
-                Operator::Field => Some(Ordering::Equal),
-                Operator::Index => Some(Ordering::Equal),
-                Operator::Slice => Some(Ordering::Equal),
+            Operation::Field(_) => match other {
+                Operation::Deref => Some(Ordering::Greater),
+                Operation::Field(_) => Some(Ordering::Equal),
+                Operation::Index(_) => Some(Ordering::Equal),
+                Operation::Slice(_) => Some(Ordering::Equal),
+                Operation::Root(_) => Some(Ordering::Less),
             },
-            Operator::Index => match other {
-                Operator::Deref => Some(Ordering::Greater),
-                Operator::Field => Some(Ordering::Equal),
-                Operator::Index => Some(Ordering::Equal),
-                Operator::Slice => Some(Ordering::Equal),
+            Operation::Index(_) => match other {
+                Operation::Deref => Some(Ordering::Greater),
+                Operation::Field(_) => Some(Ordering::Equal),
+                Operation::Index(_) => Some(Ordering::Equal),
+                Operation::Slice(_) => Some(Ordering::Equal),
+                Operation::Root(_) => Some(Ordering::Less),
             },
-            Operator::Slice => match other {
-                Operator::Deref => Some(Ordering::Greater),
-                Operator::Field => Some(Ordering::Equal),
-                Operator::Index => Some(Ordering::Equal),
-                Operator::Slice => Some(Ordering::Equal),
+            Operation::Slice(_) => match other {
+                Operation::Deref => Some(Ordering::Greater),
+                Operation::Field(_) => Some(Ordering::Equal),
+                Operation::Index(_) => Some(Ordering::Equal),
+                Operation::Slice(_) => Some(Ordering::Equal),
+                Operation::Root(_) => Some(Ordering::Less),
+            },
+            Operation::Root(_) => match other {
+                Operation::Deref => Some(Ordering::Greater),
+                Operation::Field(_) => Some(Ordering::Greater),
+                Operation::Index(_) => Some(Ordering::Greater),
+                Operation::Slice(_) => Some(Ordering::Greater),
+                Operation::Root(_) => Some(Ordering::Equal),
             },
         }
     }
@@ -162,38 +198,24 @@ impl PartialOrd for Operator {
 
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum ParseError {
-    #[error("unexpected token: {0:?}")]
-    UnexpectedToken(Token),
+    #[error(transparent)]
+    ParsingError(#[from] Error<String>),
     #[error("expression miss open bracket")]
     MissOpenBracket,
     #[error("expression miss closed bracket")]
     MissClosedBracket,
-    #[error("expect operand for operation {0}")]
-    OperandNotFound(&'static str),
-    #[error("invalid operand {0}")]
-    InvalidOperand(String),
-}
-
-/// `SelectPlan` item.
-#[derive(Debug, PartialEq)]
-pub enum Operation {
-    Deref,
-    FindVariable(String),
-    GetByIndex(usize),
-    GetField(String),
-    Slice(usize),
 }
 
 /// List of operations for further execution.
-/// `SelectPlan` can be generated from an input string of the form "{operator}{open bracket}variable{operator}{field}{index}{closed bracket}"
-/// Supported operators are: dereference, get element by index, get field by name.
+/// `ExprPlan` can be generated from an input string of the form "{operator}{open bracket}variable{operator}{field}{index}{closed bracket}"
+/// Supported operators are: dereference, get element by index, get field by name, make slice from pointer.
 #[derive(Debug, PartialEq, Default)]
-pub struct SelectPlan {
+pub struct ExprPlan {
     pub source: String,
     pub plan: VecDeque<Operation>,
 }
 
-impl SelectPlan {
+impl ExprPlan {
     pub fn empty() -> Self {
         Self::default()
     }
@@ -201,54 +223,50 @@ impl SelectPlan {
     pub fn select_variable(var_name: &str) -> Self {
         Self {
             source: var_name.to_string(),
-            plan: VecDeque::from(vec![Operation::FindVariable(var_name.to_string())]),
+            plan: VecDeque::from(vec![Operation::Root(var_name.to_string())]),
         }
     }
 
     pub(crate) fn base_variable_name(&self) -> Option<&str> {
         self.plan.front().and_then(|item| match item {
-            Operation::FindVariable(var) => Some(var.as_str()),
+            Operation::Root(var) => Some(var.as_str()),
             _ => None,
         })
     }
 }
 
-/// Parse `SelectPlan` from input string. Using shunting yard algorithm.
-pub struct SelectPlanParser<'a> {
+/// Parse `ExprPlan` from input string. Using shunting yard algorithm.
+pub struct ExprPlanParser<'a> {
     string: &'a str,
 }
 
-impl<'a> SelectPlanParser<'a> {
-    /// Create new `SelectPlanParser`.
+impl<'a> ExprPlanParser<'a> {
+    /// Create new `ExprPlanParser`.
     pub fn new(string: &'a str) -> Self {
         Self { string }
     }
 
-    /// Parse `SelectPlan` from input string.
-    pub fn parse(&self) -> Result<SelectPlan, ParseError> {
+    /// Parse `ExprPlan` from input string.
+    pub fn parse(&self) -> Result<ExprPlan, ParseError> {
         let tokenizer = Tokenizer::new(self.string);
 
-        enum OperatorOrOperand {
-            Operator(Operator),
-            Operand(String),
-        }
-        let mut output = VecDeque::new();
+        let mut plan = VecDeque::new();
 
         enum StackItem {
-            Operator(Operator),
+            Operator(Operation),
             OpenBracket,
         }
         let mut stack: Vec<StackItem> = vec![];
 
         fn pop_high_prio(
             stack: &mut Vec<StackItem>,
-            output: &mut VecDeque<OperatorOrOperand>,
-            op1: Operator,
+            output: &mut VecDeque<Operation>,
+            op1: Operation,
         ) {
             while let Some(StackItem::Operator(op2)) = stack.last() {
                 match op2.partial_cmp(&op1) {
                     Some(Ordering::Greater) | Some(Ordering::Equal) if op1.left_associative() => {
-                        output.push_back(OperatorOrOperand::Operator(*op2));
+                        output.push_back(op2.clone());
                         stack.pop();
                     }
                     _ => break,
@@ -256,22 +274,18 @@ impl<'a> SelectPlanParser<'a> {
             }
         }
 
-        let mut next_valid: fn(&Token) -> bool = |_: &Token| true;
-        let mut tokens = tokenizer.tokenize();
+        let (_, tokens) = tokenizer.tokenize()?;
 
-        for i in 0..tokens.len() {
-            if !next_valid(&tokens[i]) {
-                return Err(ParseError::UnexpectedToken(tokens.swap_remove(i)));
-            }
-            next_valid = tokens[i].next_valid();
-
-            match &tokens[i] {
-                Token::Text(s) => {
-                    output.push_back(OperatorOrOperand::Operand(s.clone()));
+        for token in tokens {
+            match &token {
+                Token::Root(name) => {
+                    let op1 = Operation::Root(name.clone());
+                    pop_high_prio(&mut stack, &mut plan, op1.clone());
+                    stack.push(StackItem::Operator(op1));
                 }
                 Token::Deref => {
-                    let op1 = Operator::Deref;
-                    pop_high_prio(&mut stack, &mut output, op1);
+                    let op1 = Operation::Deref;
+                    pop_high_prio(&mut stack, &mut plan, op1.clone());
                     stack.push(StackItem::Operator(op1));
                 }
                 Token::OpenBracket => {
@@ -284,87 +298,41 @@ impl<'a> SelectPlanParser<'a> {
                             break;
                         }
                         Some(StackItem::Operator(op)) => {
-                            output.push_back(OperatorOrOperand::Operator(*op));
+                            plan.push_back(op.clone());
                             stack.pop();
                         }
                         None => return Err(ParseError::MissOpenBracket),
                     }
                 },
-                Token::Dot => {
-                    let op1 = Operator::Field;
-                    pop_high_prio(&mut stack, &mut output, op1);
+                Token::GetField(field) => {
+                    let op1 = Operation::Field(field.clone());
+                    pop_high_prio(&mut stack, &mut plan, op1.clone());
                     stack.push(StackItem::Operator(op1));
                 }
-                Token::OpenSquareBracket => {
-                    let op1 = if tokens[i + 1] == Token::DoubleDot {
-                        Operator::Slice
-                    } else {
-                        Operator::Index
-                    };
-                    pop_high_prio(&mut stack, &mut output, op1);
+                Token::GetByIndex(idx) => {
+                    let op1 = Operation::Index(*idx);
+                    pop_high_prio(&mut stack, &mut plan, op1.clone());
                     stack.push(StackItem::Operator(op1));
                 }
-                Token::ClosedSquareBracket => {}
-                Token::DoubleDot => {}
-                Token::End => {}
+                Token::Slice(len) => {
+                    let op1 = Operation::Slice(*len);
+                    pop_high_prio(&mut stack, &mut plan, op1.clone());
+                    stack.push(StackItem::Operator(op1));
+                }
+                Token::EOF => {}
             }
         }
 
         while let Some(it) = stack.pop() {
             match it {
                 StackItem::Operator(op) => {
-                    output.push_back(OperatorOrOperand::Operator(op));
+                    plan.push_back(op);
                 }
                 StackItem::OpenBracket => return Err(ParseError::MissClosedBracket),
             }
         }
 
-        let mut plan = VecDeque::new();
-        let mut operand_stack = vec![];
-        for (idx, item) in output.into_iter().enumerate() {
-            if idx == 0 {
-                if let OperatorOrOperand::Operand(text) = item {
-                    plan.push_back(Operation::FindVariable(text))
-                } else {
-                    return Err(ParseError::OperandNotFound("find variable"));
-                }
-                continue;
-            };
-
-            match item {
-                OperatorOrOperand::Operator(op) => match op {
-                    Operator::Deref => plan.push_back(Operation::Deref),
-                    Operator::Field => plan.push_back(Operation::GetField(
-                        operand_stack
-                            .pop()
-                            .ok_or(ParseError::OperandNotFound("get field"))?,
-                    )),
-                    Operator::Index => {
-                        let operand = operand_stack
-                            .pop()
-                            .ok_or(ParseError::OperandNotFound("get by index"))?;
-                        let index = operand
-                            .parse::<usize>()
-                            .map_err(|_| ParseError::InvalidOperand(operand))?;
-                        plan.push_back(Operation::GetByIndex(index));
-                    }
-                    Operator::Slice => {
-                        let operand = operand_stack
-                            .pop()
-                            .ok_or(ParseError::OperandNotFound("slice"))?;
-                        let index = operand
-                            .parse::<usize>()
-                            .map_err(|_| ParseError::InvalidOperand(operand))?;
-                        plan.push_back(Operation::Slice(index));
-                    }
-                },
-                OperatorOrOperand::Operand(text) => {
-                    operand_stack.push(text);
-                }
-            }
-        }
-
-        Ok(SelectPlan {
+        Ok(ExprPlan {
             source: self.string.to_string(),
             plan,
         })
@@ -374,6 +342,7 @@ impl<'a> SelectPlanParser<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use nom::error::ErrorKind;
 
     #[test]
     fn test_tokenizer() {
@@ -384,32 +353,24 @@ mod test {
         let test_cases = vec![
             TestCase {
                 string: "var1",
-                tokens: vec![Token::Text("var1".into()), Token::End],
+                tokens: vec![Token::Root("var1".into())],
             },
             TestCase {
                 string: "*var1",
-                tokens: vec![Token::Deref, Token::Text("var1".into()), Token::End],
+                tokens: vec![Token::Deref, Token::Root("var1".into())],
             },
             TestCase {
                 string: "**var1",
-                tokens: vec![
-                    Token::Deref,
-                    Token::Deref,
-                    Token::Text("var1".into()),
-                    Token::End,
-                ],
+                tokens: vec![Token::Deref, Token::Deref, Token::Root("var1".into())],
             },
             TestCase {
                 string: "**var1.field1.field2",
                 tokens: vec![
                     Token::Deref,
                     Token::Deref,
-                    Token::Text("var1".into()),
-                    Token::Dot,
-                    Token::Text("field1".into()),
-                    Token::Dot,
-                    Token::Text("field2".into()),
-                    Token::End,
+                    Token::Root("var1".into()),
+                    Token::GetField("field1".into()),
+                    Token::GetField("field2".into()),
                 ],
             },
             TestCase {
@@ -418,13 +379,10 @@ mod test {
                     Token::Deref,
                     Token::Deref,
                     Token::OpenBracket,
-                    Token::Text("var1".into()),
-                    Token::Dot,
-                    Token::Text("field1".into()),
-                    Token::Dot,
-                    Token::Text("field2".into()),
+                    Token::Root("var1".into()),
+                    Token::GetField("field1".into()),
+                    Token::GetField("field2".into()),
                     Token::ClosedBracket,
-                    Token::End,
                 ],
             },
             TestCase {
@@ -434,41 +392,57 @@ mod test {
                     Token::OpenBracket,
                     Token::Deref,
                     Token::OpenBracket,
-                    Token::Text("var1".into()),
-                    Token::Dot,
-                    Token::Text("field1".into()),
-                    Token::Dot,
-                    Token::Text("field2".into()),
-                    Token::OpenSquareBracket,
-                    Token::Text("1".into()),
-                    Token::ClosedSquareBracket,
-                    Token::OpenSquareBracket,
-                    Token::Text("2".into()),
-                    Token::ClosedSquareBracket,
+                    Token::Root("var1".into()),
+                    Token::GetField("field1".into()),
+                    Token::GetField("field2".into()),
+                    Token::GetByIndex(1),
+                    Token::GetByIndex(2),
                     Token::ClosedBracket,
                     Token::ClosedBracket,
-                    Token::End,
                 ],
             },
             TestCase {
                 string: "var1.field1[..5]",
                 tokens: vec![
-                    Token::Text("var1".into()),
-                    Token::Dot,
-                    Token::Text("field1".into()),
-                    Token::OpenSquareBracket,
-                    Token::DoubleDot,
-                    Token::Text("5".into()),
-                    Token::ClosedSquareBracket,
-                    Token::End,
+                    Token::Root("var1".into()),
+                    Token::GetField("field1".into()),
+                    Token::Slice(5),
                 ],
             },
         ];
 
         for tc in test_cases {
             let tokenizer = Tokenizer::new(tc.string);
-            let tokens = tokenizer.tokenize();
+            let (_, tokens) = tokenizer.tokenize().unwrap();
             assert_eq!(tokens, tc.tokens);
+        }
+    }
+
+    #[test]
+    fn test_tokenizer_err() {
+        struct TestCase {
+            string: &'static str,
+            error: &'static str,
+        }
+        let test_cases = vec![
+            TestCase {
+                string: "var1 var2",
+                error: "error Eof at:  var2",
+            },
+            TestCase {
+                string: "var1..",
+                error: "error Tag at: .",
+            },
+            TestCase {
+                string: "var1[]",
+                error: "error Digit at: ]",
+            },
+        ];
+
+        for tc in test_cases {
+            let tokenizer = Tokenizer::new(tc.string);
+            let err = tokenizer.tokenize().err().unwrap();
+            assert_eq!(err.to_string(), tc.error);
         }
     }
 
@@ -476,16 +450,16 @@ mod test {
     fn test_parser() {
         struct TestCase {
             string: &'static str,
-            out: Result<SelectPlan, ParseError>,
+            out: Result<ExprPlan, ParseError>,
         }
         let test_cases = vec![
             TestCase {
                 string: "**var1.field1",
-                out: Ok(SelectPlan {
+                out: Ok(ExprPlan {
                     source: "**var1.field1".to_string(),
                     plan: VecDeque::from(vec![
-                        Operation::FindVariable("var1".to_string()),
-                        Operation::GetField("field1".to_string()),
+                        Operation::Root("var1".to_string()),
+                        Operation::Field("field1".to_string()),
                         Operation::Deref,
                         Operation::Deref,
                     ]),
@@ -493,83 +467,89 @@ mod test {
             },
             TestCase {
                 string: "var1.field1.field2[1][2].field3",
-                out: Ok(SelectPlan {
+                out: Ok(ExprPlan {
                     source: "var1.field1.field2[1][2].field3".to_string(),
                     plan: VecDeque::from(vec![
-                        Operation::FindVariable("var1".to_string()),
-                        Operation::GetField("field1".to_string()),
-                        Operation::GetField("field2".to_string()),
-                        Operation::GetByIndex(1),
-                        Operation::GetByIndex(2),
-                        Operation::GetField("field3".to_string()),
+                        Operation::Root("var1".to_string()),
+                        Operation::Field("field1".to_string()),
+                        Operation::Field("field2".to_string()),
+                        Operation::Index(1),
+                        Operation::Index(2),
+                        Operation::Field("field3".to_string()),
                     ]),
                 }),
             },
             TestCase {
                 string: "*(*var1.field1).field2",
-                out: Ok(SelectPlan {
+                out: Ok(ExprPlan {
                     source: "*(*var1.field1).field2".to_string(),
                     plan: VecDeque::from(vec![
-                        Operation::FindVariable("var1".to_string()),
-                        Operation::GetField("field1".to_string()),
+                        Operation::Root("var1".to_string()),
+                        Operation::Field("field1".to_string()),
                         Operation::Deref,
-                        Operation::GetField("field2".to_string()),
+                        Operation::Field("field2".to_string()),
                         Operation::Deref,
                     ]),
                 }),
             },
             TestCase {
                 string: "*(*var1.field1[0][1]).field2",
-                out: Ok(SelectPlan {
+                out: Ok(ExprPlan {
                     source: "*(*var1.field1[0][1]).field2".to_string(),
                     plan: VecDeque::from(vec![
-                        Operation::FindVariable("var1".to_string()),
-                        Operation::GetField("field1".to_string()),
-                        Operation::GetByIndex(0),
-                        Operation::GetByIndex(1),
+                        Operation::Root("var1".to_string()),
+                        Operation::Field("field1".to_string()),
+                        Operation::Index(0),
+                        Operation::Index(1),
                         Operation::Deref,
-                        Operation::GetField("field2".to_string()),
+                        Operation::Field("field2".to_string()),
                         Operation::Deref,
                     ]),
                 }),
             },
             TestCase {
                 string: "(var1.field1)",
-                out: Ok(SelectPlan {
+                out: Ok(ExprPlan {
                     source: "(var1.field1)".to_string(),
                     plan: VecDeque::from(vec![
-                        Operation::FindVariable("var1".to_string()),
-                        Operation::GetField("field1".to_string()),
+                        Operation::Root("var1".to_string()),
+                        Operation::Field("field1".to_string()),
                     ]),
                 }),
             },
             TestCase {
                 string: "(var1).field1",
-                out: Ok(SelectPlan {
+                out: Ok(ExprPlan {
                     source: "(var1).field1".to_string(),
                     plan: VecDeque::from(vec![
-                        Operation::FindVariable("var1".to_string()),
-                        Operation::GetField("field1".to_string()),
+                        Operation::Root("var1".to_string()),
+                        Operation::Field("field1".to_string()),
                     ]),
                 }),
             },
             TestCase {
                 string: "var1[..5]",
-                out: Ok(SelectPlan {
+                out: Ok(ExprPlan {
                     source: "var1[..5]".to_string(),
                     plan: VecDeque::from(vec![
-                        Operation::FindVariable("var1".to_string()),
+                        Operation::Root("var1".to_string()),
                         Operation::Slice(5),
                     ]),
                 }),
             },
             TestCase {
                 string: "(var1.)field1",
-                out: Err(ParseError::UnexpectedToken(Token::ClosedBracket)),
+                out: Err(ParseError::ParsingError(nom::error::Error::new(
+                    ")field1".to_string(),
+                    ErrorKind::Tag,
+                ))),
             },
             TestCase {
                 string: "var1.",
-                out: Err(ParseError::UnexpectedToken(Token::End)),
+                out: Err(ParseError::ParsingError(nom::error::Error::new(
+                    "".to_string(),
+                    ErrorKind::Tag,
+                ))),
             },
             TestCase {
                 string: "((var1)",
@@ -582,7 +562,7 @@ mod test {
         ];
 
         for tc in test_cases {
-            let parser = SelectPlanParser::new(tc.string);
+            let parser = ExprPlanParser::new(tc.string);
             let result = parser.parse();
 
             assert_eq!(result, tc.out);

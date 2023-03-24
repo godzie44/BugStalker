@@ -18,7 +18,7 @@ use std::mem;
 
 pub mod render;
 mod specialization;
-use crate::debugger::command::expression::{Operation, SelectPlan};
+use crate::debugger::command::expression::{ExprPlan, Operation};
 use crate::debugger::debugee::dwarf::r#type::{ComplexType, TypeDeclaration};
 pub use specialization::SpecializedVariableIR;
 
@@ -352,7 +352,7 @@ impl VariableIR {
         self,
         eval_ctx: &EvaluationContext,
         variable_parser: &VariableParser,
-        select_plan: &SelectPlan,
+        select_plan: &ExprPlan,
     ) -> Option<Self> {
         let mut variable = self;
 
@@ -361,11 +361,11 @@ impl VariableIR {
                 Operation::Deref => {
                     variable = variable.deref(eval_ctx, variable_parser)?;
                 }
-                Operation::FindVariable(_) => {}
-                Operation::GetByIndex(idx) => {
+                Operation::Root(_) => {}
+                Operation::Index(idx) => {
                     variable = variable.get_by_index(*idx)?;
                 }
-                Operation::GetField(field) => {
+                Operation::Field(field) => {
                     variable = variable.get_field(field)?;
                 }
                 Operation::Slice(len) => {

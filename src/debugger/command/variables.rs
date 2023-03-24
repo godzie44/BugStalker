@@ -1,11 +1,11 @@
-use crate::debugger::command::expression::{SelectPlan, SelectPlanParser};
+use crate::debugger::command::expression::{ExprPlan, ExprPlanParser};
 use crate::debugger::command::CommandError::ParseArgument;
 use crate::debugger::variable::VariableIR;
 use crate::debugger::{command, Debugger};
 
 pub struct Variables<'a> {
     dbg: &'a Debugger,
-    path: Option<SelectPlan>,
+    path: Option<ExprPlan>,
 }
 
 impl<'a> Variables<'a> {
@@ -16,7 +16,7 @@ impl<'a> Variables<'a> {
             path: args
                 .get(1)
                 .map(|s| {
-                    let parser = SelectPlanParser::new(s);
+                    let parser = ExprPlanParser::new(s);
                     parser.parse().map_err(ParseArgument)
                 })
                 .transpose()?,

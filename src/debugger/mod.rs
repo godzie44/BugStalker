@@ -15,7 +15,7 @@ pub use debugee::ThreadDump;
 
 use crate::debugger::address::{GlobalAddress, PCValue, RelocatedAddress};
 use crate::debugger::breakpoint::Breakpoint;
-use crate::debugger::command::expression::SelectPlan;
+use crate::debugger::command::expression::ExprPlan;
 use crate::debugger::debugee::dwarf::r#type::TypeCache;
 use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef, RegisterDump, Symbol};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
@@ -427,7 +427,7 @@ impl Debugger {
         &self,
         location: Location,
         vars: &[ContextualDieRef<D>],
-        select_plan: SelectPlan,
+        select_plan: ExprPlan,
     ) -> anyhow::Result<Vec<VariableIR>> {
         let mut type_cache = self.type_cache.borrow_mut();
 
@@ -482,11 +482,11 @@ impl Debugger {
             .find_function_by_pc(location.global_pc)
             .ok_or_else(|| anyhow!("not in function"))?;
         let vars = current_func.local_variables(location.global_pc);
-        self.variables_into_variable_ir(location, &vars, SelectPlan::empty())
+        self.variables_into_variable_ir(location, &vars, ExprPlan::empty())
     }
 
     // Read any variable from current thread.
-    pub fn read_variable(&self, select_plan: SelectPlan) -> anyhow::Result<Vec<VariableIR>> {
+    pub fn read_variable(&self, select_plan: ExprPlan) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
         let location = self.current_thread_stop_at()?;
         let variable_name = select_plan
@@ -507,11 +507,11 @@ impl Debugger {
             .find_function_by_pc(location.global_pc)
             .ok_or_else(|| anyhow!("not in function"))?;
         let params = current_func.parameters();
-        self.variables_into_variable_ir(location, &params, SelectPlan::empty())
+        self.variables_into_variable_ir(location, &params, ExprPlan::empty())
     }
 
     // Read any argument from current function.
-    pub fn read_argument(&self, select_plan: SelectPlan) -> anyhow::Result<Vec<VariableIR>> {
+    pub fn read_argument(&self, select_plan: ExprPlan) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
 
         let arg_name = select_plan
