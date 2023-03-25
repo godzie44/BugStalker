@@ -310,14 +310,14 @@ impl<'a> VariableParserExtension<'a> {
 
         // we assume that dwarf representation of tls variable contains ::Option
         if let VariableIR::Struct(opt_variant) = inner_value.as_ref() {
-            let tls_value = if opt_variant.type_name == Some("None".to_string()) {
+            let tls_value = if opt_variant.type_name.as_deref() == Some("None") {
                 None
             } else {
                 Some(Box::new(
                     inner_value
                         .bfs_iterator()
                         .find(|child| child.name() == "0")
-                        .ok_or(AssumeError::FieldNotFound("0"))?
+                        .ok_or(AssumeError::FieldNotFound("__0"))?
                         .clone(),
                 ))
             };

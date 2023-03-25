@@ -1,3 +1,4 @@
+use crate::debugger::variable::select::Expression;
 use crate::debugger::variable::VariableIR;
 use crate::debugger::{command, Debugger};
 
@@ -6,11 +7,11 @@ pub struct Arguments<'a> {
 }
 
 impl<'a> Arguments<'a> {
-    pub fn new(debugger: &'a Debugger) -> command::Result<Self> {
-        Ok(Self { dbg: debugger })
+    pub fn new(debugger: &'a Debugger) -> Self {
+        Self { dbg: debugger }
     }
 
-    pub fn run(&self) -> command::Result<Vec<VariableIR>> {
-        Ok(self.dbg.read_arguments()?)
+    pub fn handle(&self, select_expression: Expression) -> command::HandleResult<Vec<VariableIR>> {
+        Ok(self.dbg.read_argument(select_expression)?)
     }
 }

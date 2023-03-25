@@ -13,7 +13,7 @@ impl<'a> StepOver<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn run(&mut self) -> command::Result<()> {
+    pub fn handle(&mut self) -> command::HandleResult<()> {
         Ok(self.dbg.step_over()?)
     }
 }

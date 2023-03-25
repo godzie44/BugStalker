@@ -227,5 +227,5 @@ class CommandTestCase(unittest.TestCase):
         debugger.sendline('run')
         debugger.expect_exact('>    print(s);')
 
-        debugger.sendline('vars')
+        debugger.sendline('vars locals')
         debugger.expect_exact('s = i64(3)')

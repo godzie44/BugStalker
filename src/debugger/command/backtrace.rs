@@ -9,7 +9,7 @@ impl<'a> Backtrace<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn run(&self) -> command::Result<uw::Backtrace> {
+    pub fn handle(&self) -> command::HandleResult<uw::Backtrace> {
         Ok(self.dbg.backtrace(self.dbg.debugee.thread_in_focus())?)
     }
 }

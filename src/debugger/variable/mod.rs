@@ -1,7 +1,7 @@
 use crate::debugger::debugee::dwarf::r#type::{
     ArrayType, EvaluationContext, ScalarType, StructureMember, TypeIdentity,
 };
-use crate::debugger::debugee::dwarf::NamespaceHierarchy;
+use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef, NamespaceHierarchy};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::specialization::VariableParserExtension;
 use crate::{debugger, weak_error};
@@ -17,8 +17,9 @@ use std::fmt::{Debug, Display, Formatter};
 use std::mem;
 
 pub mod render;
+pub mod select;
 mod specialization;
-use crate::debugger::command::expression::{ExprPlan, Operation};
+
 use crate::debugger::debugee::dwarf::r#type::{ComplexType, TypeDeclaration};
 pub use specialization::SpecializedVariableIR;
 
@@ -31,6 +32,10 @@ pub struct VariableIdentity {
 impl VariableIdentity {
     pub fn new(namespace: NamespaceHierarchy, name: Option<String>) -> Self {
         Self { namespace, name }
+    }
+
+    pub fn from_variable_die(var: &ContextualDieRef<impl AsAllocatedValue>) -> Self {
+        Self::new(var.namespaces(), var.die.name().map(String::from))
     }
 
     fn no_namespace(name: Option<String>) -> Self {
@@ -348,35 +353,6 @@ impl VariableIR {
         }
     }
 
-    pub fn apply_select_plan(
-        self,
-        eval_ctx: &EvaluationContext,
-        variable_parser: &VariableParser,
-        select_plan: &ExprPlan,
-    ) -> Option<Self> {
-        let mut variable = self;
-
-        for op in select_plan.plan.iter() {
-            match op {
-                Operation::Deref => {
-                    variable = variable.deref(eval_ctx, variable_parser)?;
-                }
-                Operation::Root(_) => {}
-                Operation::Index(idx) => {
-                    variable = variable.get_by_index(*idx)?;
-                }
-                Operation::Field(field) => {
-                    variable = variable.get_field(field)?;
-                }
-                Operation::Slice(len) => {
-                    variable = variable.slice(eval_ctx, variable_parser, *len)?;
-                }
-            }
-        }
-
-        Some(variable)
-    }
-
     fn deref(self, eval_ctx: &EvaluationContext, variable_parser: &VariableParser) -> Option<Self> {
         match self {
             VariableIR::Pointer(ptr) => ptr.deref(eval_ctx, variable_parser),
@@ -398,13 +374,13 @@ impl VariableIR {
         }
     }
 
-    fn get_field(self, field_name: &str) -> Option<Self> {
+    fn field(self, field_name: &str) -> Option<Self> {
         match self {
             VariableIR::Struct(structure) => structure
                 .members
                 .into_iter()
                 .find(|member| field_name == member.name()),
-            VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.get_field(field_name)),
+            VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.field(field_name)),
             VariableIR::Specialized(spec) => match spec {
                 SpecializedVariableIR::HashMap { map, .. } => map.and_then(|map| {
                     map.kv_items.into_iter().find_map(|(key, value)| match key {
@@ -428,17 +404,15 @@ impl VariableIR {
                         _ => None,
                     })
                 }),
-                SpecializedVariableIR::Tls { tls_var, .. } => tls_var.and_then(|var| {
-                    var.inner_value
-                        .and_then(|inner| inner.get_field(field_name))
-                }),
+                SpecializedVariableIR::Tls { tls_var, .. } => tls_var
+                    .and_then(|var| var.inner_value.and_then(|inner| inner.field(field_name))),
                 _ => None,
             },
             _ => None,
         }
     }
 
-    fn get_by_index(self, idx: usize) -> Option<Self> {
+    fn index(self, idx: usize) -> Option<Self> {
         match self {
             VariableIR::Array(array) => array.items.and_then(|mut items| {
                 if idx < items.len() {
@@ -446,14 +420,15 @@ impl VariableIR {
                 }
                 None
             }),
-            VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.get_by_index(idx)),
+            VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.index(idx)),
             VariableIR::Specialized(spec) => match spec {
                 SpecializedVariableIR::Vector { vec, .. } => vec.and_then(|mut v| {
                     let inner_array = v.structure.members.swap_remove(0);
-                    inner_array.get_by_index(idx)
+                    inner_array.index(idx)
                 }),
-                SpecializedVariableIR::Tls { tls_var, .. } => tls_var
-                    .and_then(|var| var.inner_value.and_then(|inner| inner.get_by_index(idx))),
+                SpecializedVariableIR::Tls { tls_var, .. } => {
+                    tls_var.and_then(|var| var.inner_value.and_then(|inner| inner.index(idx)))
+                }
                 _ => None,
             },
             _ => None,

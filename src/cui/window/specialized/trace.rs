@@ -34,7 +34,7 @@ impl CuiComponent for ThreadTrace {
     ) {
         let debugger = self.debugger.borrow();
         let trace_cmd = command::Trace::new(&debugger);
-        let threads = trace_cmd.run().unwrap_or_default();
+        let threads = trace_cmd.handle().unwrap_or_default();
         self.thread_list.borrow_mut().update_items(threads);
 
         let list_items = self

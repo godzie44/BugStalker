@@ -9,7 +9,7 @@ impl<'a> Frame<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn run(&self) -> command::Result<FrameInfo> {
+    pub fn handle(&self) -> command::HandleResult<FrameInfo> {
         Ok(self.dbg.frame_info(self.dbg.debugee.thread_in_focus())?)
     }
 }

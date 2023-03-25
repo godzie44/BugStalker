@@ -9,7 +9,7 @@ impl<'a> Trace<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn run(&self) -> anyhow::Result<Vec<ThreadDump>> {
+    pub fn handle(&self) -> anyhow::Result<Vec<ThreadDump>> {
         let mut dump = self.dbg.thread_state()?;
         dump.sort_unstable_by(|t1, t2| t1.thread.pid.cmp(&t2.thread.pid));
         Ok(dump)

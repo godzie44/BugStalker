@@ -18,7 +18,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars')
+        self.debugger.sendline('vars locals')
         self.debugger.expect_exact('int8 = i8(1)')
         self.debugger.expect_exact('int16 = i16(-1)')
         self.debugger.expect_exact('int32 = i32(2)')
@@ -46,7 +46,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let int128 = 3_i128;')
 
-        self.debugger.sendline('vars')
+        self.debugger.sendline('vars locals')
         self.debugger.expect_exact('int8 = i8(1)')
         self.debugger.expect_exact('int16 = i16(-1)')
         self.debugger.expect_exact('int32 = i32(2)')
@@ -62,7 +62,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars')
+        self.debugger.sendline('vars locals')
         self.debugger.expect_exact('tuple_0 = ()')
 
         self.debugger.expect_exact('tuple_1 = (f64, f64) {')
@@ -96,7 +96,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars')
+        self.debugger.sendline('vars locals')
         self.debugger.expect_exact('arr_1 = [i32] {')
         self.debugger.expect_exact('0: i32(1)')
         self.debugger.expect_exact('1: i32(-1)')
@@ -137,7 +137,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars')
+        self.debugger.sendline('vars locals')
         self.debugger.expect_exact('enum_1 = EnumA::B')
 
         self.debugger.expect_exact('enum_2 = EnumC::C {')
@@ -177,7 +177,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars')
+        self.debugger.sendline('vars locals')
         self.debugger.expect_exact('a = i32(2)')
         self.debugger.expect(r'ref_a = &i32 \[0x[0-9a-f]{12}\]')
         self.debugger.expect(r'ptr_a = \*const i32 \[0x[0-9a-f]{12}\]')
@@ -245,7 +245,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars')
+        self.debugger.sendline('vars locals')
         self.debugger.expect_exact('a_alias = i32(1)')
 
     def test_read_vec_and_slice(self):
@@ -256,7 +256,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars')
+        self.debugger.sendline('vars locals')
         self.debugger.expect_exact('vec1 = Vec<i32, alloc::alloc::Global> {')
         self.debugger.expect_exact('buf: [i32] {')
         self.debugger.expect_exact('0: i32(1)')
@@ -340,7 +340,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars')
+        self.debugger.sendline('vars locals')
         self.debugger.expect_exact('s1 = String(hello world)')
         self.debugger.expect_exact('s2 = &str(hello world)')
         self.debugger.expect_exact('s3 = &str(hello world)')
@@ -461,14 +461,14 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('}')
 
     def test_zst_types(self):
-        """Reading memory by select expressions"""
+        """Read variables of zero sized types"""
         self.debugger.sendline('break vars.rs:425')
         self.debugger.expect_exact('break vars.rs:425')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars')
+        self.debugger.sendline('vars locals')
 
         self.debugger.expect_exact('ptr_zst = &()')
 

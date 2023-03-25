@@ -663,7 +663,7 @@ impl<'ctx, D: AsAllocatedValue> ContextualDieRef<'ctx, D> {
         Some(parser.parse(*self, self.die.type_ref()?))
     }
 
-    pub fn read_value_at_location(
+    pub fn read_value(
         &self,
         location: Location,
         debugee: &Debugee,

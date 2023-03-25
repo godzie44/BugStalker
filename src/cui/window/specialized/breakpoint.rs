@@ -1,7 +1,7 @@
 use crate::cui::window::message::{ActionMessage, Exchanger};
 use crate::cui::window::specialized::PersistentList;
 use crate::cui::window::{CuiComponent, RenderOpts};
-use crate::debugger::command::BreakpointType;
+use crate::debugger::command::{BreakpointType, Command};
 use crate::debugger::{command, Debugger};
 use crate::fire;
 use crossterm::event::{KeyCode, KeyEvent};
@@ -104,9 +104,11 @@ impl CuiComponent for Breakpoints {
         for action in Exchanger::current().pop(self.name()) {
             if let ActionMessage::HandleUserInput { input } = action {
                 let dbg = &mut (*self.debugger).borrow_mut();
-                let mut b = command::Break::new(dbg, vec!["", &input])?;
-                b.run()?;
-                self.breakpoints.borrow_mut().items().push(b.r#type);
+                let command = Command::parse(&input)?;
+                if let Command::Breakpoint(bp_command) = command {
+                    command::Break::new(dbg).handle(bp_command.clone())?;
+                    self.breakpoints.borrow_mut().items().push(bp_command);
+                }
             }
         }
         Ok(())

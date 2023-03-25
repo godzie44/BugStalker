@@ -1,6 +1,7 @@
 use crate::cui::window::specialized::PersistentList;
 use crate::cui::window::{CuiComponent, RenderOpts};
 use crate::debugger::variable::render::{RenderRepr, ValueLayout};
+use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::variable::VariableIR;
 use crate::debugger::{command, Debugger};
 use crossterm::event::{KeyCode, KeyEvent};
@@ -35,8 +36,10 @@ impl CuiComponent for Variables {
         opts: RenderOpts,
     ) {
         let debugger = self.debugger.borrow();
-        let cmd = command::Variables::new_locals(&debugger);
-        let variables = cmd.run().unwrap_or_default();
+        let cmd = command::Variables::new(&debugger);
+        let variables = cmd
+            .handle(Expression::Variable(VariableSelector::Any))
+            .unwrap_or_default();
         self.variables.borrow_mut().update_items(variables);
 
         let list_items = self

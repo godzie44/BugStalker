@@ -3,8 +3,8 @@ use crate::console::hook::TerminalHook;
 use crate::console::variable::render_variable_ir;
 use crate::console::view::FileView;
 use crate::debugger::command::{
-    Arguments, Backtrace, Break, Frame, Run, StepI, StepInto, StepOut, StepOver, Symbol, Trace,
-    Variables,
+    Arguments, Backtrace, Break, Command, Frame, Run, StepI, StepInto, StepOut, StepOver, Symbol,
+    Trace, Variables,
 };
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::{command, Debugger};
@@ -107,26 +107,21 @@ impl TerminalApplication {
     }
 
     fn handle_cmd(&mut self, cmd: &str) -> anyhow::Result<()> {
-        let args = cmd.split(' ').collect::<Vec<_>>();
-        let command = args[0];
-
-        match command.to_lowercase().as_str() {
-            "r" | "run" => Run::new(&mut self.debugger).run()?,
-            "c" | "continue" => Continue::new(&mut self.debugger).run()?,
-            "b" | "break" => Break::new(&mut self.debugger, args)?.run()?,
-            "reg" | "register" => {
-                let cmd = Register::new(&self.debugger, args)?;
-                let response = cmd.run()?;
-                response.iter().for_each(|register| {
-                    println!("{:10} {:#016X}", register.register_name, register.value);
-                });
-            }
-            "mem" | "memory" => {
-                let read = Memory::new(&self.debugger, args)?.run()?;
-                println!("read at address: {:#016X}", read);
-            }
-            "bt" | "backtrace" => {
-                let bt = Backtrace::new(&self.debugger).run()?;
+        match Command::parse(cmd)? {
+            Command::PrintVariables(print_var_command) => Variables::new(&self.debugger)
+                .handle(print_var_command)?
+                .into_iter()
+                .for_each(|var| {
+                    println!("{} = {}", var.name(), render_variable_ir(&var, 0));
+                }),
+            Command::PrintArguments(print_arg_command) => Arguments::new(&self.debugger)
+                .handle(print_arg_command)?
+                .into_iter()
+                .for_each(|arg| {
+                    println!("{} = {}", arg.name(), render_variable_ir(&arg, 0));
+                }),
+            Command::PrintBacktrace => {
+                let bt = Backtrace::new(&self.debugger).handle()?;
                 bt.iter().for_each(|part| match part.place.as_ref() {
                     Some(place) => {
                         println!(
@@ -139,8 +134,24 @@ impl TerminalApplication {
                     }
                 })
             }
-            "trace" => {
-                let bt = Trace::new(&self.debugger).run()?;
+            Command::Continue => Continue::new(&mut self.debugger).handle()?,
+            Command::PrintFrame => {
+                let frame = Frame::new(&self.debugger).handle()?;
+                println!("current frame: {}", frame.base_addr);
+                println!(
+                    "return address: {}",
+                    frame
+                        .return_addr
+                        .map_or(String::from("unknown"), |addr| format!("{}", addr))
+                );
+            }
+            Command::Run => Run::new(&mut self.debugger).handle()?,
+            Command::StepInstruction => StepI::new(&self.debugger).handle()?,
+            Command::StepInto => StepInto::new(&self.debugger).handle()?,
+            Command::StepOut => StepOut::new(&mut self.debugger).handle()?,
+            Command::StepOver => StepOver::new(&mut self.debugger).handle()?,
+            Command::PrintTrace => {
+                let bt = Trace::new(&self.debugger).handle()?;
                 bt.iter().for_each(|thread| {
                     println!(
                         "thread {} - {}",
@@ -162,39 +173,30 @@ impl TerminalApplication {
                     }
                 });
             }
-            "stepi" => StepI::new(&self.debugger).run()?,
-            "step" | "stepinto" => StepInto::new(&self.debugger).run()?,
-            "next" | "stepover" => StepOver::new(&mut self.debugger).run()?,
-            "finish" | "stepout" => StepOut::new(&mut self.debugger).run()?,
-            "vars" => Variables::new(&self.debugger, args)?
-                .run()?
-                .into_iter()
-                .for_each(|var| {
-                    println!("{} = {}", var.name(), render_variable_ir(&var, 0),);
-                }),
-            "args" => Arguments::new(&self.debugger)?
-                .run()?
-                .into_iter()
-                .for_each(|arg| {
-                    println!("{} = {}", arg.name(), render_variable_ir(&arg, 0),);
-                }),
-            "frame" => {
-                let frame = Frame::new(&self.debugger).run()?;
-                println!("current frame: {}", frame.base_addr);
-                println!(
-                    "return address: {}",
-                    frame
-                        .return_addr
-                        .map_or(String::from("unknown"), |addr| format!("{}", addr))
-                );
+            Command::Breakpoint(bp_cmd) => Break::new(&mut self.debugger).handle(bp_cmd)?,
+            Command::Memory(mem_cmd) => {
+                let read = Memory::new(&self.debugger).handle(mem_cmd)?;
+                println!("{:#016X}", read);
             }
-            "symbol" => {
-                let cmd = Symbol::new(&self.debugger, args)?;
-                let symbol = cmd.run()?;
+            Command::Register(reg_cmd) => {
+                let response = Register::new(&self.debugger).handle(&reg_cmd)?;
+                response.iter().for_each(|register| {
+                    println!("{:10} {:#016X}", register.register_name, register.value);
+                });
+            }
+            Command::Help(reason) => match reason {
+                None => {
+                    println!("help here (TODO)")
+                }
+                Some(reason) => {
+                    println!("{reason}");
+                    println!("help here (TODO)")
+                }
+            },
+            Command::PrintSymbol(symbol) => {
+                let symbol = Symbol::new(&self.debugger).handle(&symbol)?;
                 println!("{:?} {:#016X}", symbol.kind, symbol.addr);
             }
-            "help" => todo!(),
-            _ => eprintln!("unknown command"),
         }
 
         Ok(())

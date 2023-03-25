@@ -15,15 +15,14 @@ pub use debugee::ThreadDump;
 
 use crate::debugger::address::{GlobalAddress, PCValue, RelocatedAddress};
 use crate::debugger::breakpoint::Breakpoint;
-use crate::debugger::command::expression::ExprPlan;
 use crate::debugger::debugee::dwarf::r#type::TypeCache;
-use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef, RegisterDump, Symbol};
+use crate::debugger::debugee::dwarf::{RegisterDump, Symbol};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
-use crate::debugger::debugee::{dwarf, Debugee, ExecutionStatus, FrameInfo, Location};
+use crate::debugger::debugee::{Debugee, ExecutionStatus, FrameInfo, Location};
 use crate::debugger::register::{get_register_from_name, get_register_value, set_register_value};
 use crate::debugger::uw::Backtrace;
+use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::variable::VariableIR;
-use crate::weak_error;
 use anyhow::anyhow;
 use log::warn;
 use nix::libc::{c_int, c_void, pid_t, uintptr_t};
@@ -34,7 +33,6 @@ use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
 use object::Object;
 use std::cell::RefCell;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ffi::c_long;
 use std::path::Path;
@@ -423,121 +421,31 @@ impl Debugger {
         Ok(())
     }
 
-    fn variables_into_variable_ir<D: AsAllocatedValue>(
-        &self,
-        location: Location,
-        vars: &[ContextualDieRef<D>],
-        select_plan: ExprPlan,
-    ) -> anyhow::Result<Vec<VariableIR>> {
-        let mut type_cache = self.type_cache.borrow_mut();
-
-        Ok(vars
-            .iter()
-            .filter_map(|var| {
-                let var_name = var.die.name();
-                let mb_type = var
-                    .die
-                    .type_ref()
-                    .and_then(|type_ref| match type_cache.entry((var.unit.id, type_ref)) {
-                        Entry::Occupied(o) => Some(&*o.into_mut()),
-                        Entry::Vacant(v) => var.r#type().map(|t| &*v.insert(t)),
-                    })
-                    .ok_or(anyhow!(
-                        "unknown type for variable {name}",
-                        name = var_name.unwrap_or_default()
-                    ));
-                let r#type = weak_error!(mb_type)?;
-                let mb_value = var.read_value_at_location(location, &self.debugee, r#type);
-
-                let evaluator = var.unit.evaluator(&self.debugee);
-                let parser = variable::VariableParser::new(r#type);
-                let evaluation_context = &dwarf::r#type::EvaluationContext {
-                    evaluator: &evaluator,
-                    pid: location.pid,
-                };
-
-                let var = parser.parse(
-                    evaluation_context,
-                    variable::VariableIdentity::new(var.namespaces(), var_name.map(String::from)),
-                    mb_value,
-                );
-
-                var.apply_select_plan(
-                    evaluation_context,
-                    &variable::VariableParser::new(r#type),
-                    &select_plan,
-                )
-            })
-            .collect())
-    }
-
-    // Read all local variables from current thread.
+    // Reads all local variables from current function in current thread.
     pub fn read_local_variables(&self) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
 
-        let location = self.current_thread_stop_at()?;
-        let current_func = self
-            .debugee
-            .dwarf
-            .find_function_by_pc(location.global_pc)
-            .ok_or_else(|| anyhow!("not in function"))?;
-        let vars = current_func.local_variables(location.global_pc);
-        self.variables_into_variable_ir(location, &vars, ExprPlan::empty())
+        let evaluator = variable::select::SelectExpressionEvaluator::new(
+            self,
+            Expression::Variable(VariableSelector::Any),
+        )?;
+        evaluator.evaluate()
     }
 
-    // Read any variable from current thread.
-    pub fn read_variable(&self, select_plan: ExprPlan) -> anyhow::Result<Vec<VariableIR>> {
+    // Reads any variable from the current thread, uses a select expression to filter variables
+    // and fetch their properties (such as structure fields or array elements).
+    pub fn read_variable(&self, select_expr: Expression) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
-        let location = self.current_thread_stop_at()?;
-        let variable_name = select_plan
-            .base_variable_name()
-            .ok_or(anyhow!("invalid select expression"))?;
-        let vars = self.debugee.dwarf.find_variables(location, variable_name);
-        self.variables_into_variable_ir(self.current_thread_stop_at()?, &vars, select_plan)
+        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr)?;
+        evaluator.evaluate()
     }
 
-    // Read current function parameters.
-    pub fn read_arguments(&self) -> anyhow::Result<Vec<VariableIR>> {
+    // Reads any argument from the current function, uses a select expression to filter variables
+    // and fetch their properties (such as structure fields or array elements).
+    pub fn read_argument(&self, select_expr: Expression) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
-
-        let location = self.current_thread_stop_at()?;
-        let current_func = self
-            .debugee
-            .dwarf
-            .find_function_by_pc(location.global_pc)
-            .ok_or_else(|| anyhow!("not in function"))?;
-        let params = current_func.parameters();
-        self.variables_into_variable_ir(location, &params, ExprPlan::empty())
-    }
-
-    // Read any argument from current function.
-    pub fn read_argument(&self, select_plan: ExprPlan) -> anyhow::Result<Vec<VariableIR>> {
-        disable_when_not_stared!(self);
-
-        let arg_name = select_plan
-            .base_variable_name()
-            .ok_or(anyhow!("invalid select expression"))?;
-
-        let location = self.current_thread_stop_at()?;
-        let current_func = self
-            .debugee
-            .dwarf
-            .find_function_by_pc(location.global_pc)
-            .ok_or_else(|| anyhow!("not in function"))?;
-        let params = current_func.parameters();
-        let params = params
-            .into_iter()
-            .filter(|param| {
-                param
-                    .die
-                    .base_attributes
-                    .name
-                    .as_ref()
-                    .map(|n| n == arg_name)
-                    .unwrap_or_default()
-            })
-            .collect::<Vec<_>>();
-        self.variables_into_variable_ir(location, &params, select_plan)
+        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr)?;
+        evaluator.evaluate_on_arguments()
     }
 
     pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {

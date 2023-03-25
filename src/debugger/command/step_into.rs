@@ -10,7 +10,7 @@ impl<'a> StepInto<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn run(&self) -> command::Result<()> {
+    pub fn handle(&self) -> command::HandleResult<()> {
         Ok(self.dbg.step_into()?)
     }
 }

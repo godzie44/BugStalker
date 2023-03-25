@@ -69,14 +69,14 @@ pub(super) fn run(
                         ..
                     } => {
                         ctx.change_state(AppState::DebugeeRun);
-                        try_else_alert!(Continue::new(&mut debugger.borrow_mut()).run());
+                        try_else_alert!(Continue::new(&mut debugger.borrow_mut()).handle());
                     }
                     KeyEvent {
                         code: KeyCode::Char('r'),
                         ..
                     } => {
                         ctx.change_state(AppState::DebugeeRun);
-                        try_else_alert!(Run::new(&mut debugger.borrow_mut()).run());
+                        try_else_alert!(Run::new(&mut debugger.borrow_mut()).handle());
                     }
                     KeyEvent {
                         code: KeyCode::Char('q'),
@@ -95,19 +95,19 @@ pub(super) fn run(
                         code: KeyCode::F(8),
                         ..
                     } => {
-                        try_else_alert!(StepOver::new(&mut debugger.borrow_mut()).run());
+                        try_else_alert!(StepOver::new(&mut debugger.borrow_mut()).handle());
                     }
                     KeyEvent {
                         code: KeyCode::F(7),
                         ..
                     } => {
-                        try_else_alert!(StepInto::new(&debugger.borrow()).run());
+                        try_else_alert!(StepInto::new(&debugger.borrow()).handle());
                     }
                     KeyEvent {
                         code: KeyCode::F(6),
                         ..
                     } => {
-                        try_else_alert!(StepOut::new(&mut debugger.borrow_mut()).run());
+                        try_else_alert!(StepOut::new(&mut debugger.borrow_mut()).handle());
                     }
                     _ => {
                         app_window.handle_user_event(e);
