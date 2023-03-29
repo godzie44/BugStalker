@@ -20,8 +20,8 @@ fn assert_scalar(
     let VariableIR::Scalar(scalar) = var else {
       panic!("not a scalar");  
     };
-    assert_eq!(scalar.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(scalar.type_name.as_ref().unwrap(), exp_type);
+    assert_eq!(var.name(), exp_name);
+    assert_eq!(var.r#type(), exp_type);
     assert_eq!(scalar.value, exp_val);
 }
 
@@ -34,8 +34,8 @@ fn assert_struct(
     let VariableIR::Struct(structure) = var else {
       panic!("not a struct");  
     };
-    assert_eq!(structure.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(structure.type_name.as_ref().unwrap(), exp_type);
+    assert_eq!(var.name(), exp_name);
+    assert_eq!(var.r#type(), exp_type);
     for (i, member) in structure.members.iter().enumerate() {
         for_each_member(i, member)
     }
@@ -61,8 +61,8 @@ fn assert_c_enum(var: &VariableIR, exp_name: &str, exp_type: &str, exp_value: Op
     let VariableIR::CEnum(c_enum) = var else {
       panic!("not a c_enum");  
     };
-    assert_eq!(c_enum.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(c_enum.type_name.as_ref().unwrap(), exp_type);
+    assert_eq!(var.name(), exp_name);
+    assert_eq!(var.r#type(), exp_type);
     assert_eq!(c_enum.value, exp_value);
 }
 
@@ -75,8 +75,8 @@ fn assert_rust_enum(
     let VariableIR::RustEnum(rust_enum) = var else {
         panic!("not a c_enum");
     };
-    assert_eq!(rust_enum.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(rust_enum.type_name.as_ref().unwrap(), exp_type);
+    assert_eq!(var.name(), exp_name);
+    assert_eq!(var.r#type(), exp_type);
     with_value(rust_enum.value.as_ref().unwrap());
 }
 
@@ -98,8 +98,8 @@ fn assert_vec(
     let VariableIR::Specialized(variable::SpecializedVariableIR::Vector {vec: Some(vector), ..}) = var else {
         panic!("not a vector");
     };
-    assert_eq!(vector.structure.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(vector.structure.type_name.as_ref().unwrap(), exp_type);
+    assert_eq!(var.name(), exp_name);
+    assert_eq!(var.r#type(), exp_type);
     let VariableIR::Scalar(capacity) = &vector.structure.members[1] else {
         panic!("no capacity");
     };
@@ -111,7 +111,7 @@ fn assert_string(var: &VariableIR, exp_name: &str, exp_value: &str) {
     let VariableIR::Specialized(variable::SpecializedVariableIR::String {string: Some(string), ..}) = var else {
         panic!("not a string");
     };
-    assert_eq!(string.identity.name.as_ref().unwrap(), exp_name);
+    assert_eq!(var.name(), exp_name);
     assert_eq!(string.value, exp_value);
 }
 
@@ -119,7 +119,7 @@ fn assert_str(var: &VariableIR, exp_name: &str, exp_value: &str) {
     let VariableIR::Specialized(variable::SpecializedVariableIR::Str {string: Some(str), ..}) = var else {
         panic!("not a &str");
     };
-    assert_eq!(str.identity.name.as_ref().unwrap(), exp_name);
+    assert_eq!(var.name(), exp_name);
     assert_eq!(str.value, exp_value);
 }
 
@@ -155,8 +155,8 @@ fn assert_hashmap(
     let VariableIR::Specialized(variable::SpecializedVariableIR::HashMap {map: Some(map), ..}) = var else {
         panic!("not a hashmap");
     };
-    assert_eq!(map.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(map.type_name.as_ref().unwrap(), exp_type);
+    assert_eq!(var.name(), exp_name);
+    assert_eq!(var.r#type(), exp_type);
     let mut items = map.kv_items.clone();
     items.sort_by(|v1, v2| {
         let k1_render = format!("{:?}", v1.0.value());
@@ -376,8 +376,8 @@ fn test_read_struct() {
         let vars = debugger.read_local_variables().unwrap();
         assert_scalar(&vars[0], "tuple_0", "()", Some(SupportedScalar::Empty()));
         assert_struct(&vars[1], "tuple_1", "(f64, f64)", |i, member| match i {
-            0 => assert_scalar(member, "__0", "f64", Some(SupportedScalar::F64(0f64))),
-            1 => assert_scalar(member, "__1", "f64", Some(SupportedScalar::F64(1.1f64))),
+            0 => assert_scalar(member, "0", "f64", Some(SupportedScalar::F64(0f64))),
+            1 => assert_scalar(member, "1", "f64", Some(SupportedScalar::F64(1.1f64))),
             _ => panic!("2 members expected"),
         });
         assert_struct(
@@ -385,10 +385,10 @@ fn test_read_struct() {
             "tuple_2",
             "(u64, i64, char, bool)",
             |i, member| match i {
-                0 => assert_scalar(member, "__0", "u64", Some(SupportedScalar::U64(1))),
-                1 => assert_scalar(member, "__1", "i64", Some(SupportedScalar::I64(-1))),
-                2 => assert_scalar(member, "__2", "char", Some(SupportedScalar::Char('a'))),
-                3 => assert_scalar(member, "__3", "bool", Some(SupportedScalar::Bool(false))),
+                0 => assert_scalar(member, "0", "u64", Some(SupportedScalar::U64(1))),
+                1 => assert_scalar(member, "1", "i64", Some(SupportedScalar::I64(-1))),
+                2 => assert_scalar(member, "2", "char", Some(SupportedScalar::Char('a'))),
+                3 => assert_scalar(member, "3", "bool", Some(SupportedScalar::Bool(false))),
                 _ => panic!("4 members expected"),
             },
         );
@@ -485,14 +485,14 @@ fn test_read_enum() {
         assert_c_enum(&vars[0], "enum_1", "EnumA", Some("B".to_string()));
         assert_rust_enum(&vars[1], "enum_2", "EnumC", |enum_val| {
             assert_struct(enum_val, "C", "C", |_, member| {
-                assert_scalar(member, "__0", "char", Some(SupportedScalar::Char('b')));
+                assert_scalar(member, "0", "char", Some(SupportedScalar::Char('b')));
             });
         });
         assert_rust_enum(&vars[2], "enum_3", "EnumC", |enum_val| {
             assert_struct(enum_val, "D", "D", |i, member| {
                 match i {
-                    0 => assert_scalar(member, "__0", "f64", Some(SupportedScalar::F64(1.1))),
-                    1 => assert_scalar(member, "__1", "f32", Some(SupportedScalar::F32(1.2))),
+                    0 => assert_scalar(member, "0", "f64", Some(SupportedScalar::F64(1.1))),
+                    1 => assert_scalar(member, "1", "f32", Some(SupportedScalar::F32(1.2))),
                     _ => panic!("2 members expected"),
                 };
             });
@@ -505,9 +505,9 @@ fn test_read_enum() {
         assert_rust_enum(&vars[4], "enum_5", "EnumF", |enum_val| {
             assert_struct(enum_val, "F", "F", |i, member| {
                 match i {
-                    0 => assert_rust_enum(member, "__0", "EnumC", |enum_val| {
+                    0 => assert_rust_enum(member, "0", "EnumC", |enum_val| {
                         assert_struct(enum_val, "C", "C", |_, member| {
-                            assert_scalar(member, "__0", "char", Some(SupportedScalar::Char('f')));
+                            assert_scalar(member, "0", "char", Some(SupportedScalar::Char('f')));
                         });
                     }),
                     _ => panic!("1 members expected"),
@@ -517,7 +517,7 @@ fn test_read_enum() {
         assert_rust_enum(&vars[5], "enum_6", "EnumF", |enum_val| {
             assert_struct(enum_val, "G", "G", |i, member| {
                 match i {
-                    0 => assert_struct(member, "__0", "Foo", |i, member| match i {
+                    0 => assert_struct(member, "0", "Foo", |i, member| match i {
                         0 => assert_scalar(member, "a", "i32", Some(SupportedScalar::I32(1))),
                         1 => assert_scalar(member, "b", "char", Some(SupportedScalar::Char('1'))),
                         _ => panic!("2 members expected"),
@@ -529,7 +529,7 @@ fn test_read_enum() {
         assert_rust_enum(&vars[6], "enum_7", "EnumF", |enum_val| {
             assert_struct(enum_val, "J", "J", |i, member| {
                 match i {
-                    0 => assert_c_enum(member, "__0", "EnumA", Some("A".to_string())),
+                    0 => assert_c_enum(member, "0", "EnumA", Some("A".to_string())),
                     _ => panic!("1 members expected"),
                 };
             });
@@ -843,7 +843,7 @@ fn test_read_static_variables() {
             )))
             .unwrap();
         assert_eq!(vars.len(), 1);
-        assert_str(&vars[0], "GLOB_1", "glob_1");
+        assert_str(&vars[0], "vars::GLOB_1", "glob_1");
 
         let vars = debugger
             .read_variable(Expression::Variable(VariableSelector::Name(
@@ -851,7 +851,12 @@ fn test_read_static_variables() {
             )))
             .unwrap();
         assert_eq!(vars.len(), 1);
-        assert_scalar(&vars[0], "GLOB_2", "i32", Some(SupportedScalar::I32(2)));
+        assert_scalar(
+            &vars[0],
+            "vars::GLOB_2",
+            "i32",
+            Some(SupportedScalar::I32(2)),
+        );
 
         debugger.continue_debugee().unwrap();
         assert_no_proc!(child);
@@ -877,8 +882,13 @@ fn test_read_static_variables_different_modules() {
         assert_eq!(vars.len(), 2);
         vars.sort_by(|v1, v2| v1.r#type().cmp(v2.r#type()));
 
-        assert_str(&vars[0], "GLOB_3", "glob_3");
-        assert_scalar(&vars[1], "GLOB_3", "i32", Some(SupportedScalar::I32(3)));
+        assert_str(&vars[0], "vars::ns_1::GLOB_3", "glob_3");
+        assert_scalar(
+            &vars[1],
+            "vars::GLOB_3",
+            "i32",
+            Some(SupportedScalar::I32(3)),
+        );
 
         debugger.continue_debugee().unwrap();
         assert_no_proc!(child);
@@ -1133,20 +1143,10 @@ fn test_read_hashmap() {
             "HashMap<bool, i64, std::collections::hash::map::RandomState>",
             |items| {
                 assert_eq!(items.len(), 2);
-                assert_scalar(
-                    &items[0].0,
-                    "__0",
-                    "bool",
-                    Some(SupportedScalar::Bool(false)),
-                );
-                assert_scalar(&items[0].1, "__1", "i64", Some(SupportedScalar::I64(5)));
-                assert_scalar(
-                    &items[1].0,
-                    "__0",
-                    "bool",
-                    Some(SupportedScalar::Bool(true)),
-                );
-                assert_scalar(&items[1].1, "__1", "i64", Some(SupportedScalar::I64(3)));
+                assert_scalar(&items[0].0, "0", "bool", Some(SupportedScalar::Bool(false)));
+                assert_scalar(&items[0].1, "1", "i64", Some(SupportedScalar::I64(5)));
+                assert_scalar(&items[1].0, "0", "bool", Some(SupportedScalar::Bool(true)));
+                assert_scalar(&items[1].1, "1", "i64", Some(SupportedScalar::I64(3)));
             },
         );
         assert_hashmap(
@@ -1157,10 +1157,10 @@ fn test_read_hashmap() {
                 assert_eq!(items.len(), 2);
                 assert_str(
                     &items[0].0,
-                    "__0",
+                    "0",
                     "abc",
                 );
-                assert_vec(&items[0].1, "__1", "Vec<i32, alloc::alloc::Global>", 3, |buf| {
+                assert_vec(&items[0].1, "1", "Vec<i32, alloc::alloc::Global>", 3, |buf| {
                     assert_array(buf, "buf", "[i32]", |i, item| match i {
                         0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
                         1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
@@ -1170,10 +1170,10 @@ fn test_read_hashmap() {
                 });
                 assert_str(
                     &items[1].0,
-                    "__0",
+                    "0",
                     "efg",
                 );
-                assert_vec(&items[1].1, "__1", "Vec<i32, alloc::alloc::Global>", 3, |buf| {
+                assert_vec(&items[1].1, "1", "Vec<i32, alloc::alloc::Global>", 3, |buf| {
                     assert_array(buf, "buf", "[i32]", |i, item| match i {
                         0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(11))),
                         1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(12))),
@@ -1196,7 +1196,7 @@ fn test_read_hashmap() {
                 for i in 0..100 {
                     assert_scalar(
                         &items[i].0,
-                        "__0",
+                        "0",
                         "i32",
                         Some(SupportedScalar::I32(exp_items[i])),
                     );
@@ -1204,7 +1204,7 @@ fn test_read_hashmap() {
                 for i in 0..100 {
                     assert_scalar(
                         &items[i].1,
-                        "__1",
+                        "1",
                         "i32",
                         Some(SupportedScalar::I32(exp_items[i])),
                     );
@@ -1219,57 +1219,57 @@ fn test_read_hashmap() {
                 assert_eq!(items.len(), 2);
                 assert_string(
                     &items[0].0,
-                    "__0",
+                    "0",
                     "1",
                 );
                 assert_hashmap(
                     &items[0].1,
-                    "__1",
+                    "1",
                     "HashMap<i32, i32, std::collections::hash::map::RandomState>",
                     |items| {
                         assert_eq!(items.len(), 2);
                         assert_scalar(
                             &items[0].0,
-                            "__0",
+                            "0",
                             "i32",
                             Some(SupportedScalar::I32(1)),
                         );
-                        assert_scalar(&items[0].1, "__1", "i32", Some(SupportedScalar::I32(1)));
+                        assert_scalar(&items[0].1, "1", "i32", Some(SupportedScalar::I32(1)));
                         assert_scalar(
                             &items[1].0,
-                            "__0",
+                            "0",
                             "i32",
                             Some(SupportedScalar::I32(2)),
                         );
-                        assert_scalar(&items[1].1, "__1", "i32", Some(SupportedScalar::I32(2)));
+                        assert_scalar(&items[1].1, "1", "i32", Some(SupportedScalar::I32(2)));
                     },
                 );
 
                 assert_string(
                     &items[1].0,
-                    "__0",
+                    "0",
                     "3",
                 );
                 assert_hashmap(
                     &items[1].1,
-                    "__1",
+                    "1",
                     "HashMap<i32, i32, std::collections::hash::map::RandomState>",
                     |items| {
                         assert_eq!(items.len(), 2);
                         assert_scalar(
                             &items[0].0,
-                            "__0",
+                            "0",
                             "i32",
                             Some(SupportedScalar::I32(3)),
                         );
-                        assert_scalar(&items[0].1, "__1", "i32", Some(SupportedScalar::I32(3)));
+                        assert_scalar(&items[0].1, "1", "i32", Some(SupportedScalar::I32(3)));
                         assert_scalar(
                             &items[1].0,
-                            "__0",
+                            "0",
                             "i32",
                             Some(SupportedScalar::I32(4)),
                         );
-                        assert_scalar(&items[1].1, "__1", "i32", Some(SupportedScalar::I32(4)));
+                        assert_scalar(&items[1].1, "1", "i32", Some(SupportedScalar::I32(4)));
                     },
                 );
             },
@@ -1298,10 +1298,10 @@ fn test_read_hashset() {
             "HashSet<i32, std::collections::hash::map::RandomState>",
             |items| {
                 assert_eq!(items.len(), 4);
-                assert_scalar(&items[0], "__0", "i32", Some(SupportedScalar::I32(1)));
-                assert_scalar(&items[1], "__0", "i32", Some(SupportedScalar::I32(2)));
-                assert_scalar(&items[2], "__0", "i32", Some(SupportedScalar::I32(3)));
-                assert_scalar(&items[3], "__0", "i32", Some(SupportedScalar::I32(4)));
+                assert_scalar(&items[0], "0", "i32", Some(SupportedScalar::I32(1)));
+                assert_scalar(&items[1], "0", "i32", Some(SupportedScalar::I32(2)));
+                assert_scalar(&items[2], "0", "i32", Some(SupportedScalar::I32(3)));
+                assert_scalar(&items[3], "0", "i32", Some(SupportedScalar::I32(4)));
             },
         );
         assert_hashset(
@@ -1316,7 +1316,7 @@ fn test_read_hashset() {
                 for i in 0..100 {
                     assert_scalar(
                         &items[i],
-                        "__0",
+                        "0",
                         "i32",
                         Some(SupportedScalar::I32(exp_items[i])),
                     );
@@ -1329,7 +1329,7 @@ fn test_read_hashset() {
             "HashSet<alloc::vec::Vec<i32, alloc::alloc::Global>, std::collections::hash::map::RandomState>",
             |items| {
                 assert_eq!(items.len(), 1);
-                assert_vec(&items[0], "__0", "Vec<i32, alloc::alloc::Global>", 2, |buf| {
+                assert_vec(&items[0], "0", "Vec<i32, alloc::alloc::Global>", 2, |buf| {
                     assert_array(buf, "buf", "[i32]", |i, item| match i {
                         0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
                         1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
@@ -1376,7 +1376,7 @@ fn test_circular_ref_types() {
                         assert_struct(enum_member, "Cons", "Cons", |i, cons_member| match i {
                             0 => assert_scalar(
                                 cons_member,
-                                "__0",
+                                "0",
                                 "i32",
                                 Some(SupportedScalar::I32(5)),
                             ),
@@ -1964,13 +1964,13 @@ fn test_zst_types() {
         });
 
         assert_struct(&vars[4], "struct_zst", "StructZst", |i, member| match i {
-            0 => assert_scalar(member, "__0", "()", Some(SupportedScalar::Empty())),
+            0 => assert_scalar(member, "0", "()", Some(SupportedScalar::Empty())),
             _ => panic!("1 member expected"),
         });
 
         assert_rust_enum(&vars[5], "enum_zst", "Option<()>", |member| {
             assert_struct(member, "Some", "Some", |i, member| match i {
-                0 => assert_scalar(member, "__0", "()", Some(SupportedScalar::Empty())),
+                0 => assert_scalar(member, "0", "()", Some(SupportedScalar::Empty())),
                 _ => panic!("1 member expected"),
             })
         });
@@ -1998,8 +1998,8 @@ fn test_zst_types() {
             "HashMap<(), i32, std::collections::hash::map::RandomState>",
             |items| {
                 assert_eq!(items.len(), 1);
-                assert_scalar(&items[0].0, "__0", "()", Some(SupportedScalar::Empty()));
-                assert_scalar(&items[0].1, "__1", "i32", Some(SupportedScalar::I32(1)));
+                assert_scalar(&items[0].0, "0", "()", Some(SupportedScalar::Empty()));
+                assert_scalar(&items[0].1, "1", "i32", Some(SupportedScalar::I32(1)));
             },
         );
         assert_hashmap(
@@ -2008,8 +2008,8 @@ fn test_zst_types() {
             "HashMap<i32, (), std::collections::hash::map::RandomState>",
             |items| {
                 assert_eq!(items.len(), 1);
-                assert_scalar(&items[0].0, "__0", "i32", Some(SupportedScalar::I32(1)));
-                assert_scalar(&items[0].1, "__1", "()", Some(SupportedScalar::Empty()));
+                assert_scalar(&items[0].0, "0", "i32", Some(SupportedScalar::I32(1)));
+                assert_scalar(&items[0].1, "1", "()", Some(SupportedScalar::Empty()));
             },
         );
         assert_hashmap(
@@ -2018,8 +2018,8 @@ fn test_zst_types() {
             "HashMap<(), (), std::collections::hash::map::RandomState>",
             |items| {
                 assert_eq!(items.len(), 1);
-                assert_scalar(&items[0].0, "__0", "()", Some(SupportedScalar::Empty()));
-                assert_scalar(&items[0].1, "__1", "()", Some(SupportedScalar::Empty()));
+                assert_scalar(&items[0].0, "0", "()", Some(SupportedScalar::Empty()));
+                assert_scalar(&items[0].1, "1", "()", Some(SupportedScalar::Empty()));
             },
         );
         assert_hashset(
@@ -2028,7 +2028,7 @@ fn test_zst_types() {
             "HashSet<(), std::collections::hash::map::RandomState>",
             |items| {
                 assert_eq!(items.len(), 1);
-                assert_scalar(&items[0], "__0", "()", Some(SupportedScalar::Empty()));
+                assert_scalar(&items[0], "0", "()", Some(SupportedScalar::Empty()));
             },
         );
 
