@@ -438,8 +438,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
         self.debugger.sendline('vars hm2.abc')
-        # todo fix '1 = ... '
-        self.debugger.expect_exact('1 = Vec<i32, alloc::alloc::Global> {')
+        self.debugger.expect_exact('abc = Vec<i32, alloc::alloc::Global> {')
         self.debugger.expect_exact('buf: [i32] {')
         self.debugger.expect_exact('1: i32(2)')
         self.debugger.expect_exact('2: i32(3)')

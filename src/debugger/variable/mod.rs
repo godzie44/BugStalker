@@ -3,7 +3,7 @@ use crate::debugger::debugee::dwarf::r#type::{
 };
 use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef, NamespaceHierarchy};
 use crate::debugger::variable::render::RenderRepr;
-use crate::debugger::variable::specialization::VariableParserExtension;
+use crate::debugger::variable::specialization::{VariableParserExtension, VecVariable};
 use crate::{debugger, weak_error};
 use anyhow::anyhow;
 use bytes::Bytes;
@@ -353,6 +353,32 @@ impl VariableIR {
         }
     }
 
+    fn identity_mut(&mut self) -> &mut VariableIdentity {
+        match self {
+            VariableIR::Scalar(s) => &mut s.identity,
+            VariableIR::Struct(s) => &mut s.identity,
+            VariableIR::Array(a) => &mut a.identity,
+            VariableIR::CEnum(e) => &mut e.identity,
+            VariableIR::RustEnum(e) => &mut e.identity,
+            VariableIR::Pointer(p) => &mut p.identity,
+            VariableIR::Specialized(s) => match s {
+                SpecializedVariableIR::Vector { original, .. } => &mut original.identity,
+                SpecializedVariableIR::VecDeque { original, .. } => &mut original.identity,
+                SpecializedVariableIR::String { original, .. } => &mut original.identity,
+                SpecializedVariableIR::Str { original, .. } => &mut original.identity,
+                SpecializedVariableIR::Tls { original, .. } => &mut original.identity,
+                SpecializedVariableIR::HashMap { original, .. } => &mut original.identity,
+                SpecializedVariableIR::HashSet { original, .. } => &mut original.identity,
+                SpecializedVariableIR::BTreeMap { original, .. } => &mut original.identity,
+                SpecializedVariableIR::BTreeSet { original, .. } => &mut original.identity,
+                SpecializedVariableIR::Cell { original, .. } => &mut original.identity,
+                SpecializedVariableIR::RefCell { original, .. } => &mut original.identity,
+                SpecializedVariableIR::Rc { original, .. } => &mut original.identity,
+                SpecializedVariableIR::Arc { original, .. } => &mut original.identity,
+            },
+        }
+    }
+
     fn deref(self, eval_ctx: &EvaluationContext, variable_parser: &VariableParser) -> Option<Self> {
         match self {
             VariableIR::Pointer(ptr) => ptr.deref(eval_ctx, variable_parser),
@@ -385,17 +411,19 @@ impl VariableIR {
                 SpecializedVariableIR::HashMap { map, .. } => map.and_then(|map| {
                     map.kv_items.into_iter().find_map(|(key, value)| match key {
                         VariableIR::Specialized(spec) => match spec {
-                            SpecializedVariableIR::String { string, .. } => {
-                                string.and_then(|string| {
-                                    if string.value == field_name {
-                                        return Some(value);
-                                    }
-                                    None
-                                })
-                            }
-                            SpecializedVariableIR::Str { string: str, .. } => str.and_then(|str| {
+                            SpecializedVariableIR::String {
+                                string: string_key, ..
+                            } => string_key.and_then(|string| {
+                                if string.value == field_name {
+                                    return Some(value.clone_and_rename(&string.value));
+                                }
+                                None
+                            }),
+                            SpecializedVariableIR::Str {
+                                string: string_key, ..
+                            } => string_key.and_then(|str| {
                                 if str.value == field_name {
-                                    return Some(value);
+                                    return Some(value.clone_and_rename(&str.value));
                                 }
                                 None
                             }),
@@ -453,6 +481,13 @@ impl VariableIR {
                 }),
             _ => None,
         }
+    }
+
+    fn clone_and_rename(&self, new_name: &str) -> Self {
+        let mut clone = self.clone();
+        let identity = clone.identity_mut();
+        identity.name = Some(new_name.to_string());
+        clone
     }
 }
 
