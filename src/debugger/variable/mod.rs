@@ -3,7 +3,7 @@ use crate::debugger::debugee::dwarf::r#type::{
 };
 use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef, NamespaceHierarchy};
 use crate::debugger::variable::render::RenderRepr;
-use crate::debugger::variable::specialization::{VariableParserExtension, VecVariable};
+use crate::debugger::variable::specialization::VariableParserExtension;
 use crate::{debugger, weak_error};
 use anyhow::anyhow;
 use bytes::Bytes;

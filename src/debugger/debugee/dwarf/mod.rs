@@ -154,9 +154,8 @@ impl DebugeeContext {
                 let unit = self
                     .find_unit_by_pc(location.global_pc)
                     .ok_or_else(|| anyhow!("undefined unit"))?;
-                let expr_result = unit
-                    .evaluator(debugee)
-                    .evaluate(location.pid, expr.clone())?;
+                let evaluator = unit.evaluator(debugee);
+                let expr_result = evaluator.evaluate(location.pid, expr.clone())?;
 
                 Ok((expr_result.into_scalar::<usize>()?).into())
             }
@@ -349,9 +348,9 @@ impl DebugeeContext {
         &'this self,
         default_unit: &'this Unit,
         reference: DieRef,
-    ) -> Option<&'this Entry> {
+    ) -> Option<(&'this Entry, &'this Unit)> {
         match reference {
-            DieRef::Unit(offset) => default_unit.find_entry(offset),
+            DieRef::Unit(offset) => default_unit.find_entry(offset).map(|e| (e, default_unit)),
             DieRef::Global(offset) => {
                 let unit = match self
                     .units
@@ -363,6 +362,7 @@ impl DebugeeContext {
                 unit.find_entry(UnitOffset(
                     offset.0 - unit.offset().unwrap_or(DebugInfoOffset(0)).0,
                 ))
+                .map(|e| (e, unit))
             }
         }
     }

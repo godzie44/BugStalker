@@ -3,7 +3,8 @@ use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee;
 use crate::debugger::debugee::dwarf::eval::EvalError::{OptionRequired, UnsupportedRequire};
 use crate::debugger::debugee::dwarf::parser::unit::{DieVariant, Unit};
-use crate::debugger::debugee::dwarf::{EndianRcSlice, RegisterDump};
+use crate::debugger::debugee::dwarf::parser::DieRef;
+use crate::debugger::debugee::dwarf::{ContextualDieRef, EndianRcSlice, RegisterDump};
 use crate::debugger::debugee::Debugee;
 use crate::debugger::register::get_register_value_dwarf;
 use anyhow::anyhow;
@@ -13,6 +14,7 @@ use gimli::{
     UnitOffset, Value, ValueType,
 };
 use nix::unistd::Pid;
+use object::ReadRef;
 use std::cell::RefCell;
 use std::cmp::min;
 use std::collections::hash_map::Entry;
@@ -28,7 +30,7 @@ pub enum EvalError {
     #[error("unsupported evaluation require {0:?}")]
     UnsupportedRequire(String),
     #[error("nix error {0}")]
-    Nix(nix::Error),
+    Nix(#[from] nix::Error),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -126,7 +128,7 @@ impl<'a> RequirementsResolver<'a> {
 }
 
 /// Resolve requirements that the `ExpressionEvaluator` may need.
-/// Sets in by callee, the composition of these requirements depends on the context of the calculation.
+/// Defined by callee, the composition of this requirements depends on the context of the calculation.
 #[derive(Default)]
 pub struct ExternalRequirementsResolver {
     at_location: Option<Vec<u8>>,
@@ -170,6 +172,22 @@ impl<'a> ExpressionEvaluator<'a> {
             encoding,
             unit,
             resolver: RequirementsResolver::new(debugee),
+        }
+    }
+
+    fn value_type_from_offset(&self, base_type: UnitOffset) -> ValueType {
+        if base_type == UnitOffset(0) {
+            ValueType::Generic
+        } else {
+            self.unit
+                .find_entry(base_type)
+                .and_then(|entry| match entry.die {
+                    DieVariant::BaseType(ref bt_die) => Some(bt_die),
+                    _ => None,
+                })
+                .and_then(|bt_die| Some((bt_die.byte_size?, bt_die.encoding?)))
+                .and_then(|(size, encoding)| ValueType::from_encoding(encoding, size))
+                .unwrap_or(ValueType::Generic)
         }
     }
 
@@ -289,34 +307,22 @@ impl<'a> ExpressionEvaluator<'a> {
         }
 
         Ok(CompletedResult {
+            debugee: self.resolver.debugee,
+            unit: self.unit,
             inner: eval.result(),
             pid,
         })
     }
-
-    fn value_type_from_offset(&self, base_type: UnitOffset) -> ValueType {
-        if base_type == UnitOffset(0) {
-            ValueType::Generic
-        } else {
-            self.unit
-                .find_entry(base_type)
-                .and_then(|entry| match entry.die {
-                    DieVariant::BaseType(ref bt_die) => Some(bt_die),
-                    _ => None,
-                })
-                .and_then(|bt_die| Some((bt_die.byte_size?, bt_die.encoding?)))
-                .and_then(|(size, encoding)| ValueType::from_encoding(encoding, size))
-                .unwrap_or(ValueType::Generic)
-        }
-    }
 }
 
-pub struct CompletedResult {
+pub struct CompletedResult<'a> {
     inner: Vec<Piece<EndianRcSlice>>,
+    debugee: &'a Debugee,
+    unit: &'a Unit,
     pid: Pid,
 }
 
-impl CompletedResult {
+impl<'a> CompletedResult<'a> {
     pub fn into_scalar<T: Copy>(self) -> Result<T> {
         let bytes = self.into_raw_buffer(mem::size_of::<T>())?;
         Ok(scalar_from_bytes(bytes))
@@ -365,8 +371,41 @@ impl CompletedResult {
                 Location::Bytes { value, .. } => {
                     buf.put_slice(value.bytes());
                 }
-                Location::ImplicitPointer { .. } => {
-                    todo!()
+                Location::ImplicitPointer { value, byte_offset } => {
+                    let die_ref = DieRef::Global(value);
+                    let (entry, unit) = self
+                        .debugee
+                        .dwarf
+                        .deref_die(self.unit, die_ref)
+                        .ok_or_else(|| {
+                            EvalError::Other(anyhow!("die not found by ref: {die_ref:?}"))
+                        })?;
+                    if let DieVariant::Variable(ref variable) = &entry.die {
+                        let ctx_die = ContextualDieRef {
+                            context: &self.debugee.dwarf,
+                            unit,
+                            node: &entry.node,
+                            die: variable,
+                        };
+                        let r#type = ctx_die
+                            .r#type()
+                            .ok_or_else(|| EvalError::Other(anyhow!("unknown die type")))?;
+                        let bytes = ctx_die
+                            .read_value(
+                                self.debugee.thread_stop_at(self.pid)?,
+                                self.debugee,
+                                &r#type,
+                            )
+                            .ok_or_else(|| {
+                                EvalError::Other(anyhow!("implicit pointer address invalid value"))
+                            })?;
+                        let bytes: &[u8] = bytes
+                            .read_slice_at(byte_offset as u64, byte_size)
+                            .map_err(|_| {
+                                EvalError::Other(anyhow!("implicit pointer address invalid value"))
+                            })?;
+                        buf.put_slice(bytes)
+                    }
                 }
                 Location::Empty => {}
             };

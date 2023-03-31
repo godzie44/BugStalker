@@ -389,40 +389,40 @@ impl TypeParser {
         self.known_type_ids.insert(type_ref);
 
         let mb_type_die = ctx_die.context.deref_die(ctx_die.unit, type_ref);
-        let type_decl = mb_type_die.and_then(|entry| match &entry.die {
+        let type_decl = mb_type_die.and_then(|(entry, unit)| match &entry.die {
             DieVariant::BaseType(die) => Some(self.parse_base_type(ContextualDieRef {
                 context: ctx_die.context,
-                unit: ctx_die.unit,
+                unit,
                 node: &entry.node,
                 die,
             })),
             DieVariant::StructType(die) => Some(self.parse_struct(ContextualDieRef {
                 context: ctx_die.context,
-                unit: ctx_die.unit,
+                unit,
                 node: &entry.node,
                 die,
             })),
             DieVariant::ArrayType(die) => Some(self.parse_array(ContextualDieRef {
                 context: ctx_die.context,
-                unit: ctx_die.unit,
+                unit,
                 node: &entry.node,
                 die,
             })),
             DieVariant::EnumType(die) => Some(self.parse_enum(ContextualDieRef {
                 context: ctx_die.context,
-                unit: ctx_die.unit,
+                unit,
                 node: &entry.node,
                 die,
             })),
             DieVariant::PointerType(die) => Some(self.parse_pointer(ContextualDieRef {
                 context: ctx_die.context,
-                unit: ctx_die.unit,
+                unit,
                 node: &entry.node,
                 die,
             })),
             DieVariant::UnionTypeDie(die) => Some(self.parse_union(ContextualDieRef {
                 context: ctx_die.context,
-                unit: ctx_die.unit,
+                unit,
                 node: &entry.node,
                 die,
             })),
@@ -612,11 +612,11 @@ impl TypeParser {
         });
 
         let mut member_from_ref = |type_ref: DieRef| -> Option<StructureMember> {
-            let entry = ctx_die.context.deref_die(ctx_die.unit, type_ref)?;
+            let (entry, unit) = ctx_die.context.deref_die(ctx_die.unit, type_ref)?;
             if let DieVariant::TypeMember(ref member) = &entry.die {
                 return Some(self.parse_member(ContextualDieRef {
                     context: ctx_die.context,
-                    unit: ctx_die.unit,
+                    unit,
                     node: &entry.node,
                     die: member,
                 }));
