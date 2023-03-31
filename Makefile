@@ -7,10 +7,10 @@ build-all: build
 	cargo build --bin mt
 	cargo build --bin vars
 
-func-test:
+cargo-test:
 	cargo test
 
 int-test:
 	python3 -m unittest discover ./tests/integration/ -v
 
-test: build-all func-test int-test
+test: build-all cargo-test int-test
