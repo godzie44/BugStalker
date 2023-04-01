@@ -411,10 +411,8 @@ impl VariableIR {
             VariableIR::RustEnum(r_enum) => r_enum
                 .value
                 .and_then(|v| v.deref(eval_ctx, variable_parser)),
-            VariableIR::Specialized(SpecializedVariableIR::Rc { value, .. }) => {
-                value.and_then(|var| var.deref(eval_ctx, variable_parser))
-            }
-            VariableIR::Specialized(SpecializedVariableIR::Arc { value, .. }) => {
+            VariableIR::Specialized(SpecializedVariableIR::Rc { value, .. })
+            | VariableIR::Specialized(SpecializedVariableIR::Arc { value, .. }) => {
                 value.and_then(|var| var.deref(eval_ctx, variable_parser))
             }
             VariableIR::Specialized(SpecializedVariableIR::Tls { tls_var, .. }) => tls_var
@@ -462,6 +460,10 @@ impl VariableIR {
                 }),
                 SpecializedVariableIR::Tls { tls_var, .. } => tls_var
                     .and_then(|var| var.inner_value.and_then(|inner| inner.field(field_name))),
+                SpecializedVariableIR::Cell { value, .. }
+                | SpecializedVariableIR::RefCell { value, .. } => {
+                    value.and_then(|var| var.field(field_name))
+                }
                 _ => None,
             },
             _ => None,
@@ -480,12 +482,17 @@ impl VariableIR {
             }),
             VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.index(idx)),
             VariableIR::Specialized(spec) => match spec {
-                SpecializedVariableIR::Vector { vec, .. } => vec.and_then(|mut v| {
+                SpecializedVariableIR::Vector { vec, .. }
+                | SpecializedVariableIR::VecDeque { vec, .. } => vec.and_then(|mut v| {
                     let inner_array = v.structure.members.swap_remove(0);
                     inner_array.index(idx)
                 }),
                 SpecializedVariableIR::Tls { tls_var, .. } => {
                     tls_var.and_then(|var| var.inner_value.and_then(|inner| inner.index(idx)))
+                }
+                SpecializedVariableIR::Cell { value, .. }
+                | SpecializedVariableIR::RefCell { value, .. } => {
+                    value.and_then(|var| var.index(idx))
                 }
                 _ => None,
             },
@@ -501,14 +508,10 @@ impl VariableIR {
     ) -> Option<Self> {
         match self {
             VariableIR::Pointer(ptr) => ptr.slice(eval_ctx, variable_parser, len),
-            VariableIR::RustEnum(r_enum) => r_enum
-                .value
-                .and_then(|v| v.deref(eval_ctx, variable_parser)),
-            VariableIR::Specialized(SpecializedVariableIR::Tls { tls_var, .. }) => tls_var
-                .and_then(|var| {
-                    var.inner_value
-                        .and_then(|inner| inner.deref(eval_ctx, variable_parser))
-                }),
+            VariableIR::Specialized(SpecializedVariableIR::Rc { value, .. })
+            | VariableIR::Specialized(SpecializedVariableIR::Arc { value, .. }) => {
+                value.and_then(|var| var.slice(eval_ctx, variable_parser, len))
+            }
             _ => None,
         }
     }
