@@ -65,7 +65,8 @@ impl<'a> RequirementsResolver<'a> {
                     .dwarf
                     .find_function_by_pc(loc.global_pc)
                     .ok_or_else(|| anyhow!("current function not found"))?;
-                let base_addr = func.frame_base_addr(self.debugee, pid)?;
+                let debugee_at = self.debugee.thread_stop_at(pid)?;
+                let base_addr = func.frame_base_addr(pid, self.debugee, debugee_at.global_pc)?;
                 Ok(*e.insert(base_addr))
             }
         }

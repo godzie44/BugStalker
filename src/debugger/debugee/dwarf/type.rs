@@ -15,6 +15,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem;
 use uuid::Uuid;
 
+/// Type identifier.
 pub type TypeIdentity = DieRef;
 
 pub struct EvaluationContext<'a> {

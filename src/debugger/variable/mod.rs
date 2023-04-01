@@ -23,6 +23,8 @@ mod specialization;
 use crate::debugger::debugee::dwarf::r#type::{ComplexType, TypeDeclaration};
 pub use specialization::SpecializedVariableIR;
 
+/// Identifier of debugee variables.
+/// Consists of the name and namespace of the variable.
 #[derive(Clone)]
 pub struct VariableIdentity {
     namespace: NamespaceHierarchy,
@@ -115,6 +117,7 @@ impl Display for SupportedScalar {
     }
 }
 
+/// Represents scalars: integer's, float's, bool, char and () types.
 #[derive(Clone)]
 pub struct ScalarVariable {
     pub identity: VariableIdentity,
@@ -140,44 +143,57 @@ impl ScalarVariable {
     }
 }
 
+/// Represents structures.
 #[derive(Clone)]
 pub struct StructVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
+    /// Structure members. Each represents by variable IR.
     pub members: Vec<VariableIR>,
+    /// Map of type parameters of structure type.
     pub type_params: HashMap<String, Option<TypeIdentity>>,
 }
 
+/// Represents arrays.
 #[derive(Clone)]
 pub struct ArrayVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
+    /// Array items. Each represents by variable IR.
     pub items: Option<Vec<VariableIR>>,
 }
 
+/// Simple c-style enums (each option in which does not contain the underlying values).
 #[derive(Clone)]
 pub struct CEnumVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
+    /// String representation of selected variant.
     pub value: Option<String>,
 }
 
+/// Represents all enum's that more complex then c-style enums.
 #[derive(Clone)]
 pub struct RustEnumVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
+    /// Variable IR representation of selected variant.
     pub value: Option<Box<VariableIR>>,
 }
 
+/// Raw pointers, references, Box.
 #[derive(Clone)]
 pub struct PointerVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
+    /// Raw pointer to underline value.
     pub value: Option<*const ()>,
+    /// Underline type identity.
     target_type: Option<TypeIdentity>,
 }
 
 impl PointerVariable {
+    /// Dereference pointer and return variable IR that represents underline value.
     pub fn deref(
         &self,
         eval_ctx: &EvaluationContext,
@@ -198,6 +214,8 @@ impl PointerVariable {
         })
     }
 
+    /// Interpret pointer as a pointer on first array element. Returns variable IR that represents
+    /// an array.
     pub fn slice(
         &self,
         eval_ctx: &EvaluationContext,
@@ -244,6 +262,7 @@ impl PointerVariable {
     }
 }
 
+/// Variable intermediate representation.
 #[derive(Clone)]
 pub enum VariableIR {
     Scalar(ScalarVariable),
@@ -262,13 +281,14 @@ impl Debug for VariableIR {
 }
 
 impl VariableIR {
-    /// Visit variable children in bfs order.
+    /// Visit variable children in BFS order.
     fn bfs_iterator(&self) -> BfsIterator {
         BfsIterator {
             queue: VecDeque::from([self]),
         }
     }
 
+    /// Returns i64 value representation or error if cast fail.
     fn assume_field_as_scalar_number(&self, field_name: &'static str) -> Result<i64, AssumeError> {
         let ir = self
             .bfs_iterator()
@@ -282,6 +302,7 @@ impl VariableIR {
         }
     }
 
+    /// Returns value as raw pointer or error if cast fail.
     fn assume_field_as_pointer(&self, field_name: &'static str) -> Result<*const (), AssumeError> {
         self.bfs_iterator()
             .find_map(|child| {
@@ -295,6 +316,7 @@ impl VariableIR {
             .ok_or(AssumeError::IncompleteInterp("pointer"))
     }
 
+    /// Returns value as enum or error if cast fail.
     fn assume_field_as_rust_enum(
         &self,
         field_name: &'static str,
@@ -311,6 +333,7 @@ impl VariableIR {
             .ok_or(AssumeError::IncompleteInterp("pointer"))
     }
 
+    /// Returns value as structure or error if cast fail.
     fn assume_field_as_struct(
         &self,
         field_name: &'static str,
@@ -327,6 +350,7 @@ impl VariableIR {
             .ok_or(AssumeError::IncompleteInterp("structure"))
     }
 
+    /// Returns variable identity.
     fn identity(&self) -> &VariableIdentity {
         match self {
             VariableIR::Scalar(s) => &s.identity,
@@ -379,6 +403,8 @@ impl VariableIR {
         }
     }
 
+    /// Try to dereference variable and returns underline variable IR.
+    /// Return `None` if dereference not allowed.
     fn deref(self, eval_ctx: &EvaluationContext, variable_parser: &VariableParser) -> Option<Self> {
         match self {
             VariableIR::Pointer(ptr) => ptr.deref(eval_ctx, variable_parser),
@@ -400,6 +426,8 @@ impl VariableIR {
         }
     }
 
+    /// Return variable field, `None` if get field is not allowed for variable type.
+    /// Supported: structures, rust-style enums, hashmaps, btree-maps.
     fn field(self, field_name: &str) -> Option<Self> {
         match self {
             VariableIR::Struct(structure) => structure
@@ -440,6 +468,8 @@ impl VariableIR {
         }
     }
 
+    /// Return variable element by its index, `None` if indexing is not allowed for variable type.
+    /// Supported: array, rust-style enums, vector.
     fn index(self, idx: usize) -> Option<Self> {
         match self {
             VariableIR::Array(array) => array.items.and_then(|mut items| {
@@ -969,6 +999,7 @@ enum AssumeError {
     IncompleteInterp(&'static str),
 }
 
+/// Iterator for visits underline values in BFS order.
 struct BfsIterator<'a> {
     queue: VecDeque<&'a VariableIR>,
 }

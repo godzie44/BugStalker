@@ -1,10 +1,12 @@
 pub mod eval;
+mod location;
 pub mod parser;
 mod symbol;
 pub mod r#type;
 
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
+use crate::debugger::debugee::dwarf::location::Location as DwarfLocation;
 use crate::debugger::debugee::dwarf::parser::unit::{
     DieVariant, Entry, FunctionDie, Node, ParameterDie, Unit, VariableDie,
 };
@@ -426,38 +428,12 @@ pub trait AsAllocatedValue {
 
     fn location_expr(
         &self,
-        pc: GlobalAddress,
         dwarf_ctx: &DebugeeContext<EndianRcSlice>,
         unit: &Unit,
+        pc: GlobalAddress,
     ) -> Option<Expression<EndianRcSlice>> {
         let location = self.location()?;
-
-        if let Some(expr) = location.exprloc_value() {
-            return Some(expr);
-        }
-
-        let offset = match location.value() {
-            AttributeValue::LocationListsRef(offset) => offset,
-            AttributeValue::DebugLocListsIndex(index) => weak_error!(dwarf_ctx
-                .locations()
-                .get_offset(unit.encoding(), unit.loclists_base(), index))?,
-            _ => return None,
-        };
-
-        let mut iter = weak_error!(dwarf_ctx.locations().locations(
-            offset,
-            unit.encoding(),
-            unit.low_pc(),
-            dwarf_ctx.debug_addr(),
-            unit.addr_base(),
-        ))?;
-
-        let pc = u64::from(pc);
-        let entry = iter
-            .find(|list_entry| Ok(list_entry.range.begin <= pc && list_entry.range.end >= pc))
-            .ok()?;
-
-        entry.map(|e| e.data)
+        DwarfLocation(location).try_as_expression(dwarf_ctx, unit, pc)
     }
 }
 
@@ -550,15 +526,20 @@ impl<'a, T> ContextualDieRef<'a, T> {
 }
 
 impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
-    pub fn frame_base_addr(&self, debugee: &Debugee, pid: Pid) -> anyhow::Result<RelocatedAddress> {
+    pub fn frame_base_addr(
+        &self,
+        pid: Pid,
+        debugee: &Debugee,
+        pc: GlobalAddress,
+    ) -> anyhow::Result<RelocatedAddress> {
         let attr = self
             .die
             .fb_addr
             .as_ref()
             .ok_or_else(|| anyhow!("no frame base attr"))?;
-        // todo maybe loclist
-        let expr = attr
-            .exprloc_value()
+
+        let expr = DwarfLocation(attr)
+            .try_as_expression(self.context, self.unit, pc)
             .ok_or_else(|| anyhow!("frame base attribute not an expression"))?;
 
         let result = self
@@ -670,7 +651,7 @@ impl<'ctx, D: AsAllocatedValue> ContextualDieRef<'ctx, D> {
         r#type: &ComplexType,
     ) -> Option<Bytes> {
         self.die
-            .location_expr(location.global_pc, self.context, self.unit)
+            .location_expr(self.context, self.unit, location.global_pc)
             .and_then(|expr| {
                 let evaluator = self.unit.evaluator(debugee);
                 let eval_result = weak_error!(evaluator.evaluate(location.pid, expr))?;

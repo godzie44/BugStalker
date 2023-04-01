@@ -176,7 +176,7 @@ impl Debugee {
             .find_function_by_pc(location.global_pc)
             .ok_or_else(|| anyhow!("current function not found"))?;
 
-        let base_addr = func.frame_base_addr(self, location.pid)?;
+        let base_addr = func.frame_base_addr(location.pid, self, location.global_pc)?;
 
         let cfa = self.dwarf.get_cfa(self, location)?;
 
