@@ -18,6 +18,8 @@ pub(super) struct LineRow {
     pub(super) line: u64,
     pub(super) column: u64,
     pub(super) is_stmt: bool,
+    pub(super) prolog_end: bool,
+    pub(super) epilog_begin: bool,
 }
 
 #[derive(Debug)]
@@ -94,6 +96,8 @@ impl Unit {
             column_number: line.column,
             pos_in_unit: line_pos,
             is_stmt: line.is_stmt,
+            prolog_end: line.prolog_end,
+            epilog_begin: line.epilog_begin,
             context: self,
         })
     }
@@ -137,6 +141,8 @@ pub struct Place<'a> {
     pub pos_in_unit: usize,
     pub is_stmt: bool,
     pub column_number: u64,
+    pub epilog_begin: bool,
+    pub prolog_end: bool,
     context: &'a Unit,
 }
 

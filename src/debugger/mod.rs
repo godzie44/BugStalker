@@ -385,22 +385,12 @@ impl Debugger {
             .dwarf
             .find_function_by_name(name)
             .ok_or_else(|| anyhow!("function not found"))?;
-
-        // todo find range with lowes begin
-        let low_pc = func.die.base_attributes.ranges[0].begin;
-        let entry = self
-            .debugee
-            .dwarf
-            .find_place_from_pc(GlobalAddress::from(low_pc))
-            .ok_or_else(|| anyhow!("invalid function entry"))?
-            // TODO skip prologue smarter
-            .next()
-            .ok_or_else(|| anyhow!("invalid function entry"))?;
+        let place = func.prolog_end_place()?;
 
         let addr = if self.debugee.execution_status == ExecutionStatus::InProgress {
-            PCValue::Relocated(entry.address.relocate(self.debugee.mapping_offset()))
+            PCValue::Relocated(place.address.relocate(self.debugee.mapping_offset()))
         } else {
-            PCValue::Global(entry.address)
+            PCValue::Global(place.address)
         };
 
         self.set_breakpoint(addr)

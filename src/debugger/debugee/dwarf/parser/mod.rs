@@ -303,6 +303,8 @@ where
             line: line_row.line().map(NonZeroU64::get).unwrap_or(0),
             column,
             is_stmt: line_row.is_stmt(),
+            prolog_end: line_row.prologue_end(),
+            epilog_begin: line_row.epilogue_begin(),
         })
     }
     Ok(lines)

@@ -18,10 +18,16 @@ class CommandTestCase(unittest.TestCase):
 
     def test_function_breakpoint(self):
         """Stop debugee at function by its name"""
+        self.debugger.sendline('break main')
+        self.debugger.expect('break main')
+
+        self.debugger.sendline('run')
+        self.debugger.expect('fn main')
+
         self.debugger.sendline('break myprint')
         self.debugger.expect('break myprint')
 
-        self.debugger.sendline('run')
+        self.debugger.sendline('continue')
         self.debugger.expect('fn myprint')
         self.debugger.sendline('continue')
         self.debugger.expect('Hello, world!')

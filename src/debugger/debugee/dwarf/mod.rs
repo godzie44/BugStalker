@@ -15,17 +15,17 @@ use crate::debugger::debugee::dwarf::r#type::ComplexType;
 use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
 use crate::debugger::debugee::{Debugee, Location};
-use crate::debugger::register;
 use crate::debugger::utils::TryGetOrInsert;
+use crate::debugger::{register, Place};
 use crate::{debugger, weak_error};
 use anyhow::anyhow;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;
 use gimli::{
-    Attribute, AttributeValue, BaseAddresses, CfaRule, DebugAddr, DebugInfoOffset, Dwarf, EhFrame,
-    Expression, LocationLists, Register, RegisterRule, RunTimeEndian, Section, UnitOffset,
-    UnwindContext, UnwindSection, UnwindTableRow,
+    Attribute, BaseAddresses, CfaRule, DebugAddr, DebugInfoOffset, Dwarf, EhFrame, Expression,
+    LocationLists, Register, RegisterRule, RunTimeEndian, Section, UnitOffset, UnwindContext,
+    UnwindSection, UnwindTableRow,
 };
 use nix::unistd::Pid;
 use object::{Object, ObjectSection};
@@ -598,6 +598,30 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
                 .for_each(|i| queue.push_back(*i));
         }
         result
+    }
+
+    pub fn prolog_end_place(&self) -> anyhow::Result<Place> {
+        let low_pc = self
+            .die
+            .base_attributes
+            .ranges
+            .iter()
+            .min_by(|r1, r2| r1.begin.cmp(&r2.begin))
+            .ok_or(anyhow!("function ranges not found"))?
+            .begin;
+
+        let mut place = self
+            .context
+            .find_place_from_pc(GlobalAddress::from(low_pc))
+            .ok_or_else(|| anyhow!("invalid function entry"))?;
+        while !place.prolog_end {
+            match place.next() {
+                None => break,
+                Some(next_place) => place = next_place,
+            }
+        }
+
+        Ok(place)
     }
 }
 
