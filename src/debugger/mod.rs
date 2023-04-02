@@ -199,9 +199,11 @@ impl Debugger {
     }
 
     pub fn set_breakpoint(&mut self, addr: PCValue) -> anyhow::Result<()> {
-        // todo make method idempotence
         let brkpt = Breakpoint::new(addr, self.debugee.threads_ctl().proc_pid());
         if self.debugee.execution_status == ExecutionStatus::InProgress {
+            if let Some(existed) = self.breakpoints.get(&addr) {
+                existed.disable()?;
+            }
             brkpt.enable()?;
         }
         self.breakpoints.insert(addr, brkpt);

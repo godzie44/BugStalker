@@ -88,3 +88,30 @@ fn test_brkpt_on_line() {
         assert_no_proc!(child);
     });
 }
+
+#[test]
+#[serial]
+fn test_set_breakpoint_idempotence() {
+    debugger_env!(HW_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
+
+        debugger
+            .set_breakpoint_at_line("hello_world.rs", 15)
+            .unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(15));
+
+        // set brkpt again on same address, but debugee now in execution state
+        debugger
+            .set_breakpoint_at_line("hello_world.rs", 15)
+            .unwrap();
+
+        debugger.continue_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(15));
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
+    });
+}
