@@ -291,21 +291,46 @@ impl Debugger {
     pub fn step_in(&self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
 
+        fn step_to_next_place(debugger: &Debugger) -> anyhow::Result<Place<'_>> {
+            loop {
+                debugger.single_step_instruction()?;
+                if let Some(place) = debugger
+                    .debugee
+                    .dwarf
+                    .find_exact_place_from_pc(debugger.current_thread_stop_at()?.global_pc)
+                {
+                    return Ok(place);
+                }
+            }
+        }
+
         let location = self.current_thread_stop_at()?;
-        let place = self
-            .debugee
-            .dwarf
+        let dwarf = &self.debugee.dwarf;
+        let start_place = dwarf
             .find_place_from_pc(location.global_pc)
             .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
+        let current_fn = dwarf
+            .find_function_by_pc(location.global_pc)
+            .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
 
-        while place
-            == self
-                .debugee
-                .dwarf
-                .find_place_from_pc(self.current_thread_stop_at()?.global_pc)
-                .ok_or_else(|| anyhow!("unreachable! line not found"))?
-        {
-            self.single_step_instruction()?
+        loop {
+            let next_place = step_to_next_place(self)?;
+            if !next_place.is_stmt {
+                continue;
+            }
+
+            if next_place != start_place {
+                let next_fn = dwarf
+                    .find_function_by_pc(self.current_thread_stop_at()?.global_pc)
+                    .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
+
+                // skip function prolog if needed
+                if current_fn.die != next_fn.die && next_place == next_fn.prolog_start_place()? {
+                    let prolog_end = next_fn.prolog_end_place()?;
+                    while prolog_end != step_to_next_place(self)? {}
+                }
+                break;
+            }
         }
 
         Ok(())
@@ -382,9 +407,8 @@ impl Debugger {
     }
 
     pub fn set_breakpoint_at_fn(&mut self, name: &str) -> anyhow::Result<()> {
-        let func = self
-            .debugee
-            .dwarf
+        let dwarf = &self.debugee.dwarf;
+        let func = dwarf
             .find_function_by_name(name)
             .ok_or_else(|| anyhow!("function not found"))?;
         let place = func.prolog_end_place()?;

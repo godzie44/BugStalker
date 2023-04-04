@@ -112,6 +112,14 @@ impl Unit {
         self.find_place(pos)
     }
 
+    pub fn find_exact_place_by_pc(&self, pc: GlobalAddress) -> Option<Place> {
+        let pc = u64::from(pc);
+        match self.lines.binary_search_by_key(&pc, |line| line.address) {
+            Ok(p) => self.find_place(p),
+            Err(_) => None,
+        }
+    }
+
     pub fn find_stmt_line(&self, file: &str, line: u64) -> Option<Place<'_>> {
         let found = self
             .files
@@ -162,14 +170,14 @@ impl<'a> PartialEq for Place<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct DieAttributes {
     pub(super) _tag: DwTag,
     pub name: Option<String>,
     pub ranges: Box<[Range]>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct FunctionDie {
     pub base_attributes: DieAttributes,
     pub fb_addr: Option<Attribute<EndianRcSlice>>,

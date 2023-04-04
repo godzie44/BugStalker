@@ -72,7 +72,7 @@ fn test_read_value_u64() {
         assert_eq!(vars.len(), 1);
         assert_eq!(vars[0].name(), "s");
         assert_eq!(vars[0].r#type(), "i64");
-        let _three = "3".to_string();
+        let _three = "6".to_string();
         assert!(matches!(
             vars[0].value().unwrap(),
             ValueLayout::PreRendered(Cow::Owned(_three))

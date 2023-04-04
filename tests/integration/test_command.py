@@ -151,19 +151,33 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect('Hello, world!')
         self.debugger.expect('bye!')
 
-    def test_step_in(self):
+    @staticmethod
+    def test_step_in():
         """Debugger step in command (move to next line)"""
-        self.debugger.sendline('break hello_world.rs:4')
-        self.debugger.sendline('break hello_world.rs:4')
+        debugger = pexpect.spawn(
+            './target/debug/bugstalker ./target/debug/calc')
+        debugger.expect('No previous history.')
+        debugger.sendline('break main')
+        debugger.expect('break main')
 
-        self.debugger.sendline('run')
-        self.debugger.expect('>fn main()')
-        self.debugger.sendline('step')
-        self.debugger.expect_exact('>    myprint("Hello, world!");')
-        self.debugger.sendline('step')
-        self.debugger.expect_exact('>fn myprint(s: &str)')
-        self.debugger.sendline('step')
-        self.debugger.expect_exact('>    println!("{}", s)')
+        debugger.sendline('run')
+        debugger.expect('>    let s: i64')
+        debugger.sendline('step')
+        debugger.expect_exact('>    let ab = sum2')
+        debugger.sendline('step')
+        debugger.expect_exact('>    a + b')
+        debugger.sendline('step')
+        debugger.expect_exact('>}')
+        debugger.sendline('step')
+        debugger.expect_exact('>    sum2(ab, c)')
+        debugger.sendline('step')
+        debugger.expect_exact('>    a + b')
+        debugger.sendline('step')
+        debugger.expect_exact('>}')
+        debugger.sendline('step')
+        debugger.expect_exact('>}')
+        debugger.sendline('step')
+        debugger.expect_exact('>    print(s);')
 
     def test_step_out(self):
         """Debugger step out command (move out from current function)"""
@@ -172,8 +186,6 @@ class CommandTestCase(unittest.TestCase):
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('myprint("Hello, world!");')
-        self.debugger.sendline('step')
-        self.debugger.expect_exact('>fn myprint(s: &str)')
         self.debugger.sendline('step')
         self.debugger.expect_exact('>    println!("{}", s)')
         self.debugger.sendline('stepout')
@@ -234,4 +246,4 @@ class CommandTestCase(unittest.TestCase):
         debugger.expect_exact('>    print(s);')
 
         debugger.sendline('vars locals')
-        debugger.expect_exact('s = i64(3)')
+        debugger.expect_exact('s = i64(6)')

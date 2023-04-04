@@ -281,9 +281,16 @@ impl DebugeeContext {
         })
     }
 
+    /// Returns best matched place by program counter global address.
     pub fn find_place_from_pc(&self, pc: GlobalAddress) -> Option<parser::unit::Place> {
         let unit = self.find_unit_by_pc(pc)?;
         unit.find_place_by_pc(pc)
+    }
+
+    /// Returns place with line address equals to program counter global address.
+    pub fn find_exact_place_from_pc(&self, pc: GlobalAddress) -> Option<parser::unit::Place> {
+        let unit = self.find_unit_by_pc(pc)?;
+        unit.find_exact_place_by_pc(pc)
     }
 
     pub fn find_function_by_pc(&self, pc: GlobalAddress) -> Option<ContextualDieRef<FunctionDie>> {
@@ -600,7 +607,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         result
     }
 
-    pub fn prolog_end_place(&self) -> anyhow::Result<Place> {
+    pub fn prolog_start_place(&self) -> anyhow::Result<Place> {
         let low_pc = self
             .die
             .base_attributes
@@ -609,11 +616,13 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
             .min_by(|r1, r2| r1.begin.cmp(&r2.begin))
             .ok_or(anyhow!("function ranges not found"))?
             .begin;
-
-        let mut place = self
-            .context
+        self.context
             .find_place_from_pc(GlobalAddress::from(low_pc))
-            .ok_or_else(|| anyhow!("invalid function entry"))?;
+            .ok_or_else(|| anyhow!("invalid function entry"))
+    }
+
+    pub fn prolog_end_place(&self) -> anyhow::Result<Place> {
+        let mut place = self.prolog_start_place()?;
         while !place.prolog_end {
             match place.next() {
                 None => break,

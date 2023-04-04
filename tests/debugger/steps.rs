@@ -1,25 +1,41 @@
 use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
-use crate::debugger_env;
 use crate::{assert_no_proc, HW_APP};
+use crate::{debugger_env, CALC_APP};
 use serial_test::serial;
 
 #[test]
 #[serial]
 fn test_step_into() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(CALC_APP, child, {
         let info = DebugeeRunInfo::default();
-        let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
+        let mut debugger = Debugger::new(CALC_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_fn("main").unwrap();
 
         debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(5));
+        assert_eq!(info.line.take(), Some(2));
 
         debugger.step_into().unwrap();
-        assert_eq!(info.line.take(), Some(14));
+        assert_eq!(info.line.take(), Some(11));
 
         debugger.step_into().unwrap();
-        assert_eq!(info.line.take(), Some(15));
+        assert_eq!(info.line.take(), Some(7));
+        debugger.step_into().unwrap();
+        assert_eq!(info.line.take(), Some(8));
+
+        debugger.step_into().unwrap();
+        assert_eq!(info.line.take(), Some(12));
+
+        debugger.step_into().unwrap();
+        assert_eq!(info.line.take(), Some(7));
+        debugger.step_into().unwrap();
+        assert_eq!(info.line.take(), Some(8));
+
+        debugger.step_into().unwrap();
+        assert_eq!(info.line.take(), Some(13));
+
+        debugger.step_into().unwrap();
+        assert_eq!(info.line.take(), Some(3));
 
         debugger.continue_debugee().unwrap();
         assert_no_proc!(child);
@@ -38,7 +54,7 @@ fn test_step_out() {
         assert_eq!(info.line.take(), Some(5));
 
         debugger.step_into().unwrap();
-        assert_eq!(info.line.take(), Some(14));
+        assert_eq!(info.line.take(), Some(15));
 
         debugger.step_out().unwrap();
         assert_eq!(info.line.take(), Some(7));
