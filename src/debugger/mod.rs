@@ -19,7 +19,7 @@ use crate::debugger::debugee::dwarf::r#type::TypeCache;
 use crate::debugger::debugee::dwarf::{RegisterDump, Symbol};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
 use crate::debugger::debugee::{Debugee, ExecutionStatus, FrameInfo, Location};
-use crate::debugger::register::{get_register_from_name, get_register_value, set_register_value};
+use crate::debugger::register::{Register, RegisterMap};
 use crate::debugger::uw::Backtrace;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::variable::VariableIR;
@@ -35,6 +35,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_long;
 use std::path::Path;
+use std::str::FromStr;
 use std::{fs, mem, u64};
 
 pub trait EventHook {
@@ -465,10 +466,8 @@ impl Debugger {
     pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {
         disable_when_not_stared!(self);
 
-        Ok(get_register_value(
-            self.debugee.thread_in_focus(),
-            get_register_from_name(register_name)?,
-        )?)
+        Ok(RegisterMap::current(self.debugee.thread_in_focus())?
+            .value(Register::from_str(register_name)?))
     }
 
     pub fn current_thread_registers_at_pc(
@@ -493,11 +492,9 @@ impl Debugger {
     pub fn set_register_value(&self, register_name: &str, val: u64) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
 
-        Ok(set_register_value(
-            self.debugee.thread_in_focus(),
-            get_register_from_name(register_name)?,
-            val,
-        )?)
+        let mut map = RegisterMap::current(self.debugee.thread_in_focus())?;
+        map.update(Register::try_from(register_name)?, val);
+        Ok(map.persist(self.debugee.thread_in_focus())?)
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
+use crate::debugger::code;
 use crate::debugger::debugee::thread::{ThreadCtl, TraceeStatus};
-use crate::debugger::register::Register;
-use crate::debugger::{code, register};
+use crate::debugger::register::{Register, RegisterMap};
 use anyhow::bail;
 use log::warn;
 use nix::errno::Errno;
@@ -139,11 +139,14 @@ impl ControlFlow {
     }
 
     pub fn thread_pc(&self, tid: Pid) -> nix::Result<RelocatedAddress> {
-        register::get_register_value(tid, Register::Rip).map(RelocatedAddress::from)
+        RegisterMap::current(tid)
+            .map(|reg_map| RelocatedAddress::from(reg_map.value(Register::Rip)))
     }
 
     fn set_thread_pc(&self, tid: Pid, value: u64) -> nix::Result<()> {
-        register::set_register_value(tid, Register::Rip, value)
+        let mut map = RegisterMap::current(tid)?;
+        map.update(Register::Rip, value);
+        map.persist(tid)
     }
 
     pub fn thread_step(tid: Pid) -> anyhow::Result<()> {

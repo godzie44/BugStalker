@@ -9,7 +9,7 @@ mod variables;
 
 use crate::common::{DebugeeRunInfo, TestHooks};
 use bugstalker::debugger::register;
-use bugstalker::debugger::register::Register;
+use bugstalker::debugger::register::{Register, RegisterMap};
 use serial_test::serial;
 use std::mem;
 
@@ -62,7 +62,7 @@ fn test_frame_cfa() {
         debugger.run_debugee().unwrap();
         assert_eq!(info.line.take(), Some(5));
 
-        let sp = register::get_register_value(child, Register::Rsp).unwrap();
+        let sp = RegisterMap::current(child).unwrap().value(Register::Rsp);
 
         debugger.continue_debugee().unwrap();
         let frame_info = debugger.frame_info(child).unwrap();

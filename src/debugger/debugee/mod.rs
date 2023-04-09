@@ -3,9 +3,9 @@ use crate::debugger::debugee::dwarf::{DebugeeContext, EndianRcSlice};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
 use crate::debugger::debugee::rendezvous::Rendezvous;
 use crate::debugger::debugee::thread::{ThreadCtl, TraceeThread};
-use crate::debugger::register::Register;
+use crate::debugger::register::{Register, RegisterMap};
+use crate::debugger::uw;
 use crate::debugger::uw::Backtrace;
-use crate::debugger::{register, uw};
 use crate::weak_error;
 use anyhow::anyhow;
 use log::{info, warn};
@@ -39,7 +39,7 @@ pub struct ThreadDump {
 
 /// Contains the address (location) of the thread PID
 /// and instruction being executed at the current time
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Location {
     pub pc: RelocatedAddress,
     pub global_pc: GlobalAddress,
@@ -192,7 +192,8 @@ impl Debugee {
         Ok(threads
             .into_iter()
             .map(|thread| {
-                let pc = weak_error!(register::get_register_value(thread.pid, Register::Rip));
+                let pc = weak_error!(RegisterMap::current(thread.pid))
+                    .map(|r_map| r_map.value(Register::Rip));
                 let bt = weak_error!(uw::backtrace(thread.pid));
                 ThreadDump {
                     in_focus: thread.pid == self.threads_ctl().thread_in_focus(),

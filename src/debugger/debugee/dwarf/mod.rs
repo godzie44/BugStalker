@@ -15,6 +15,7 @@ use crate::debugger::debugee::dwarf::r#type::ComplexType;
 use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
 use crate::debugger::debugee::{Debugee, Location};
+use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::utils::TryGetOrInsert;
 use crate::debugger::{register, Place};
 use crate::{debugger, weak_error};
@@ -24,8 +25,8 @@ use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;
 use gimli::{
     Attribute, BaseAddresses, CfaRule, DebugAddr, DebugInfoOffset, Dwarf, EhFrame, Expression,
-    LocationLists, Register, RegisterRule, RunTimeEndian, Section, UnitOffset, UnwindContext,
-    UnwindSection, UnwindTableRow,
+    LocationLists, Range, Register, RegisterRule, RunTimeEndian, Section, UnitOffset,
+    UnwindContext, UnwindSection, UnwindTableRow,
 };
 use nix::unistd::Pid;
 use object::{Object, ObjectSection};
@@ -149,7 +150,8 @@ impl DebugeeContext {
         let rule = utr.cfa();
         match rule {
             RegisterAndOffset { register, offset } => {
-                let ra = register::get_register_value_dwarf(location.pid, register.0 as i32)?;
+                let ra =
+                    DwarfRegisterMap::from(RegisterMap::current(location.pid)?).value(*register)?;
                 Ok(RelocatedAddress::from(ra as usize).offset(*offset as isize))
             }
             CfaRule::Expression(expr) => {
@@ -210,10 +212,10 @@ impl DebugeeContext {
             .filter_map(|(register, rule)| {
                 let value = match rule {
                     RegisterRule::Undefined => return None,
-                    RegisterRule::SameValue => weak_error!(register::get_register_value_dwarf(
-                        location.pid,
-                        register.0 as i32
-                    ))?,
+                    RegisterRule::SameValue => {
+                        let register_map = weak_error!(RegisterMap::current(location.pid))?;
+                        weak_error!(DwarfRegisterMap::from(register_map).value(*register))?
+                    }
                     RegisterRule::Offset(offset) => {
                         let cfa = *weak_error!(lazy_cfa.try_get_or_insert_with(cfa_init_fn))?;
                         let addr = cfa.offset(*offset as isize);
@@ -230,9 +232,10 @@ impl DebugeeContext {
                         let cfa = *weak_error!(lazy_cfa.try_get_or_insert_with(cfa_init_fn))?;
                         cfa.offset(*offset as isize).into()
                     }
-                    RegisterRule::Register(reg) => weak_error!(
-                        register::get_register_value_dwarf(location.pid, reg.0 as i32)
-                    )?,
+                    RegisterRule::Register(reg) => {
+                        let register_map = weak_error!(RegisterMap::current(location.pid))?;
+                        weak_error!(DwarfRegisterMap::from(register_map).value(*reg))?
+                    }
                     RegisterRule::Expression(expr) => {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;

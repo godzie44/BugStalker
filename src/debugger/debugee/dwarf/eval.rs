@@ -6,12 +6,12 @@ use crate::debugger::debugee::dwarf::parser::unit::{DieVariant, Unit};
 use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::{ContextualDieRef, EndianRcSlice, RegisterDump};
 use crate::debugger::debugee::Debugee;
-use crate::debugger::register::get_register_value_dwarf;
+use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use anyhow::anyhow;
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{
-    DebugAddr, Encoding, EndianSlice, EvaluationResult, Expression, Location, Piece, RunTimeEndian,
-    UnitOffset, Value, ValueType,
+    DebugAddr, Encoding, EndianSlice, EvaluationResult, Expression, Location, Piece, Register,
+    RunTimeEndian, UnitOffset, Value, ValueType,
 };
 use nix::unistd::Pid;
 use object::ReadRef;
@@ -219,7 +219,7 @@ impl<'a> ExpressionEvaluator<'a> {
                             anyhow!("entry registers exists, but target not found")
                         })?
                     } else {
-                        get_register_value_dwarf(pid, register.0 as i32)?
+                        DwarfRegisterMap::from(RegisterMap::current(pid)?).value(register)?
                     };
                     result = eval.resume_with_register(Value::from_u64(value_type, bytes)?)?;
                 }
@@ -340,12 +340,7 @@ impl<'a> CompletedResult<'a> {
 
             match piece.location {
                 Location::Register { register } => {
-                    buf.put(read_register(
-                        self.pid,
-                        register.0 as i32,
-                        read_size,
-                        offset,
-                    )?);
+                    buf.put(read_register(self.pid, register, read_size, offset)?);
                 }
                 Location::Address { address } => {
                     let memory =
@@ -417,8 +412,8 @@ impl<'a> CompletedResult<'a> {
     }
 }
 
-fn read_register(pid: Pid, reg_num: i32, size_in_bytes: usize, offset: u64) -> Result<Bytes> {
-    let register_value = get_register_value_dwarf(pid, reg_num)?;
+fn read_register(pid: Pid, reg: Register, size_in_bytes: usize, offset: u64) -> Result<Bytes> {
+    let register_value = DwarfRegisterMap::from(RegisterMap::current(pid)?).value(reg)?;
     let bytes = (register_value >> offset).to_ne_bytes();
     let write_size = min(size_in_bytes, std::mem::size_of::<u64>());
     Ok(Bytes::copy_from_slice(&bytes[..write_size]))
