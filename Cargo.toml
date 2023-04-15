@@ -40,8 +40,6 @@ strum = "0.24"
 strum_macros = "0.24"
 
 [dev-dependencies]
-assert_cmd = "2.0.4"
-rexpect = "0.4.0"
 sysinfo = "0.27.7"
 serial_test = "1.0.0"
 
