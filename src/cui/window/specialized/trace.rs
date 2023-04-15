@@ -1,6 +1,6 @@
 use crate::cui::window::specialized::PersistentList;
 use crate::cui::window::{CuiComponent, RenderOpts};
-use crate::debugger::{command, Debugger, ThreadDump};
+use crate::debugger::{command, Debugger, ThreadSnapshot};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::cell::RefCell;
 use std::io::StdoutLock;
@@ -13,7 +13,7 @@ use tui::Frame;
 
 pub struct ThreadTrace {
     debugger: Rc<RefCell<Debugger>>,
-    thread_list: RefCell<PersistentList<ThreadDump>>,
+    thread_list: RefCell<PersistentList<ThreadSnapshot>>,
 }
 
 impl ThreadTrace {

@@ -1,3 +1,4 @@
+use gimli::Range;
 use std::fmt::{Display, Formatter};
 
 /// Represent address in running program.
@@ -17,6 +18,14 @@ impl RelocatedAddress {
             self.0 - offset.unsigned_abs()
         }
         .into()
+    }
+
+    pub fn as_u64(self) -> u64 {
+        u64::from(self)
+    }
+
+    pub fn as_usize(self) -> usize {
+        usize::from(self)
     }
 }
 
@@ -58,6 +67,10 @@ pub struct GlobalAddress(usize);
 impl GlobalAddress {
     pub fn relocate(self, offset: usize) -> RelocatedAddress {
         RelocatedAddress(self.0 + offset)
+    }
+
+    pub fn in_range(self, range: &Range) -> bool {
+        u64::from(self) >= range.begin && u64::from(self) < range.end
     }
 }
 

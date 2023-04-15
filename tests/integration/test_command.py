@@ -230,8 +230,8 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect_exact('>    println!("{}", s)')
 
         self.debugger.sendline('bt')
-        self.debugger.expect(r'myprint \(0x[0-9A-F]{,16}\)')
-        self.debugger.expect(r'hello_world::main \(0x[0-9A-F]{,16}\)')
+        self.debugger.expect(r'myprint \(0x[0-9A-F]{14,16} \+ 0x[0-9A-F]{1,16}\)')
+        self.debugger.expect(r'hello_world::main \(0x[0-9A-F]{14,16} \+ 0x[0-9A-F]{1,16}\)')
 
     @staticmethod
     def test_read_value_u64():

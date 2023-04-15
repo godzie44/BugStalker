@@ -1,11 +1,10 @@
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
+use crate::debugger::debugee::dwarf::unwind::libunwind;
+use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
 use crate::debugger::debugee::dwarf::{DebugeeContext, EndianRcSlice};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
 use crate::debugger::debugee::rendezvous::Rendezvous;
 use crate::debugger::debugee::thread::{ThreadCtl, TraceeThread};
-use crate::debugger::register::{Register, RegisterMap};
-use crate::debugger::uw;
-use crate::debugger::uw::Backtrace;
 use crate::weak_error;
 use anyhow::anyhow;
 use log::{info, warn};
@@ -30,15 +29,14 @@ pub struct FrameInfo {
     pub return_addr: Option<RelocatedAddress>,
 }
 
-pub struct ThreadDump {
+pub struct ThreadSnapshot {
     pub thread: TraceeThread,
-    pub pc: Option<RelocatedAddress>,
     pub bt: Option<Backtrace>,
     pub in_focus: bool,
 }
 
-/// Contains the address (location) of the thread PID
-/// and instruction being executed at the current time
+/// Thread position.
+/// Contains pid of thread, relocated and global address of instruction where thread stop.
 #[derive(Clone, Copy, Debug)]
 pub struct Location {
     pub pc: RelocatedAddress,
@@ -179,27 +177,23 @@ impl Debugee {
         let base_addr = func.frame_base_addr(location.pid, self, location.global_pc)?;
 
         let cfa = self.dwarf.get_cfa(self, location)?;
-
         Ok(FrameInfo {
             cfa,
             base_addr,
-            return_addr: uw::return_addr(location.pid)?,
+            return_addr: libunwind::return_addr(location.pid)?,
         })
     }
 
-    pub fn thread_state(&self) -> anyhow::Result<Vec<ThreadDump>> {
-        let threads = self.threads_ctl().dump();
+    pub fn thread_state(&self) -> anyhow::Result<Vec<ThreadSnapshot>> {
+        let threads = self.threads_ctl().snapshot();
         Ok(threads
             .into_iter()
             .map(|thread| {
-                let pc = weak_error!(RegisterMap::current(thread.pid))
-                    .map(|r_map| r_map.value(Register::Rip));
-                let bt = weak_error!(uw::backtrace(thread.pid));
-                ThreadDump {
+                let mb_bt = weak_error!(libunwind::unwind(thread.pid));
+                ThreadSnapshot {
                     in_focus: thread.pid == self.threads_ctl().thread_in_focus(),
                     thread,
-                    pc: pc.map(RelocatedAddress::from),
-                    bt,
+                    bt: mb_bt,
                 }
             })
             .collect())

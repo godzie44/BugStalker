@@ -184,7 +184,7 @@ impl ThreadCtl {
             .unwrap_or(TraceeStatus::OutOfReach)
     }
 
-    pub fn dump(&self) -> Vec<TraceeThread> {
+    pub fn snapshot(&self) -> Vec<TraceeThread> {
         self.threads_state.values().cloned().collect()
     }
 

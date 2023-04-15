@@ -4,7 +4,7 @@ use crate::debugger::debugee;
 use crate::debugger::debugee::dwarf::eval::EvalError::{OptionRequired, UnsupportedRequire};
 use crate::debugger::debugee::dwarf::parser::unit::{DieVariant, Unit};
 use crate::debugger::debugee::dwarf::parser::DieRef;
-use crate::debugger::debugee::dwarf::{ContextualDieRef, EndianRcSlice, RegisterDump};
+use crate::debugger::debugee::dwarf::{ContextualDieRef, DwarfUnwinder, EndianRcSlice};
 use crate::debugger::debugee::Debugee;
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use anyhow::anyhow;
@@ -99,7 +99,7 @@ impl<'a> RequirementsResolver<'a> {
         self.debugee.dwarf.debug_addr()
     }
 
-    fn resolve_registers(&self, pid: Pid) -> anyhow::Result<RegisterDump> {
+    fn resolve_registers(&self, pid: Pid) -> anyhow::Result<DwarfRegisterMap> {
         let current_loc = self.debugee.thread_stop_at(pid)?;
         let current_fn = self
             .debugee
@@ -116,15 +116,15 @@ impl<'a> RequirementsResolver<'a> {
             .ok_or_else(|| anyhow!("entry point pc not found"))?
             .into();
 
-        self.debugee.dwarf.registers(
-            self.debugee,
-            debugee::Location {
+        let unwinder = DwarfUnwinder::new(self.debugee);
+        Ok(unwinder
+            .context_for(debugee::Location {
                 pid,
                 pc: entry_pc.relocate(self.debugee.mapping_offset()),
                 global_pc: entry_pc,
-            },
-            current_loc,
-        )
+            })?
+            .ok_or(anyhow!("fetch register fail"))?
+            .registers())
     }
 }
 
@@ -133,7 +133,7 @@ impl<'a> RequirementsResolver<'a> {
 #[derive(Default)]
 pub struct ExternalRequirementsResolver {
     at_location: Option<Vec<u8>>,
-    entry_registers: HashMap<Pid, RegisterDump>,
+    entry_registers: HashMap<Pid, DwarfRegisterMap>,
 }
 
 impl ExternalRequirementsResolver {
@@ -151,7 +151,7 @@ impl ExternalRequirementsResolver {
         }
     }
 
-    pub fn with_entry_registers(self, pid: Pid, registers: RegisterDump) -> Self {
+    pub fn with_entry_registers(self, pid: Pid, registers: DwarfRegisterMap) -> Self {
         let mut regs = self.entry_registers;
         regs.insert(pid, registers);
         Self {
@@ -215,9 +215,7 @@ impl<'a> ExpressionEvaluator<'a> {
 
                     // if there is registers dump for functions entry - use it
                     let bytes = if let Some(regs) = resolver.entry_registers.remove(&pid) {
-                        regs.get(register).ok_or_else(|| {
-                            anyhow!("entry registers exists, but target not found")
-                        })?
+                        regs.value(register)?
                     } else {
                         DwarfRegisterMap::from(RegisterMap::current(pid)?).value(register)?
                     };

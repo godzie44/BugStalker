@@ -42,12 +42,12 @@ fn test_backtrace() {
         assert_eq!(info.line.take(), Some(15));
 
         let bt = debugger.backtrace(child).unwrap();
-        assert_eq!(bt.len(), 2);
+        assert_eq!(bt.len(), 11);
 
-        assert!(bt[0].place.as_ref().unwrap().start_ip != 0);
-        assert_eq!(bt[0].place.as_ref().unwrap().func_name, ("myprint"));
-        assert!(bt[1].place.as_ref().unwrap().start_ip != 0);
-        assert_eq!(bt[1].place.as_ref().unwrap().func_name, "hello_world::main");
+        assert!(bt[0].fn_start_ip.unwrap().as_u64() != 0);
+        assert_eq!(bt[0].func_name.as_ref().unwrap(), "myprint");
+        assert!(bt[1].fn_start_ip.unwrap().as_u64() != 0);
+        assert_eq!(bt[1].func_name.as_ref().unwrap(), "hello_world::main");
 
         debugger.continue_debugee().unwrap();
         debugger.continue_debugee().unwrap();

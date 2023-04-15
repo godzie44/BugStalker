@@ -2,18 +2,19 @@ pub mod unit;
 
 use crate::debugger::debugee::dwarf::parser::unit::{
     ArrayDie, ArraySubrangeDie, BaseTypeDie, DieAttributes, DieRange, DieVariant, Entry,
-    EnumTypeDie, EnumeratorDie, FunctionDie, LexicalBlockDie, LineRow, Namespace, Node,
-    ParameterDie, PointerType, StructTypeDie, TemplateTypeParameter, TypeMemberDie, UnionTypeDie,
-    Unit, UnitProperties, VariableDie, Variant, VariantPart,
+    EnumTypeDie, EnumeratorDie, FunctionDie, InlineSubroutineDie, LexicalBlockDie, LineRow,
+    Namespace, Node, ParameterDie, PointerType, StructTypeDie, TemplateTypeParameter,
+    TypeMemberDie, UnionTypeDie, Unit, UnitProperties, VariableDie, Variant, VariantPart,
 };
 use crate::debugger::debugee::dwarf::{EndianRcSlice, NamespaceHierarchy};
 use crate::debugger::rust::Environment;
 use fallible_iterator::FallibleIterator;
 use gimli::{
-    Attribute, AttributeValue, DW_AT_address_class, DW_AT_byte_size, DW_AT_const_value,
-    DW_AT_count, DW_AT_data_member_location, DW_AT_discr, DW_AT_discr_value, DW_AT_encoding,
-    DW_AT_frame_base, DW_AT_location, DW_AT_lower_bound, DW_AT_name, DW_AT_type, DW_AT_upper_bound,
-    DebugInfoOffset, Range, Reader, Unit as DwarfUnit, UnitOffset,
+    Attribute, AttributeValue, DW_AT_address_class, DW_AT_byte_size, DW_AT_call_column,
+    DW_AT_call_file, DW_AT_call_line, DW_AT_const_value, DW_AT_count, DW_AT_data_member_location,
+    DW_AT_discr, DW_AT_discr_value, DW_AT_encoding, DW_AT_frame_base, DW_AT_location,
+    DW_AT_lower_bound, DW_AT_name, DW_AT_type, DW_AT_upper_bound, DebugInfoOffset, Range, Reader,
+    Unit as DwarfUnit, UnitOffset,
 };
 use std::collections::HashMap;
 use std::num::NonZeroU64;
@@ -126,10 +127,31 @@ impl<'a> DwarfUnitParser<'a> {
             };
 
             let parsed_die = match die.tag() {
-                gimli::DW_TAG_subprogram => DieVariant::Function(FunctionDie {
-                    base_attributes: base_attrs,
-                    fb_addr: die.attr(DW_AT_frame_base)?,
-                }),
+                gimli::DW_TAG_subprogram => {
+                    let fn_ns = NamespaceHierarchy::for_node(
+                        &Node {
+                            parent: parent_idx,
+                            children: vec![],
+                        },
+                        &parsed_unit,
+                    );
+                    DieVariant::Function(FunctionDie {
+                        namespace: fn_ns,
+                        base_attributes: base_attrs,
+                        fb_addr: die.attr(DW_AT_frame_base)?,
+                    })
+                }
+                gimli::DW_TAG_inlined_subroutine => {
+                    DieVariant::InlineSubroutine(InlineSubroutineDie {
+                        base_attributes: base_attrs,
+                        call_file: die.attr(DW_AT_call_file)?.and_then(|v| match v.value() {
+                            AttributeValue::FileIndex(idx) => Some(idx),
+                            _ => None,
+                        }),
+                        call_line: die.attr(DW_AT_call_line)?.and_then(|v| v.udata_value()),
+                        call_column: die.attr(DW_AT_call_column)?.and_then(|v| v.udata_value()),
+                    })
+                }
                 gimli::DW_TAG_formal_parameter => DieVariant::Parameter(ParameterDie {
                     base_attributes: base_attrs,
                     type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),

@@ -6,21 +6,22 @@ mod debugee;
 pub mod register;
 pub mod rust;
 mod utils;
-pub mod uw;
 pub mod variable;
 
 pub use debugee::dwarf::parser::unit::Place;
 pub use debugee::dwarf::r#type::TypeDeclaration;
-pub use debugee::ThreadDump;
+pub use debugee::dwarf::unwind;
+pub use debugee::ThreadSnapshot;
 
 use crate::debugger::address::{GlobalAddress, PCValue, RelocatedAddress};
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::debugee::dwarf::r#type::TypeCache;
-use crate::debugger::debugee::dwarf::{RegisterDump, Symbol};
+use crate::debugger::debugee::dwarf::unwind::libunwind;
+use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
+use crate::debugger::debugee::dwarf::{DwarfUnwinder, Symbol};
 use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
 use crate::debugger::debugee::{Debugee, ExecutionStatus, FrameInfo, Location};
-use crate::debugger::register::{Register, RegisterMap};
-use crate::debugger::uw::Backtrace;
+use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::variable::VariableIR;
 use anyhow::anyhow;
@@ -189,14 +190,14 @@ impl Debugger {
         )
     }
 
-    pub fn thread_state(&self) -> anyhow::Result<Vec<ThreadDump>> {
+    pub fn thread_state(&self) -> anyhow::Result<Vec<ThreadSnapshot>> {
         disable_when_not_stared!(self);
         self.debugee.thread_state()
     }
 
     pub fn backtrace(&self, pid: Pid) -> anyhow::Result<Backtrace> {
         disable_when_not_stared!(self);
-        Ok(uw::backtrace(pid)?)
+        Ok(libunwind::unwind(pid)?)
     }
 
     pub fn set_breakpoint(&mut self, addr: PCValue) -> anyhow::Result<()> {
@@ -273,7 +274,8 @@ impl Debugger {
 
     pub fn step_out(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
-        if let Some(ret_addr) = uw::return_addr(self.debugee.thread_in_focus())? {
+        let location = self.current_thread_stop_at()?;
+        if let Some(ret_addr) = libunwind::return_addr(location.pid)? {
             let brkpt_is_set = self
                 .breakpoints
                 .get(&PCValue::Relocated(ret_addr))
@@ -339,55 +341,57 @@ impl Debugger {
 
     pub fn step_over(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
-        let func = self
-            .debugee
-            .dwarf
-            .find_function_by_pc(self.current_thread_stop_at()?.global_pc)
+
+        let current_location = self.current_thread_stop_at()?;
+        let dwarf = &self.debugee.dwarf;
+        let func = dwarf
+            .find_function_by_pc(current_location.global_pc)
             .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
+        let inline_ranges = func.inline_ranges();
 
-        let mut to_delete = vec![];
-
-        let current_line = self
-            .debugee
-            .dwarf
-            .find_place_from_pc(self.current_thread_stop_at()?.global_pc)
+        let current_place = dwarf
+            .find_place_from_pc(current_location.global_pc)
             .ok_or_else(|| anyhow!("current line not found"))?;
 
-        let mut breakpoints_range = vec![];
+        let mut step_over_breakpoints = vec![];
+        let mut to_delete = vec![];
 
-        for range in func.die.base_attributes.ranges.iter() {
-            let mut line = self
-                .debugee
-                .dwarf
-                .find_place_from_pc(GlobalAddress::from(range.begin))
+        for range in func.ranges() {
+            let mut place = func
+                .unit
+                .find_place_by_pc(GlobalAddress::from(range.begin))
                 .ok_or_else(|| anyhow!("unknown function range"))?;
 
-            while u64::from(line.address) < range.end {
-                if line.is_stmt {
-                    let load_addr = line.address.relocate(self.debugee.mapping_offset());
-                    if line.address != current_line.address
-                        && self
-                            .breakpoints
-                            .get(&PCValue::Relocated(load_addr))
-                            .is_none()
+            while place.address.in_range(range) {
+                // guard from step at inlined function body
+                let in_inline_range = inline_ranges
+                    .iter()
+                    .any(|inline_range| place.address.in_range(inline_range));
+
+                if !in_inline_range && place.is_stmt && place.address != current_place.address {
+                    let load_addr = place.address.relocate(self.debugee.mapping_offset());
+                    if self
+                        .breakpoints
+                        .get(&PCValue::Relocated(load_addr))
+                        .is_none()
                     {
-                        breakpoints_range.push(load_addr);
+                        step_over_breakpoints.push(load_addr);
                         to_delete.push(load_addr);
                     }
                 }
 
-                match line.next() {
+                match place.next() {
                     None => break,
-                    Some(n) => line = n,
+                    Some(n) => place = n,
                 }
             }
         }
 
-        breakpoints_range
+        step_over_breakpoints
             .into_iter()
             .try_for_each(|load_addr| self.set_breakpoint(PCValue::Relocated(load_addr)))?;
 
-        if let Some(ret_addr) = uw::return_addr(self.debugee.thread_in_focus())? {
+        if let Some(ret_addr) = libunwind::return_addr(current_location.pid)? {
             if self
                 .breakpoints
                 .get(&PCValue::Relocated(ret_addr))
@@ -473,20 +477,18 @@ impl Debugger {
     pub fn current_thread_registers_at_pc(
         &self,
         pc: RelocatedAddress,
-    ) -> anyhow::Result<RegisterDump> {
-        self.get_registers(Location {
-            pc,
-            global_pc: pc.into_global(self.debugee.mapping_offset()),
-            pid: self.debugee.thread_in_focus(),
-        })
-    }
-
-    pub fn get_registers(&self, at_location: Location) -> anyhow::Result<RegisterDump> {
+    ) -> anyhow::Result<DwarfRegisterMap> {
         disable_when_not_stared!(self);
-        let current_location = self.current_thread_stop_at()?;
-        self.debugee
-            .dwarf
-            .registers(&self.debugee, at_location, current_location)
+        let unwinder = DwarfUnwinder::new(&self.debugee);
+
+        Ok(unwinder
+            .context_for(Location {
+                pc,
+                global_pc: pc.into_global(self.debugee.mapping_offset()),
+                pid: self.debugee.thread_in_focus(),
+            })?
+            .ok_or(anyhow!("fetch register fail"))?
+            .registers())
     }
 
     pub fn set_register_value(&self, register_name: &str, val: u64) -> anyhow::Result<()> {
@@ -515,7 +517,7 @@ impl Drop for Debugger {
                 let current_tids: Vec<Pid> = self
                     .debugee
                     .threads_ctl()
-                    .dump()
+                    .snapshot()
                     .iter()
                     .map(|t| t.pid)
                     .collect();

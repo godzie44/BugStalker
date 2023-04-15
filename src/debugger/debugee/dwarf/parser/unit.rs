@@ -8,6 +8,7 @@ use gimli::{
     UnitOffset,
 };
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -154,6 +155,15 @@ pub struct Place<'a> {
     context: &'a Unit,
 }
 
+impl<'a> Debug for Place<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "file: {:?}, line: {}, addr: {}, is_stmt: {}, col: {}, epilog_begin: {}, prolog_end: {}",
+            self.file, self.line_number, self.address, self.is_stmt, self.column_number, self.epilog_begin, self.prolog_end
+        ))
+    }
+}
+
 impl<'a> Place<'a> {
     pub fn next(&self) -> Option<Place<'a>> {
         self.context.find_place(self.pos_in_unit + 1)
@@ -179,6 +189,7 @@ pub struct DieAttributes {
 
 #[derive(Debug, PartialEq)]
 pub struct FunctionDie {
+    pub namespace: NamespaceHierarchy,
     pub base_attributes: DieAttributes,
     pub fb_addr: Option<Attribute<EndianRcSlice>>,
 }
@@ -293,6 +304,14 @@ pub struct UnionTypeDie {
 }
 
 #[derive(Debug)]
+pub struct InlineSubroutineDie {
+    pub base_attributes: DieAttributes,
+    pub call_file: Option<u64>,
+    pub call_line: Option<u64>,
+    pub call_column: Option<u64>,
+}
+
+#[derive(Debug)]
 pub enum DieVariant {
     Function(FunctionDie),
     LexicalBlock(LexicalBlockDie),
@@ -312,6 +331,7 @@ pub enum DieVariant {
     TemplateType(TemplateTypeParameter),
     Namespace(Namespace),
     Parameter(ParameterDie),
+    InlineSubroutine(InlineSubroutineDie),
 }
 
 #[derive(Debug)]

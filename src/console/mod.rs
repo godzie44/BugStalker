@@ -122,22 +122,37 @@ impl TerminalApplication {
                 }),
             Command::PrintBacktrace => {
                 let bt = Backtrace::new(&self.debugger).handle()?;
-                bt.iter().for_each(|part| match part.place.as_ref() {
-                    Some(place) => {
-                        println!(
-                            "{:#016X} - {} ({:#016X}) + {:#X}",
-                            part.ip, place.func_name, place.start_ip, place.offset,
-                        );
+
+                for frame in bt.iter() {
+                    match &frame.func_name {
+                        None => {
+                            println!("{} - ????", frame.ip)
+                        }
+                        Some(fn_name) => {
+                            let user_bt_end = fn_name == "main"
+                                || fn_name.contains("::main")
+                                || fn_name.contains("::thread_start");
+
+                            let fn_ip = frame.fn_start_ip.unwrap_or_default();
+                            println!(
+                                "{} - {} ({} + {:#X})",
+                                frame.ip,
+                                fn_name,
+                                fn_ip,
+                                frame.ip.as_u64() - fn_ip.as_u64(),
+                            );
+
+                            if user_bt_end {
+                                break;
+                            }
+                        }
                     }
-                    None => {
-                        println!("{:#016X} - ????", part.ip)
-                    }
-                })
+                }
             }
             Command::Continue => Continue::new(&mut self.debugger).handle()?,
             Command::PrintFrame => {
                 let frame = Frame::new(&self.debugger).handle()?;
-                println!("current frame: {}", frame.base_addr);
+                println!("cfa: {}", frame.cfa);
                 println!(
                     "return address: {}",
                     frame
@@ -156,20 +171,38 @@ impl TerminalApplication {
                     println!(
                         "thread {} - {}",
                         thread.thread.pid,
-                        thread.pc.unwrap_or(0_usize.into())
+                        thread
+                            .bt
+                            .as_ref()
+                            .and_then(|bt| bt.get(0).map(|f| f.ip))
+                            .unwrap_or(0_usize.into())
                     );
                     if let Some(ref bt) = thread.bt {
-                        bt.iter().for_each(|part| match part.place.as_ref() {
-                            Some(place) => {
-                                println!(
-                                    "{:#016X} - {} ({:#016X}) + {:#X}",
-                                    part.ip, place.func_name, place.start_ip, place.offset,
-                                );
+                        for frame in bt.iter() {
+                            match &frame.func_name {
+                                None => {
+                                    println!("{} - ????", frame.ip)
+                                }
+                                Some(fn_name) => {
+                                    let user_bt_end = fn_name == "main"
+                                        || fn_name.contains("::main")
+                                        || fn_name.contains("::thread_start");
+
+                                    let fn_ip = frame.fn_start_ip.unwrap_or_default();
+                                    println!(
+                                        "{} - {} ({} + {:#X})",
+                                        frame.ip,
+                                        fn_name,
+                                        fn_ip,
+                                        frame.ip.as_u64() - fn_ip.as_u64(),
+                                    );
+
+                                    if user_bt_end {
+                                        break;
+                                    }
+                                }
                             }
-                            None => {
-                                println!("{:#016X} - ????", part.ip)
-                            }
-                        })
+                        }
                     }
                 });
             }

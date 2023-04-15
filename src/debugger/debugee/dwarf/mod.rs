@@ -3,9 +3,11 @@ mod location;
 pub mod parser;
 mod symbol;
 pub mod r#type;
+pub mod unwind;
+
+pub use self::unwind::DwarfUnwinder;
 
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
-use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::location::Location as DwarfLocation;
 use crate::debugger::debugee::dwarf::parser::unit::{
     DieVariant, Entry, FunctionDie, Node, ParameterDie, Unit, VariableDie,
@@ -16,24 +18,21 @@ use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
-use crate::debugger::utils::TryGetOrInsert;
-use crate::debugger::{register, Place};
-use crate::{debugger, weak_error};
+use crate::debugger::Place;
+use crate::weak_error;
 use anyhow::anyhow;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;
 use gimli::{
     Attribute, BaseAddresses, CfaRule, DebugAddr, DebugInfoOffset, Dwarf, EhFrame, Expression,
-    LocationLists, Range, Register, RegisterRule, RunTimeEndian, Section, UnitOffset,
-    UnwindContext, UnwindSection, UnwindTableRow,
+    LocationLists, Range, RunTimeEndian, Section, UnitOffset, UnwindContext, UnwindSection,
+    UnwindTableRow,
 };
 use nix::unistd::Pid;
 use object::{Object, ObjectSection};
-use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::collections::VecDeque;
-use std::mem;
 use std::ops::Deref;
 use std::rc::Rc;
 pub use symbol::Symbol;
@@ -120,14 +119,6 @@ impl DebugeeContextBuilder {
     }
 }
 
-pub struct RegisterDump(SmallVec<[Option<u64>; 0x80]>);
-
-impl RegisterDump {
-    pub fn get(&self, register: Register) -> Option<u64> {
-        self.0.get(register.0 as usize).copied().and_then(|v| v)
-    }
-}
-
 pub struct DebugeeContext<R: gimli::Reader = EndianRcSlice> {
     inner: Dwarf<R>,
     eh_frame: EhFrame<R>,
@@ -144,14 +135,14 @@ impl DebugeeContext {
     fn evaluate_cfa(
         &self,
         debugee: &Debugee,
+        registers: &DwarfRegisterMap,
         utr: &UnwindTableRow<EndianRcSlice>,
         location: Location,
     ) -> anyhow::Result<RelocatedAddress> {
         let rule = utr.cfa();
         match rule {
             RegisterAndOffset { register, offset } => {
-                let ra =
-                    DwarfRegisterMap::from(RegisterMap::current(location.pid)?).value(*register)?;
+                let ra = registers.value(*register)?;
                 Ok(RelocatedAddress::from(ra as usize).offset(*offset as isize))
             }
             CfaRule::Expression(expr) => {
@@ -178,94 +169,12 @@ impl DebugeeContext {
             location.global_pc.into(),
             EhFrame::cie_from_offset,
         )?;
-        self.evaluate_cfa(debugee, row, location)
-    }
-
-    pub fn registers(
-        &self,
-        debugee: &Debugee,
-        location: Location,
-        current_location: Location,
-    ) -> anyhow::Result<RegisterDump> {
-        let mut ctx = Box::new(UnwindContext::new());
-        let row = self.eh_frame.unwind_info_for_address(
-            &self.bases,
-            &mut ctx,
-            location.global_pc.into(),
-            EhFrame::cie_from_offset,
-        )?;
-
-        let mut lazy_cfa = None;
-        let cfa_init_fn = || self.evaluate_cfa(debugee, row, current_location);
-
-        let mut lazy_evaluator = None;
-        let evaluator_init_fn = || -> anyhow::Result<ExpressionEvaluator> {
-            let unit = self
-                .find_unit_by_pc(location.global_pc)
-                .ok_or_else(|| anyhow!("undefined unit"))?;
-            Ok(unit.evaluator(debugee))
-        };
-
-        let mut registers: SmallVec<[Option<u64>; 0x80]> = smallvec![None; 0x80];
-
-        row.registers()
-            .filter_map(|(register, rule)| {
-                let value = match rule {
-                    RegisterRule::Undefined => return None,
-                    RegisterRule::SameValue => {
-                        let register_map = weak_error!(RegisterMap::current(location.pid))?;
-                        weak_error!(DwarfRegisterMap::from(register_map).value(*register))?
-                    }
-                    RegisterRule::Offset(offset) => {
-                        let cfa = *weak_error!(lazy_cfa.try_get_or_insert_with(cfa_init_fn))?;
-                        let addr = cfa.offset(*offset as isize);
-                        let bytes = weak_error!(debugger::read_memory_by_pid(
-                            location.pid,
-                            addr.into(),
-                            mem::size_of::<u64>()
-                        ))?;
-                        u64::from_ne_bytes(weak_error!(bytes
-                            .try_into()
-                            .map_err(|e| anyhow!("{e:?}")))?)
-                    }
-                    RegisterRule::ValOffset(offset) => {
-                        let cfa = *weak_error!(lazy_cfa.try_get_or_insert_with(cfa_init_fn))?;
-                        cfa.offset(*offset as isize).into()
-                    }
-                    RegisterRule::Register(reg) => {
-                        let register_map = weak_error!(RegisterMap::current(location.pid))?;
-                        weak_error!(DwarfRegisterMap::from(register_map).value(*reg))?
-                    }
-                    RegisterRule::Expression(expr) => {
-                        let evaluator =
-                            weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
-                        let expr_result =
-                            weak_error!(evaluator.evaluate(location.pid, expr.clone()))?;
-                        let addr = weak_error!(expr_result.into_scalar::<usize>())?;
-                        let bytes = weak_error!(debugger::read_memory_by_pid(
-                            location.pid,
-                            addr,
-                            mem::size_of::<u64>()
-                        ))?;
-                        u64::from_ne_bytes(weak_error!(bytes
-                            .try_into()
-                            .map_err(|e| anyhow!("{e:?}")))?)
-                    }
-                    RegisterRule::ValExpression(expr) => {
-                        let evaluator =
-                            weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
-                        let expr_result =
-                            weak_error!(evaluator.evaluate(location.pid, expr.clone()))?;
-                        weak_error!(expr_result.into_scalar::<u64>())?
-                    }
-                    RegisterRule::Architectural => return None,
-                };
-
-                Some((*register, value))
-            })
-            .for_each(|(reg, val)| registers.insert(reg.0 as usize, Some(val)));
-
-        Ok(RegisterDump(registers))
+        self.evaluate_cfa(
+            debugee,
+            &DwarfRegisterMap::from(RegisterMap::current(location.pid)?),
+            row,
+            location,
+        )
     }
 
     pub fn debug_addr(&self) -> &DebugAddr<EndianRcSlice> {
@@ -279,7 +188,7 @@ impl DebugeeContext {
                 Err(pos) => unit.ranges[..pos]
                     .iter()
                     .rev()
-                    .any(|range| range.begin <= u64::from(pc) && u64::from(pc) < range.end),
+                    .any(|range| pc.in_range(range)),
             }
         })
     }
@@ -475,7 +384,7 @@ impl AsAllocatedValue for ParameterDie {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct NamespaceHierarchy(Vec<String>);
 
 impl Deref for NamespaceHierarchy {
@@ -536,6 +445,14 @@ impl<'a, T> ContextualDieRef<'a, T> {
 }
 
 impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
+    pub fn full_name(&self) -> Option<String> {
+        self.die
+            .base_attributes
+            .name
+            .as_ref()
+            .map(|name| format!("{}::{}", self.die.namespace.0.join("::"), name))
+    }
+
     pub fn frame_base_addr(
         &self,
         pid: Pid,
@@ -635,6 +552,25 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
 
         Ok(place)
     }
+
+    pub fn ranges(&self) -> &[Range] {
+        &self.die.base_attributes.ranges
+    }
+
+    pub fn inline_ranges(&self) -> Vec<Range> {
+        self.node
+            .children
+            .iter()
+            .flat_map(|&child_idx| {
+                if let DieVariant::InlineSubroutine(inline_subroutine) =
+                    &self.unit.entries[child_idx].die
+                {
+                    return inline_subroutine.base_attributes.ranges.to_vec();
+                }
+                vec![]
+            })
+            .collect()
+    }
 }
 
 impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
@@ -646,10 +582,7 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
                     unreachable!();
                 };
 
-                lb.base_attributes
-                    .ranges
-                    .iter()
-                    .any(|r| u64::from(pc) >= r.begin && u64::from(pc) < r.end)
+                lb.base_attributes.ranges.iter().any(|r| pc.in_range(r))
             })
             .unwrap_or(true)
     }

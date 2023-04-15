@@ -8,7 +8,6 @@ mod symbol;
 mod variables;
 
 use crate::common::{DebugeeRunInfo, TestHooks};
-use bugstalker::debugger::register;
 use bugstalker::debugger::register::{Register, RegisterMap};
 use serial_test::serial;
 use std::mem;
@@ -95,7 +94,7 @@ fn test_registers() {
         let registers = debugger.current_thread_registers_at_pc(pc).unwrap();
         assert_eq!(
             u64::from(frame.return_addr.unwrap()),
-            registers.get(gimli::Register(16)).unwrap()
+            registers.value(gimli::Register(16)).unwrap()
         );
 
         mem::drop(debugger);

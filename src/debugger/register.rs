@@ -249,7 +249,7 @@ impl RegisterMap {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DwarfRegisterMap(SmallVec<[Option<u64>; 0x80]>);
 
 impl DwarfRegisterMap {
@@ -259,6 +259,10 @@ impl DwarfRegisterMap {
             .copied()
             .and_then(|v| v)
             .ok_or(anyhow!("register {} not found", register.0))
+    }
+
+    pub fn update(&mut self, register: gimli::Register, value: u64) {
+        self.0.insert(register.0 as usize, Some(value))
     }
 }
 

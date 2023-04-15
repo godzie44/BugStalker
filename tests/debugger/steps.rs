@@ -1,6 +1,6 @@
 use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
-use crate::{assert_no_proc, HW_APP};
+use crate::{assert_no_proc, HW_APP, VARS_APP};
 use crate::{debugger_env, CALC_APP};
 use serial_test::serial;
 
@@ -81,6 +81,24 @@ fn test_step_over() {
         assert_eq!(info.line.take(), Some(9));
         debugger.step_over().unwrap();
         assert_eq!(info.line.take(), Some(10));
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
+    });
+}
+
+#[test]
+#[serial]
+fn test_step_over_inline_code() {
+    debugger_env!(VARS_APP, child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_line("vars.rs", 442).unwrap();
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(442));
+        debugger.step_over().unwrap();
+        assert_eq!(info.line.take(), Some(443));
 
         debugger.continue_debugee().unwrap();
         assert_no_proc!(child);
