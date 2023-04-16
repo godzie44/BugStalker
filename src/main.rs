@@ -18,11 +18,16 @@ struct Args {
     #[arg(long, default_value_t = String::from("console"))]
     ui: String,
 
+    /// Executable file (debugee)
     debugee: String,
 
     /// Path to rust stdlib
     #[clap(short, long)]
     std_lib_path: Option<String>,
+
+    /// Arguments are passed to debugee
+    #[arg(raw(true))]
+    args: Vec<String>,
 }
 
 fn main() {
@@ -35,6 +40,7 @@ fn main() {
     let (stderr_reader, stderr_writer) = os_pipe::pipe().unwrap();
 
     let mut debugee_cmd = std::process::Command::new(debugee);
+    debugee_cmd.args(args.args);
     if args.ui.as_str() == "cui" {
         debugee_cmd.stdout(stdout_writer);
         debugee_cmd.stderr(stderr_writer);

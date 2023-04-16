@@ -59,27 +59,33 @@ fn test_backtrace() {
 #[test]
 #[serial]
 fn test_read_value_u64() {
-    debugger_env!(CALC_APP, child, {
-        let info = DebugeeRunInfo::default();
-        let mut debugger = Debugger::new(CALC_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_line("calc.rs", 3).unwrap();
+    debugger_env!(
+        CALC_APP,
+        vec!["1", "2", "3", "--description", "result"],
+        child,
+        {
+            let info = DebugeeRunInfo::default();
+            let mut debugger =
+                Debugger::new(CALC_APP, child, TestHooks::new(info.clone())).unwrap();
+            debugger.set_breakpoint_at_line("calc.rs", 15).unwrap();
 
-        debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(3));
+            debugger.run_debugee().unwrap();
+            assert_eq!(info.line.take(), Some(15));
 
-        let vars = debugger.read_local_variables().unwrap();
+            let vars = debugger.read_local_variables().unwrap();
 
-        assert_eq!(vars.len(), 1);
-        assert_eq!(vars[0].name(), "s");
-        assert_eq!(vars[0].r#type(), "i64");
-        let _three = "6".to_string();
-        assert!(matches!(
-            vars[0].value().unwrap(),
-            ValueLayout::PreRendered(Cow::Owned(_three))
-        ));
+            assert_eq!(vars.len(), 5);
+            assert_eq!(vars[4].name(), "s");
+            assert_eq!(vars[4].r#type(), "i64");
+            let _six = "6".to_string();
+            assert!(matches!(
+                vars[4].value().unwrap(),
+                ValueLayout::PreRendered(Cow::Owned(_six))
+            ));
 
-        debugger.continue_debugee().unwrap();
+            debugger.continue_debugee().unwrap();
 
-        assert_no_proc!(child);
-    });
+            assert_no_proc!(child);
+        }
+    );
 }

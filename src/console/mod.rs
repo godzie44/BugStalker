@@ -70,6 +70,7 @@ impl TerminalApplication {
                         Ok(input) => {
                             if input == "q" || input == "quit" {
                                 control_tx.send(ControlAction::Terminate).unwrap();
+                                break;
                             } else {
                                 rl.add_history_entry(&input);
                                 control_tx.send(ControlAction::Cmd(input)).unwrap();

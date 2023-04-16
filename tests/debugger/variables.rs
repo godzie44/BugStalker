@@ -1403,7 +1403,7 @@ fn test_circular_ref_types() {
 #[test]
 #[serial]
 fn test_lexical_blocks() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, Vec::<String>::new(), child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
 

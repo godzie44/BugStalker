@@ -35,7 +35,7 @@ impl EventHook for TestHooks {
 
 #[macro_export]
 macro_rules! debugger_env {
-    ($prog:expr, $child:ident, $code: expr) => {
+    ($prog:expr, $args: expr, $child:ident, $code: expr) => {
         use bugstalker::debugger::{rust, Debugger};
         use nix::sys;
         use nix::sys::personality::Persona;
@@ -51,6 +51,7 @@ macro_rules! debugger_env {
 
         let null_f = File::open("/dev/null").unwrap();
         let mut debugee_cmd = std::process::Command::new(debugee);
+        debugee_cmd.args($args);
         debugee_cmd.stdout(null_f);
 
         unsafe {
@@ -78,6 +79,9 @@ macro_rules! debugger_env {
                 $code
             }
         }
+    };
+    ($prog:expr, $child:ident, $code: expr) => {
+        debugger_env!($prog, Vec::<String>::new(), $child, $code)
     };
 }
 

@@ -7,39 +7,45 @@ use serial_test::serial;
 #[test]
 #[serial]
 fn test_step_into() {
-    debugger_env!(CALC_APP, child, {
-        let info = DebugeeRunInfo::default();
-        let mut debugger = Debugger::new(CALC_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger.set_breakpoint_at_fn("main").unwrap();
+    debugger_env!(
+        CALC_APP,
+        vec!["1", "2", "3", "--description", "result"],
+        child,
+        {
+            let info = DebugeeRunInfo::default();
+            let mut debugger =
+                Debugger::new(CALC_APP, child, TestHooks::new(info.clone())).unwrap();
+            debugger.set_breakpoint_at_line("calc.rs", 10).unwrap();
 
-        debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(2));
+            debugger.run_debugee().unwrap();
+            assert_eq!(info.line.take(), Some(10));
 
-        debugger.step_into().unwrap();
-        assert_eq!(info.line.take(), Some(11));
+            debugger.step_into().unwrap();
+            assert_eq!(info.line.take(), Some(23));
 
-        debugger.step_into().unwrap();
-        assert_eq!(info.line.take(), Some(7));
-        debugger.step_into().unwrap();
-        assert_eq!(info.line.take(), Some(8));
+            debugger.step_into().unwrap();
+            assert_eq!(info.line.take(), Some(19));
+            debugger.step_into().unwrap();
+            assert_eq!(info.line.take(), Some(20));
 
-        debugger.step_into().unwrap();
-        assert_eq!(info.line.take(), Some(12));
+            debugger.step_into().unwrap();
+            assert_eq!(info.line.take(), Some(24));
 
-        debugger.step_into().unwrap();
-        assert_eq!(info.line.take(), Some(7));
-        debugger.step_into().unwrap();
-        assert_eq!(info.line.take(), Some(8));
+            debugger.step_into().unwrap();
+            assert_eq!(info.line.take(), Some(19));
+            debugger.step_into().unwrap();
+            assert_eq!(info.line.take(), Some(20));
 
-        debugger.step_into().unwrap();
-        assert_eq!(info.line.take(), Some(13));
+            debugger.step_into().unwrap();
+            assert_eq!(info.line.take(), Some(25));
 
-        debugger.step_into().unwrap();
-        assert_eq!(info.line.take(), Some(3));
+            debugger.step_into().unwrap();
+            assert_eq!(info.line.take(), Some(15));
 
-        debugger.continue_debugee().unwrap();
-        assert_no_proc!(child);
-    });
+            debugger.continue_debugee().unwrap();
+            assert_no_proc!(child);
+        }
+    );
 }
 
 #[test]

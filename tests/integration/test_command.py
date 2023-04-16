@@ -155,10 +155,10 @@ class CommandTestCase(unittest.TestCase):
     def test_step_in():
         """Debugger step in command (move to next line)"""
         debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/calc')
+            './target/debug/bugstalker ./target/debug/calc -- 1 2 3 --description result')
         debugger.expect('No previous history.')
-        debugger.sendline('break main')
-        debugger.expect('break main')
+        debugger.sendline('break calc.rs:10')
+        debugger.expect('break calc.rs:10')
 
         debugger.sendline('run')
         debugger.expect('>    let s: i64')
@@ -177,7 +177,7 @@ class CommandTestCase(unittest.TestCase):
         debugger.sendline('step')
         debugger.expect_exact('>}')
         debugger.sendline('step')
-        debugger.expect_exact('>    print(s);')
+        debugger.expect_exact('>    print(s, &args[5]);')
 
     def test_step_out(self):
         """Debugger step out command (move out from current function)"""
@@ -234,16 +234,25 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect(r'hello_world::main \(0x[0-9A-F]{14,16} \+ 0x[0-9A-F]{1,16}\)')
 
     @staticmethod
+    def test_args_for_executable():
+        """Run debugee with arguments"""
+        debugger = pexpect.spawn(
+            './target/debug/bugstalker ./target/debug/calc -- 1 1 1 --description three')
+        debugger.expect('No previous history.')
+        debugger.sendline('r')
+        debugger.expect_exact('three: 3')
+
+    @staticmethod
     def test_read_value_u64():
         """Get program variable"""
         debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/calc')
+            './target/debug/bugstalker ./target/debug/calc -- 1 2 3 --description result')
         debugger.expect('No previous history.')
-        debugger.sendline('break calc.rs:3')
-        debugger.expect('break calc.rs:3')
+        debugger.sendline('break calc.rs:15')
+        debugger.expect('break calc.rs:15')
 
         debugger.sendline('run')
-        debugger.expect_exact('>    print(s);')
+        debugger.expect_exact('>    print(s, &args[5]);')
 
         debugger.sendline('vars locals')
         debugger.expect_exact('s = i64(6)')
