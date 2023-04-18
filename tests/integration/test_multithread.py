@@ -70,7 +70,7 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect('Hit breakpoint at address')
         self.debugger.expect('>    let mut sum2 = 0;')
-        self.debugger.sendline('trace')
+        self.debugger.sendline('backtrace all')
         self.debugger.expect('thread')
         self.debugger.expect('mt::main')
         self.debugger.expect('thread')

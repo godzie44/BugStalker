@@ -4,7 +4,7 @@ use crate::console::variable::render_variable_ir;
 use crate::console::view::FileView;
 use crate::debugger::command::{
     Arguments, Backtrace, Break, Command, Frame, Run, StepI, StepInto, StepOut, StepOver, Symbol,
-    Trace, Variables,
+    Variables,
 };
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::{command, Debugger};
@@ -121,53 +121,8 @@ impl TerminalApplication {
                 .for_each(|arg| {
                     println!("{} = {}", arg.name(), render_variable_ir(&arg, 0));
                 }),
-            Command::PrintBacktrace => {
-                let bt = Backtrace::new(&self.debugger).handle()?;
-
-                for frame in bt.iter() {
-                    match &frame.func_name {
-                        None => {
-                            println!("{} - ????", frame.ip)
-                        }
-                        Some(fn_name) => {
-                            let user_bt_end = fn_name == "main"
-                                || fn_name.contains("::main")
-                                || fn_name.contains("::thread_start");
-
-                            let fn_ip = frame.fn_start_ip.unwrap_or_default();
-                            println!(
-                                "{} - {} ({} + {:#X})",
-                                frame.ip,
-                                fn_name,
-                                fn_ip,
-                                frame.ip.as_u64() - fn_ip.as_u64(),
-                            );
-
-                            if user_bt_end {
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            Command::Continue => Continue::new(&mut self.debugger).handle()?,
-            Command::PrintFrame => {
-                let frame = Frame::new(&self.debugger).handle()?;
-                println!("cfa: {}", frame.cfa);
-                println!(
-                    "return address: {}",
-                    frame
-                        .return_addr
-                        .map_or(String::from("unknown"), |addr| format!("{}", addr))
-                );
-            }
-            Command::Run => Run::new(&mut self.debugger).handle()?,
-            Command::StepInstruction => StepI::new(&self.debugger).handle()?,
-            Command::StepInto => StepInto::new(&self.debugger).handle()?,
-            Command::StepOut => StepOut::new(&mut self.debugger).handle()?,
-            Command::StepOver => StepOver::new(&mut self.debugger).handle()?,
-            Command::PrintTrace => {
-                let bt = Trace::new(&self.debugger).handle()?;
+            Command::PrintBacktrace(cmd) => {
+                let bt = Backtrace::new(&self.debugger).handle(cmd)?;
                 bt.iter().for_each(|thread| {
                     println!(
                         "thread {} - {}",
@@ -207,6 +162,22 @@ impl TerminalApplication {
                     }
                 });
             }
+            Command::Continue => Continue::new(&mut self.debugger).handle()?,
+            Command::PrintFrame => {
+                let frame = Frame::new(&self.debugger).handle()?;
+                println!("cfa: {}", frame.cfa);
+                println!(
+                    "return address: {}",
+                    frame
+                        .return_addr
+                        .map_or(String::from("unknown"), |addr| format!("{}", addr))
+                );
+            }
+            Command::Run => Run::new(&mut self.debugger).handle()?,
+            Command::StepInstruction => StepI::new(&self.debugger).handle()?,
+            Command::StepInto => StepInto::new(&self.debugger).handle()?,
+            Command::StepOut => StepOut::new(&mut self.debugger).handle()?,
+            Command::StepOver => StepOver::new(&mut self.debugger).handle()?,
             Command::Breakpoint(bp_cmd) => Break::new(&mut self.debugger).handle(bp_cmd)?,
             Command::Memory(mem_cmd) => {
                 let read = Memory::new(&self.debugger).handle(mem_cmd)?;

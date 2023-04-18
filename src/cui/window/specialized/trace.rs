@@ -1,5 +1,6 @@
 use crate::cui::window::specialized::PersistentList;
 use crate::cui::window::{CuiComponent, RenderOpts};
+use crate::debugger::command::BacktraceCommand;
 use crate::debugger::{command, Debugger, ThreadSnapshot};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::cell::RefCell;
@@ -33,8 +34,8 @@ impl CuiComponent for ThreadTrace {
         opts: RenderOpts,
     ) {
         let debugger = self.debugger.borrow();
-        let trace_cmd = command::Trace::new(&debugger);
-        let threads = trace_cmd.handle().unwrap_or_default();
+        let trace_cmd = command::Backtrace::new(&debugger);
+        let threads = trace_cmd.handle(BacktraceCommand::All).unwrap_or_default();
         self.thread_list.borrow_mut().update_items(threads);
 
         let list_items = self

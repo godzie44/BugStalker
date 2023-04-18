@@ -1,5 +1,10 @@
-use crate::debugger::debugee::dwarf::unwind::libunwind;
-use crate::debugger::{command, Debugger};
+use crate::debugger::{command, Debugger, ThreadSnapshot};
+
+#[derive(Debug)]
+pub enum Command {
+    CurrentThread,
+    All,
+}
 
 pub struct Backtrace<'a> {
     dbg: &'a Debugger,
@@ -10,7 +15,17 @@ impl<'a> Backtrace<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&self) -> command::HandleResult<libunwind::Backtrace> {
-        Ok(self.dbg.backtrace(self.dbg.debugee.thread_in_focus())?)
+    pub fn handle(&self, cmd: Command) -> command::HandleResult<Vec<ThreadSnapshot>> {
+        let mut snap = self.dbg.thread_state()?;
+
+        match cmd {
+            Command::CurrentThread => {
+                Ok(snap.into_iter().filter(|thread| thread.in_focus).collect())
+            }
+            Command::All => {
+                snap.sort_unstable_by(|t1, t2| t1.thread.pid.cmp(&t2.thread.pid));
+                Ok(snap)
+            }
+        }
     }
 }

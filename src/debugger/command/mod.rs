@@ -12,11 +12,11 @@ mod step_into;
 mod step_out;
 mod step_over;
 mod symbol;
-mod trace;
 pub mod variables;
 
 pub use arguments::Arguments;
 pub use backtrace::Backtrace;
+pub use backtrace::Command as BacktraceCommand;
 pub use frame::Frame;
 pub use memory::Memory;
 pub use r#break::Break;
@@ -29,7 +29,6 @@ pub use step_into::StepInto;
 pub use step_out::StepOut;
 pub use step_over::StepOver;
 pub use symbol::Symbol;
-pub use trace::Trace;
 pub use variables::Variables;
 
 use crate::debugger::variable::select::{Expression, VariableSelector};
@@ -90,7 +89,7 @@ where
 pub enum Command {
     PrintVariables(Expression),
     PrintArguments(Expression),
-    PrintBacktrace,
+    PrintBacktrace(backtrace::Command),
     Continue,
     PrintFrame,
     Run,
@@ -98,7 +97,6 @@ pub enum Command {
     StepInto,
     StepOut,
     StepOver,
-    PrintTrace,
     PrintSymbol(String),
     Breakpoint(BreakpointType),
     Memory(memory::Command),
@@ -170,7 +168,6 @@ impl Command {
             };
         }
 
-        let backtrace_parser = parser2_no_args!("bt", "backtrace", Command::PrintBacktrace);
         let continue_parser = parser2_no_args!("c", "continue", Command::Continue);
         let frame_parser = parser1_no_args!("frame", Command::PrintFrame);
         let run_parser = parser2_no_args!("r", "run", Command::Run);
@@ -178,8 +175,23 @@ impl Command {
         let step_into_parser = parser2_no_args!("step", "stepinto", Command::StepInto);
         let step_out_parser = parser2_no_args!("finish", "stepout", Command::StepOut);
         let step_over_parser = parser2_no_args!("next", "stepover", Command::StepOver);
-        let trace_parser = parser1_no_args!("trace", Command::PrintTrace);
         let help_parser = parser1_no_args!("help", Command::Help(None));
+
+        fn backtrace_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
+            alt((
+                map(
+                    preceded(
+                        alt((tag("bt"), tag("backtrace"))),
+                        preceded(multispace1, tag("all")),
+                    ),
+                    |_| Command::PrintBacktrace(backtrace::Command::All),
+                ),
+                map(
+                    preceded(alt((tag("bt"), tag("backtrace"))), cut(not(alphanumeric1))),
+                    |_| Command::PrintBacktrace(backtrace::Command::CurrentThread),
+                ),
+            ))(input)
+        }
 
         fn symbol_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             map(
@@ -296,7 +308,6 @@ impl Command {
             command("stepinto", step_into_parser),
             command("stepout", step_out_parser),
             command("stepover", step_over_parser),
-            command("trace", trace_parser),
             command("symbol", symbol_parser),
             command("break", break_parser),
             command("memory", memory_parser),
@@ -355,14 +366,20 @@ mod test {
                 inputs: vec!["bt", "backtrace"],
                 command_matcher: |result| {
                     let cmd = result.unwrap();
-                    assert!(matches!(cmd, Command::PrintBacktrace));
+                    assert!(matches!(
+                        cmd,
+                        Command::PrintBacktrace(backtrace::Command::CurrentThread)
+                    ));
                 },
             },
             TestCase {
-                inputs: vec!["trace"],
+                inputs: vec!["bt all", "backtrace  all  "],
                 command_matcher: |result| {
                     let cmd = result.unwrap();
-                    assert!(matches!(cmd, Command::PrintTrace));
+                    assert!(matches!(
+                        cmd,
+                        Command::PrintBacktrace(backtrace::Command::All)
+                    ));
                 },
             },
             TestCase {
