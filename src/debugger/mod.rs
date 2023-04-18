@@ -330,7 +330,13 @@ impl Debugger {
                 // skip function prolog if needed
                 if current_fn.die != next_fn.die && next_place == next_fn.prolog_start_place()? {
                     let prolog_end = next_fn.prolog_end_place()?;
-                    while prolog_end != step_to_next_place(self)? {}
+                    let mut guard = 10_000;
+                    while prolog_end != step_to_next_place(self)? {
+                        if guard < 0 {
+                            break;
+                        }
+                        guard -= 1;
+                    }
                 }
                 break;
             }

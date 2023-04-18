@@ -10,7 +10,7 @@ use std::mem;
 #[test]
 #[serial]
 fn test_read_register_write() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(HW_APP, [], child, {
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::default()).unwrap();
         debugger
             .set_breakpoint_at_line("hello_world.rs", 10)
@@ -31,7 +31,7 @@ fn test_read_register_write() {
 #[test]
 #[serial]
 fn test_backtrace() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(HW_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger
@@ -61,7 +61,7 @@ fn test_backtrace() {
 fn test_read_value_u64() {
     debugger_env!(
         CALC_APP,
-        vec!["1", "2", "3", "--description", "result"],
+        ["1", "2", "3", "--description", "result"],
         child,
         {
             let info = DebugeeRunInfo::default();

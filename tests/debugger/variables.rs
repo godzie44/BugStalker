@@ -293,7 +293,7 @@ fn assert_arc(var: &VariableIR, exp_name: &str, exp_type: &str) {
 #[test]
 #[serial]
 fn test_read_scalar_variables() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 30).unwrap();
@@ -349,7 +349,7 @@ fn test_read_scalar_variables() {
 #[test]
 #[serial]
 fn test_read_scalar_variables_at_place() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 11).unwrap();
@@ -358,14 +358,17 @@ fn test_read_scalar_variables_at_place() {
         assert_eq!(info.line.take(), Some(11));
 
         let vars = debugger.read_local_variables().unwrap();
-        assert_eq!(vars.len(), 4)
+        assert_eq!(vars.len(), 4);
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
     });
 }
 
 #[test]
 #[serial]
 fn test_read_struct() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 53).unwrap();
@@ -420,7 +423,7 @@ fn test_read_struct() {
 #[test]
 #[serial]
 fn test_read_array() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 61).unwrap();
@@ -473,7 +476,7 @@ fn test_read_array() {
 #[test]
 #[serial]
 fn test_read_enum() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 93).unwrap();
@@ -564,7 +567,7 @@ fn read_single_arg(debugger: &Debugger, expr: &str) -> VariableIR {
 #[test]
 #[serial]
 fn test_read_pointers() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 119).unwrap();
@@ -649,7 +652,7 @@ fn test_read_pointers() {
 #[test]
 #[serial]
 fn test_read_type_alias() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 126).unwrap();
@@ -668,7 +671,7 @@ fn test_read_type_alias() {
 #[test]
 #[serial]
 fn test_type_parameters() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 135).unwrap();
@@ -690,7 +693,7 @@ fn test_type_parameters() {
 #[test]
 #[serial]
 fn test_read_vec_and_slice() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 151).unwrap();
@@ -808,7 +811,7 @@ fn test_read_vec_and_slice() {
 #[test]
 #[serial]
 fn test_read_strings() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 159).unwrap();
@@ -829,7 +832,7 @@ fn test_read_strings() {
 #[test]
 #[serial]
 fn test_read_static_variables() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 168).unwrap();
@@ -866,7 +869,7 @@ fn test_read_static_variables() {
 #[test]
 #[serial]
 fn test_read_static_variables_different_modules() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 179).unwrap();
@@ -898,7 +901,7 @@ fn test_read_static_variables_different_modules() {
 #[test]
 #[serial]
 fn test_read_tls_variables() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 194).unwrap();
@@ -964,7 +967,7 @@ fn test_read_tls_variables() {
 #[test]
 #[serial]
 fn test_read_closures() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 218).unwrap();
@@ -1057,7 +1060,7 @@ fn test_read_closures() {
 #[test]
 #[serial]
 fn test_arguments() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 227).unwrap();
@@ -1104,7 +1107,7 @@ fn test_arguments() {
 #[test]
 #[serial]
 fn test_read_union() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 239).unwrap();
@@ -1128,7 +1131,7 @@ fn test_read_union() {
 #[test]
 #[serial]
 fn test_read_hashmap() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 256).unwrap();
@@ -1283,7 +1286,7 @@ fn test_read_hashmap() {
 #[test]
 #[serial]
 fn test_read_hashset() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 269).unwrap();
@@ -1347,7 +1350,7 @@ fn test_read_hashset() {
 #[test]
 #[serial]
 fn test_circular_ref_types() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 296).unwrap();
@@ -1403,7 +1406,7 @@ fn test_circular_ref_types() {
 #[test]
 #[serial]
 fn test_lexical_blocks() {
-    debugger_env!(VARS_APP, Vec::<String>::new(), child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
 
@@ -1442,13 +1445,16 @@ fn test_lexical_blocks() {
         assert_eq!(vars.len(), 2);
         assert_eq!(vars[0].name(), "alpha");
         assert_eq!(vars[1].name(), "delta");
+
+        debugger.continue_debugee().unwrap();
+        assert_no_proc!(child);
     });
 }
 
 #[test]
 #[serial]
 fn test_btree_map() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
 
@@ -1571,8 +1577,7 @@ fn test_btree_map() {
                         assert_scalar(&items[1].1, "v", "i32", Some(SupportedScalar::I32(4)));
                     },
                 );
-            },
-        );
+            });
 
         debugger.continue_debugee().unwrap();
         assert_no_proc!(child);
@@ -1582,7 +1587,7 @@ fn test_btree_map() {
 #[test]
 #[serial]
 fn test_read_btree_set() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 342).unwrap();
@@ -1645,7 +1650,7 @@ fn test_read_btree_set() {
 #[test]
 #[serial]
 fn test_read_vec_deque() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 360).unwrap();
@@ -1704,8 +1709,7 @@ fn test_read_vec_deque() {
                     }),
                     _ => panic!("3 items expected"),
                 })
-            },
-        );
+            });
 
         debugger.continue_debugee().unwrap();
         assert_no_proc!(child);
@@ -1715,7 +1719,7 @@ fn test_read_vec_deque() {
 #[test]
 #[serial]
 fn test_read_atomic() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 370).unwrap();
@@ -1756,7 +1760,7 @@ fn test_read_atomic() {
 #[test]
 #[serial]
 fn test_cell() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 382).unwrap();
@@ -1794,7 +1798,7 @@ fn test_cell() {
 #[test]
 #[serial]
 fn test_shared_ptr() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 404).unwrap();
@@ -1903,7 +1907,7 @@ fn test_shared_ptr() {
 #[test]
 #[serial]
 fn test_zst_types() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 425).unwrap();

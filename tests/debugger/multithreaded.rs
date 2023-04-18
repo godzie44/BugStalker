@@ -8,7 +8,7 @@ use serial_test::serial;
 #[test]
 #[serial]
 fn test_multithreaded_app_running() {
-    debugger_env!(MT_APP, child, {
+    debugger_env!(MT_APP, [], child, {
         let mut debugger = Debugger::new(MT_APP, child, TestHooks::default()).unwrap();
         debugger.run_debugee().unwrap();
         assert_no_proc!(child);
@@ -18,7 +18,7 @@ fn test_multithreaded_app_running() {
 #[test]
 #[serial]
 fn test_multithreaded_breakpoints() {
-    debugger_env!(MT_APP, child, {
+    debugger_env!(MT_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(MT_APP, child, TestHooks::new(info.clone())).unwrap();
         // set breakpoint at program start.
@@ -53,7 +53,7 @@ fn backtrace_contains_fn(backtrace: &Backtrace, f_name: &str) -> bool {
 #[test]
 #[serial]
 fn test_multithreaded_backtrace() {
-    debugger_env!(MT_APP, child, {
+    debugger_env!(MT_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(MT_APP, child, TestHooks::new(info.clone())).unwrap();
 
@@ -80,7 +80,7 @@ fn test_multithreaded_backtrace() {
 #[test]
 #[serial]
 fn test_multithreaded_trace() {
-    debugger_env!(MT_APP, child, {
+    debugger_env!(MT_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(MT_APP, child, TestHooks::new(info.clone())).unwrap();
 

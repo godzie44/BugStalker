@@ -7,7 +7,7 @@ use serial_test::serial;
 #[test]
 #[serial]
 fn test_debugee_run() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(HW_APP, [], child, {
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::default()).unwrap();
         debugger.run_debugee().unwrap();
         assert_no_proc!(child);
@@ -17,7 +17,7 @@ fn test_debugee_run() {
 #[test]
 #[serial]
 fn test_multiple_brkpt_on_addr() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(HW_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger
@@ -42,7 +42,7 @@ fn test_multiple_brkpt_on_addr() {
 #[test]
 #[serial]
 fn test_brkpt_on_function() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(HW_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_fn("myprint").unwrap();
@@ -58,7 +58,6 @@ fn test_brkpt_on_function() {
         assert_eq!(info.line.take(), Some(15));
 
         debugger.continue_debugee().unwrap();
-
         assert_no_proc!(child);
     });
 }
@@ -66,7 +65,7 @@ fn test_brkpt_on_function() {
 #[test]
 #[serial]
 fn test_brkpt_on_line() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(HW_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger
@@ -84,7 +83,6 @@ fn test_brkpt_on_line() {
         assert_eq!(info.line.take(), Some(15));
 
         debugger.continue_debugee().unwrap();
-
         assert_no_proc!(child);
     });
 }
@@ -92,7 +90,7 @@ fn test_brkpt_on_line() {
 #[test]
 #[serial]
 fn test_set_breakpoint_idempotence() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(HW_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
 

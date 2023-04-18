@@ -9,7 +9,7 @@ use serial_test::serial;
 fn test_step_into() {
     debugger_env!(
         CALC_APP,
-        vec!["1", "2", "3", "--description", "result"],
+        ["1", "2", "3", "--description", "result"],
         child,
         {
             let info = DebugeeRunInfo::default();
@@ -51,7 +51,7 @@ fn test_step_into() {
 #[test]
 #[serial]
 fn test_step_out() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(HW_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_fn("main").unwrap();
@@ -73,7 +73,7 @@ fn test_step_out() {
 #[test]
 #[serial]
 fn test_step_over() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(HW_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_fn("main").unwrap();
@@ -96,7 +96,7 @@ fn test_step_over() {
 #[test]
 #[serial]
 fn test_step_over_inline_code() {
-    debugger_env!(VARS_APP, child, {
+    debugger_env!(VARS_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(VARS_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger.set_breakpoint_at_line("vars.rs", 442).unwrap();
@@ -114,7 +114,7 @@ fn test_step_over_inline_code() {
 #[test]
 #[serial]
 fn test_step_over_on_fn_decl() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(HW_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger

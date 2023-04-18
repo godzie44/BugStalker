@@ -20,7 +20,7 @@ const VARS_APP: &str = "./target/debug/vars";
 #[test]
 #[serial]
 fn test_debugger_graceful_shutdown() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(HW_APP, [], child, {
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::default()).unwrap();
         debugger
             .set_breakpoint_at_line("hello_world.rs", 5)
@@ -35,7 +35,7 @@ fn test_debugger_graceful_shutdown() {
 #[test]
 #[serial]
 fn test_debugger_graceful_shutdown_multithread() {
-    debugger_env!(MT_APP, child, {
+    debugger_env!(MT_APP, [], child, {
         let mut debugger = Debugger::new(MT_APP, child, TestHooks::default()).unwrap();
         debugger.set_breakpoint_at_line("mt.rs", 31).unwrap();
         debugger.run_debugee().unwrap();
@@ -48,7 +48,7 @@ fn test_debugger_graceful_shutdown_multithread() {
 #[test]
 #[serial]
 fn test_frame_cfa() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(HW_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger
@@ -77,7 +77,7 @@ fn test_frame_cfa() {
 #[test]
 #[serial]
 fn test_registers() {
-    debugger_env!(HW_APP, child, {
+    debugger_env!(HW_APP, [], child, {
         let info = DebugeeRunInfo::default();
         let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
         debugger

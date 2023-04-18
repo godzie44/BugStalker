@@ -48,10 +48,10 @@ macro_rules! debugger_env {
 
         let debugee = $prog;
         rust::Environment::init(None);
-
         let null_f = File::open("/dev/null").unwrap();
         let mut debugee_cmd = std::process::Command::new(debugee);
-        debugee_cmd.args($args);
+        let args: Vec<&str> = Vec::from($args);
+        debugee_cmd.args(args);
         debugee_cmd.stdout(null_f);
 
         unsafe {
@@ -79,9 +79,6 @@ macro_rules! debugger_env {
                 $code
             }
         }
-    };
-    ($prog:expr, $child:ident, $code: expr) => {
-        debugger_env!($prog, Vec::<String>::new(), $child, $code)
     };
 }
 
