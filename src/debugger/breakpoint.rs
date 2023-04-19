@@ -1,14 +1,14 @@
-use crate::debugger::address::PCValue;
+use crate::debugger::address::Address;
 use nix::libc::c_void;
 use nix::sys;
 use nix::unistd::Pid;
 use std::cell::Cell;
 
-impl PCValue {
+impl Address {
     fn as_ptr(&self) -> *mut c_void {
         match self {
-            PCValue::Relocated(addr) => usize::from(*addr) as *mut c_void,
-            PCValue::Global(_) => {
+            Address::Relocated(addr) => usize::from(*addr) as *mut c_void,
+            Address::Global(_) => {
                 panic!("only address with offset allowed")
             }
         }
@@ -16,7 +16,7 @@ impl PCValue {
 }
 
 pub struct Breakpoint {
-    pub addr: PCValue,
+    pub addr: Address,
     pid: Pid,
     saved_data: Cell<u8>,
     enabled: Cell<bool>,
@@ -29,7 +29,7 @@ impl Breakpoint {
 }
 
 impl Breakpoint {
-    pub fn new(addr: PCValue, pid: Pid) -> Self {
+    pub fn new(addr: Address, pid: Pid) -> Self {
         Self {
             addr,
             pid,

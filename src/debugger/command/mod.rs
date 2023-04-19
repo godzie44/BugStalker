@@ -20,7 +20,8 @@ pub use backtrace::Command as BacktraceCommand;
 pub use frame::Frame;
 pub use memory::Memory;
 pub use r#break::Break;
-pub use r#break::Breakpoint as BreakpointType;
+pub use r#break::Breakpoint;
+pub use r#break::Command as BreakpointCommand;
 pub use r#continue::Continue;
 pub use register::Register;
 pub use run::Run;
@@ -98,7 +99,7 @@ pub enum Command {
     StepOut,
     StepOver,
     PrintSymbol(String),
-    Breakpoint(BreakpointType),
+    Breakpoint(r#break::Command),
     Memory(memory::Command),
     Register(register::Command),
     Help(Option<String>),
@@ -201,30 +202,46 @@ impl Command {
         }
 
         fn break_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            preceded(
-                alt((pair(tag("b"), multispace1), pair(tag("break"), multispace1))),
-                cut(alt((
-                    map_res(hexadecimal, |hex| -> Result<Command, ParseIntError> {
+            fn breakpoint_arg_parser<'a>(
+            ) -> impl FnMut(&'a str) -> IResult<&'a str, Breakpoint, ErrorTree<&str>> {
+                alt((
+                    map_res(hexadecimal, |hex| -> Result<Breakpoint, ParseIntError> {
                         let addr = usize::from_str_radix(hex, 16)?;
-                        Ok(Command::Breakpoint(BreakpointType::Address(addr)))
+                        Ok(Breakpoint::Address(addr))
                     }),
                     map_res(
                         separated_pair(is_not(":"), tag(":"), digit1),
-                        |(file, line): (&str, &str)| -> Result<Command, ParseIntError> {
-                            Ok(Command::Breakpoint(BreakpointType::Line(
+                        |(file, line): (&str, &str)| -> Result<Breakpoint, ParseIntError> {
+                            Ok(Breakpoint::Line(
                                 file.trim().to_string(),
                                 u64::from_str(line.trim())?,
-                            )))
+                            ))
                         },
                     ),
                     map_res(
                         rust_identifier,
-                        |fn_name: &str| -> Result<Command, ParseIntError> {
-                            Ok(Command::Breakpoint(BreakpointType::Function(
-                                fn_name.to_string(),
-                            )))
+                        |fn_name: &str| -> Result<Breakpoint, ParseIntError> {
+                            Ok(Breakpoint::Function(fn_name.to_string()))
                         },
                     ),
+                ))
+            }
+
+            preceded(
+                alt((pair(tag("b"), multispace1), pair(tag("break"), multispace1))),
+                cut(alt((
+                    preceded(
+                        alt((
+                            pair(tag("r"), multispace1),
+                            pair(tag("remove"), multispace1),
+                        )),
+                        map(breakpoint_arg_parser(), |brkpt| {
+                            Command::Breakpoint(BreakpointCommand::Remove(brkpt))
+                        }),
+                    ),
+                    map(breakpoint_arg_parser(), |brkpt| {
+                        Command::Breakpoint(BreakpointCommand::Add(brkpt))
+                    }),
                 ))),
             )(input)
         }
@@ -435,7 +452,7 @@ mod test {
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Breakpoint(BreakpointType::Function(f)) if f == "some_func"
+                        Command::Breakpoint(r#break::Command::Add(Breakpoint::Function(f))) if f == "some_func"
                     ));
                 },
             },
@@ -444,7 +461,7 @@ mod test {
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Breakpoint(BreakpointType::Line(f, n)) if f == "file" && n == 123
+                        Command::Breakpoint(r#break::Command::Add(Breakpoint::Line(f, n))) if f == "file" && n == 123
                     ));
                 },
             },
@@ -453,7 +470,42 @@ mod test {
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Breakpoint(BreakpointType::Address(a)) if a == 0x123
+                        Command::Breakpoint(r#break::Command::Add(Breakpoint::Address(a))) if a == 0x123
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec![
+                    "b r some_func",
+                    "break r some_func",
+                    "   break r  some_func   ",
+                ],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Breakpoint(r#break::Command::Remove(Breakpoint::Function(f))) if f == "some_func"
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec![
+                    "b remove file:123",
+                    "break r file:123",
+                    "   break  remove file:123   ",
+                ],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Breakpoint(r#break::Command::Remove(Breakpoint::Line(f, n))) if f == "file" && n == 123
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec!["b remove 0x123", "break r 0x123", "   break r 0x123   "],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Breakpoint(r#break::Command::Remove(Breakpoint::Address(a))) if a == 0x123
                     ));
                 },
             },

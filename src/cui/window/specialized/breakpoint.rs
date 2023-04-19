@@ -1,7 +1,7 @@
 use crate::cui::window::message::{ActionMessage, Exchanger};
 use crate::cui::window::specialized::PersistentList;
 use crate::cui::window::{CuiComponent, RenderOpts};
-use crate::debugger::command::{BreakpointType, Command};
+use crate::debugger::command::{Breakpoint, BreakpointCommand, Command};
 use crate::debugger::{command, Debugger};
 use crate::fire;
 use crossterm::event::{KeyCode, KeyEvent};
@@ -16,7 +16,7 @@ use tui::Frame;
 
 pub struct Breakpoints {
     debugger: Rc<RefCell<Debugger>>,
-    breakpoints: RefCell<PersistentList<BreakpointType>>,
+    breakpoints: RefCell<PersistentList<Breakpoint>>,
 }
 
 impl Breakpoints {
@@ -44,13 +44,13 @@ impl CuiComponent for Breakpoints {
             .map(|(i, bp)| {
                 let bp_index = i + 1;
                 let view = match bp {
-                    BreakpointType::Address(addr) => {
+                    Breakpoint::Address(addr) => {
                         format!("{bp_index}. {addr:#016X}")
                     }
-                    BreakpointType::Line(file, line) => {
+                    Breakpoint::Line(file, line) => {
                         format!("{bp_index}. {file}:{line}")
                     }
-                    BreakpointType::Function(function) => {
+                    Breakpoint::Function(function) => {
                         format!("{bp_index}. {function}")
                     }
                 };
@@ -105,9 +105,9 @@ impl CuiComponent for Breakpoints {
             if let ActionMessage::HandleUserInput { input } = action {
                 let dbg = &mut (*self.debugger).borrow_mut();
                 let command = Command::parse(&input)?;
-                if let Command::Breakpoint(bp_command) = command {
-                    command::Break::new(dbg).handle(bp_command.clone())?;
-                    self.breakpoints.borrow_mut().items().push(bp_command);
+                if let Command::Breakpoint(BreakpointCommand::Add(brkpt)) = command {
+                    command::Break::new(dbg).handle(BreakpointCommand::Add(brkpt.clone()))?;
+                    self.breakpoints.borrow_mut().items().push(brkpt);
                 }
             }
         }

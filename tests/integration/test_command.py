@@ -256,3 +256,28 @@ class CommandTestCase(unittest.TestCase):
 
         debugger.sendline('vars locals')
         debugger.expect_exact('s = i64(6)')
+
+    def test_function_breakpoint_remove(self):
+        """Stop debugee at function by its name"""
+        self.debugger.sendline('break main')
+        self.debugger.expect('break main')
+
+        self.debugger.sendline('break remove main')
+        self.debugger.expect('break remove main')
+
+        self.debugger.sendline('run')
+        self.debugger.expect('bye!')
+
+    def test_line_breakpoint_remove(self):
+        """Stop debugee at line by its number"""
+        self.debugger.sendline('break hello_world.rs:15')
+        self.debugger.expect('break hello_world.rs:15')
+
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('>    println!("{}", s)')
+
+        self.debugger.sendline('break remove hello_world.rs:15')
+        self.debugger.expect('break remove hello_world.rs:15')
+
+        self.debugger.sendline('continue')
+        self.debugger.expect('bye!')

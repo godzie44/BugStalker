@@ -1,4 +1,4 @@
-use crate::debugger::address::PCValue;
+use crate::debugger::address::Address;
 use crate::debugger::{command, Debugger};
 
 #[derive(Debug, Clone)]
@@ -6,6 +6,12 @@ pub enum Breakpoint {
     Address(usize),
     Line(String, u64),
     Function(String),
+}
+
+#[derive(Debug)]
+pub enum Command {
+    Add(Breakpoint),
+    Remove(Breakpoint),
 }
 
 pub struct Break<'a> {
@@ -17,13 +23,24 @@ impl<'a> Break<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&mut self, cmd: Breakpoint) -> command::HandleResult<()> {
-        match cmd {
-            Breakpoint::Address(addr) => {
-                Ok(self.dbg.set_breakpoint(PCValue::Relocated((addr).into()))?)
-            }
-            Breakpoint::Line(file, line) => Ok(self.dbg.set_breakpoint_at_line(&file, line)?),
-            Breakpoint::Function(func_name) => Ok(self.dbg.set_breakpoint_at_fn(&func_name)?),
-        }
+    pub fn handle(&mut self, cmd: Command) -> command::HandleResult<()> {
+        let result = match cmd {
+            Command::Add(brkpt) => match brkpt {
+                Breakpoint::Address(addr) => {
+                    self.dbg.set_breakpoint(Address::Relocated((addr).into()))
+                }
+                Breakpoint::Line(file, line) => self.dbg.set_breakpoint_at_line(&file, line),
+                Breakpoint::Function(func_name) => self.dbg.set_breakpoint_at_fn(&func_name),
+            },
+            Command::Remove(brkpt) => match brkpt {
+                Breakpoint::Address(addr) => self
+                    .dbg
+                    .remove_breakpoint(Address::Relocated((addr).into())),
+                Breakpoint::Line(file, line) => self.dbg.remove_breakpoint_at_line(&file, line),
+                Breakpoint::Function(func_name) => self.dbg.remove_breakpoint_at_fn(&func_name),
+            },
+        };
+
+        Ok(result?)
     }
 }

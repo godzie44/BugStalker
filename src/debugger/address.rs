@@ -105,7 +105,7 @@ impl From<GlobalAddress> for u64 {
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
-pub enum PCValue {
+pub enum Address {
     Relocated(RelocatedAddress),
     Global(GlobalAddress),
 }
