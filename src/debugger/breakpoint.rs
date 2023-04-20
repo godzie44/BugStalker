@@ -15,6 +15,7 @@ impl Address {
     }
 }
 
+/// Breakpoint representation.
 pub struct Breakpoint {
     pub addr: Address,
     pid: Pid,

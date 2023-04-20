@@ -6,6 +6,7 @@ use smallvec::{smallvec, SmallVec};
 use strum_macros::Display;
 use strum_macros::EnumString;
 
+/// x86_64 registers.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, EnumString, Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum Register {
@@ -75,6 +76,7 @@ impl From<gimli::Register> for Register {
     }
 }
 
+/// x86_64 register values.
 pub struct RegisterMap {
     rax: u64,
     rbx: u64,
@@ -174,11 +176,21 @@ impl From<RegisterMap> for user_regs_struct {
 }
 
 impl RegisterMap {
+    /// Return current register values for selected thread.
+    ///
+    /// # Arguments
+    ///
+    /// * `pid`: thread id.
     pub fn current(pid: Pid) -> nix::Result<Self> {
         let regs = sys::ptrace::getregs(pid)?;
         Ok(regs.into())
     }
 
+    /// Return register value.
+    ///
+    /// # Arguments
+    ///
+    /// * `register`: target register.
     pub fn value(&self, register: impl Into<Register>) -> u64 {
         let register = register.into();
         match register {
@@ -212,6 +224,12 @@ impl RegisterMap {
         }
     }
 
+    /// Set new register value.
+    ///
+    /// # Arguments
+    ///
+    /// * `register`: target register.
+    /// * `value`: new value.
     pub fn update(&mut self, register: impl Into<Register>, value: u64) {
         match register.into() {
             Register::Rax => self.rax = value,
@@ -244,15 +262,26 @@ impl RegisterMap {
         };
     }
 
+    /// Replace tread registers with values taken from this map.
+    ///
+    /// # Arguments
+    ///
+    /// * `pid`: target thread.
     pub fn persist(self, pid: Pid) -> nix::Result<()> {
         sys::ptrace::setregs(pid, self.into())
     }
 }
 
+/// x86_64 register values, using DWARF register number as index.
 #[derive(Debug, Clone)]
 pub struct DwarfRegisterMap(SmallVec<[Option<u64>; 0x80]>);
 
 impl DwarfRegisterMap {
+    /// Return register value.
+    ///
+    /// # Arguments
+    ///
+    /// * `register`: target register.
     pub fn value(&self, register: gimli::Register) -> anyhow::Result<u64> {
         self.0
             .get(register.0 as usize)
@@ -261,6 +290,12 @@ impl DwarfRegisterMap {
             .ok_or(anyhow!("register {} not found", register.0))
     }
 
+    /// Set new register value.
+    ///
+    /// # Arguments
+    ///
+    /// * `register`: target register.
+    /// * `value`: new value.
     pub fn update(&mut self, register: gimli::Register, value: u64) {
         self.0.insert(register.0 as usize, Some(value))
     }

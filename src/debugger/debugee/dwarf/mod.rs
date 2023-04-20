@@ -558,18 +558,19 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
     }
 
     pub fn inline_ranges(&self) -> Vec<Range> {
-        self.node
-            .children
-            .iter()
-            .flat_map(|&child_idx| {
-                if let DieVariant::InlineSubroutine(inline_subroutine) =
-                    &self.unit.entries[child_idx].die
-                {
-                    return inline_subroutine.base_attributes.ranges.to_vec();
-                }
-                vec![]
-            })
-            .collect()
+        let mut ranges = vec![];
+        let mut queue = VecDeque::from(self.node.children.clone());
+        while let Some(idx) = queue.pop_front() {
+            if let DieVariant::InlineSubroutine(inline_subroutine) = &self.unit.entries[idx].die {
+                ranges.extend(inline_subroutine.base_attributes.ranges.iter());
+            }
+            self.unit.entries[idx]
+                .node
+                .children
+                .iter()
+                .for_each(|i| queue.push_back(*i));
+        }
+        ranges
     }
 }
 
