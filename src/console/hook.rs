@@ -20,6 +20,8 @@ impl EventHook for TerminalHook {
         if let Some(place) = mb_place {
             println!("{}:{}", place.file.display(), place.line_number);
             println!("{}", self.file_view.render_source(&place, 1)?);
+        } else {
+            println!("unknown function");
         }
         Ok(())
     }

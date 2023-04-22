@@ -348,11 +348,17 @@ impl Debugger {
     pub fn step_over(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
 
-        let current_location = self.current_thread_stop_at()?;
+        let mut current_location = self.current_thread_stop_at()?;
         let dwarf = &self.debugee.dwarf;
-        let func = dwarf
-            .find_function_by_pc(current_location.global_pc)
-            .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
+
+        let func = loop {
+            if let Some(func) = dwarf.find_function_by_pc(current_location.global_pc) {
+                break func;
+            }
+            self.single_step_instruction()?;
+            current_location = self.current_thread_stop_at()?;
+        };
+
         let inline_ranges = func.inline_ranges();
 
         let current_place = dwarf
@@ -374,7 +380,11 @@ impl Debugger {
                     .iter()
                     .any(|inline_range| place.address.in_range(inline_range));
 
-                if !in_inline_range && place.is_stmt && place.address != current_place.address {
+                if !in_inline_range
+                    && place.is_stmt
+                    && place.address != current_place.address
+                    && place.line_number != current_place.line_number
+                {
                     let load_addr = place.address.relocate(self.debugee.mapping_offset());
                     if self
                         .breakpoints
