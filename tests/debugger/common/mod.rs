@@ -1,7 +1,7 @@
 use bugstalker::debugger::address::RelocatedAddress;
 use bugstalker::debugger::{EventHook, Place};
+use nix::sys::signal::Signal;
 use std::cell::Cell;
-use std::ffi::c_int;
 use std::sync::Arc;
 
 #[derive(Clone, Default)]
@@ -29,7 +29,7 @@ impl EventHook for TestHooks {
         self.info.line.set(place.map(|p| p.line_number));
         Ok(())
     }
-    fn on_signal(&self, _signo: c_int, _code: c_int) {}
+    fn on_signal(&self, _: Signal) {}
     fn on_exit(&self, _code: i32) {}
 }
 

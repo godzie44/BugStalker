@@ -10,6 +10,8 @@ impl<'a> Frame<'a> {
     }
 
     pub fn handle(&self) -> command::HandleResult<FrameInfo> {
-        Ok(self.dbg.frame_info(self.dbg.debugee.thread_in_focus())?)
+        Ok(self
+            .dbg
+            .frame_info(self.dbg.debugee.tracee_in_focus().pid)?)
     }
 }

@@ -59,14 +59,17 @@ impl<'a> RequirementsResolver<'a> {
         match self.base_address.borrow_mut().entry(pid) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(e) => {
-                let loc = self.debugee.thread_stop_at(pid)?;
+                let loc = self
+                    .debugee
+                    .threads_ctl()
+                    .tracee_ensure(pid)
+                    .location(self.debugee)?;
                 let func = self
                     .debugee
                     .dwarf
                     .find_function_by_pc(loc.global_pc)
                     .ok_or_else(|| anyhow!("current function not found"))?;
-                let debugee_at = self.debugee.thread_stop_at(pid)?;
-                let base_addr = func.frame_base_addr(pid, self.debugee, debugee_at.global_pc)?;
+                let base_addr = func.frame_base_addr(pid, self.debugee, loc.global_pc)?;
                 Ok(*e.insert(base_addr))
             }
         }
@@ -77,7 +80,11 @@ impl<'a> RequirementsResolver<'a> {
         match self.cfa.borrow_mut().entry(pid) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(e) => {
-                let loc = self.debugee.thread_stop_at(pid)?;
+                let loc = self
+                    .debugee
+                    .threads_ctl()
+                    .tracee_ensure(pid)
+                    .location(self.debugee)?;
                 let cfa = self.debugee.dwarf.get_cfa(self.debugee, loc)?;
                 Ok(*e.insert(cfa))
             }
@@ -100,7 +107,11 @@ impl<'a> RequirementsResolver<'a> {
     }
 
     fn resolve_registers(&self, pid: Pid) -> anyhow::Result<DwarfRegisterMap> {
-        let current_loc = self.debugee.thread_stop_at(pid)?;
+        let current_loc = self
+            .debugee
+            .threads_ctl()
+            .tracee_ensure(pid)
+            .location(self.debugee)?;
         let current_fn = self
             .debugee
             .dwarf
@@ -386,7 +397,10 @@ impl<'a> CompletedResult<'a> {
                             .ok_or_else(|| EvalError::Other(anyhow!("unknown die type")))?;
                         let bytes = ctx_die
                             .read_value(
-                                self.debugee.thread_stop_at(self.pid)?,
+                                self.debugee
+                                    .threads_ctl()
+                                    .tracee_ensure(self.pid)
+                                    .location(self.debugee)?,
                                 self.debugee,
                                 &r#type,
                             )

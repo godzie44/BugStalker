@@ -19,13 +19,13 @@ use crate::debugger::debugee::dwarf::r#type::TypeCache;
 use crate::debugger::debugee::dwarf::unwind::libunwind;
 use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
 use crate::debugger::debugee::dwarf::{DwarfUnwinder, Symbol};
-use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
+use crate::debugger::debugee::tracer::StopReason;
 use crate::debugger::debugee::{Debugee, ExecutionStatus, FrameInfo, Location};
 use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::variable::VariableIR;
 use anyhow::anyhow;
-use nix::libc::{c_int, c_void, uintptr_t};
+use nix::libc::{c_void, uintptr_t};
 use nix::sys;
 use nix::sys::signal;
 use nix::sys::signal::Signal;
@@ -41,7 +41,7 @@ use std::{fs, mem, u64};
 
 pub trait EventHook {
     fn on_trap(&self, pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()>;
-    fn on_signal(&self, signo: c_int, code: c_int);
+    fn on_signal(&self, signal: Signal);
     fn on_exit(&self, code: i32);
 }
 
@@ -82,7 +82,7 @@ impl Debugger {
         let entry_point = GlobalAddress::from(object.entry());
         let breakpoints = HashMap::from([(
             Address::Global(entry_point),
-            Breakpoint::new(Address::Global(entry_point), pid),
+            Breakpoint::new_entry_point(Address::Global(entry_point), pid),
         )]);
 
         Ok(Self {
@@ -97,13 +97,13 @@ impl Debugger {
         self.step_over_breakpoint()?;
 
         loop {
-            let event = self.debugee.control_flow_tick()?;
+            let event = self.debugee.trace_until_stop(&self.breakpoints)?;
             match event {
-                DebugeeEvent::DebugeeExit(code) => {
+                StopReason::DebugeeExit(code) => {
                     self.hooks.on_exit(code);
                     break;
                 }
-                DebugeeEvent::DebugeeStart => {
+                StopReason::DebugeeStart => {
                     let mut brkpts_to_reloc = HashMap::with_capacity(self.breakpoints.len());
                     let keys = self.breakpoints.keys().copied().collect::<Vec<_>>();
                     for k in keys {
@@ -125,20 +125,27 @@ impl Debugger {
                         .iter()
                         .all(|(addr, _)| matches!(addr, Address::Relocated(_))));
                 }
-                DebugeeEvent::AtEntryPoint(_) => {
-                    self.step_over_breakpoint()?;
-                }
-                DebugeeEvent::TrapTrace | DebugeeEvent::NoSuchProcess(_) => {
+                StopReason::NoSuchProcess(_) => {
                     break;
                 }
-                DebugeeEvent::Breakpoint(_, current_pc) => {
-                    let offset_pc = current_pc.into_global(self.debugee.mapping_offset());
+                StopReason::Breakpoint(_, current_pc) => {
+                    let at_ep = self
+                        .breakpoints
+                        .get(&Address::Relocated(current_pc))
+                        .map(|bp| bp.is_entry_point());
+                    if at_ep == Some(true) {
+                        self.step_over_breakpoint()?;
+                        continue;
+                    }
+
+                    let pc = current_pc.into_global(self.debugee.mapping_offset());
                     self.hooks
-                        .on_trap(current_pc, self.debugee.dwarf.find_place_from_pc(offset_pc))?;
+                        .on_trap(current_pc, self.debugee.dwarf.find_place_from_pc(pc))?;
                     break;
                 }
-                DebugeeEvent::OsSignal(info, _) => {
-                    self.hooks.on_signal(info.si_signo, info.si_code);
+                StopReason::SignalStop(_, sign) => {
+                    // todo inject signal on next continue
+                    self.hooks.on_signal(sign);
                     break;
                 }
             }
@@ -166,7 +173,12 @@ impl Debugger {
     pub fn frame_info(&self, tid: Pid) -> anyhow::Result<FrameInfo> {
         disable_when_not_stared!(self);
 
-        self.debugee.frame_info(self.debugee.thread_stop_at(tid)?)
+        self.debugee.frame_info(
+            self.debugee
+                .threads_ctl()
+                .tracee_ensure(tid)
+                .location(&self.debugee)?,
+        )
     }
 
     pub fn step_into(&self) -> anyhow::Result<()> {
@@ -244,18 +256,17 @@ impl Debugger {
     }
 
     pub fn current_thread_stop_at(&self) -> nix::Result<Location> {
-        self.debugee.current_thread_stop_at()
+        self.debugee.tracee_in_focus().location(&self.debugee)
     }
 
     fn step_over_breakpoint(&self) -> anyhow::Result<()> {
         // cannot use debugee::Location mapping offset may be not init yet
-        let pid = self.debugee.thread_in_focus();
-        let pc = self.debugee.control_flow.thread_pc(pid)?;
-        let mb_brkpt = self.breakpoints.get(&Address::Relocated(pc));
+        let tracee = self.debugee.tracee_in_focus();
+        let mb_brkpt = self.breakpoints.get(&Address::Relocated(tracee.pc()?));
         if let Some(brkpt) = mb_brkpt {
             if brkpt.is_enabled() {
                 brkpt.disable()?;
-                ControlFlow::thread_step(pid)?;
+                tracee.step()?;
                 brkpt.enable()?;
             }
         }
@@ -264,10 +275,11 @@ impl Debugger {
 
     fn single_step_instruction(&self) -> anyhow::Result<()> {
         let loc = self.current_thread_stop_at()?;
+        let tracee = self.debugee.threads_ctl().tracee_ensure(loc.pid);
         if self.breakpoints.get(&Address::Relocated(loc.pc)).is_some() {
             self.step_over_breakpoint()
         } else {
-            ControlFlow::thread_step(loc.pid)?;
+            tracee.step()?;
             Ok(())
         }
     }
@@ -507,7 +519,7 @@ impl Debugger {
     pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {
         disable_when_not_stared!(self);
 
-        Ok(RegisterMap::current(self.debugee.thread_in_focus())?
+        Ok(RegisterMap::current(self.debugee.tracee_in_focus().pid)?
             .value(Register::from_str(register_name)?))
     }
 
@@ -522,7 +534,7 @@ impl Debugger {
             .context_for(Location {
                 pc,
                 global_pc: pc.into_global(self.debugee.mapping_offset()),
-                pid: self.debugee.thread_in_focus(),
+                pid: self.debugee.tracee_in_focus().pid,
             })?
             .ok_or(anyhow!("fetch register fail"))?
             .registers())
@@ -531,9 +543,9 @@ impl Debugger {
     pub fn set_register_value(&self, register_name: &str, val: u64) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
 
-        let mut map = RegisterMap::current(self.debugee.thread_in_focus())?;
+        let mut map = RegisterMap::current(self.debugee.tracee_in_focus().pid)?;
         map.update(Register::try_from(register_name)?, val);
-        Ok(map.persist(self.debugee.thread_in_focus())?)
+        Ok(map.persist(self.debugee.tracee_in_focus().pid)?)
     }
 }
 
@@ -559,6 +571,7 @@ impl Drop for Debugger {
                     .map(|t| t.pid)
                     .collect();
 
+                // todo currently ok only if all threads in group stop
                 // continue all threads with SIGSTOP
                 current_tids.iter().for_each(|tid| {
                     sys::ptrace::cont(*tid, Signal::SIGSTOP).expect("cont debugee");

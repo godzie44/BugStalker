@@ -4,6 +4,12 @@ use nix::sys;
 use nix::unistd::Pid;
 use std::cell::Cell;
 
+#[derive(PartialEq)]
+enum BrkptType {
+    EntryPoint,
+    Default,
+}
+
 impl Address {
     fn as_ptr(&self) -> *mut c_void {
         match self {
@@ -21,6 +27,7 @@ pub struct Breakpoint {
     pid: Pid,
     saved_data: Cell<u8>,
     enabled: Cell<bool>,
+    r#type: BrkptType,
 }
 
 impl Breakpoint {
@@ -30,13 +37,26 @@ impl Breakpoint {
 }
 
 impl Breakpoint {
-    pub fn new(addr: Address, pid: Pid) -> Self {
+    fn new_inner(addr: Address, pid: Pid, r#type: BrkptType) -> Self {
         Self {
             addr,
             pid,
             enabled: Default::default(),
             saved_data: Default::default(),
+            r#type,
         }
+    }
+
+    pub fn new(addr: Address, pid: Pid) -> Self {
+        Self::new_inner(addr, pid, BrkptType::Default)
+    }
+
+    pub fn new_entry_point(addr: Address, pid: Pid) -> Self {
+        Self::new_inner(addr, pid, BrkptType::EntryPoint)
+    }
+
+    pub fn is_entry_point(&self) -> bool {
+        self.r#type == BrkptType::EntryPoint
     }
 
     pub fn enable(&self) -> nix::Result<()> {

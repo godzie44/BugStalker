@@ -1,10 +1,11 @@
-use crate::debugger::address::{GlobalAddress, RelocatedAddress};
+use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
+use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::debugee::dwarf::unwind::libunwind;
 use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
 use crate::debugger::debugee::dwarf::{DebugeeContext, EndianRcSlice};
-use crate::debugger::debugee::flow::{ControlFlow, DebugeeEvent};
 use crate::debugger::debugee::rendezvous::Rendezvous;
-use crate::debugger::debugee::thread::{ThreadCtl, TraceeThread};
+use crate::debugger::debugee::tracee::{Tracee, TraceeCtl};
+use crate::debugger::debugee::tracer::{StopReason, Tracer};
 use crate::weak_error;
 use anyhow::anyhow;
 use log::{info, warn};
@@ -15,9 +16,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub mod dwarf;
-pub mod flow;
 mod rendezvous;
-pub mod thread;
+pub mod tracee;
+pub mod tracer;
 
 /// Stack frame information.
 #[derive(Debug, Default, Clone)]
@@ -30,7 +31,7 @@ pub struct FrameInfo {
 }
 
 pub struct ThreadSnapshot {
-    pub thread: TraceeThread,
+    pub thread: Tracee,
     pub bt: Option<Backtrace>,
     pub in_focus: bool,
 }
@@ -61,12 +62,12 @@ pub struct Debugee {
     pub mapping_addr: Option<usize>,
     /// preparsed debugee dwarf.
     pub dwarf: DebugeeContext<EndianRcSlice>,
-    /// debugee control flow
-    pub control_flow: ControlFlow,
     /// elf file sections (name => address).
     object_sections: HashMap<String, u64>,
     /// rendezvous struct maintained by dyn linker.
     rendezvous: Option<Rendezvous>,
+    /// Debugee tracer. Control debugee process.
+    tracer: Tracer,
 }
 
 impl Debugee {
@@ -85,12 +86,13 @@ impl Debugee {
             path: path.into(),
             mapping_addr: None,
             dwarf: dwarf_builder.build(object)?,
-            control_flow: ControlFlow::new(proc, GlobalAddress::from(object.entry() as usize)),
+            //control_flow: ControlFlow::new(proc, GlobalAddress::from(object.entry() as usize)),
             object_sections: object
                 .sections()
                 .filter_map(|section| Some((section.name().ok()?.to_string(), section.address())))
                 .collect(),
             rendezvous: None,
+            tracer: Tracer::new(proc),
         })
     }
 
@@ -110,7 +112,7 @@ impl Debugee {
     }
 
     fn init_libthread_db(&mut self) {
-        match self.control_flow.threads_ctl.init_thread_db() {
+        match self.tracer.tracee_ctl.init_thread_db() {
             Ok(_) => {
                 info!("libthread_db enabled")
             }
@@ -122,23 +124,31 @@ impl Debugee {
         }
     }
 
-    pub fn control_flow_tick(&mut self) -> anyhow::Result<DebugeeEvent> {
-        let event = self.control_flow.tick(self.mapping_addr)?;
+    pub fn trace_until_stop(
+        &mut self,
+        brkpts: &HashMap<Address, Breakpoint>,
+    ) -> anyhow::Result<StopReason> {
+        let event = self.tracer.continue_until_stop()?;
         match event {
-            DebugeeEvent::DebugeeExit(_) => {
+            StopReason::DebugeeExit(_) => {
                 self.execution_status = ExecutionStatus::Exited;
             }
-            DebugeeEvent::DebugeeStart => {
+            StopReason::DebugeeStart => {
                 self.execution_status = ExecutionStatus::InProgress;
                 self.mapping_addr = Some(self.define_mapping_addr()?);
             }
-            flow::DebugeeEvent::AtEntryPoint(tid) => {
-                self.rendezvous = Some(Rendezvous::new(
-                    tid,
-                    self.mapping_offset(),
-                    &self.object_sections,
-                )?);
-                self.init_libthread_db();
+            StopReason::Breakpoint(tid, addr) => {
+                let at_entry_point = brkpts
+                    .get(&Address::Relocated(addr))
+                    .map(|bp| bp.is_entry_point());
+                if at_entry_point == Some(true) {
+                    self.rendezvous = Some(Rendezvous::new(
+                        tid,
+                        self.mapping_offset(),
+                        &self.object_sections,
+                    )?);
+                    self.init_libthread_db();
+                }
             }
             _ => {}
         }
@@ -146,8 +156,8 @@ impl Debugee {
         Ok(event)
     }
 
-    pub fn threads_ctl(&self) -> &ThreadCtl {
-        &self.control_flow.threads_ctl
+    pub fn threads_ctl(&self) -> &TraceeCtl {
+        &self.tracer.tracee_ctl
     }
 
     fn define_mapping_addr(&mut self) -> anyhow::Result<usize> {
@@ -188,31 +198,19 @@ impl Debugee {
         let threads = self.threads_ctl().snapshot();
         Ok(threads
             .into_iter()
-            .map(|thread| {
-                let mb_bt = weak_error!(libunwind::unwind(thread.pid));
+            .map(|tracee| {
+                let mb_bt = weak_error!(libunwind::unwind(tracee.pid));
                 ThreadSnapshot {
-                    in_focus: thread.pid == self.threads_ctl().thread_in_focus(),
-                    thread,
+                    in_focus: &tracee == self.threads_ctl().tracee_in_focus(),
+                    thread: tracee,
                     bt: mb_bt,
                 }
             })
             .collect())
     }
 
-    pub fn thread_in_focus(&self) -> Pid {
-        self.threads_ctl().thread_in_focus()
-    }
-
-    pub fn current_thread_stop_at(&self) -> nix::Result<Location> {
-        self.thread_stop_at(self.threads_ctl().thread_in_focus())
-    }
-
-    pub fn thread_stop_at(&self, tid: Pid) -> nix::Result<Location> {
-        let pc = self.control_flow.thread_pc(tid)?;
-        Ok(Location {
-            pid: tid,
-            pc,
-            global_pc: pc.into_global(self.mapping_offset()),
-        })
+    /// Returns tracee currently in focus.
+    pub fn tracee_in_focus(&self) -> &Tracee {
+        self.tracer.tracee_ctl.tracee_in_focus()
     }
 }

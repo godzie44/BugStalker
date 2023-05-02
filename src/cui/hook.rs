@@ -1,7 +1,7 @@
 use crate::cui::{context, AppState};
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::{EventHook, Place};
-use nix::libc::c_int;
+use nix::sys::signal::Signal;
 use tui::style::{Color, Style};
 use tui::text::{Span, Spans};
 
@@ -25,14 +25,11 @@ impl EventHook for CuiHook {
         Ok(())
     }
 
-    fn on_signal(&self, signo: c_int, code: c_int) {
-        let alert_text = vec![
-            Spans::from(vec![
-                Span::raw("Application receive signal: "),
-                Span::styled(format!("{signo}"), Style::default().fg(Color::Red)),
-            ]),
-            Spans::from(vec![Span::raw(format!("Reason: {code}"))]),
-        ];
+    fn on_signal(&self, signal: Signal) {
+        let alert_text = vec![Spans::from(vec![
+            Span::raw("Application receive signal: "),
+            Span::styled(format!("{signal}"), Style::default().fg(Color::Red)),
+        ])];
         context::Context::current().set_alert(alert_text.into());
     }
 

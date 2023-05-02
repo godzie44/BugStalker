@@ -2,7 +2,7 @@ use crate::console::view::FileView;
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::EventHook;
 use crate::debugger::Place;
-use nix::libc::c_int;
+use nix::sys::signal::Signal;
 
 pub(super) struct TerminalHook {
     file_view: FileView,
@@ -26,8 +26,8 @@ impl EventHook for TerminalHook {
         Ok(())
     }
 
-    fn on_signal(&self, signo: c_int, code: c_int) {
-        println!("Receive signal {signo}, reason: {code}")
+    fn on_signal(&self, signal: Signal) {
+        println!("Receive signal {signal}")
     }
 
     fn on_exit(&self, code: i32) {
