@@ -6,6 +6,7 @@ build-all: build
 	cargo build --bin hello_world
 	cargo build --bin mt
 	cargo build --bin vars
+	cargo build --bin recursion
 
 cargo-test:
 	cargo test

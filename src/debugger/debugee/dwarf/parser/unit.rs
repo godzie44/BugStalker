@@ -168,6 +168,10 @@ impl<'a> Place<'a> {
     pub fn next(&self) -> Option<Place<'a>> {
         self.context.find_place(self.pos_in_unit + 1)
     }
+
+    pub fn line_eq(&self, other: &Place) -> bool {
+        self.file == other.file && self.line_number == other.line_number
+    }
 }
 
 impl<'a> PartialEq for Place<'a> {

@@ -1,8 +1,11 @@
 use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
-use crate::{assert_no_proc, HW_APP, VARS_APP};
+use crate::{assert_no_proc, HW_APP, RECURSION_APP, VARS_APP};
 use crate::{debugger_env, CALC_APP};
+use bugstalker::debugger::command::expression;
+use bugstalker::debugger::variable::{SupportedScalar, VariableIR};
 use serial_test::serial;
+use std::mem;
 
 #[test]
 #[serial]
@@ -46,6 +49,45 @@ fn test_step_into() {
             assert_no_proc!(child);
         }
     );
+}
+
+#[test]
+#[serial]
+fn test_step_into_recursion() {
+    debugger_env!(RECURSION_APP, [], child, {
+        let info = DebugeeRunInfo::default();
+        let mut debugger =
+            Debugger::new(RECURSION_APP, child, TestHooks::new(info.clone())).unwrap();
+        debugger.set_breakpoint_at_fn("infinite_inc").unwrap();
+
+        fn assert_arg(debugger: &Debugger, expected: u64) {
+            let (_, get_i_expr) = expression::expr("i").unwrap();
+            let i_arg = debugger.read_argument(get_i_expr).unwrap().pop().unwrap();
+            let VariableIR::Scalar(scalar) = i_arg else {
+              panic!("not a scalar");  
+            };
+            assert_eq!(scalar.value, Some(SupportedScalar::U64(expected)));
+        }
+
+        debugger.run_debugee().unwrap();
+        assert_eq!(info.line.take(), Some(11));
+        assert_arg(&debugger, 1);
+
+        debugger.step_into().unwrap();
+        assert_eq!(info.line.take(), Some(11));
+        assert_arg(&debugger, 2);
+
+        debugger.step_into().unwrap();
+        assert_eq!(info.line.take(), Some(11));
+        assert_arg(&debugger, 3);
+
+        debugger.step_into().unwrap();
+        assert_eq!(info.line.take(), Some(11));
+        assert_arg(&debugger, 4);
+
+        mem::drop(debugger);
+        assert_no_proc!(child);
+    });
 }
 
 #[test]

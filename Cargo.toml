@@ -58,3 +58,7 @@ test = false
 [[bin]]
 name = "mt"
 test = false
+
+[[bin]]
+name = "recursion"
+test = false

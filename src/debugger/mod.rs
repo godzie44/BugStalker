@@ -306,9 +306,29 @@ impl Debugger {
     pub fn step_in(&self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
 
-        fn step_to_next_place(debugger: &Debugger) -> anyhow::Result<Place<'_>> {
+        // make instruction step but ignoring functions prolog
+        fn long_step(debugger: &Debugger) -> anyhow::Result<Place<'_>> {
             loop {
+                // initial step
                 debugger.single_step_instruction()?;
+
+                let location = debugger.current_thread_stop_at()?;
+                let func = debugger
+                    .debugee
+                    .dwarf
+                    .find_function_by_pc(location.global_pc)
+                    .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
+
+                let prolog = func.prolog()?;
+                // if pc in prolog range - step until function body is reached
+                while debugger
+                    .current_thread_stop_at()?
+                    .global_pc
+                    .in_range(&prolog)
+                {
+                    debugger.single_step_instruction()?;
+                }
+
                 if let Some(place) = debugger
                     .debugee
                     .dwarf
@@ -324,32 +344,20 @@ impl Debugger {
         let start_place = dwarf
             .find_place_from_pc(location.global_pc)
             .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
-        let current_fn = dwarf
-            .find_function_by_pc(location.global_pc)
-            .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
+        let start_cfa = dwarf.get_cfa(&self.debugee, location)?;
 
         loop {
-            let next_place = step_to_next_place(self)?;
+            let next_place = long_step(self)?;
             if !next_place.is_stmt {
                 continue;
             }
+            let next_cfa = dwarf.get_cfa(&self.debugee, self.current_thread_stop_at()?)?;
 
-            if next_place != start_place {
-                let next_fn = dwarf
-                    .find_function_by_pc(self.current_thread_stop_at()?.global_pc)
-                    .ok_or_else(|| anyhow!("not in debug frame (may be program not started?)"))?;
+            // step is done if:
+            // 1) we may step at same place in code but in another stack frame
+            // 2) we step at another place in code (file + line)
 
-                // skip function prolog if needed
-                if current_fn.die != next_fn.die && next_place == next_fn.prolog_start_place()? {
-                    let prolog_end = next_fn.prolog_end_place()?;
-                    let mut guard = 10_000;
-                    while prolog_end != step_to_next_place(self)? {
-                        if guard < 0 {
-                            break;
-                        }
-                        guard -= 1;
-                    }
-                }
+            if start_cfa != next_cfa || !start_place.line_eq(&next_place) {
                 break;
             }
         }

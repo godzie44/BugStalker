@@ -553,6 +553,15 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         Ok(place)
     }
 
+    pub fn prolog(&self) -> anyhow::Result<Range> {
+        let start = self.prolog_start_place()?;
+        let end = self.prolog_end_place()?;
+        Ok(Range {
+            begin: start.address.into(),
+            end: end.address.into(),
+        })
+    }
+
     pub fn ranges(&self) -> &[Range] {
         &self.die.base_attributes.ranges
     }
