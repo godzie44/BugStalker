@@ -40,7 +40,6 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.expect_exact('thread 1 spawn')
         self.debugger.expect_exact('thread 2 spawn')
         self.debugger.expect_exact('sum3 (unused): 45')
-        self.debugger.expect_exact('sum3 (unused): 45')
         self.debugger.expect('Hit breakpoint at address')
         self.debugger.expect_exact('>    let mut sum2 = 0;')
         self.debugger.sendline('continue')

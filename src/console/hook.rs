@@ -21,13 +21,13 @@ impl EventHook for TerminalHook {
             println!("{}:{}", place.file.display(), place.line_number);
             println!("{}", self.file_view.render_source(&place, 1)?);
         } else {
-            println!("unknown function");
+            println!("unknown place");
         }
         Ok(())
     }
 
     fn on_signal(&self, signal: Signal) {
-        println!("Receive signal {signal}")
+        println!("Receive signal {signal}, debugee stopped")
     }
 
     fn on_exit(&self, code: i32) {

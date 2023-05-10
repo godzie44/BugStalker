@@ -1,18 +1,19 @@
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::code;
+use crate::debugger::debugee::tracee::StopType::Interrupt;
 use crate::debugger::debugee::tracee::TraceeStatus::{Running, Stopped};
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register::{Register, RegisterMap};
 use anyhow::{anyhow, bail};
 use itertools::Itertools;
-use log::warn;
+use log::{debug, warn};
 use nix::errno::Errno;
 use nix::sys;
 use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::Pid;
 use ouroboros::self_referencing;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use thread_db;
 
 #[self_referencing]
@@ -24,10 +25,15 @@ struct ThreadDBProcess {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StopType {
+    Interrupt,
+    SignalStop(Signal),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TraceeStatus {
-    Stopped,
+    Stopped(StopType),
     Running,
-    OutOfReach,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -39,18 +45,40 @@ pub struct Tracee {
 impl Tracee {
     /// Wait for change of tracee status.
     pub fn wait_one(&self) -> nix::Result<WaitStatus> {
+        debug!("wait for tracee status, thread {pid}", pid = self.pid);
         waitpid(self.pid, None)
     }
 
-    /// Continue tracee execution.
-    pub fn r#continue(&self, sig: Option<Signal>) -> nix::Result<()> {
-        sys::ptrace::cont(self.pid, sig)
+    fn update_status(&mut self, status: TraceeStatus) {
+        debug!(
+            "tracee accept new status {status:?}, thread {pid}",
+            pid = self.pid
+        );
+        self.status = status
+    }
+
+    /// Resume tracee with, if signal is some - inject signal or resuming.
+    pub fn r#continue(&mut self, sig: Option<Signal>) -> nix::Result<()> {
+        debug!(
+            "continue tracee execution with signal {sig:?}, thread {pid}",
+            pid = self.pid,
+        );
+
+        sys::ptrace::cont(self.pid, sig).map(|ok| {
+            self.update_status(Running);
+            ok
+        })
     }
 
     /// Set tracee status into stop.
+    ///
     /// Note: this function does not actually stop the tracee.
-    pub fn stop(&mut self) {
-        self.status = Stopped
+    pub fn set_stop(&mut self, r#type: StopType) {
+        self.update_status(Stopped(r#type));
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        matches!(self.status, Stopped(_))
     }
 
     /// Execute next instruction, then stop with `TRAP_TRACE`.
@@ -108,7 +136,7 @@ impl TraceeCtl {
                 proc_pid,
                 Tracee {
                     pid: proc_pid,
-                    status: Stopped,
+                    status: Stopped(Interrupt),
                 },
             )]),
             thread_db_proc: None,
@@ -150,9 +178,10 @@ impl TraceeCtl {
     /// `created` actual for ptrace events like PTRACE_EVENT_CLONE, when wee known about new thread but
     /// this not created yet.
     pub fn add(&mut self, pid: Pid) -> &Tracee {
+        debug!("add new tracee: {pid}");
         let new = Tracee {
             pid,
-            status: Stopped,
+            status: Stopped(Interrupt),
         };
         self.threads_state.insert(pid, new);
         &self.threads_state[&pid]
@@ -160,6 +189,7 @@ impl TraceeCtl {
 
     /// Remove thread from budge.
     pub fn remove(&mut self, pid: Pid) -> Option<Tracee> {
+        debug!("try to remove tracee: {pid}");
         self.threads_state.remove(&pid)
     }
 
@@ -167,19 +197,65 @@ impl TraceeCtl {
     pub fn cont_stopped(&mut self) -> Result<(), anyhow::Error> {
         let mut errors = vec![];
 
-        self.threads_state.iter_mut().for_each(|(_, thread)| {
-            if thread.status == Stopped {
-                if let Err(e) = sys::ptrace::cont(thread.pid, None) {
-                    // if no such process - continue, it will be removed later, on PTRACE_EVENT_EXIT event.
-                    if Errno::ESRCH == e {
-                        warn!("thread {} not found, ESRCH", thread.pid);
-                        return;
-                    }
+        self.threads_state.iter_mut().for_each(|(_, tracee)| {
+            if !tracee.is_stopped() {
+                return;
+            }
 
-                    errors.push(anyhow::Error::from(e).context(format!("thread: {}", thread.pid)));
-                } else {
-                    thread.status = Running
+            if let Err(e) = tracee.r#continue(None) {
+                // if no such process - continue, it will be removed later, on PTRACE_EVENT_EXIT event.
+                if Errno::ESRCH == e {
+                    warn!("thread {} not found, ESRCH", tracee.pid);
+                    return;
                 }
+
+                errors.push(anyhow::Error::from(e).context(format!("thread: {}", tracee.pid)));
+            }
+        });
+
+        if !errors.is_empty() {
+            bail!(errors.into_iter().join(";"))
+        }
+        Ok(())
+    }
+
+    /// Continue all currently stopped tracees.
+    ///
+    /// # Arguments
+    ///
+    /// * `inject_request`: send signal to one of threads.
+    /// * `exclude`: set of threads that must be not continued.
+    pub fn cont_stopped_ex(
+        &mut self,
+        inject_request: Option<(Pid, Signal)>,
+        exclude: HashSet<Pid>,
+    ) -> Result<(), anyhow::Error> {
+        let mut errors = vec![];
+        let (signal, pid) = (inject_request.map(|s| s.1), inject_request.map(|s| s.0));
+
+        self.threads_state.iter_mut().for_each(|(_, tracee)| {
+            if exclude.contains(&tracee.pid) {
+                return;
+            }
+
+            if !tracee.is_stopped() {
+                return;
+            }
+
+            let resume_sign = if Some(tracee.pid) == pid {
+                signal
+            } else {
+                None
+            };
+
+            if let Err(e) = tracee.r#continue(resume_sign) {
+                // if no such process - continue, it will be removed later, on PTRACE_EVENT_EXIT event.
+                if Errno::ESRCH == e {
+                    warn!("thread {} not found, ESRCH", tracee.pid);
+                    return;
+                }
+
+                errors.push(anyhow::Error::from(e).context(format!("thread: {}", tracee.pid)));
             }
         });
 

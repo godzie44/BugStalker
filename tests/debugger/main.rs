@@ -3,6 +3,7 @@ mod common;
 mod breakpoints;
 mod io;
 mod multithreaded;
+mod signal;
 mod steps;
 mod symbol;
 mod variables;
@@ -17,6 +18,7 @@ const CALC_APP: &str = "./target/debug/calc";
 const MT_APP: &str = "./target/debug/mt";
 const VARS_APP: &str = "./target/debug/vars";
 const RECURSION_APP: &str = "./target/debug/recursion";
+const SIGNALS_APP: &str = "./target/debug/signals";
 
 #[test]
 #[serial]

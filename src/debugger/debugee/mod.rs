@@ -128,7 +128,7 @@ impl Debugee {
         &mut self,
         brkpts: &HashMap<Address, Breakpoint>,
     ) -> anyhow::Result<StopReason> {
-        let event = self.tracer.continue_until_stop()?;
+        let event = self.tracer.resume()?;
         match event {
             StopReason::DebugeeExit(_) => {
                 self.execution_status = ExecutionStatus::Exited;
