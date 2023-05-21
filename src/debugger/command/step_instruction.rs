@@ -2,11 +2,11 @@ use crate::debugger::{command, Debugger};
 
 /// Step on next instruction
 pub struct StepI<'a> {
-    dbg: &'a Debugger,
+    dbg: &'a mut Debugger,
 }
 
 impl<'a> StepI<'a> {
-    pub fn new(debugger: &'a Debugger) -> Self {
+    pub fn new(debugger: &'a mut Debugger) -> Self {
         Self { dbg: debugger }
     }
 

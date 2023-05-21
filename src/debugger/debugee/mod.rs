@@ -1,11 +1,10 @@
 use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
-use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::debugee::dwarf::unwind::libunwind;
 use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
 use crate::debugger::debugee::dwarf::{DebugeeContext, EndianRcSlice};
 use crate::debugger::debugee::rendezvous::Rendezvous;
 use crate::debugger::debugee::tracee::{Tracee, TraceeCtl};
-use crate::debugger::debugee::tracer::{StopReason, Tracer};
+use crate::debugger::debugee::tracer::{StopReason, TraceContext, Tracer};
 use crate::weak_error;
 use anyhow::anyhow;
 use log::{info, warn};
@@ -67,7 +66,7 @@ pub struct Debugee {
     /// rendezvous struct maintained by dyn linker.
     rendezvous: Option<Rendezvous>,
     /// Debugee tracer. Control debugee process.
-    tracer: Tracer,
+    pub tracer: Tracer,
 }
 
 impl Debugee {
@@ -106,7 +105,6 @@ impl Debugee {
     /// Return rendezvous struct.
     /// This method will panic if called before program entry point evaluated,
     /// calling a method on time is the responsibility of the caller.
-    #[allow(unused)]
     pub fn rendezvous(&self) -> &Rendezvous {
         self.rendezvous.as_ref().expect("rendezvous must exists")
     }
@@ -124,11 +122,8 @@ impl Debugee {
         }
     }
 
-    pub fn trace_until_stop(
-        &mut self,
-        brkpts: &HashMap<Address, Breakpoint>,
-    ) -> anyhow::Result<StopReason> {
-        let event = self.tracer.resume()?;
+    pub fn trace_until_stop(&mut self, ctx: TraceContext) -> anyhow::Result<StopReason> {
+        let event = self.tracer.resume(ctx)?;
         match event {
             StopReason::DebugeeExit(_) => {
                 self.execution_status = ExecutionStatus::Exited;
@@ -138,8 +133,10 @@ impl Debugee {
                 self.mapping_addr = Some(self.define_mapping_addr()?);
             }
             StopReason::Breakpoint(tid, addr) => {
-                let at_entry_point = brkpts
-                    .get(&Address::Relocated(addr))
+                let at_entry_point = ctx
+                    .breakpoints
+                    .iter()
+                    .find(|bp| bp.addr == Address::Relocated(addr))
                     .map(|bp| bp.is_entry_point());
                 if at_entry_point == Some(true) {
                     self.rendezvous = Some(Rendezvous::new(
@@ -156,7 +153,7 @@ impl Debugee {
         Ok(event)
     }
 
-    pub fn threads_ctl(&self) -> &TraceeCtl {
+    pub fn tracee_ctl(&self) -> &TraceeCtl {
         &self.tracer.tracee_ctl
     }
 
@@ -165,7 +162,7 @@ impl Debugee {
         let absolute_debugee_path = absolute_debugee_path_buf.as_path();
 
         let proc_maps: Vec<MapRange> =
-            proc_maps::get_process_maps(self.threads_ctl().proc_pid().as_raw())?
+            proc_maps::get_process_maps(self.tracee_ctl().proc_pid().as_raw())?
                 .into_iter()
                 .filter(|map| map.filename() == Some(absolute_debugee_path))
                 .collect();
@@ -195,13 +192,13 @@ impl Debugee {
     }
 
     pub fn thread_state(&self) -> anyhow::Result<Vec<ThreadSnapshot>> {
-        let threads = self.threads_ctl().snapshot();
+        let threads = self.tracee_ctl().snapshot();
         Ok(threads
             .into_iter()
             .map(|tracee| {
                 let mb_bt = weak_error!(libunwind::unwind(tracee.pid));
                 ThreadSnapshot {
-                    in_focus: &tracee == self.threads_ctl().tracee_in_focus(),
+                    in_focus: &tracee == self.tracee_ctl().tracee_in_focus(),
                     thread: tracee,
                     bt: mb_bt,
                 }

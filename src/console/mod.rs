@@ -174,8 +174,8 @@ impl TerminalApplication {
                 );
             }
             Command::Run => Run::new(&mut self.debugger).handle()?,
-            Command::StepInstruction => StepI::new(&self.debugger).handle()?,
-            Command::StepInto => StepInto::new(&self.debugger).handle()?,
+            Command::StepInstruction => StepI::new(&mut self.debugger).handle()?,
+            Command::StepInto => StepInto::new(&mut self.debugger).handle()?,
             Command::StepOut => StepOut::new(&mut self.debugger).handle()?,
             Command::StepOver => StepOver::new(&mut self.debugger).handle()?,
             Command::Breakpoint(bp_cmd) => Break::new(&mut self.debugger).handle(bp_cmd)?,

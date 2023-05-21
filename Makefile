@@ -7,6 +7,7 @@ build-all: build
 	cargo build --bin mt
 	cargo build --bin vars
 	cargo build --bin recursion
+	cd examples && cargo build
 
 cargo-test:
 	cargo test

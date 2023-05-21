@@ -1,0 +1,10 @@
+[package]
+name = "pastebin"
+version = "0.0.0"
+edition = "2021"
+workspace = "./.."
+publish = false
+
+[dependencies]
+rocket = "0.5.0-rc.3"
+rand = "0.8"

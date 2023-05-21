@@ -61,7 +61,7 @@ impl<'a> RequirementsResolver<'a> {
             Entry::Vacant(e) => {
                 let loc = self
                     .debugee
-                    .threads_ctl()
+                    .tracee_ctl()
                     .tracee_ensure(pid)
                     .location(self.debugee)?;
                 let func = self
@@ -82,7 +82,7 @@ impl<'a> RequirementsResolver<'a> {
             Entry::Vacant(e) => {
                 let loc = self
                     .debugee
-                    .threads_ctl()
+                    .tracee_ctl()
                     .tracee_ensure(pid)
                     .location(self.debugee)?;
                 let cfa = self.debugee.dwarf.get_cfa(self.debugee, loc)?;
@@ -98,7 +98,7 @@ impl<'a> RequirementsResolver<'a> {
     fn resolve_tls(&self, pid: Pid, offset: u64) -> anyhow::Result<RelocatedAddress> {
         let lm_addr = self.debugee.rendezvous().link_map_main();
         self.debugee
-            .threads_ctl()
+            .tracee_ctl()
             .tls_addr(pid, lm_addr, offset as usize)
     }
 
@@ -109,7 +109,7 @@ impl<'a> RequirementsResolver<'a> {
     fn resolve_registers(&self, pid: Pid) -> anyhow::Result<DwarfRegisterMap> {
         let current_loc = self
             .debugee
-            .threads_ctl()
+            .tracee_ctl()
             .tracee_ensure(pid)
             .location(self.debugee)?;
         let current_fn = self
@@ -398,7 +398,7 @@ impl<'a> CompletedResult<'a> {
                         let bytes = ctx_die
                             .read_value(
                                 self.debugee
-                                    .threads_ctl()
+                                    .tracee_ctl()
                                     .tracee_ensure(self.pid)
                                     .location(self.debugee)?,
                                 self.debugee,

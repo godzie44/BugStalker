@@ -4,10 +4,14 @@ use nix::sys;
 use nix::unistd::Pid;
 use std::cell::Cell;
 
-#[derive(PartialEq)]
-enum BrkptType {
+#[derive(PartialEq, Debug, Clone, Copy)]
+pub enum BrkptType {
+    /// Breakpoint to program entry point
     EntryPoint,
-    Default,
+    /// User defined breakpoint
+    UserDefined,
+    /// Auxiliary breakpoints, using, for example, in step-over implementation
+    Temporary,
 }
 
 impl Address {
@@ -22,9 +26,10 @@ impl Address {
 }
 
 /// Breakpoint representation.
+#[derive(Debug, Clone)]
 pub struct Breakpoint {
     pub addr: Address,
-    pid: Pid,
+    pub pid: Pid,
     saved_data: Cell<u8>,
     enabled: Cell<bool>,
     r#type: BrkptType,
@@ -37,6 +42,8 @@ impl Breakpoint {
 }
 
 impl Breakpoint {
+    const INT3: u64 = 0xCC_u64;
+
     fn new_inner(addr: Address, pid: Pid, r#type: BrkptType) -> Self {
         Self {
             addr,
@@ -48,7 +55,7 @@ impl Breakpoint {
     }
 
     pub fn new(addr: Address, pid: Pid) -> Self {
-        Self::new_inner(addr, pid, BrkptType::Default)
+        Self::new_inner(addr, pid, BrkptType::UserDefined)
     }
 
     pub fn new_entry_point(addr: Address, pid: Pid) -> Self {
@@ -59,11 +66,22 @@ impl Breakpoint {
         self.r#type == BrkptType::EntryPoint
     }
 
+    pub fn r#type(&self) -> BrkptType {
+        self.r#type
+    }
+
+    pub fn new_temporary(addr: Address, pid: Pid) -> Self {
+        Self::new_inner(addr, pid, BrkptType::Temporary)
+    }
+
+    pub fn is_temporary(&self) -> bool {
+        matches!(self.r#type, BrkptType::Temporary)
+    }
+
     pub fn enable(&self) -> nix::Result<()> {
         let data = sys::ptrace::read(self.pid, self.addr.as_ptr())?;
         self.saved_data.set((data & 0xff) as u8);
-        let int3 = 0xCC_u64;
-        let data_with_pb = (data & !0xff) as u64 | int3;
+        let data_with_pb = (data & !0xff) as u64 | Self::INT3;
         unsafe {
             sys::ptrace::write(self.pid, self.addr.as_ptr(), data_with_pb as *mut c_void)?;
         }

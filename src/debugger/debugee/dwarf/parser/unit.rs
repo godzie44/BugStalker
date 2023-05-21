@@ -155,6 +155,17 @@ pub struct Place<'a> {
     context: &'a Unit,
 }
 
+pub struct PlaceOwned {
+    pub file: PathBuf,
+    pub address: GlobalAddress,
+    pub line_number: u64,
+    pub pos_in_unit: usize,
+    pub is_stmt: bool,
+    pub column_number: u64,
+    pub epilog_begin: bool,
+    pub prolog_end: bool,
+}
+
 impl<'a> Debug for Place<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
@@ -171,6 +182,19 @@ impl<'a> Place<'a> {
 
     pub fn line_eq(&self, other: &Place) -> bool {
         self.file == other.file && self.line_number == other.line_number
+    }
+
+    pub fn to_owned(&self) -> PlaceOwned {
+        PlaceOwned {
+            file: self.file.to_path_buf(),
+            address: self.address,
+            line_number: self.line_number,
+            pos_in_unit: self.pos_in_unit,
+            is_stmt: self.is_stmt,
+            column_number: self.column_number,
+            epilog_begin: self.epilog_begin,
+            prolog_end: self.prolog_end,
+        }
     }
 }
 

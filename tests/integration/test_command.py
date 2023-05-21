@@ -1,7 +1,7 @@
 import re
 import unittest
 import pexpect
-import psutil
+
 
 class CommandTestCase(unittest.TestCase):
     def setUp(self):

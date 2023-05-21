@@ -27,7 +27,7 @@ impl<'a> Break<'a> {
         let result = match cmd {
             Command::Add(brkpt) => match brkpt {
                 Breakpoint::Address(addr) => {
-                    self.dbg.set_breakpoint(Address::Relocated((addr).into()))
+                    self.dbg.new_breakpoint(Address::Relocated((addr).into()))
                 }
                 Breakpoint::Line(file, line) => self.dbg.set_breakpoint_at_line(&file, line),
                 Breakpoint::Function(func_name) => self.dbg.set_breakpoint_at_fn(&func_name),

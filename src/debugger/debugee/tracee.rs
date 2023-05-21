@@ -1,5 +1,4 @@
 use crate::debugger::address::RelocatedAddress;
-use crate::debugger::code;
 use crate::debugger::debugee::tracee::StopType::Interrupt;
 use crate::debugger::debugee::tracee::TraceeStatus::{Running, Stopped};
 use crate::debugger::debugee::{Debugee, Location};
@@ -36,22 +35,28 @@ pub enum TraceeStatus {
     Running,
 }
 
+/// Tracee is a thread attached to debugger with ptrace.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tracee {
+    /// Tracee thread id.
     pub pid: Pid,
+    /// Tracee current status.
     pub status: TraceeStatus,
 }
 
 impl Tracee {
     /// Wait for change of tracee status.
     pub fn wait_one(&self) -> nix::Result<WaitStatus> {
-        debug!("wait for tracee status, thread {pid}", pid = self.pid);
-        waitpid(self.pid, None)
+        debug!(target: "tracer", "wait for tracee status, thread {pid}", pid = self.pid);
+        let status = waitpid(self.pid, None)?;
+        debug!(target: "tracer", "receive tracee status, thread {pid}, status: {status:?}", pid = self.pid);
+        Ok(status)
     }
 
     fn update_status(&mut self, status: TraceeStatus) {
         debug!(
-            "tracee accept new status {status:?}, thread {pid}",
+            target: "tracer",
+            "tracee accept new status ({status:?}), thread: {pid}",
             pid = self.pid
         );
         self.status = status
@@ -60,7 +65,8 @@ impl Tracee {
     /// Resume tracee with, if signal is some - inject signal or resuming.
     pub fn r#continue(&mut self, sig: Option<Signal>) -> nix::Result<()> {
         debug!(
-            "continue tracee execution with signal {sig:?}, thread {pid}",
+            target: "tracer",
+            "continue tracee execution with signal {sig:?}, thread: {pid}",
             pid = self.pid,
         );
 
@@ -77,23 +83,9 @@ impl Tracee {
         self.update_status(Stopped(r#type));
     }
 
+    /// Returns true if tracee in one of stopping statuses.
     pub fn is_stopped(&self) -> bool {
         matches!(self.status, Stopped(_))
-    }
-
-    /// Execute next instruction, then stop with `TRAP_TRACE`.
-    pub fn step(&self) -> nix::Result<()> {
-        sys::ptrace::step(self.pid, None)?;
-        let _status = self.wait_one()?;
-        debug_assert!({
-            // assert TRAP_TRACE code
-            let info = sys::ptrace::getsiginfo(self.pid);
-            matches!(WaitStatus::Stopped, _status)
-                && info
-                    .map(|info| info.si_code == code::TRAP_TRACE)
-                    .unwrap_or(false)
-        });
-        Ok(())
     }
 
     /// Get current program counter value.
@@ -178,7 +170,7 @@ impl TraceeCtl {
     /// `created` actual for ptrace events like PTRACE_EVENT_CLONE, when wee known about new thread but
     /// this not created yet.
     pub fn add(&mut self, pid: Pid) -> &Tracee {
-        debug!("add new tracee: {pid}");
+        debug!(target: "tracer", "add new tracee, thread: {pid}");
         let new = Tracee {
             pid,
             status: Stopped(Interrupt),
@@ -189,7 +181,7 @@ impl TraceeCtl {
 
     /// Remove thread from budge.
     pub fn remove(&mut self, pid: Pid) -> Option<Tracee> {
-        debug!("try to remove tracee: {pid}");
+        debug!(target: "tracer", "try to remove tracee, thread: {pid}");
         self.threads_state.remove(&pid)
     }
 

@@ -101,7 +101,7 @@ pub(super) fn run(
                         code: KeyCode::F(7),
                         ..
                     } => {
-                        try_else_alert!(StepInto::new(&debugger.borrow()).handle());
+                        try_else_alert!(StepInto::new(&mut debugger.borrow_mut()).handle());
                     }
                     KeyEvent {
                         code: KeyCode::F(6),
