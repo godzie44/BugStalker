@@ -40,7 +40,7 @@ pub use symbol::Symbol;
 pub type EndianRcSlice = gimli::EndianRcSlice<gimli::RunTimeEndian>;
 
 #[derive(Default)]
-pub struct DebugeeContextBuilder();
+pub struct DebugeeContextBuilder;
 
 impl DebugeeContextBuilder {
     fn load_section<'a: 'b, 'b, OBJ, Endian>(
@@ -49,7 +49,7 @@ impl DebugeeContextBuilder {
         endian: Endian,
     ) -> anyhow::Result<gimli::EndianRcSlice<Endian>>
     where
-        OBJ: object::Object<'a, 'b>,
+        OBJ: Object<'a, 'b>,
         Endian: gimli::Endianity,
     {
         let data = file
@@ -73,7 +73,7 @@ impl DebugeeContextBuilder {
             RunTimeEndian::Big
         };
 
-        let dwarf = gimli::Dwarf::load(|id| Self::load_section(id, obj_file, endian))?;
+        let dwarf = Dwarf::load(|id| Self::load_section(id, obj_file, endian))?;
         let symbol_table = SymbolTab::new(obj_file);
 
         let eh_frame = EhFrame::load(|id| Self::load_section(id, obj_file, endian))?;
@@ -105,7 +105,10 @@ impl DebugeeContextBuilder {
 
         let mut units = dwarf
             .units()
-            .map(|header| parser.parse(dwarf.unit(header)?))
+            .map(|header| {
+                let unit = dwarf.unit(header)?;
+                parser.parse(unit)
+            })
             .collect::<Vec<_>>()?;
         units.sort_unstable_by_key(|u| u.offset());
 

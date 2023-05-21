@@ -56,16 +56,14 @@ impl<'a> DwarfUnitParser<'a> {
             die_offsets_index: HashMap::new(),
         };
 
-        let unit = &unit;
-
         if let Some(ref lp) = unit.line_program {
             let mut rows = lp.clone().rows();
             parsed_unit.lines = parse_lines(&mut rows)?;
-            parsed_unit.files = parse_files(self.dwarf, unit, &rows)?;
+            parsed_unit.files = parse_files(self.dwarf, &unit, &rows)?;
         }
         parsed_unit.lines.sort_unstable_by_key(|x| x.address);
 
-        parsed_unit.ranges = self.dwarf.unit_ranges(unit)?.collect::<Vec<_>>()?;
+        parsed_unit.ranges = self.dwarf.unit_ranges(&unit)?.collect::<Vec<_>>()?;
         parsed_unit.ranges.sort_unstable_by_key(|r| r.begin);
 
         let mut cursor = unit.entries();
@@ -79,7 +77,7 @@ impl<'a> DwarfUnitParser<'a> {
 
             let name = die
                 .attr(DW_AT_name)?
-                .and_then(|attr| self.dwarf.attr_string(unit, attr.value()).ok());
+                .and_then(|attr| self.dwarf.attr_string(&unit, attr.value()).ok());
 
             let parent_idx = match delta_depth {
                 // if 1 then previous die is a parent
@@ -107,7 +105,7 @@ impl<'a> DwarfUnitParser<'a> {
 
             let ranges: Box<[Range]> = self
                 .dwarf
-                .die_ranges(unit, die)?
+                .die_ranges(&unit, die)?
                 .collect::<Vec<Range>>()?
                 .into();
 

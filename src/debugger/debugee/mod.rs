@@ -85,7 +85,6 @@ impl Debugee {
             path: path.into(),
             mapping_addr: None,
             dwarf: dwarf_builder.build(object)?,
-            //control_flow: ControlFlow::new(proc, GlobalAddress::from(object.entry() as usize)),
             object_sections: object
                 .sections()
                 .filter_map(|section| Some((section.name().ok()?.to_string(), section.address())))
