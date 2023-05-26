@@ -4,7 +4,8 @@ use crate::debugger::debugee::dwarf::parser::unit::{
     ArrayDie, ArraySubrangeDie, BaseTypeDie, DieAttributes, DieRange, DieVariant, Entry,
     EnumTypeDie, EnumeratorDie, FunctionDie, InlineSubroutineDie, LexicalBlockDie, LineRow,
     Namespace, Node, ParameterDie, PointerType, StructTypeDie, TemplateTypeParameter,
-    TypeMemberDie, UnionTypeDie, Unit, UnitProperties, VariableDie, Variant, VariantPart,
+    TypeMemberDie, UnionTypeDie, Unit, UnitLazyPart, UnitProperties, VariableDie, Variant,
+    VariantPart,
 };
 use crate::debugger::debugee::dwarf::{EndianRcSlice, NamespaceHierarchy};
 use crate::debugger::rust::Environment;
@@ -14,8 +15,10 @@ use gimli::{
     DW_AT_call_file, DW_AT_call_line, DW_AT_const_value, DW_AT_count, DW_AT_data_member_location,
     DW_AT_discr, DW_AT_discr_value, DW_AT_encoding, DW_AT_frame_base, DW_AT_location,
     DW_AT_lower_bound, DW_AT_name, DW_AT_type, DW_AT_upper_bound, DebugInfoOffset, Range, Reader,
-    Unit as DwarfUnit, UnitOffset,
+    UnitHeader, UnitOffset,
 };
+use once_cell::sync::OnceCell;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
@@ -30,13 +33,29 @@ impl<'a> DwarfUnitParser<'a> {
         Self { dwarf }
     }
 
-    pub fn parse(&self, unit: DwarfUnit<EndianRcSlice>) -> gimli::Result<Unit> {
+    pub fn parse(&self, header: UnitHeader<EndianRcSlice>) -> gimli::Result<Unit> {
+        let unit = self.dwarf.unit(header.clone())?;
+
         let name = unit
             .name
             .as_ref()
             .and_then(|n| n.to_string_lossy().ok().map(|s| s.to_string()));
 
-        let mut parsed_unit = Unit {
+        let mut files = vec![];
+        let mut lines = vec![];
+        if let Some(ref lp) = unit.line_program {
+            let mut rows = lp.clone().rows();
+            lines = parse_lines(&mut rows)?;
+            files = parse_files(self.dwarf, &unit, &rows)?;
+        }
+        lines.sort_unstable_by_key(|x| x.address);
+
+        let mut ranges = self.dwarf.unit_ranges(&unit)?.collect::<Vec<_>>()?;
+        ranges.sort_unstable_by_key(|r| r.begin);
+
+        Ok(Unit {
+            header: RefCell::new(Some(header)),
+            idx: usize::MAX,
             properties: UnitProperties {
                 encoding: unit.encoding(),
                 offset: unit.header.offset().as_debug_info_offset(),
@@ -46,33 +65,32 @@ impl<'a> DwarfUnitParser<'a> {
                 address_size: unit.header.address_size(),
             },
             id: Uuid::new_v4(),
-            entries: vec![],
-            files: vec![],
-            lines: vec![],
-            ranges: vec![],
-            die_ranges: vec![],
             name,
-            variable_index: HashMap::new(),
-            die_offsets_index: HashMap::new(),
-        };
+            files,
+            lines,
+            ranges,
+            lazy_part: OnceCell::new(),
+        })
+    }
 
-        if let Some(ref lp) = unit.line_program {
-            let mut rows = lp.clone().rows();
-            parsed_unit.lines = parse_lines(&mut rows)?;
-            parsed_unit.files = parse_files(self.dwarf, &unit, &rows)?;
-        }
-        parsed_unit.lines.sort_unstable_by_key(|x| x.address);
+    pub fn parse_additional(
+        &self,
+        header: UnitHeader<EndianRcSlice>,
+    ) -> gimli::Result<UnitLazyPart> {
+        let unit = self.dwarf.unit(header)?;
 
-        parsed_unit.ranges = self.dwarf.unit_ranges(&unit)?.collect::<Vec<_>>()?;
-        parsed_unit.ranges.sort_unstable_by_key(|r| r.begin);
+        let mut entries: Vec<Entry> = vec![];
+        let mut die_ranges: Vec<DieRange> = vec![];
+        let mut variable_index: HashMap<String, Vec<(NamespaceHierarchy, usize)>> = HashMap::new();
+        let mut die_offsets_index: HashMap<UnitOffset, usize> = HashMap::new();
 
         let mut cursor = unit.entries();
         while let Some((delta_depth, die)) = cursor.next_dfs()? {
-            let current_idx = parsed_unit.entries.len();
-            let prev_index = if parsed_unit.entries.is_empty() {
+            let current_idx = entries.len();
+            let prev_index = if entries.is_empty() {
                 None
             } else {
-                Some(parsed_unit.entries.len() - 1)
+                Some(entries.len() - 1)
             };
 
             let name = die
@@ -83,12 +101,12 @@ impl<'a> DwarfUnitParser<'a> {
                 // if 1 then previous die is a parent
                 1 => prev_index,
                 // if 0 then previous die is a sibling
-                0 => parsed_unit.entries.last().and_then(|dd| dd.node.parent),
+                0 => entries.last().and_then(|dd| dd.node.parent),
                 // if < 0 then parent of previous die is a sibling
                 mut x if x < 0 => {
-                    let mut parent = parsed_unit.entries.last().unwrap();
+                    let mut parent = entries.last().unwrap();
                     while x != 0 {
-                        parent = &parsed_unit.entries[parent.node.parent.unwrap()];
+                        parent = &entries[parent.node.parent.unwrap()];
                         x += 1;
                     }
                     parent.node.parent
@@ -97,10 +115,7 @@ impl<'a> DwarfUnitParser<'a> {
             };
 
             if let Some(parent_idx) = parent_idx {
-                parsed_unit.entries[parent_idx]
-                    .node
-                    .children
-                    .push(current_idx)
+                entries[parent_idx].node.children.push(current_idx)
             }
 
             let ranges: Box<[Range]> = self
@@ -110,7 +125,7 @@ impl<'a> DwarfUnitParser<'a> {
                 .into();
 
             ranges.iter().for_each(|r| {
-                parsed_unit.die_ranges.push(DieRange {
+                die_ranges.push(DieRange {
                     range: *r,
                     die_idx: current_idx,
                 })
@@ -131,7 +146,7 @@ impl<'a> DwarfUnitParser<'a> {
                             parent: parent_idx,
                             children: vec![],
                         },
-                        &parsed_unit,
+                        &entries,
                     );
                     DieVariant::Function(FunctionDie {
                         namespace: fn_ns,
@@ -159,11 +174,11 @@ impl<'a> DwarfUnitParser<'a> {
                     let mut lexical_block_idx = None;
                     let mut mb_parent_idx = parent_idx;
                     while let Some(parent_idx) = mb_parent_idx {
-                        if let DieVariant::LexicalBlock(_) = parsed_unit.entries[parent_idx].die {
+                        if let DieVariant::LexicalBlock(_) = entries[parent_idx].die {
                             lexical_block_idx = Some(parent_idx);
                             break;
                         }
-                        mb_parent_idx = parsed_unit.entries[parent_idx].node.parent;
+                        mb_parent_idx = entries[parent_idx].node.parent;
                     }
 
                     let die = VariableDie {
@@ -178,12 +193,11 @@ impl<'a> DwarfUnitParser<'a> {
                             parent: parent_idx,
                             children: vec![],
                         },
-                        &parsed_unit,
+                        &entries,
                     );
 
                     if let Some(ref name) = die.base_attributes.name {
-                        parsed_unit
-                            .variable_index
+                        variable_index
                             .entry(name.to_string())
                             .or_default()
                             .push((variable_ns, current_idx));
@@ -273,17 +287,17 @@ impl<'a> DwarfUnitParser<'a> {
                 _ => DieVariant::Default(base_attrs),
             };
 
-            parsed_unit.entries.push(Entry::new(parsed_die, parent_idx));
-
-            parsed_unit
-                .die_offsets_index
-                .insert(die.offset(), current_idx);
+            entries.push(Entry::new(parsed_die, parent_idx));
+            die_offsets_index.insert(die.offset(), current_idx);
         }
-        parsed_unit
-            .die_ranges
-            .sort_unstable_by_key(|dr| dr.range.begin);
+        die_ranges.sort_unstable_by_key(|dr| dr.range.begin);
 
-        Ok(parsed_unit)
+        Ok(UnitLazyPart {
+            entries,
+            die_ranges,
+            variable_index,
+            die_offsets_index,
+        })
     }
 }
 

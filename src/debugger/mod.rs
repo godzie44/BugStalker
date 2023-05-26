@@ -438,7 +438,7 @@ impl Debugger {
 
         for range in func.ranges() {
             let mut place = func
-                .unit
+                .unit()
                 .find_place_by_pc(GlobalAddress::from(range.begin))
                 .ok_or_else(|| anyhow!("unknown function range"))?;
 

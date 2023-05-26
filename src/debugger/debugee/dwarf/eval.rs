@@ -193,6 +193,7 @@ impl<'a> ExpressionEvaluator<'a> {
         } else {
             self.unit
                 .find_entry(base_type)
+                .ensure_ok()
                 .and_then(|entry| match entry.die {
                     DieVariant::BaseType(ref bt_die) => Some(bt_die),
                     _ => None,
@@ -388,7 +389,7 @@ impl<'a> CompletedResult<'a> {
                     if let DieVariant::Variable(ref variable) = &entry.die {
                         let ctx_die = ContextualDieRef {
                             context: &self.debugee.dwarf,
-                            unit,
+                            unit_idx: unit.idx(),
                             node: &entry.node,
                             die: variable,
                         };

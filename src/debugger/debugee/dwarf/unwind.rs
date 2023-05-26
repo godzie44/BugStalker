@@ -4,7 +4,7 @@ use crate::debugger::debugee::dwarf::EndianRcSlice;
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::utils::TryGetOrInsert;
-use crate::{debugger, weak_error};
+use crate::{debugger, resolve_unit_call, weak_error};
 use anyhow::anyhow;
 use gimli::{EhFrame, FrameDescriptionEntry, RegisterRule, UnwindSection};
 use std::mem;
@@ -61,7 +61,9 @@ impl<'a> UnwindContext<'a> {
             let unit = dwarf
                 .find_unit_by_pc(location.global_pc)
                 .ok_or_else(|| anyhow!("undefined unit"))?;
-            Ok(unit.evaluator(debugee))
+
+            let evaluator = resolve_unit_call!(&dwarf.inner, unit, evaluator, debugee);
+            Ok(evaluator)
         };
 
         row.registers()

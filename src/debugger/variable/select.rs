@@ -3,7 +3,7 @@ use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef};
 use crate::debugger::debugee::{dwarf, Location};
 use crate::debugger::variable::VariableIR;
 use crate::debugger::{variable, Debugger};
-use crate::weak_error;
+use crate::{ctx_resolve_unit_call, weak_error};
 use anyhow::anyhow;
 use std::collections::hash_map::Entry;
 
@@ -39,7 +39,7 @@ macro_rules! type_from_cache {
             .die
             .type_ref()
             .and_then(
-                |type_ref| match $cache.entry(($variable.unit.id, type_ref)) {
+                |type_ref| match $cache.entry(($variable.unit().id, type_ref)) {
                     Entry::Occupied(o) => Some(&*o.into_mut()),
                     Entry::Vacant(v) => $variable.r#type().map(|t| &*v.insert(t)),
                 },
@@ -159,8 +159,10 @@ impl<'a> SelectExpressionEvaluator<'a> {
         r#type: &ComplexType,
     ) -> Option<VariableIR> {
         let parser = variable::VariableParser::new(r#type);
+
+        let evaluator = ctx_resolve_unit_call!(variable_die, evaluator, &self.debugger.debugee);
         let evaluation_context = &dwarf::r#type::EvaluationContext {
-            evaluator: &variable_die.unit.evaluator(&self.debugger.debugee),
+            evaluator: &evaluator,
             pid: self.location.pid,
         };
 

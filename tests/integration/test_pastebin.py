@@ -23,7 +23,7 @@ class PastebinTestCase(unittest.TestCase):
         """Runs a pastebin application and set breakpoint at http handler. Makes http request, and do `step over` command while http response not returning"""
         self.debugger.sendline('b main.rs:21')
 
-        time.sleep(20)
+        time.sleep(5)
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('Configured for debug.')
@@ -47,7 +47,7 @@ class PastebinTestCase(unittest.TestCase):
         """Runs a pastebin application and set breakpoint at http handler. Makes http request, do `continue` command and wait until http response not returning"""
         self.debugger.sendline('b main.rs:21')
 
-        time.sleep(20)
+        time.sleep(5)
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('Configured for debug.')

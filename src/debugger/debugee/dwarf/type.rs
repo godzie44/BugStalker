@@ -5,7 +5,7 @@ use crate::debugger::debugee::dwarf::parser::unit::{
 };
 use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianRcSlice, NamespaceHierarchy};
-use crate::weak_error;
+use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::{AttributeValue, DwAte, Expression};
 use log::warn;
@@ -389,41 +389,41 @@ impl TypeParser {
         }
         self.known_type_ids.insert(type_ref);
 
-        let mb_type_die = ctx_die.context.deref_die(ctx_die.unit, type_ref);
+        let mb_type_die = ctx_die.context.deref_die(ctx_die.unit(), type_ref);
         let type_decl = mb_type_die.and_then(|(entry, unit)| match &entry.die {
             DieVariant::BaseType(die) => Some(self.parse_base_type(ContextualDieRef {
                 context: ctx_die.context,
-                unit,
+                unit_idx: unit.idx(),
                 node: &entry.node,
                 die,
             })),
             DieVariant::StructType(die) => Some(self.parse_struct(ContextualDieRef {
                 context: ctx_die.context,
-                unit,
+                unit_idx: unit.idx(),
                 node: &entry.node,
                 die,
             })),
             DieVariant::ArrayType(die) => Some(self.parse_array(ContextualDieRef {
                 context: ctx_die.context,
-                unit,
+                unit_idx: unit.idx(),
                 node: &entry.node,
                 die,
             })),
             DieVariant::EnumType(die) => Some(self.parse_enum(ContextualDieRef {
                 context: ctx_die.context,
-                unit,
+                unit_idx: unit.idx(),
                 node: &entry.node,
                 die,
             })),
             DieVariant::PointerType(die) => Some(self.parse_pointer(ContextualDieRef {
                 context: ctx_die.context,
-                unit,
+                unit_idx: unit.idx(),
                 node: &entry.node,
                 die,
             })),
             DieVariant::UnionTypeDie(die) => Some(self.parse_union(ContextualDieRef {
                 context: ctx_die.context,
-                unit,
+                unit_idx: unit.idx(),
                 node: &entry.node,
                 die,
             })),
@@ -454,7 +454,7 @@ impl TypeParser {
         }
 
         let subrange = ctx_die.node.children.iter().find_map(|&child_idx| {
-            let entry = &ctx_die.unit.entries[child_idx];
+            let entry = ctx_resolve_unit_call!(ctx_die, entry, child_idx);
             if let DieVariant::ArraySubrange(ref subrange) = entry.die {
                 Some(subrange)
             } else {
@@ -516,10 +516,10 @@ impl TypeParser {
     /// Convert DW_TAG_structure_type into TypeDeclaration.
     /// In rust DW_TAG_structure_type DIE can be interpreter as enum, see https://github.com/rust-lang/rust/issues/32920
     fn parse_struct(&mut self, ctx_die: ContextualDieRef<'_, StructTypeDie>) -> TypeDeclaration {
-        let is_enum =
-            ctx_die.node.children.iter().any(|c_idx| {
-                matches!(ctx_die.unit.entries[*c_idx].die, DieVariant::VariantPart(_))
-            });
+        let is_enum = ctx_die.node.children.iter().any(|c_idx| {
+            let entry = ctx_resolve_unit_call!(ctx_die, entry, *c_idx);
+            matches!(entry.die, DieVariant::VariantPart(_))
+        });
 
         if is_enum {
             self.parse_struct_enum(ctx_die)
@@ -538,11 +538,11 @@ impl TypeParser {
             .children
             .iter()
             .filter_map(|child_idx| {
-                let entry = &ctx_die.unit.entries[*child_idx];
+                let entry = ctx_resolve_unit_call!(ctx_die, entry, *child_idx);
                 if let DieVariant::TypeMember(member) = &entry.die {
                     return Some(self.parse_member(ContextualDieRef {
                         context: ctx_die.context,
-                        unit: ctx_die.unit,
+                        unit_idx: ctx_die.unit_idx,
                         node: &entry.node,
                         die: member,
                     }));
@@ -556,7 +556,7 @@ impl TypeParser {
             .children
             .iter()
             .filter_map(|child_idx| {
-                let entry = &ctx_die.unit.entries[*child_idx];
+                let entry = ctx_resolve_unit_call!(ctx_die, entry, *child_idx);
                 if let DieVariant::TemplateType(param) = &entry.die {
                     let name = param.base_attributes.name.clone()?;
                     self.parse_inner(ctx_die, param.type_ref?);
@@ -606,18 +606,19 @@ impl TypeParser {
         let name = ctx_die.die.base_attributes.name.clone();
 
         let variant_part = ctx_die.node.children.iter().find_map(|c_idx| {
-            if let DieVariant::VariantPart(ref v) = ctx_die.unit.entries[*c_idx].die {
-                return Some((v, &ctx_die.unit.entries[*c_idx].node));
+            let entry = ctx_resolve_unit_call!(ctx_die, entry, *c_idx);
+            if let DieVariant::VariantPart(ref v) = entry.die {
+                return Some((v, &entry.node));
             }
             None
         });
 
         let mut member_from_ref = |type_ref: DieRef| -> Option<StructureMember> {
-            let (entry, unit) = ctx_die.context.deref_die(ctx_die.unit, type_ref)?;
+            let (entry, unit) = ctx_die.context.deref_die(ctx_die.unit(), type_ref)?;
             if let DieVariant::TypeMember(ref member) = &entry.die {
                 return Some(self.parse_member(ContextualDieRef {
                     context: ctx_die.context,
-                    unit,
+                    unit_idx: unit.idx(),
                     node: &entry.node,
                     die: member,
                 }));
@@ -639,8 +640,9 @@ impl TypeParser {
                 node.children
                     .iter()
                     .filter_map(|idx| {
-                        if let DieVariant::Variant(ref v) = ctx_die.unit.entries[*idx].die {
-                            return Some((v, &ctx_die.unit.entries[*idx].node));
+                        let entry = ctx_resolve_unit_call!(ctx_die, entry, *idx);
+                        if let DieVariant::Variant(ref v) = entry.die {
+                            return Some((v, &entry.node));
                         }
                         None
                     })
@@ -652,11 +654,12 @@ impl TypeParser {
             .iter()
             .filter_map(|&(variant, node)| {
                 let member = node.children.iter().find_map(|&c_idx| {
-                    if let DieVariant::TypeMember(ref member) = ctx_die.unit.entries[c_idx].die {
+                    let entry = ctx_resolve_unit_call!(ctx_die, entry, c_idx);
+                    if let DieVariant::TypeMember(ref member) = entry.die {
                         return Some(self.parse_member(ContextualDieRef {
                             context: ctx_die.context,
-                            unit: ctx_die.unit,
-                            node: &ctx_die.unit.entries[c_idx].node,
+                            unit_idx: ctx_die.unit_idx,
+                            node: &entry.node,
                             die: member,
                         }));
                     }
@@ -688,7 +691,7 @@ impl TypeParser {
             .children
             .iter()
             .filter_map(|&child_idx| {
-                let entry = &ctx_die.unit.entries[child_idx];
+                let entry = ctx_resolve_unit_call!(ctx_die, entry, child_idx);
                 if let DieVariant::Enumerator(ref enumerator) = entry.die {
                     Some((
                         enumerator.const_value?,
@@ -716,11 +719,11 @@ impl TypeParser {
             .children
             .iter()
             .filter_map(|child_idx| {
-                let entry = &ctx_die.unit.entries[*child_idx];
+                let entry = ctx_resolve_unit_call!(ctx_die, entry, *child_idx);
                 if let DieVariant::TypeMember(member) = &entry.die {
                     return Some(self.parse_member(ContextualDieRef {
                         context: ctx_die.context,
-                        unit: ctx_die.unit,
+                        unit_idx: ctx_die.unit_idx,
                         node: &entry.node,
                         die: member,
                     }));
