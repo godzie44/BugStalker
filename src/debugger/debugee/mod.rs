@@ -1,7 +1,7 @@
 use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::dwarf::unwind::libunwind;
 use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
-use crate::debugger::debugee::dwarf::{DebugeeContext, EndianRcSlice};
+use crate::debugger::debugee::dwarf::{DebugeeContext, EndianArcSlice};
 use crate::debugger::debugee::rendezvous::Rendezvous;
 use crate::debugger::debugee::tracee::{Tracee, TraceeCtl};
 use crate::debugger::debugee::tracer::{StopReason, TraceContext, Tracer};
@@ -60,7 +60,7 @@ pub struct Debugee {
     /// debugee process map address.
     pub mapping_addr: Option<usize>,
     /// preparsed debugee dwarf.
-    pub dwarf: DebugeeContext<EndianRcSlice>,
+    pub dwarf: DebugeeContext<EndianArcSlice>,
     /// elf file sections (name => address).
     object_sections: HashMap<String, u64>,
     /// rendezvous struct maintained by dyn linker.

@@ -39,6 +39,7 @@ nom-supreme = "0.8.0"
 strum = "0.24"
 strum_macros = "0.24"
 signal-hook = "0.3.15"
+rayon = "1.7.0"
 
 [dev-dependencies]
 sysinfo = "0.28.4"

@@ -5,7 +5,7 @@ use crate::debugger::debugee::dwarf::unit::{
     TypeMemberDie, UnionTypeDie, Unit, UnitLazyPart, UnitProperties, VariableDie, Variant,
     VariantPart,
 };
-use crate::debugger::debugee::dwarf::{EndianRcSlice, NamespaceHierarchy};
+use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::rust::Environment;
 use fallible_iterator::FallibleIterator;
 use gimli::{
@@ -22,15 +22,15 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 pub struct DwarfUnitParser<'a> {
-    dwarf: &'a gimli::Dwarf<EndianRcSlice>,
+    dwarf: &'a gimli::Dwarf<EndianArcSlice>,
 }
 
 impl<'a> DwarfUnitParser<'a> {
-    pub fn new(dwarf: &'a gimli::Dwarf<EndianRcSlice>) -> Self {
+    pub fn new(dwarf: &'a gimli::Dwarf<EndianArcSlice>) -> Self {
         Self { dwarf }
     }
 
-    pub fn parse(&self, header: UnitHeader<EndianRcSlice>) -> gimli::Result<Unit> {
+    pub fn parse(&self, header: UnitHeader<EndianArcSlice>) -> gimli::Result<Unit> {
         let unit = self.dwarf.unit(header.clone())?;
 
         let name = unit
@@ -72,7 +72,7 @@ impl<'a> DwarfUnitParser<'a> {
 
     pub(super) fn parse_additional(
         &self,
-        header: UnitHeader<EndianRcSlice>,
+        header: UnitHeader<EndianArcSlice>,
     ) -> gimli::Result<UnitLazyPart> {
         let unit = self.dwarf.unit(header)?;
 

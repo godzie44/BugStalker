@@ -4,7 +4,7 @@ pub use parser::DwarfUnitParser;
 
 use crate::debugger::address::GlobalAddress;
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
-use crate::debugger::debugee::dwarf::{EndianRcSlice, NamespaceHierarchy};
+use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::debugee::Debugee;
 use gimli::{
     Attribute, AttributeValue, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DwAte, DwTag,
@@ -116,7 +116,7 @@ pub struct DieAttributes {
 pub struct FunctionDie {
     pub namespace: NamespaceHierarchy,
     pub base_attributes: DieAttributes,
-    pub fb_addr: Option<Attribute<EndianRcSlice>>,
+    pub fb_addr: Option<Attribute<EndianArcSlice>>,
 }
 
 #[derive(Debug)]
@@ -128,7 +128,7 @@ pub struct LexicalBlockDie {
 pub struct VariableDie {
     pub base_attributes: DieAttributes,
     pub type_ref: Option<DieRef>,
-    pub location: Option<Attribute<EndianRcSlice>>,
+    pub location: Option<Attribute<EndianArcSlice>>,
     pub lexical_block_idx: Option<usize>,
 }
 
@@ -150,9 +150,9 @@ pub struct ArrayDie {
 #[derive(Debug)]
 pub struct ArraySubrangeDie {
     pub base_attributes: DieAttributes,
-    pub lower_bound: Option<Attribute<EndianRcSlice>>,
-    pub upper_bound: Option<Attribute<EndianRcSlice>>,
-    pub count: Option<Attribute<EndianRcSlice>>,
+    pub lower_bound: Option<Attribute<EndianArcSlice>>,
+    pub upper_bound: Option<Attribute<EndianArcSlice>>,
+    pub count: Option<Attribute<EndianArcSlice>>,
 }
 
 #[derive(Debug)]
@@ -166,7 +166,7 @@ pub struct TypeMemberDie {
     pub base_attributes: DieAttributes,
     #[allow(unused)]
     pub byte_size: Option<u64>,
-    pub location: Option<Attribute<EndianRcSlice>>,
+    pub location: Option<Attribute<EndianArcSlice>>,
     pub type_ref: Option<DieRef>,
 }
 
@@ -219,7 +219,7 @@ pub struct Namespace {
 pub struct ParameterDie {
     pub base_attributes: DieAttributes,
     pub type_ref: Option<DieRef>,
-    pub location: Option<Attribute<EndianRcSlice>>,
+    pub location: Option<Attribute<EndianArcSlice>>,
 }
 
 #[derive(Debug)]
@@ -290,7 +290,7 @@ pub enum DieRef {
 }
 
 impl DieRef {
-    fn from_attr(attr: Attribute<EndianRcSlice>) -> Option<DieRef> {
+    fn from_attr(attr: Attribute<EndianArcSlice>) -> Option<DieRef> {
         match attr.value() {
             AttributeValue::DebugInfoRef(offset) => Some(DieRef::Global(offset)),
             AttributeValue::UnitRef(offset) => Some(DieRef::Unit(offset)),
@@ -369,7 +369,7 @@ pub struct Unit {
     #[allow(unused)]
     pub name: Option<String>,
     /// DWARF unit header, must exists if unit is partial, but contains None if unit is fully load.
-    header: RefCell<Option<UnitHeader<EndianRcSlice>>>,
+    header: RefCell<Option<UnitHeader<EndianArcSlice>>>,
     /// Index in unit registry, may be usize::MAX if the unit is not yet placed in the register
     idx: usize,
     properties: UnitProperties,

@@ -1,11 +1,11 @@
 use crate::debugger::address::GlobalAddress;
 use crate::debugger::debugee::dwarf::unit::Unit;
-use crate::debugger::debugee::dwarf::{DebugeeContext, EndianRcSlice};
+use crate::debugger::debugee::dwarf::{DebugeeContext, EndianArcSlice};
 use crate::weak_error;
 use fallible_iterator::FallibleIterator;
 use gimli::{Attribute, AttributeValue, Expression};
 
-pub(super) struct Location<'a>(pub(super) &'a Attribute<EndianRcSlice>);
+pub(super) struct Location<'a>(pub(super) &'a Attribute<EndianArcSlice>);
 
 impl<'a> Location<'a> {
     /// Converts location attribute to a dwarf expression.
@@ -18,10 +18,10 @@ impl<'a> Location<'a> {
     /// Return `None` otherwise.
     pub(super) fn try_as_expression(
         &self,
-        dwarf_ctx: &DebugeeContext<EndianRcSlice>,
+        dwarf_ctx: &DebugeeContext<EndianArcSlice>,
         unit: &Unit,
         pc: GlobalAddress,
-    ) -> Option<Expression<EndianRcSlice>> {
+    ) -> Option<Expression<EndianArcSlice>> {
         if let Some(expr) = self.0.exprloc_value() {
             return Some(expr);
         }

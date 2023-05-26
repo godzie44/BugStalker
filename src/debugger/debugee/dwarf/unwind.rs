@@ -1,6 +1,6 @@
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
-use crate::debugger::debugee::dwarf::EndianRcSlice;
+use crate::debugger::debugee::dwarf::EndianArcSlice;
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::utils::TryGetOrInsert;
@@ -21,7 +21,7 @@ pub struct FrameSpan {
 pub struct UnwindContext<'a> {
     registers: DwarfRegisterMap,
     location: Location,
-    fde: FrameDescriptionEntry<EndianRcSlice, usize>,
+    fde: FrameDescriptionEntry<EndianArcSlice, usize>,
     debugee: &'a Debugee,
     cfa: RelocatedAddress,
 }

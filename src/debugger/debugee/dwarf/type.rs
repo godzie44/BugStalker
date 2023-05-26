@@ -3,7 +3,7 @@ use crate::debugger::debugee::dwarf::unit::{
     ArrayDie, BaseTypeDie, DieRef, DieVariant, EnumTypeDie, PointerType, StructTypeDie,
     TypeMemberDie, UnionTypeDie,
 };
-use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianRcSlice, NamespaceHierarchy};
+use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianArcSlice, NamespaceHierarchy};
 use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::{AttributeValue, DwAte, Expression};
@@ -24,7 +24,7 @@ pub struct EvaluationContext<'a> {
 
 #[derive(Clone)]
 pub struct MemberLocationExpression {
-    expr: Expression<EndianRcSlice>,
+    expr: Expression<EndianArcSlice>,
 }
 
 impl MemberLocationExpression {
@@ -83,7 +83,7 @@ impl StructureMember {
 
 #[derive(Clone)]
 pub struct ArrayBoundValueExpression {
-    expr: Expression<EndianRcSlice>,
+    expr: Expression<EndianArcSlice>,
 }
 
 impl ArrayBoundValueExpression {

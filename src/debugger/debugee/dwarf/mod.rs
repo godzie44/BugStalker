@@ -29,15 +29,16 @@ use gimli::{
 };
 use nix::unistd::Pid;
 use object::{Object, ObjectSection};
+use rayon::prelude::*;
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::ops::Deref;
-use std::rc::Rc;
+use std::sync::Arc;
 pub use symbol::Symbol;
 
-pub type EndianRcSlice = gimli::EndianRcSlice<gimli::RunTimeEndian>;
+pub type EndianArcSlice = gimli::EndianArcSlice<gimli::RunTimeEndian>;
 
-pub struct DebugeeContext<R: gimli::Reader = EndianRcSlice> {
+pub struct DebugeeContext<R: gimli::Reader = EndianArcSlice> {
     inner: Dwarf<R>,
     eh_frame: EhFrame<R>,
     bases: BaseAddresses,
@@ -46,7 +47,7 @@ pub struct DebugeeContext<R: gimli::Reader = EndianRcSlice> {
 }
 
 impl DebugeeContext {
-    pub fn locations(&self) -> &LocationLists<EndianRcSlice> {
+    pub fn locations(&self) -> &LocationLists<EndianArcSlice> {
         &self.inner.locations
     }
 
@@ -54,7 +55,7 @@ impl DebugeeContext {
         &self,
         debugee: &Debugee,
         registers: &DwarfRegisterMap,
-        utr: &UnwindTableRow<EndianRcSlice>,
+        utr: &UnwindTableRow<EndianArcSlice>,
         location: Location,
     ) -> anyhow::Result<RelocatedAddress> {
         let rule = utr.cfa();
@@ -95,7 +96,7 @@ impl DebugeeContext {
         )
     }
 
-    pub fn debug_addr(&self) -> &DebugAddr<EndianRcSlice> {
+    pub fn debug_addr(&self) -> &DebugAddr<EndianArcSlice> {
         &self.inner.debug_addr
     }
 
@@ -264,7 +265,7 @@ impl DebugeeContext {
         found
     }
 
-    pub fn dwarf(&self) -> &Dwarf<EndianRcSlice> {
+    pub fn dwarf(&self) -> &Dwarf<EndianArcSlice> {
         &self.inner
     }
 }
@@ -277,7 +278,7 @@ impl DebugeeContextBuilder {
         id: gimli::SectionId,
         file: &'a OBJ,
         endian: Endian,
-    ) -> anyhow::Result<gimli::EndianRcSlice<Endian>>
+    ) -> anyhow::Result<gimli::EndianArcSlice<Endian>>
     where
         OBJ: Object<'a, 'b>,
         Endian: gimli::Endianity,
@@ -286,13 +287,13 @@ impl DebugeeContextBuilder {
             .section_by_name(id.name())
             .and_then(|section| section.uncompressed_data().ok())
             .unwrap_or(Cow::Borrowed(&[]));
-        Ok(gimli::EndianRcSlice::new(Rc::from(&*data), endian))
+        Ok(gimli::EndianArcSlice::new(Arc::from(&*data), endian))
     }
 
     pub fn build<'a, 'b, OBJ>(
         &self,
         obj_file: &'a OBJ,
-    ) -> anyhow::Result<DebugeeContext<EndianRcSlice>>
+    ) -> anyhow::Result<DebugeeContext<EndianArcSlice>>
     where
         'a: 'b,
         OBJ: Object<'a, 'b>,
@@ -332,13 +333,15 @@ impl DebugeeContextBuilder {
 
         let parser = DwarfUnitParser::new(&dwarf);
 
-        let mut units = dwarf
-            .units()
-            .map(|header| {
+        let headers = dwarf.units().collect::<Vec<_>>()?;
+        let mut units = headers
+            .into_par_iter()
+            .map(|header| -> gimli::Result<Unit> {
                 let unit = parser.parse(header)?;
                 Ok(unit)
             })
-            .collect::<Vec<_>>()?;
+            .collect::<gimli::Result<Vec<_>>>()?;
+
         units.sort_unstable_by_key(|u| u.offset());
         units.iter_mut().enumerate().for_each(|(i, u)| u.set_idx(i));
 
@@ -357,14 +360,14 @@ pub trait AsAllocatedValue {
 
     fn type_ref(&self) -> Option<DieRef>;
 
-    fn location(&self) -> Option<&Attribute<EndianRcSlice>>;
+    fn location(&self) -> Option<&Attribute<EndianArcSlice>>;
 
     fn location_expr(
         &self,
-        dwarf_ctx: &DebugeeContext<EndianRcSlice>,
+        dwarf_ctx: &DebugeeContext<EndianArcSlice>,
         unit: &Unit,
         pc: GlobalAddress,
-    ) -> Option<Expression<EndianRcSlice>> {
+    ) -> Option<Expression<EndianArcSlice>> {
         let location = self.location()?;
         DwarfLocation(location).try_as_expression(dwarf_ctx, unit, pc)
     }
@@ -379,7 +382,7 @@ impl AsAllocatedValue for VariableDie {
         self.type_ref
     }
 
-    fn location(&self) -> Option<&Attribute<EndianRcSlice>> {
+    fn location(&self) -> Option<&Attribute<EndianArcSlice>> {
         self.location.as_ref()
     }
 }
@@ -393,7 +396,7 @@ impl AsAllocatedValue for ParameterDie {
         self.type_ref
     }
 
-    fn location(&self) -> Option<&Attribute<EndianRcSlice>> {
+    fn location(&self) -> Option<&Attribute<EndianArcSlice>> {
         self.location.as_ref()
     }
 }
@@ -434,7 +437,6 @@ impl NamespaceHierarchy {
 
 pub struct ContextualDieRef<'a, T> {
     pub context: &'a DebugeeContext,
-    // pub unit: &'a Unit,
     pub unit_idx: usize,
     pub node: &'a Node,
     pub die: &'a T,

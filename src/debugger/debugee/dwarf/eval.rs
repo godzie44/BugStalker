@@ -4,7 +4,7 @@ use crate::debugger::debugee;
 use crate::debugger::debugee::dwarf::eval::EvalError::{OptionRequired, UnsupportedRequire};
 use crate::debugger::debugee::dwarf::unit::DieRef;
 use crate::debugger::debugee::dwarf::unit::{DieVariant, Unit};
-use crate::debugger::debugee::dwarf::{ContextualDieRef, DwarfUnwinder, EndianRcSlice};
+use crate::debugger::debugee::dwarf::{ContextualDieRef, DwarfUnwinder, EndianArcSlice};
 use crate::debugger::debugee::Debugee;
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use anyhow::anyhow;
@@ -102,7 +102,7 @@ impl<'a> RequirementsResolver<'a> {
             .tls_addr(pid, lm_addr, offset as usize)
     }
 
-    fn debug_addr_section(&self) -> &DebugAddr<EndianRcSlice> {
+    fn debug_addr_section(&self) -> &DebugAddr<EndianArcSlice> {
         self.debugee.dwarf.debug_addr()
     }
 
@@ -204,7 +204,7 @@ impl<'a> ExpressionEvaluator<'a> {
         }
     }
 
-    pub fn evaluate(&self, pid: Pid, expr: Expression<EndianRcSlice>) -> Result<CompletedResult> {
+    pub fn evaluate(&self, pid: Pid, expr: Expression<EndianArcSlice>) -> Result<CompletedResult> {
         self.evaluate_with_resolver(ExternalRequirementsResolver::default(), pid, expr)
     }
 
@@ -212,7 +212,7 @@ impl<'a> ExpressionEvaluator<'a> {
         &self,
         mut resolver: ExternalRequirementsResolver,
         pid: Pid,
-        expr: Expression<EndianRcSlice>,
+        expr: Expression<EndianArcSlice>,
     ) -> Result<CompletedResult> {
         let mut eval = expr.evaluation(self.encoding);
 
@@ -237,7 +237,7 @@ impl<'a> ExpressionEvaluator<'a> {
                     result = eval.resume_with_frame_base(self.resolver.base_addr(pid)?.into())?;
                 }
                 EvaluationResult::RequiresAtLocation(_) => {
-                    let buf = EndianRcSlice::new(
+                    let buf = EndianArcSlice::new(
                         resolver
                             .at_location
                             .take()
@@ -327,7 +327,7 @@ impl<'a> ExpressionEvaluator<'a> {
 }
 
 pub struct CompletedResult<'a> {
-    inner: Vec<Piece<EndianRcSlice>>,
+    inner: Vec<Piece<EndianArcSlice>>,
     debugee: &'a Debugee,
     unit: &'a Unit,
     pid: Pid,
