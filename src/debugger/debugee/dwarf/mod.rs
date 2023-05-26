@@ -1,24 +1,22 @@
 pub mod eval;
 mod location;
-pub mod parser;
 mod symbol;
 pub mod r#type;
+pub mod unit;
 pub mod unwind;
 
 pub use self::unwind::DwarfUnwinder;
 
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::dwarf::location::Location as DwarfLocation;
-use crate::debugger::debugee::dwarf::parser::unit::{
-    DieVariant, Entry, FunctionDie, Node, ParameterDie, Unit, VariableDie,
-};
-use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::r#type::ComplexType;
 use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
+use crate::debugger::debugee::dwarf::unit::{
+    DieRef, DieVariant, DwarfUnitParser, Entry, FunctionDie, Node, ParameterDie, Unit, VariableDie,
+};
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
-use crate::debugger::Place;
 use crate::{resolve_unit_call, weak_error};
 use anyhow::anyhow;
 use bytes::Bytes;
@@ -101,11 +99,14 @@ impl DebugeeContext {
         &self.inner.debug_addr
     }
 
-    fn find_unit_by_pc(&self, pc: GlobalAddress) -> Option<&parser::unit::Unit> {
+    fn find_unit_by_pc(&self, pc: GlobalAddress) -> Option<&Unit> {
         self.units.iter().find(|&unit| {
-            match unit.ranges.binary_search_by_key(&(pc.into()), |r| r.begin) {
+            match unit
+                .ranges()
+                .binary_search_by_key(&(pc.into()), |r| r.begin)
+            {
                 Ok(_) => true,
-                Err(pos) => unit.ranges[..pos]
+                Err(pos) => unit.ranges()[..pos]
                     .iter()
                     .rev()
                     .any(|range| pc.in_range(range)),
@@ -114,13 +115,13 @@ impl DebugeeContext {
     }
 
     /// Returns best matched place by program counter global address.
-    pub fn find_place_from_pc(&self, pc: GlobalAddress) -> Option<parser::unit::Place> {
+    pub fn find_place_from_pc(&self, pc: GlobalAddress) -> Option<unit::Place> {
         let unit = self.find_unit_by_pc(pc)?;
         unit.find_place_by_pc(pc)
     }
 
     /// Returns place with line address equals to program counter global address.
-    pub fn find_exact_place_from_pc(&self, pc: GlobalAddress) -> Option<parser::unit::Place> {
+    pub fn find_exact_place_from_pc(&self, pc: GlobalAddress) -> Option<unit::Place> {
         let unit = self.find_unit_by_pc(pc)?;
         unit.find_exact_place_by_pc(pc)
     }
@@ -175,7 +176,7 @@ impl DebugeeContext {
         })
     }
 
-    pub fn find_stmt_line(&self, file: &str, line: u64) -> Option<parser::unit::Place<'_>> {
+    pub fn find_stmt_line(&self, file: &str, line: u64) -> Option<unit::Place<'_>> {
         self.units
             .iter()
             .find_map(|unit| unit.find_stmt_line(file, line))
@@ -329,7 +330,7 @@ impl DebugeeContextBuilder {
             bases = bases.set_eh_frame_hdr(eh_frame_hdr);
         }
 
-        let parser = parser::DwarfUnitParser::new(&dwarf);
+        let parser = DwarfUnitParser::new(&dwarf);
 
         let mut units = dwarf
             .units()
@@ -409,7 +410,7 @@ impl Deref for NamespaceHierarchy {
 }
 
 impl NamespaceHierarchy {
-    pub fn for_node(node: &Node, entries: &Vec<Entry>) -> Self {
+    pub fn for_node(node: &Node, entries: &[Entry]) -> Self {
         let mut ns_chain = vec![];
 
         let mut p_idx = node.parent;
@@ -543,7 +544,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         result
     }
 
-    pub fn prolog_start_place(&self) -> anyhow::Result<Place> {
+    pub fn prolog_start_place(&self) -> anyhow::Result<unit::Place> {
         let low_pc = self
             .die
             .base_attributes
@@ -557,7 +558,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
             .ok_or_else(|| anyhow!("invalid function entry"))
     }
 
-    pub fn prolog_end_place(&self) -> anyhow::Result<Place> {
+    pub fn prolog_end_place(&self) -> anyhow::Result<unit::Place> {
         let mut place = self.prolog_start_place()?;
         while !place.prolog_end {
             match place.next() {

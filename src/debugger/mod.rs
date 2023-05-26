@@ -8,15 +8,15 @@ pub mod rust;
 mod utils;
 pub mod variable;
 
-pub use debugee::dwarf::parser::unit::Place;
 pub use debugee::dwarf::r#type::TypeDeclaration;
+pub use debugee::dwarf::unit::Place;
 pub use debugee::dwarf::unwind;
 pub use debugee::ThreadSnapshot;
 
 use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BrkptType};
-use crate::debugger::debugee::dwarf::parser::unit::PlaceOwned;
 use crate::debugger::debugee::dwarf::r#type::TypeCache;
+use crate::debugger::debugee::dwarf::unit::PlaceOwned;
 use crate::debugger::debugee::dwarf::unwind::libunwind;
 use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
 use crate::debugger::debugee::dwarf::{DwarfUnwinder, Symbol};

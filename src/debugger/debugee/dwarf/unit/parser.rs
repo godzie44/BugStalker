@@ -1,7 +1,5 @@
-pub mod unit;
-
-use crate::debugger::debugee::dwarf::parser::unit::{
-    ArrayDie, ArraySubrangeDie, BaseTypeDie, DieAttributes, DieRange, DieVariant, Entry,
+use crate::debugger::debugee::dwarf::unit::{
+    ArrayDie, ArraySubrangeDie, BaseTypeDie, DieAttributes, DieRange, DieRef, DieVariant, Entry,
     EnumTypeDie, EnumeratorDie, FunctionDie, InlineSubroutineDie, LexicalBlockDie, LineRow,
     Namespace, Node, ParameterDie, PointerType, StructTypeDie, TemplateTypeParameter,
     TypeMemberDie, UnionTypeDie, Unit, UnitLazyPart, UnitProperties, VariableDie, Variant,
@@ -11,11 +9,10 @@ use crate::debugger::debugee::dwarf::{EndianRcSlice, NamespaceHierarchy};
 use crate::debugger::rust::Environment;
 use fallible_iterator::FallibleIterator;
 use gimli::{
-    Attribute, AttributeValue, DW_AT_address_class, DW_AT_byte_size, DW_AT_call_column,
-    DW_AT_call_file, DW_AT_call_line, DW_AT_const_value, DW_AT_count, DW_AT_data_member_location,
-    DW_AT_discr, DW_AT_discr_value, DW_AT_encoding, DW_AT_frame_base, DW_AT_location,
-    DW_AT_lower_bound, DW_AT_name, DW_AT_type, DW_AT_upper_bound, DebugInfoOffset, Range, Reader,
-    UnitHeader, UnitOffset,
+    AttributeValue, DW_AT_address_class, DW_AT_byte_size, DW_AT_call_column, DW_AT_call_file,
+    DW_AT_call_line, DW_AT_const_value, DW_AT_count, DW_AT_data_member_location, DW_AT_discr,
+    DW_AT_discr_value, DW_AT_encoding, DW_AT_frame_base, DW_AT_location, DW_AT_lower_bound,
+    DW_AT_name, DW_AT_type, DW_AT_upper_bound, Range, Reader, UnitHeader, UnitOffset,
 };
 use once_cell::sync::OnceCell;
 use std::cell::RefCell;
@@ -73,7 +70,7 @@ impl<'a> DwarfUnitParser<'a> {
         })
     }
 
-    pub fn parse_additional(
+    pub(super) fn parse_additional(
         &self,
         header: UnitHeader<EndianRcSlice>,
     ) -> gimli::Result<UnitLazyPart> {
@@ -298,22 +295,6 @@ impl<'a> DwarfUnitParser<'a> {
             variable_index,
             die_offsets_index,
         })
-    }
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum DieRef {
-    Unit(UnitOffset),
-    Global(DebugInfoOffset),
-}
-
-impl DieRef {
-    fn from_attr(attr: Attribute<EndianRcSlice>) -> Option<DieRef> {
-        match attr.value() {
-            AttributeValue::DebugInfoRef(offset) => Some(DieRef::Global(offset)),
-            AttributeValue::UnitRef(offset) => Some(DieRef::Unit(offset)),
-            _ => None,
-        }
     }
 }
 

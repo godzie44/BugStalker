@@ -1,5 +1,5 @@
 use crate::debugger::address::GlobalAddress;
-use crate::debugger::debugee::dwarf::parser::unit::Unit;
+use crate::debugger::debugee::dwarf::unit::Unit;
 use crate::debugger::debugee::dwarf::{DebugeeContext, EndianRcSlice};
 use crate::weak_error;
 use fallible_iterator::FallibleIterator;

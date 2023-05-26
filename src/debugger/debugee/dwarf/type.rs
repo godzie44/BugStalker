@@ -1,9 +1,8 @@
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
-use crate::debugger::debugee::dwarf::parser::unit::{
-    ArrayDie, BaseTypeDie, DieVariant, EnumTypeDie, PointerType, StructTypeDie, TypeMemberDie,
-    UnionTypeDie,
+use crate::debugger::debugee::dwarf::unit::{
+    ArrayDie, BaseTypeDie, DieRef, DieVariant, EnumTypeDie, PointerType, StructTypeDie,
+    TypeMemberDie, UnionTypeDie,
 };
-use crate::debugger::debugee::dwarf::parser::DieRef;
 use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianRcSlice, NamespaceHierarchy};
 use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
