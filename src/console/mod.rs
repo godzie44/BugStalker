@@ -10,8 +10,10 @@ use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::{command, Debugger};
 use command::{Memory, Register};
 use nix::unistd::Pid;
+use os_pipe::PipeReader;
 use rustyline::Editor;
-use std::sync::mpsc;
+use std::io::{BufRead, BufReader, Read};
+use std::sync::{mpsc, Arc};
 use std::thread;
 
 pub mod hook;
@@ -20,13 +22,17 @@ pub mod view;
 
 pub struct AppBuilder {
     file_view: FileView,
+    debugee_out: PipeReader,
+    debugee_err: PipeReader,
 }
 
 impl AppBuilder {
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub fn new(debugee_out: PipeReader, debugee_err: PipeReader) -> Self {
         Self {
             file_view: FileView::new(),
+            debugee_out,
+            debugee_err,
         }
     }
 
@@ -37,7 +43,11 @@ impl AppBuilder {
     ) -> anyhow::Result<TerminalApplication> {
         let hook = TerminalHook::new(self.file_view);
         let debugger = Debugger::new(program, pid, hook)?;
-        Ok(TerminalApplication { debugger })
+        Ok(TerminalApplication {
+            debugger,
+            debugee_out: Arc::new(self.debugee_out),
+            debugee_err: Arc::new(self.debugee_err),
+        })
     }
 }
 
@@ -48,11 +58,39 @@ enum ControlAction {
 
 pub struct TerminalApplication {
     debugger: Debugger,
+    debugee_out: Arc<PipeReader>,
+    debugee_err: Arc<PipeReader>,
 }
 
 impl TerminalApplication {
     pub fn run(mut self) -> anyhow::Result<()> {
         env_logger::init();
+
+        enum StreamType {
+            StdErr,
+            StdOut,
+        }
+        fn print_out(stream: impl Read, stream_type: StreamType) {
+            let mut stream = BufReader::new(stream);
+            loop {
+                let mut line = String::new();
+                let size = stream.read_line(&mut line).unwrap_or(0);
+                if size == 0 {
+                    return;
+                }
+                match stream_type {
+                    StreamType::StdErr => println!("stderr: {line}"),
+                    StreamType::StdOut => println!("{line}"),
+                };
+            }
+        }
+
+        {
+            let stdout = self.debugee_out.clone();
+            let stderr = self.debugee_err.clone();
+            thread::spawn(move || print_out(stdout.as_ref(), StreamType::StdOut));
+            thread::spawn(move || print_out(stderr.as_ref(), StreamType::StdErr));
+        }
 
         let (control_tx, control_rx) = mpsc::channel::<ControlAction>();
 

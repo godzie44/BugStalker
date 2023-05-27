@@ -10,6 +10,7 @@ use nix::sys::wait::{waitpid, WaitPidFlag};
 use nix::unistd::{fork, ForkResult, Pid};
 use std::os::unix::prelude::CommandExt;
 use std::path::PathBuf;
+use std::process::Command;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -39,12 +40,11 @@ fn main() {
     let (stdout_reader, stdout_writer) = os_pipe::pipe().unwrap();
     let (stderr_reader, stderr_writer) = os_pipe::pipe().unwrap();
 
-    let mut debugee_cmd = std::process::Command::new(debugee);
+    let mut debugee_cmd = Command::new(debugee);
     debugee_cmd.args(args.args);
-    if args.ui.as_str() == "cui" {
-        debugee_cmd.stdout(stdout_writer);
-        debugee_cmd.stderr(stderr_writer);
-    }
+
+    debugee_cmd.stdout(stdout_writer);
+    debugee_cmd.stderr(stderr_writer);
 
     unsafe {
         debugee_cmd.pre_exec(move || {
@@ -75,7 +75,7 @@ fn main() {
                     app.run().expect("run application fail");
                 }
                 _ => {
-                    let app = AppBuilder::new()
+                    let app = AppBuilder::new(stdout_reader, stderr_reader)
                         .build(debugee, pid)
                         .expect("prepare application fail");
                     app.run().expect("run application fail");

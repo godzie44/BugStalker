@@ -4,12 +4,12 @@ use crate::debugger::EventHook;
 use crate::debugger::Place;
 use nix::sys::signal::Signal;
 
-pub(super) struct TerminalHook {
+pub struct TerminalHook {
     file_view: FileView,
 }
 
 impl TerminalHook {
-    pub(super) fn new(file_view: FileView) -> Self {
+    pub fn new(file_view: FileView) -> Self {
         Self { file_view }
     }
 }
