@@ -15,13 +15,23 @@ impl TerminalHook {
 }
 
 impl EventHook for TerminalHook {
-    fn on_trap(&self, pc: RelocatedAddress, mb_place: Option<Place>) -> anyhow::Result<()> {
+    fn on_breakpoint(&self, pc: RelocatedAddress, mb_place: Option<Place>) -> anyhow::Result<()> {
         println!("Hit breakpoint at address {}", pc);
         if let Some(place) = mb_place {
             println!("{}:{}", place.file.display(), place.line_number);
             println!("{}", self.file_view.render_source(&place, 1)?);
         } else {
-            println!("unknown place");
+            println!("undefined place");
+        }
+        Ok(())
+    }
+
+    fn on_step(&self, _: RelocatedAddress, mb_place: Option<Place>) -> anyhow::Result<()> {
+        if let Some(place) = mb_place {
+            println!("{}:{}", place.file.display(), place.line_number);
+            println!("{}", self.file_view.render_source(&place, 1)?);
+        } else {
+            println!("undefined place, go to next");
         }
         Ok(())
     }

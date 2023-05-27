@@ -22,7 +22,14 @@ impl TestHooks {
 }
 
 impl EventHook for TestHooks {
-    fn on_trap(&self, _pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()> {
+    fn on_breakpoint(&self, _pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()> {
+        self.info
+            .file
+            .set(place.as_ref().map(|p| p.file.to_str().unwrap().to_string()));
+        self.info.line.set(place.map(|p| p.line_number));
+        Ok(())
+    }
+    fn on_step(&self, _pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()> {
         self.info
             .file
             .set(place.as_ref().map(|p| p.file.to_str().unwrap().to_string()));

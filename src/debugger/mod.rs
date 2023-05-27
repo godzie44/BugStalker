@@ -40,9 +40,36 @@ use std::path::Path;
 use std::str::FromStr;
 use std::{fs, mem, u64};
 
+/// Trait for the reverse interaction between the debugger and the user interface.
 pub trait EventHook {
-    fn on_trap(&self, pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()>;
+    /// Called when user defined breakpoint is reached.
+    ///
+    /// # Arguments
+    ///
+    /// * `pc`: address of instruction where breakpoint is reached
+    /// * `place`: stop place information
+    fn on_breakpoint(&self, pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()>;
+
+    /// Called when one of step commands is done.
+    ///
+    /// # Arguments
+    ///
+    /// * `pc`: address of instruction where breakpoint is reached
+    /// * `place`: stop place information
+    fn on_step(&self, pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()>;
+
+    /// Called when debugee receive a OS signal. Debugee is in signal-stop at this moment.
+    ///
+    /// # Arguments
+    ///
+    /// * `signal`: received OS signal
     fn on_signal(&self, signal: Signal);
+
+    /// Called right after debugee exit.
+    ///
+    /// # Arguments
+    ///
+    /// * `code`: exit code
     fn on_exit(&self, code: i32);
 }
 
@@ -140,7 +167,7 @@ impl Debugger {
                             }
                             BrkptType::UserDefined => {
                                 let pc = current_pc.into_global(self.debugee.mapping_offset());
-                                self.hooks.on_trap(
+                                self.hooks.on_breakpoint(
                                     current_pc,
                                     self.debugee.dwarf.find_place_from_pc(pc),
                                 )?;
@@ -195,7 +222,7 @@ impl Debugger {
         self.step_in()?;
 
         let location = self.current_thread_stop_at()?;
-        self.hooks.on_trap(
+        self.hooks.on_step(
             location.pc,
             self.debugee.dwarf.find_place_from_pc(location.global_pc),
         )
@@ -205,7 +232,7 @@ impl Debugger {
         disable_when_not_stared!(self);
         self.single_step_instruction()?;
         let location = self.current_thread_stop_at()?;
-        self.hooks.on_trap(
+        self.hooks.on_step(
             location.pc,
             self.debugee.dwarf.find_place_from_pc(location.global_pc),
         )
@@ -323,7 +350,7 @@ impl Debugger {
                 self.remove_breakpoint(Address::Relocated(ret_addr))?;
 
                 let new_location = self.current_thread_stop_at()?;
-                self.hooks.on_trap(
+                self.hooks.on_step(
                     new_location.pc,
                     self.debugee
                         .dwarf
@@ -512,7 +539,7 @@ impl Debugger {
             new_location = self.current_thread_stop_at()?;
         }
 
-        self.hooks.on_trap(
+        self.hooks.on_step(
             new_location.pc,
             self.debugee
                 .dwarf
