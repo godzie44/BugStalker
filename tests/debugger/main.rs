@@ -9,9 +9,32 @@ mod symbol;
 mod variables;
 
 use crate::common::{DebugeeRunInfo, TestHooks};
+use bugstalker::debugger::process::{Child, Installed};
 use bugstalker::debugger::register::{Register, RegisterMap};
+use bugstalker::debugger::{rust, Debugger};
 use serial_test::serial;
-use std::mem;
+use std::io::{BufRead, BufReader};
+use std::{mem, thread};
+
+pub fn prepare_debugee_process(prog: &str, args: &[&'static str]) -> Child<Installed> {
+    let (reader, writer) = os_pipe::pipe().unwrap();
+
+    thread::spawn(move || {
+        let mut stream = BufReader::new(reader);
+        loop {
+            let mut line = String::new();
+            let size = stream.read_line(&mut line).unwrap_or(0);
+            if size == 0 {
+                return;
+            }
+        }
+    });
+
+    rust::Environment::init(None);
+
+    let runner = Child::new(prog, args.to_vec(), writer.try_clone().unwrap(), writer);
+    runner.install().unwrap()
+}
 
 const HW_APP: &str = "./target/debug/hello_world";
 const CALC_APP: &str = "./target/debug/calc";
@@ -23,84 +46,90 @@ const SIGNALS_APP: &str = "./target/debug/signals";
 #[test]
 #[serial]
 fn test_debugger_graceful_shutdown() {
-    debugger_env!(HW_APP, [], child, {
-        let mut debugger = Debugger::new(HW_APP, child, TestHooks::default()).unwrap();
-        debugger
-            .set_breakpoint_at_line("hello_world.rs", 5)
-            .unwrap();
-        debugger.run_debugee().unwrap();
-        mem::drop(debugger);
+    let process = prepare_debugee_process(HW_APP, &[]);
+    let pid = process.pid();
 
-        assert_no_proc!(child);
-    });
+    let mut debugger = Debugger::new(process, TestHooks::default()).unwrap();
+    debugger
+        .set_breakpoint_at_line("hello_world.rs", 5)
+        .unwrap();
+    debugger.start_debugee().unwrap();
+    mem::drop(debugger);
+
+    assert_no_proc!(pid);
 }
 
 #[test]
 #[serial]
 fn test_debugger_graceful_shutdown_multithread() {
-    debugger_env!(MT_APP, [], child, {
-        let mut debugger = Debugger::new(MT_APP, child, TestHooks::default()).unwrap();
-        debugger.set_breakpoint_at_line("mt.rs", 31).unwrap();
-        debugger.run_debugee().unwrap();
-        mem::drop(debugger);
+    let process = prepare_debugee_process(MT_APP, &[]);
+    let pid = process.pid();
 
-        assert_no_proc!(child);
-    });
+    let mut debugger = Debugger::new(process, TestHooks::default()).unwrap();
+    debugger.set_breakpoint_at_line("mt.rs", 31).unwrap();
+    debugger.start_debugee().unwrap();
+    mem::drop(debugger);
+
+    assert_no_proc!(pid);
 }
 
 #[test]
 #[serial]
 fn test_frame_cfa() {
-    debugger_env!(HW_APP, [], child, {
-        let info = DebugeeRunInfo::default();
-        let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger
-            .set_breakpoint_at_line("hello_world.rs", 5)
-            .unwrap();
-        debugger
-            .set_breakpoint_at_line("hello_world.rs", 15)
-            .unwrap();
+    let process = prepare_debugee_process(HW_APP, &[]);
+    let debugee_pid = process.pid();
 
-        debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(5));
+    let info = DebugeeRunInfo::default();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    debugger
+        .set_breakpoint_at_line("hello_world.rs", 5)
+        .unwrap();
+    debugger
+        .set_breakpoint_at_line("hello_world.rs", 15)
+        .unwrap();
 
-        let sp = RegisterMap::current(child).unwrap().value(Register::Rsp);
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(5));
 
-        debugger.continue_debugee().unwrap();
-        let frame_info = debugger.frame_info(child).unwrap();
+    let sp = RegisterMap::current(debugee_pid)
+        .unwrap()
+        .value(Register::Rsp);
 
-        // expect that cfa equals stack pointer from callee function.
-        assert_eq!(sp, u64::from(frame_info.cfa));
+    debugger.continue_debugee().unwrap();
+    let frame_info = debugger.frame_info(debugee_pid).unwrap();
 
-        mem::drop(debugger);
-        assert_no_proc!(child);
-    });
+    // expect that cfa equals stack pointer from callee function.
+    assert_eq!(sp, u64::from(frame_info.cfa));
+
+    mem::drop(debugger);
+    assert_no_proc!(debugee_pid);
 }
 
 #[test]
 #[serial]
 fn test_registers() {
-    debugger_env!(HW_APP, [], child, {
-        let info = DebugeeRunInfo::default();
-        let mut debugger = Debugger::new(HW_APP, child, TestHooks::new(info.clone())).unwrap();
-        debugger
-            .set_breakpoint_at_line("hello_world.rs", 5)
-            .unwrap();
+    let process = prepare_debugee_process(HW_APP, &[]);
+    let debugee_pid = process.pid();
 
-        debugger.run_debugee().unwrap();
-        assert_eq!(info.line.take(), Some(5));
+    let info = DebugeeRunInfo::default();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    debugger
+        .set_breakpoint_at_line("hello_world.rs", 5)
+        .unwrap();
 
-        // there is only info about return address (dwarf reg 16) in .debug_info section
-        // so assert it with libunwind provided address
-        let pc = debugger.current_thread_stop_at().unwrap().pc;
-        let frame = debugger.frame_info(child).unwrap();
-        let registers = debugger.current_thread_registers_at_pc(pc).unwrap();
-        assert_eq!(
-            u64::from(frame.return_addr.unwrap()),
-            registers.value(gimli::Register(16)).unwrap()
-        );
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(5));
 
-        mem::drop(debugger);
-        assert_no_proc!(child);
-    });
+    // there is only info about return address (dwarf reg 16) in .debug_info section
+    // so assert it with libunwind provided address
+    let pc = debugger.current_thread_stop_at().unwrap().pc;
+    let frame = debugger.frame_info(debugee_pid).unwrap();
+    let registers = debugger.current_thread_registers_at_pc(pc).unwrap();
+    assert_eq!(
+        u64::from(frame.return_addr.unwrap()),
+        registers.value(gimli::Register(16)).unwrap()
+    );
+
+    mem::drop(debugger);
+    assert_no_proc!(debugee_pid);
 }

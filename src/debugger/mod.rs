@@ -3,6 +3,7 @@ mod breakpoint;
 mod code;
 pub mod command;
 mod debugee;
+pub mod process;
 pub mod register;
 pub mod rust;
 mod utils;
@@ -22,6 +23,7 @@ use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
 use crate::debugger::debugee::dwarf::{DwarfUnwinder, Symbol};
 use crate::debugger::debugee::tracer::{StopReason, TraceContext};
 use crate::debugger::debugee::{Debugee, ExecutionStatus, FrameInfo, Location};
+use crate::debugger::process::{Child, Installed};
 use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::variable::VariableIR;
@@ -29,7 +31,7 @@ use anyhow::anyhow;
 use nix::libc::{c_void, uintptr_t};
 use nix::sys;
 use nix::sys::signal;
-use nix::sys::signal::Signal;
+use nix::sys::signal::{Signal, SIGKILL};
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::Pid;
 use object::Object;
@@ -84,6 +86,8 @@ macro_rules! disable_when_not_stared {
 
 /// Main structure of bug-stalker, control debugee state and provides application functionality.
 pub struct Debugger {
+    /// Child process where debugee is running.
+    process: Child<Installed>,
     /// Debugee static/runtime state and control flow.
     debugee: Debugee,
     /// Active and non-active breakpoint list.
@@ -95,12 +99,8 @@ pub struct Debugger {
 }
 
 impl Debugger {
-    pub fn new(
-        program: impl Into<String>,
-        pid: Pid,
-        hooks: impl EventHook + 'static,
-    ) -> anyhow::Result<Self> {
-        let program = program.into();
+    pub fn new(process: Child<Installed>, hooks: impl EventHook + 'static) -> anyhow::Result<Self> {
+        let program = process.program.clone();
         let program_path = Path::new(&program);
 
         let file = fs::File::open(program_path)?;
@@ -110,14 +110,15 @@ impl Debugger {
         let entry_point = GlobalAddress::from(object.entry());
         let breakpoints = HashMap::from([(
             Address::Global(entry_point),
-            Breakpoint::new_entry_point(Address::Global(entry_point), pid),
+            Breakpoint::new_entry_point(Address::Global(entry_point), process.pid()),
         )]);
 
         Ok(Self {
+            debugee: Debugee::new_non_running(program_path, process.pid(), &object)?,
+            process,
             breakpoints,
             hooks: Box::new(hooks),
             type_cache: RefCell::default(),
-            debugee: Debugee::new_non_running(program_path, pid, &object)?,
         })
     }
 
@@ -190,8 +191,38 @@ impl Debugger {
         Ok(())
     }
 
-    pub fn run_debugee(&mut self) -> anyhow::Result<()> {
+    /// Restart debugee by recreating debugee process, save all user defined breakpoints.
+    fn restart_debugee(&mut self) -> anyhow::Result<()> {
+        self.breakpoints
+            .iter()
+            .try_for_each(|(_, bp)| bp.disable())?;
+
+        let proc_pid = self.debugee.tracee_ctl().proc_pid();
+        signal::kill(proc_pid, SIGKILL)?;
+        _ = self
+            .debugee
+            .tracer_mut()
+            .resume(TraceContext::new(&self.breakpoints.values().collect()));
+
+        self.process = self.process.install()?;
+
+        let new_debugee = self.debugee.extend(self.process.pid());
+        _ = mem::replace(&mut self.debugee, new_debugee);
+
+        // breakpoints will be enabled later, when StopReason::DebugeeStart state is reached
+        self.breakpoints.iter_mut().for_each(|(_, bp)| {
+            bp.pid = self.process.pid();
+        });
+
         self.continue_execution()
+    }
+
+    /// Start debugee.
+    pub fn start_debugee(&mut self) -> anyhow::Result<()> {
+        if self.debugee.execution_status != ExecutionStatus::InProgress {
+            return self.continue_execution();
+        }
+        Ok(())
     }
 
     pub fn continue_debugee(&mut self) -> anyhow::Result<()> {
@@ -304,12 +335,13 @@ impl Debugger {
         // cannot use debugee::Location mapping offset may be not init yet
         let tracee = self.debugee.tracee_in_focus();
         let mb_brkpt = self.breakpoints.get(&Address::Relocated(tracee.pc()?));
+        let tracee_pid = tracee.pid;
         if let Some(brkpt) = mb_brkpt {
             if brkpt.is_enabled() {
                 brkpt.disable()?;
-                self.debugee.tracer.single_step(
+                self.debugee.tracer_mut().single_step(
                     TraceContext::new(&self.breakpoints.values().collect()),
-                    tracee.pid,
+                    tracee_pid,
                 )?;
                 brkpt.enable()?;
             }
@@ -319,13 +351,12 @@ impl Debugger {
 
     fn single_step_instruction(&mut self) -> anyhow::Result<()> {
         let loc = self.current_thread_stop_at()?;
-        let tracee = self.debugee.tracee_ctl().tracee_ensure(loc.pid);
         if self.breakpoints.get(&Address::Relocated(loc.pc)).is_some() {
             self.step_over_breakpoint()
         } else {
-            self.debugee.tracer.single_step(
+            self.debugee.tracer_mut().single_step(
                 TraceContext::new(&self.breakpoints.values().collect()),
-                tracee.pid,
+                loc.pid,
             )?;
             Ok(())
         }

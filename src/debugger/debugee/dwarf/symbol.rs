@@ -2,13 +2,13 @@ use object::{Object, ObjectSymbol, ObjectSymbolTable, SymbolKind};
 use std::collections::HashMap;
 use std::ops::Deref;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Symbol {
     pub kind: SymbolKind,
     pub addr: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct SymbolTab(HashMap<String, Symbol>);
 
 impl Deref for SymbolTab {

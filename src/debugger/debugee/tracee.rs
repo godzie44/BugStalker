@@ -197,7 +197,7 @@ impl TraceeCtl {
             if let Err(e) = tracee.r#continue(None) {
                 // if no such process - continue, it will be removed later, on PTRACE_EVENT_EXIT event.
                 if Errno::ESRCH == e {
-                    warn!("thread {} not found, ESRCH", tracee.pid);
+                    //warn!("thread {} not found, ESRCH", tracee.pid);
                     return;
                 }
 

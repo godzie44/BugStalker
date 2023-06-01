@@ -369,6 +369,7 @@ impl Tracer {
                     }
                 }
             }
+            WaitStatus::Signaled(_, _, _) => Ok(None),
             _ => {
                 warn!("unexpected wait status: {status:?}");
                 Ok(None)

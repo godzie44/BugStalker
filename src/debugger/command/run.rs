@@ -10,7 +10,13 @@ impl<'a> Run<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&mut self) -> command::HandleResult<()> {
-        Ok(self.dbg.run_debugee().context("run fail")?)
+    /// Runs a debugee program.
+    pub fn start(&mut self) -> command::HandleResult<()> {
+        Ok(self.dbg.start_debugee().context("start fail")?)
+    }
+
+    /// Restart debugee process with saving all user defined breakpoints.
+    pub fn restart(&mut self) -> command::HandleResult<()> {
+        Ok(self.dbg.restart_debugee().context("restart fail")?)
     }
 }

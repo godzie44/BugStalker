@@ -76,7 +76,7 @@ pub(super) fn run(
                         ..
                     } => {
                         ctx.change_state(AppState::DebugeeRun);
-                        try_else_alert!(Run::new(&mut debugger.borrow_mut()).handle());
+                        try_else_alert!(Run::new(&mut debugger.borrow_mut()).start());
                     }
                     KeyEvent {
                         code: KeyCode::Char('q'),

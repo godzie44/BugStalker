@@ -1,7 +1,5 @@
 use super::debugger::command::Continue;
-use crate::console::hook::TerminalHook;
 use crate::console::variable::render_variable_ir;
-use crate::console::view::FileView;
 use crate::debugger::command::{
     Arguments, Backtrace, Break, Command, Frame, Run, StepI, StepInto, StepOut, StepOver, Symbol,
     Variables,
@@ -9,10 +7,11 @@ use crate::debugger::command::{
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::{command, Debugger};
 use command::{Memory, Register};
-use nix::unistd::Pid;
 use os_pipe::PipeReader;
 use rustyline::Editor;
 use std::io::{BufRead, BufReader, Read};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
 use std::thread;
 
@@ -21,7 +20,6 @@ mod variable;
 pub mod view;
 
 pub struct AppBuilder {
-    file_view: FileView,
     debugee_out: PipeReader,
     debugee_err: PipeReader,
 }
@@ -30,24 +28,21 @@ impl AppBuilder {
     #[allow(clippy::new_without_default)]
     pub fn new(debugee_out: PipeReader, debugee_err: PipeReader) -> Self {
         Self {
-            file_view: FileView::new(),
             debugee_out,
             debugee_err,
         }
     }
 
-    pub fn build(
-        self,
-        program: impl Into<String>,
-        pid: Pid,
-    ) -> anyhow::Result<TerminalApplication> {
-        let hook = TerminalHook::new(self.file_view);
-        let debugger = Debugger::new(program, pid, hook)?;
-        Ok(TerminalApplication {
+    pub fn build(self, debugger: Debugger) -> TerminalApplication {
+        let (control_tx, control_rx) = mpsc::channel::<ControlAction>();
+
+        TerminalApplication {
             debugger,
             debugee_out: Arc::new(self.debugee_out),
             debugee_err: Arc::new(self.debugee_err),
-        })
+            control_tx,
+            control_rx,
+        }
     }
 }
 
@@ -60,6 +55,8 @@ pub struct TerminalApplication {
     debugger: Debugger,
     debugee_out: Arc<PipeReader>,
     debugee_err: Arc<PipeReader>,
+    control_tx: Sender<ControlAction>,
+    control_rx: Receiver<ControlAction>,
 }
 
 impl TerminalApplication {
@@ -79,8 +76,8 @@ impl TerminalApplication {
                     return;
                 }
                 match stream_type {
-                    StreamType::StdErr => println!("stderr: {line}"),
-                    StreamType::StdOut => println!("{line}"),
+                    StreamType::StdErr => print!("stderr: {line}"),
+                    StreamType::StdOut => print!("{line}"),
                 };
             }
         }
@@ -92,10 +89,8 @@ impl TerminalApplication {
             thread::spawn(move || print_out(stderr.as_ref(), StreamType::StdErr));
         }
 
-        let (control_tx, control_rx) = mpsc::channel::<ControlAction>();
-
         {
-            let control_tx = control_tx.clone();
+            let control_tx = self.control_tx.clone();
             thread::spawn(move || {
                 let mut rl = Editor::<()>::new().expect("create editor");
                 if rl.load_history("history.txt").is_err() {
@@ -125,10 +120,15 @@ impl TerminalApplication {
         }
 
         {
+            let control_tx = self.control_tx.clone();
             ctrlc::set_handler(move || control_tx.send(ControlAction::Terminate).unwrap())?;
         }
 
-        for action in control_rx {
+        loop {
+            let Ok(action) = self.control_rx.recv() else {
+                break
+            };
+
             match action {
                 ControlAction::Cmd(command) => {
                     println!("> {}", command);
@@ -211,7 +211,18 @@ impl TerminalApplication {
                         .map_or(String::from("unknown"), |addr| format!("{}", addr))
                 );
             }
-            Command::Run => Run::new(&mut self.debugger).handle()?,
+            Command::Run => {
+                static ALREADY_RUN: AtomicBool = AtomicBool::new(false);
+
+                if ALREADY_RUN.load(Ordering::SeqCst) {
+                    if self.yes("Restart program? (y or n)")? {
+                        Run::new(&mut self.debugger).restart()?
+                    }
+                } else {
+                    Run::new(&mut self.debugger).start()?;
+                    ALREADY_RUN.store(true, Ordering::SeqCst);
+                }
+            }
             Command::StepInstruction => StepI::new(&mut self.debugger).handle()?,
             Command::StepInto => StepInto::new(&mut self.debugger).handle()?,
             Command::StepOut => StepOut::new(&mut self.debugger).handle()?,
@@ -243,5 +254,18 @@ impl TerminalApplication {
         }
 
         Ok(())
+    }
+
+    fn yes(&self, question: &str) -> anyhow::Result<bool> {
+        println!("{question}");
+
+        let act = self.control_rx.recv()?;
+        match act {
+            ControlAction::Cmd(cmd) => {
+                let cmd = cmd.to_lowercase();
+                Ok(cmd == "y" || cmd == "yes")
+            }
+            ControlAction::Terminate => Ok(false),
+        }
     }
 }

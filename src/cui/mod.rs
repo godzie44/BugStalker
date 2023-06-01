@@ -1,11 +1,9 @@
-use crate::cui::hook::CuiHook;
 use crate::debugger::Debugger;
 use crossterm::cursor::Show;
 use crossterm::event;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
-use nix::unistd::Pid;
 use os_pipe::PipeReader;
 use std::cell::RefCell;
 use std::io::{BufRead, BufReader, Read};
@@ -38,14 +36,8 @@ impl AppBuilder {
         }
     }
 
-    pub fn build(self, program: impl Into<String>, pid: Pid) -> anyhow::Result<CuiApplication> {
-        let hook = CuiHook::new();
-        let debugger = Debugger::new(program, pid, hook)?;
-        Ok(CuiApplication::new(
-            debugger,
-            self.debugee_out,
-            self.debugee_err,
-        ))
+    pub fn build(self, debugger: Debugger) -> CuiApplication {
+        CuiApplication::new(debugger, self.debugee_out, self.debugee_err)
     }
 }
 

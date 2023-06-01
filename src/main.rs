@@ -1,16 +1,12 @@
+use bugstalker::console::hook::TerminalHook;
+use bugstalker::console::view::FileView;
 use bugstalker::console::AppBuilder;
 use bugstalker::cui;
-use bugstalker::debugger::rust;
+use bugstalker::cui::hook::CuiHook;
+use bugstalker::debugger::process::Child;
+use bugstalker::debugger::{rust, Debugger};
 use clap::{arg, Parser};
-use nix::sys;
-use nix::sys::personality::Persona;
-use nix::sys::ptrace::Options;
-use nix::sys::signal::SIGSTOP;
-use nix::sys::wait::{waitpid, WaitPidFlag};
-use nix::unistd::{fork, ForkResult, Pid};
-use std::os::unix::prelude::CommandExt;
 use std::path::PathBuf;
-use std::process::Command;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -40,51 +36,23 @@ fn main() {
     let (stdout_reader, stdout_writer) = os_pipe::pipe().unwrap();
     let (stderr_reader, stderr_writer) = os_pipe::pipe().unwrap();
 
-    let mut debugee_cmd = Command::new(debugee);
-    debugee_cmd.args(args.args);
+    let proc_tpl = Child::new(debugee, args.args, stdout_writer, stderr_writer);
+    let process = proc_tpl
+        .install()
+        .expect("initial process instantiation fail");
 
-    debugee_cmd.stdout(stdout_writer);
-    debugee_cmd.stderr(stderr_writer);
-
-    unsafe {
-        debugee_cmd.pre_exec(move || {
-            sys::personality::set(Persona::ADDR_NO_RANDOMIZE)?;
-            Ok(())
-        });
-    }
-
-    match unsafe { fork().expect("fork() error") } {
-        ForkResult::Parent { child: pid } => {
-            waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WSTOPPED)).unwrap();
-            sys::ptrace::seize(
-                pid,
-                Options::PTRACE_O_TRACECLONE
-                    .union(Options::PTRACE_O_TRACEEXEC)
-                    .union(Options::PTRACE_O_TRACEEXIT),
-            )
-            .unwrap();
-
-            println!("Child pid {:?}", pid);
-
-            match args.ui.as_str() {
-                "cui" => {
-                    let app = cui::AppBuilder::new(stdout_reader, stderr_reader)
-                        .build(debugee, pid)
-                        .expect("prepare application fail");
-
-                    app.run().expect("run application fail");
-                }
-                _ => {
-                    let app = AppBuilder::new(stdout_reader, stderr_reader)
-                        .build(debugee, pid)
-                        .expect("prepare application fail");
-                    app.run().expect("run application fail");
-                }
-            }
+    match args.ui.as_str() {
+        "cui" => {
+            let debugger =
+                Debugger::new(process, CuiHook::new()).expect("prepare application fail");
+            let app = cui::AppBuilder::new(stdout_reader, stderr_reader).build(debugger);
+            app.run().expect("run application fail");
         }
-        ForkResult::Child => {
-            sys::signal::raise(SIGSTOP).unwrap();
-            debugee_cmd.exec();
+        _ => {
+            let debugger = Debugger::new(process, TerminalHook::new(FileView::new()))
+                .expect("prepare application fail");
+            let app = AppBuilder::new(stdout_reader, stderr_reader).build(debugger);
+            app.run().expect("run application fail");
         }
     }
 }

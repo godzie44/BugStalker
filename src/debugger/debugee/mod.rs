@@ -55,18 +55,18 @@ pub enum ExecutionStatus {
 pub struct Debugee {
     /// debugee running-status.
     pub execution_status: ExecutionStatus,
-    /// path to debugee file.
-    pub path: PathBuf,
-    /// debugee process map address.
-    pub mapping_addr: Option<usize>,
     /// preparsed debugee dwarf.
     pub dwarf: DebugeeContext<EndianArcSlice>,
+    /// Debugee tracer. Control debugee process.
+    tracer: Tracer,
+    /// path to debugee file.
+    path: PathBuf,
+    /// debugee process map address.
+    mapping_addr: Option<usize>,
     /// elf file sections (name => address).
     object_sections: HashMap<String, u64>,
     /// rendezvous struct maintained by dyn linker.
     rendezvous: Option<Rendezvous>,
-    /// Debugee tracer. Control debugee process.
-    pub tracer: Tracer,
 }
 
 impl Debugee {
@@ -94,6 +94,23 @@ impl Debugee {
         })
     }
 
+    /// Create new [`Debugee`] with same dwarf context.
+    ///
+    /// # Arguments
+    ///
+    /// * `proc`: new process pid.
+    pub fn extend(&self, proc: Pid) -> Self {
+        Self {
+            execution_status: ExecutionStatus::Unload,
+            path: self.path.clone(),
+            mapping_addr: None,
+            dwarf: self.dwarf.clone(),
+            object_sections: self.object_sections.clone(),
+            rendezvous: None,
+            tracer: Tracer::new(proc),
+        }
+    }
+
     /// Return debugee process mapping offset.
     /// This method will panic if called before debugee started,
     /// calling a method on time is the responsibility of the caller.
@@ -106,6 +123,11 @@ impl Debugee {
     /// calling a method on time is the responsibility of the caller.
     pub fn rendezvous(&self) -> &Rendezvous {
         self.rendezvous.as_ref().expect("rendezvous must exists")
+    }
+
+    /// Return debugee [`Tracer`]
+    pub fn tracer_mut(&mut self) -> &mut Tracer {
+        &mut self.tracer
     }
 
     fn init_libthread_db(&mut self) {

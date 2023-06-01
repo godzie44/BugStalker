@@ -46,6 +46,32 @@ pub struct DebugeeContext<R: gimli::Reader = EndianArcSlice> {
     symbol_table: Option<SymbolTab>,
 }
 
+impl Clone for DebugeeContext {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Dwarf {
+                debug_abbrev: self.inner.debug_abbrev.clone(),
+                debug_addr: self.inner.debug_addr.clone(),
+                debug_aranges: self.inner.debug_aranges.clone(),
+                debug_info: self.inner.debug_info.clone(),
+                debug_line: self.inner.debug_line.clone(),
+                debug_line_str: self.inner.debug_line_str.clone(),
+                debug_str: self.inner.debug_str.clone(),
+                debug_str_offsets: self.inner.debug_str_offsets.clone(),
+                debug_types: self.inner.debug_types.clone(),
+                locations: self.inner.locations.clone(),
+                ranges: self.inner.ranges.clone(),
+                file_type: self.inner.file_type,
+                sup: self.inner.sup.clone(),
+            },
+            eh_frame: self.eh_frame.clone(),
+            bases: self.bases.clone(),
+            units: self.units.clone(),
+            symbol_table: self.symbol_table.clone(),
+        }
+    }
+}
+
 impl DebugeeContext {
     pub fn locations(&self) -> &LocationLists<EndianArcSlice> {
         &self.inner.locations

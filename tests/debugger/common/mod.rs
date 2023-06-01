@@ -41,55 +41,6 @@ impl EventHook for TestHooks {
 }
 
 #[macro_export]
-macro_rules! debugger_env {
-    ($prog:expr, $args: expr, $child:ident, $code: expr) => {
-        use bugstalker::debugger::{rust, Debugger};
-        use nix::sys;
-        use nix::sys::personality::Persona;
-        use nix::sys::ptrace::Options;
-        use nix::sys::signal::SIGSTOP;
-        use nix::sys::wait::{waitpid, WaitPidFlag};
-        use nix::unistd::{fork, ForkResult, Pid};
-        use std::fs::File;
-        use std::os::unix::process::CommandExt;
-
-        let debugee = $prog;
-        rust::Environment::init(None);
-        let null_f = File::open("/dev/null").unwrap();
-        let mut debugee_cmd = std::process::Command::new(debugee);
-        let args: Vec<&str> = Vec::from($args);
-        debugee_cmd.args(args);
-        debugee_cmd.stdout(null_f);
-
-        unsafe {
-            debugee_cmd.pre_exec(move || {
-                sys::personality::set(Persona::ADDR_NO_RANDOMIZE)?;
-                Ok(())
-            });
-        }
-
-        match unsafe { fork().unwrap() } {
-            ForkResult::Child => {
-                sys::signal::raise(SIGSTOP).unwrap();
-                debugee_cmd.exec();
-            }
-            ForkResult::Parent { $child } => {
-                waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WSTOPPED)).unwrap();
-                sys::ptrace::seize(
-                    $child,
-                    Options::PTRACE_O_TRACECLONE
-                        .union(Options::PTRACE_O_TRACEEXEC)
-                        .union(Options::PTRACE_O_TRACEEXIT),
-                )
-                .unwrap();
-
-                $code
-            }
-        }
-    };
-}
-
-#[macro_export]
 macro_rules! assert_no_proc {
     ($pid:expr) => {
         use sysinfo::{PidExt, SystemExt};

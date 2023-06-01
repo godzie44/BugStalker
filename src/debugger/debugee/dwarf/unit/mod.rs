@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 /// A row in the line number program's resulting matrix.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 struct LineRow {
     address: u64,
     file_index: u64,
@@ -31,7 +31,7 @@ struct LineRow {
 
 /// An address range of debug information entry,
 /// also contains a reference to entry itself (as index in unit entries list).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DieRange {
     pub range: Range,
     pub die_idx: usize,
@@ -105,26 +105,26 @@ impl<'a> PartialEq for Place<'a> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct DieAttributes {
     pub _tag: DwTag,
     pub name: Option<String>,
     pub ranges: Box<[Range]>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct FunctionDie {
     pub namespace: NamespaceHierarchy,
     pub base_attributes: DieAttributes,
     pub fb_addr: Option<Attribute<EndianArcSlice>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LexicalBlockDie {
     pub base_attributes: DieAttributes,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VariableDie {
     pub base_attributes: DieAttributes,
     pub type_ref: Option<DieRef>,
@@ -132,7 +132,7 @@ pub struct VariableDie {
     pub lexical_block_idx: Option<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BaseTypeDie {
     pub base_attributes: DieAttributes,
     #[allow(unused)]
@@ -140,14 +140,14 @@ pub struct BaseTypeDie {
     pub byte_size: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ArrayDie {
     pub base_attributes: DieAttributes,
     pub type_ref: Option<DieRef>,
     pub byte_size: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ArraySubrangeDie {
     pub base_attributes: DieAttributes,
     pub lower_bound: Option<Attribute<EndianArcSlice>>,
@@ -155,13 +155,13 @@ pub struct ArraySubrangeDie {
     pub count: Option<Attribute<EndianArcSlice>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StructTypeDie {
     pub base_attributes: DieAttributes,
     pub byte_size: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypeMemberDie {
     pub base_attributes: DieAttributes,
     #[allow(unused)]
@@ -170,33 +170,33 @@ pub struct TypeMemberDie {
     pub type_ref: Option<DieRef>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EnumTypeDie {
     pub base_attributes: DieAttributes,
     pub type_ref: Option<DieRef>,
     pub byte_size: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EnumeratorDie {
     pub base_attributes: DieAttributes,
     pub const_value: Option<i64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VariantPart {
     pub base_attributes: DieAttributes,
     pub discr_ref: Option<DieRef>,
     pub type_ref: Option<DieRef>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Variant {
     pub base_attributes: DieAttributes,
     pub discr_value: Option<i64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PointerType {
     pub base_attributes: DieAttributes,
     pub type_ref: Option<DieRef>,
@@ -204,31 +204,31 @@ pub struct PointerType {
     pub address_class: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TemplateTypeParameter {
     pub base_attributes: DieAttributes,
     pub type_ref: Option<DieRef>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Namespace {
     pub base_attributes: DieAttributes,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParameterDie {
     pub base_attributes: DieAttributes,
     pub type_ref: Option<DieRef>,
     pub location: Option<Attribute<EndianArcSlice>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UnionTypeDie {
     pub base_attributes: DieAttributes,
     pub byte_size: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InlineSubroutineDie {
     pub base_attributes: DieAttributes,
     pub call_file: Option<u64>,
@@ -236,7 +236,7 @@ pub struct InlineSubroutineDie {
     pub call_column: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DieVariant {
     Function(FunctionDie),
     LexicalBlock(LexicalBlockDie),
@@ -259,13 +259,13 @@ pub enum DieVariant {
     InlineSubroutine(InlineSubroutineDie),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Node {
     pub parent: Option<usize>,
     pub children: Vec<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Entry {
     pub die: DieVariant,
     pub node: Node,
@@ -299,7 +299,7 @@ impl DieRef {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct UnitProperties {
     encoding: Encoding,
     offset: Option<DebugInfoOffset>,
@@ -311,7 +311,7 @@ struct UnitProperties {
 
 /// This fields is a part of a compilation unit but
 /// loaded on first call, for reduce memory consumption.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct UnitLazyPart {
     entries: Vec<Entry>,
     die_ranges: Vec<DieRange>,
@@ -363,7 +363,7 @@ impl<T> UnitResult<T> {
 /// DWARF compilation unit representation.
 /// In bugstalker any unit load from obj file with partial data on debugee start.
 /// Later, if necessary, the data will be loaded additionally.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Unit {
     pub id: Uuid,
     #[allow(unused)]
