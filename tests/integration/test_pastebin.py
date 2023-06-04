@@ -13,6 +13,8 @@ def make_http_request(event):
 
 
 class PastebinTestCase(unittest.TestCase):
+    """Test debugger on application from rocket framework examples"""
+
     def setUp(self):
         debugger = pexpect.spawn(
             './target/debug/bugstalker ./examples/target/debug/pastebin')
@@ -37,9 +39,8 @@ class PastebinTestCase(unittest.TestCase):
         while not event.is_set():
             # send `step over` command otherwise
             self.debugger.sendline('next')
-            self.debugger.readline()
-            self.debugger.readline()
-            time.sleep(0.2)
+            self.debugger.expect("next")
+        time.sleep(0.2)
         thread.join()
         self.debugger.sendline('q')
 
