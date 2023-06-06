@@ -11,7 +11,7 @@ use os_pipe::PipeReader;
 use rustyline::Editor;
 use std::io::{BufRead, BufReader, Read};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{mpsc, Arc};
 use std::thread;
 
@@ -34,7 +34,7 @@ impl AppBuilder {
     }
 
     pub fn build(self, debugger: Debugger) -> TerminalApplication {
-        let (control_tx, control_rx) = mpsc::channel::<ControlAction>();
+        let (control_tx, control_rx) = mpsc::sync_channel::<ControlAction>(0);
 
         TerminalApplication {
             debugger,
@@ -55,7 +55,7 @@ pub struct TerminalApplication {
     debugger: Debugger,
     debugee_out: Arc<PipeReader>,
     debugee_err: Arc<PipeReader>,
-    control_tx: Sender<ControlAction>,
+    control_tx: SyncSender<ControlAction>,
     control_rx: Receiver<ControlAction>,
 }
 
