@@ -73,6 +73,13 @@ pub trait EventHook {
     ///
     /// * `code`: exit code
     fn on_exit(&self, code: i32);
+
+    /// Called single time for each debugee process (on start or after reinstall).
+    ///
+    /// # Arguments
+    ///
+    /// * `pid`: debugee process pid
+    fn on_process_install(&self, pid: Pid);
 }
 
 macro_rules! disable_when_not_stared {
@@ -112,6 +119,8 @@ impl Debugger {
             Address::Global(entry_point),
             Breakpoint::new_entry_point(Address::Global(entry_point), process.pid()),
         )]);
+
+        hooks.on_process_install(process.pid());
 
         Ok(Self {
             debugee: Debugee::new_non_running(program_path, process.pid(), &object)?,
@@ -214,6 +223,7 @@ impl Debugger {
             bp.pid = self.process.pid();
         });
 
+        self.hooks.on_process_install(self.process.pid());
         self.continue_execution()
     }
 

@@ -2,6 +2,7 @@ use crate::cui::{context, AppState};
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::{EventHook, Place};
 use nix::sys::signal::Signal;
+use nix::unistd::Pid;
 use tui::style::{Color, Style};
 use tui::text::{Span, Spans};
 
@@ -46,4 +47,6 @@ impl EventHook for CuiHook {
     fn on_exit(&self, _code: i32) {
         context::Context::current().change_state(AppState::Finish)
     }
+
+    fn on_process_install(&self, _pid: Pid) {}
 }

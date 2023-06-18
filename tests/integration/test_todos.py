@@ -23,7 +23,7 @@ class TodosTestCase(unittest.TestCase):
     def setUp(self):
         debugger = pexpect.spawn(
             './target/debug/bugstalker ./examples/target/debug/todos')
-        debugger.expect('No previous history.')
+        debugger.expect('BugStalker greets')
         self.debugger = debugger
 
     def test_step_over_until_response(self):

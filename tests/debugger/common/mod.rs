@@ -1,6 +1,7 @@
 use bugstalker::debugger::address::RelocatedAddress;
 use bugstalker::debugger::{EventHook, Place};
 use nix::sys::signal::Signal;
+use nix::unistd::Pid;
 use std::cell::Cell;
 use std::sync::Arc;
 
@@ -38,6 +39,7 @@ impl EventHook for TestHooks {
     }
     fn on_signal(&self, _: Signal) {}
     fn on_exit(&self, _code: i32) {}
+    fn on_process_install(&self, _pid: Pid) {}
 }
 
 #[macro_export]

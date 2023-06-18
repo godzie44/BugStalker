@@ -7,7 +7,7 @@ class CommandTestCase(unittest.TestCase):
     def setUp(self):
         debugger = pexpect.spawn(
             './target/debug/bugstalker ./target/debug/hello_world')
-        debugger.expect('No previous history.')
+        debugger.expect('BugStalker greets')
         self.debugger = debugger
 
     def test_debugee_execute(self):
@@ -89,7 +89,7 @@ class CommandTestCase(unittest.TestCase):
         # respawn debugger and test address breakpoint
         self.debugger = pexpect.spawn(
             './target/debug/bugstalker ./target/debug/hello_world')
-        self.debugger.expect('No previous history.')
+        self.debugger.expect('BugStalker greets')
         self.debugger.sendline('break ' + addr)
         self.debugger.expect('break ' + addr)
         self.debugger.sendline('run')
@@ -136,7 +136,7 @@ class CommandTestCase(unittest.TestCase):
         # respawn debugger and move pc counter
         self.debugger = pexpect.spawn(
             './target/debug/bugstalker ./target/debug/hello_world')
-        self.debugger.expect('No previous history.')
+        self.debugger.expect('BugStalker greets')
         self.debugger.sendline('break ' + ret_addr)
         self.debugger.expect('break ' + ret_addr)
 
@@ -156,7 +156,7 @@ class CommandTestCase(unittest.TestCase):
         """Debugger step in command (move to next line)"""
         debugger = pexpect.spawn(
             './target/debug/bugstalker ./target/debug/calc -- 1 2 3 --description result')
-        debugger.expect('No previous history.')
+        debugger.expect('BugStalker greets')
         debugger.sendline('break calc.rs:10')
         debugger.expect('break calc.rs:10')
 
@@ -238,7 +238,7 @@ class CommandTestCase(unittest.TestCase):
         """Run debugee with arguments"""
         debugger = pexpect.spawn(
             './target/debug/bugstalker ./target/debug/calc -- 1 1 1 --description three')
-        debugger.expect('No previous history.')
+        debugger.expect('BugStalker greets')
         debugger.sendline('r')
         debugger.expect_exact('three: 3')
 
@@ -247,7 +247,7 @@ class CommandTestCase(unittest.TestCase):
         """Get program variable"""
         debugger = pexpect.spawn(
             './target/debug/bugstalker ./target/debug/calc -- 1 2 3 --description result')
-        debugger.expect('No previous history.')
+        debugger.expect('BugStalker greets')
         debugger.sendline('break calc.rs:15')
         debugger.expect('break calc.rs:15')
 

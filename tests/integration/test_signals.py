@@ -11,7 +11,7 @@ class SignalsTestCase(unittest.TestCase):
         """Send signal to debugee process"""
         self.debugger = pexpect.spawn(
             './target/debug/bugstalker ./target/debug/signals -- single_thread')
-        self.debugger.expect('No previous history.')
+        self.debugger.expect('BugStalker greets')
 
         debugger_process = psutil.Process(self.debugger.pid)
         debugee_process = debugger_process.children(recursive=False)[0]
@@ -29,7 +29,7 @@ class SignalsTestCase(unittest.TestCase):
         """Send signal to multithread debugee process"""
         self.debugger = pexpect.spawn(
             './target/debug/bugstalker ./target/debug/signals -- multi_thread')
-        self.debugger.expect('No previous history.')
+        self.debugger.expect('BugStalker greets')
 
         debugger_process = psutil.Process(self.debugger.pid)
         debugee_process = debugger_process.children(recursive=False)[0]
@@ -47,7 +47,7 @@ class SignalsTestCase(unittest.TestCase):
         """Send multiple signals to multithread debugee process"""
         self.debugger = pexpect.spawn(
             './target/debug/bugstalker ./target/debug/signals -- multi_thread_multi_signal')
-        self.debugger.expect('No previous history.')
+        self.debugger.expect('BugStalker greets')
 
         debugger_process = psutil.Process(self.debugger.pid)
         debugee_process = debugger_process.children(recursive=False)[0]

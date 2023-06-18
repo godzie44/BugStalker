@@ -37,7 +37,7 @@ impl FileView {
                 let file = fs::File::open(place.file)?;
                 let lines = io::BufReader::new(file)
                     .lines()
-                    .filter_map(|line| line.ok())
+                    .map_while(Result::ok)
                     .collect::<Vec<_>>();
                 cache.insert(place.file.to_path_buf(), lines.into_boxed_slice());
                 cache.get(place.file).unwrap()

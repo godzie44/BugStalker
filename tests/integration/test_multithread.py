@@ -5,7 +5,7 @@ import pexpect
 class MultithreadTestCase(unittest.TestCase):
     def setUp(self):
         debugger = pexpect.spawn('./target/debug/bugstalker ./target/debug/mt')
-        debugger.expect('No previous history.')
+        debugger.expect('BugStalker greets')
         self.debugger = debugger
 
     def test_multithreaded_app_running(self):

@@ -1,5 +1,3 @@
-use bugstalker::console::hook::TerminalHook;
-use bugstalker::console::view::FileView;
 use bugstalker::console::AppBuilder;
 use bugstalker::cui;
 use bugstalker::cui::hook::CuiHook;
@@ -49,9 +47,9 @@ fn main() {
             app.run().expect("run application fail");
         }
         _ => {
-            let debugger = Debugger::new(process, TerminalHook::new(FileView::new()))
-                .expect("prepare application fail");
-            let app = AppBuilder::new(stdout_reader, stderr_reader).build(debugger);
+            let app = AppBuilder::new(stdout_reader, stderr_reader)
+                .build(process)
+                .expect("build application fail");
             app.run().expect("run application fail");
         }
     }

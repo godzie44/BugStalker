@@ -7,7 +7,7 @@ class VariablesTestCase(unittest.TestCase):
     def setUp(self):
         debugger = pexpect.spawn(
             './target/debug/bugstalker ./target/debug/vars')
-        debugger.expect('No previous history.')
+        debugger.expect('BugStalker greets')
         self.debugger = debugger
 
     def test_read_scalar_variables(self):
