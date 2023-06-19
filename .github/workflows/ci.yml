@@ -24,6 +24,8 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
+      - name: Build debugger for integration tests
+        run: make build-test
       - name: Run integration tests
         run: make int-test
 
