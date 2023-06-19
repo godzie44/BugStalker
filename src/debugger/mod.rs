@@ -573,11 +573,21 @@ impl Debugger {
             .into_iter()
             .try_for_each(|addr| self.remove_breakpoint(Address::Relocated(addr)))?;
 
-        // if a step is taken outside then do single `step into`
+        // if a step is taken outside and new location pc not equals to place pc
+        // then we then we stopped at the place of the previous function call, and got into an assignment operation or similar
+        // in this case do a single step
         let mut new_location = self.current_thread_stop_at()?;
         if Some(new_location.pc) == return_addr {
-            self.step_in()?;
-            new_location = self.current_thread_stop_at()?;
+            let place = self
+                .debugee
+                .dwarf
+                .find_place_from_pc(new_location.global_pc)
+                .ok_or_else(|| anyhow!("unknown function range"))?;
+
+            if place.address != new_location.global_pc {
+                self.step_in()?;
+                new_location = self.current_thread_stop_at()?;
+            }
         }
 
         self.hooks.on_step(
