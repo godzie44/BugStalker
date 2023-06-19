@@ -1499,9 +1499,9 @@ dependencies = [
 
 [[package]]
 name = "thread_db"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9c7bb7f926c2f16e2a6c77233595b4bed8940e61e662c5839bfeb53ed78d85c"
+checksum = "40f4dfb7831f01fe742d7714720f437613ccd7ef07e6633f706e10df3477e143"
 dependencies = [
  "dlopen",
  "dlopen_derive",

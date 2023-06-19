@@ -31,7 +31,7 @@ clap =  { version = "4.0", features = ["derive"] }
 uuid = {version = "1.2.2", features = ["v4", "fast-rng", "macro-diagnostics"]}
 os_pipe = "1.1.2"
 proc-maps = "0.3.0"
-thread_db = "0.1.2"
+thread_db = "0.1.3"
 smallvec = "1.10.0"
 rand = "0.8.5"
 ctrlc = "3.2.5"
