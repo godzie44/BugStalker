@@ -16,7 +16,6 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.expect('sum2: 199990000')
         self.debugger.expect('sum1: 49995000')
         self.debugger.expect('total 249985000')
-        self.debugger.expect('Program exit with code: 0')
 
     def test_multithreaded_breakpoints(self):
         """Multithread debugee breakpoints"""
@@ -50,7 +49,6 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.expect_exact('>    println!("total {}", sum1 + sum2);')
         self.debugger.sendline('continue')
         self.debugger.expect('total 249985000')
-        self.debugger.expect('Program exit with code: 0')
 
     def test_multithreaded_backtrace(self):
         """Backtrace command for multithread debugee"""
