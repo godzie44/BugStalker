@@ -51,6 +51,32 @@ use nom_supreme::tag::complete::tag;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
+pub const VAR_COMMAND: &str = "vars";
+pub const ARG_COMMAND: &str = "args";
+pub const BACKTRACE_COMMAND: &str = "backtrace";
+pub const BACKTRACE_COMMAND_SHORT: &str = "bt";
+pub const CONTINUE_COMMAND: &str = "continue";
+pub const CONTINUE_COMMAND_SHORT: &str = "c";
+pub const FRAME_COMMAND: &str = "frame";
+pub const RUN_COMMAND: &str = "run";
+pub const RUN_COMMAND_SHORT: &str = "r";
+pub const STEP_INSTRUCTION_COMMAND: &str = "stepi";
+pub const STEP_INTO_COMMAND: &str = "stepinto";
+pub const STEP_INTO_COMMAND_SHORT: &str = "step";
+pub const STEP_OUT_COMMAND: &str = "stepout";
+pub const STEP_OUT_COMMAND_SHORT: &str = "finish";
+pub const STEP_OVER_COMMAND: &str = "stepover";
+pub const STEP_OVER_COMMAND_SHORT: &str = "next";
+pub const SYMBOL_COMMAND: &str = "symbol";
+pub const BREAK_COMMAND: &str = "break";
+pub const BREAK_COMMAND_SHORT: &str = "b";
+pub const MEMORY_COMMAND: &str = "memory";
+pub const MEMORY_COMMAND_SHORT: &str = "mem";
+pub const REGISTER_COMMAND: &str = "register";
+pub const REGISTER_COMMAND_SHORT: &str = "reg";
+pub const HELP_COMMAND: &str = "help";
+pub const HELP_COMMAND_SHORT: &str = "h";
+
 fn hexadecimal(input: &str) -> IResult<&str, &str, ErrorTree<&str>> {
     preceded(
         alt((tag("0x"), tag("0X"))),
@@ -128,11 +154,14 @@ impl Command {
         fn print_var_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             alt((
                 map(
-                    preceded(tag("vars"), preceded(multispace1, tag("locals"))),
+                    preceded(tag(VAR_COMMAND), preceded(multispace1, tag("locals"))),
                     |_| Command::PrintVariables(Expression::Variable(VariableSelector::Any)),
                 ),
                 map(
-                    preceded(tag("vars"), preceded(multispace1, cut(expression::expr))),
+                    preceded(
+                        tag(VAR_COMMAND),
+                        preceded(multispace1, cut(expression::expr)),
+                    ),
                     Command::PrintVariables,
                 ),
             ))(input)
@@ -141,11 +170,14 @@ impl Command {
         fn print_argument_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             alt((
                 map(
-                    preceded(tag("args"), preceded(multispace1, tag("all"))),
+                    preceded(tag(ARG_COMMAND), preceded(multispace1, tag("all"))),
                     |_| Command::PrintArguments(Expression::Variable(VariableSelector::Any)),
                 ),
                 map(
-                    preceded(tag("args"), preceded(multispace1, cut(expression::expr))),
+                    preceded(
+                        tag(ARG_COMMAND),
+                        preceded(multispace1, cut(expression::expr)),
+                    ),
                     Command::PrintArguments,
                 ),
             ))(input)
@@ -169,26 +201,39 @@ impl Command {
             };
         }
 
-        let continue_parser = parser2_no_args!("c", "continue", Command::Continue);
-        let frame_parser = parser1_no_args!("frame", Command::PrintFrame);
-        let run_parser = parser2_no_args!("r", "run", Command::Run);
-        let stepi_parser = parser1_no_args!("stepi", Command::StepInstruction);
-        let step_into_parser = parser2_no_args!("step", "stepinto", Command::StepInto);
-        let step_out_parser = parser2_no_args!("finish", "stepout", Command::StepOut);
-        let step_over_parser = parser2_no_args!("next", "stepover", Command::StepOver);
-        let help_parser = parser1_no_args!("help", Command::Help(None));
+        let continue_parser =
+            parser2_no_args!(CONTINUE_COMMAND_SHORT, CONTINUE_COMMAND, Command::Continue);
+        let frame_parser = parser1_no_args!(FRAME_COMMAND, Command::PrintFrame);
+        let run_parser = parser2_no_args!(RUN_COMMAND_SHORT, RUN_COMMAND, Command::Run);
+        let stepi_parser = parser1_no_args!(STEP_INSTRUCTION_COMMAND, Command::StepInstruction);
+        let step_into_parser = parser2_no_args!(
+            STEP_INTO_COMMAND_SHORT,
+            STEP_INTO_COMMAND,
+            Command::StepInto
+        );
+        let step_out_parser =
+            parser2_no_args!(STEP_OUT_COMMAND_SHORT, STEP_OUT_COMMAND, Command::StepOut);
+        let step_over_parser = parser2_no_args!(
+            STEP_OVER_COMMAND_SHORT,
+            STEP_OVER_COMMAND,
+            Command::StepOver
+        );
+        let help_parser = parser2_no_args!(HELP_COMMAND_SHORT, HELP_COMMAND, Command::Help(None));
 
         fn backtrace_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             alt((
                 map(
                     preceded(
-                        alt((tag("bt"), tag("backtrace"))),
+                        alt((tag(BACKTRACE_COMMAND_SHORT), tag(BACKTRACE_COMMAND))),
                         preceded(multispace1, tag("all")),
                     ),
                     |_| Command::PrintBacktrace(backtrace::Command::All),
                 ),
                 map(
-                    preceded(alt((tag("bt"), tag("backtrace"))), cut(not(alphanumeric1))),
+                    preceded(
+                        alt((tag(BACKTRACE_COMMAND_SHORT), tag(BACKTRACE_COMMAND))),
+                        cut(not(alphanumeric1)),
+                    ),
                     |_| Command::PrintBacktrace(backtrace::Command::CurrentThread),
                 ),
             ))(input)
@@ -196,7 +241,7 @@ impl Command {
 
         fn symbol_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             map(
-                preceded(tag("symbol"), preceded(multispace1, not_line_ending)),
+                preceded(tag(SYMBOL_COMMAND), preceded(multispace1, not_line_ending)),
                 |s: &str| Command::PrintSymbol(s.trim().to_string()),
             )(input)
         }
@@ -228,7 +273,10 @@ impl Command {
             }
 
             preceded(
-                alt((pair(tag("b"), multispace1), pair(tag("break"), multispace1))),
+                alt((
+                    pair(tag(BREAK_COMMAND_SHORT), multispace1),
+                    pair(tag(BREAK_COMMAND), multispace1),
+                )),
                 cut(alt((
                     preceded(
                         alt((
@@ -249,8 +297,8 @@ impl Command {
         fn memory_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             preceded(
                 alt((
-                    pair(tag("mem"), multispace1),
-                    pair(tag("memory"), multispace1),
+                    pair(tag(MEMORY_COMMAND_SHORT), multispace1),
+                    pair(tag(MEMORY_COMMAND), multispace1),
                 )),
                 cut(alt((
                     map_res(
@@ -282,8 +330,8 @@ impl Command {
         fn register_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             preceded(
                 alt((
-                    pair(tag("reg"), multispace1),
-                    pair(tag("register"), multispace1),
+                    pair(tag(REGISTER_COMMAND_SHORT), multispace1),
+                    pair(tag(REGISTER_COMMAND), multispace1),
                 )),
                 cut(alt((
                     map(preceded(tag("dump"), cut(not(alphanumeric1))), |_| {
@@ -315,21 +363,21 @@ impl Command {
         }
 
         alt((
-            command("vars", print_var_parser),
-            command("args", print_argument_parser),
-            command("backtrace", backtrace_parser),
-            command("continue", continue_parser),
-            command("frame", frame_parser),
-            command("run", run_parser),
-            command("stepi", stepi_parser),
-            command("stepinto", step_into_parser),
-            command("stepout", step_out_parser),
-            command("stepover", step_over_parser),
-            command("symbol", symbol_parser),
-            command("break", break_parser),
-            command("memory", memory_parser),
-            command("register", register_parser),
-            command("help", help_parser),
+            command(VAR_COMMAND, print_var_parser),
+            command(ARG_COMMAND, print_argument_parser),
+            command(BACKTRACE_COMMAND, backtrace_parser),
+            command(CONTINUE_COMMAND, continue_parser),
+            command(FRAME_COMMAND, frame_parser),
+            command(RUN_COMMAND, run_parser),
+            command(STEP_INSTRUCTION_COMMAND, stepi_parser),
+            command(STEP_INTO_COMMAND, step_into_parser),
+            command(STEP_OUT_COMMAND, step_out_parser),
+            command(STEP_OVER_COMMAND, step_over_parser),
+            command(SYMBOL_COMMAND, symbol_parser),
+            command(BREAK_COMMAND, break_parser),
+            command(MEMORY_COMMAND, memory_parser),
+            command(REGISTER_COMMAND, register_parser),
+            command(HELP_COMMAND, help_parser),
             cut(map(not_line_ending, |_| {
                 Command::Help(Some("undefined command".to_string()))
             })),

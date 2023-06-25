@@ -425,6 +425,14 @@ fn zst() {
     let nop: Option<u8> = None;
 }
 
+fn shadowing() {
+    let var1 = 0_i32;
+    let var1 = 1_i32;
+    let var1 = "some str";
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -453,4 +461,5 @@ pub fn main() {
     ptr_to_array();
     shared_ptrs();
     zst();
+    shadowing();
 }

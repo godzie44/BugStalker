@@ -1,4 +1,5 @@
 use super::debugger::command::Continue;
+use crate::console::editor::{create_editor, RLHelper};
 use crate::console::hook::TerminalHook;
 use crate::console::print::ExternalPrinter;
 use crate::console::variable::render_variable_ir;
@@ -10,18 +11,13 @@ use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::{command, Debugger};
 use command::{Memory, Register};
+use crossterm::style::{Color, Stylize};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use os_pipe::PipeReader;
 use rustyline::error::ReadlineError;
-use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
-use rustyline::hint::HistoryHinter;
-use rustyline::history::DefaultHistory;
-use rustyline::validate::MatchingBracketValidator;
-use rustyline::{CompletionType, Config, Editor};
-use rustyline_derive::{Completer, Helper, Hinter, Validator};
-use std::borrow::Cow;
-use std::borrow::Cow::{Borrowed, Owned};
+use rustyline::history::MemHistory;
+use rustyline::Editor;
 use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
@@ -29,6 +25,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+mod editor;
 pub mod hook;
 pub mod print;
 mod variable;
@@ -37,45 +34,6 @@ pub mod view;
 const WELCOME_TEXT: &str = r#"
 BugStalker greets
 "#;
-const HISTORY_FILE: &str = "bsh.hist";
-
-#[derive(Helper, Completer, Hinter, Validator)]
-struct RLHelper {
-    #[rustyline(Completer)]
-    completer: (),
-    highlighter: MatchingBracketHighlighter,
-    #[rustyline(Validator)]
-    validator: MatchingBracketValidator,
-    #[rustyline(Hinter)]
-    hinter: HistoryHinter,
-    colored_prompt: String,
-}
-
-impl Highlighter for RLHelper {
-    fn highlight<'l>(&self, line: &'l str, pos: usize) -> Cow<'l, str> {
-        self.highlighter.highlight(line, pos)
-    }
-
-    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
-        &'s self,
-        prompt: &'p str,
-        default: bool,
-    ) -> Cow<'b, str> {
-        if default {
-            Borrowed(&self.colored_prompt)
-        } else {
-            Borrowed(prompt)
-        }
-    }
-
-    fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
-        Owned("\x1b[1m".to_owned() + hint + "\x1b[m")
-    }
-
-    fn highlight_char(&self, line: &str, pos: usize) -> bool {
-        self.highlighter.highlight_char(line, pos)
-    }
-}
 
 pub struct AppBuilder {
     debugee_out: PipeReader,
@@ -90,29 +48,9 @@ impl AppBuilder {
         }
     }
 
-    fn create_editor(&self) -> anyhow::Result<Editor<RLHelper, DefaultHistory>> {
-        let config = Config::builder()
-            .history_ignore_space(true)
-            .completion_type(CompletionType::List)
-            .build();
-
-        let h = RLHelper {
-            completer: (),
-            highlighter: MatchingBracketHighlighter::new(),
-            hinter: HistoryHinter {},
-            colored_prompt: "".to_owned(),
-            validator: MatchingBracketValidator::new(),
-        };
-
-        let mut editor = Editor::with_config(config)?;
-        editor.set_helper(Some(h));
-
-        Ok(editor)
-    }
-
     pub fn build(self, process: Child<Installed>) -> anyhow::Result<TerminalApplication> {
         let (control_tx, control_rx) = mpsc::sync_channel::<Control>(0);
-        let mut editor = self.create_editor()?;
+        let mut editor = create_editor()?;
 
         let debugee_pid = Arc::new(Mutex::new(Pid::from_raw(-1)));
         let debugger = {
@@ -146,7 +84,7 @@ pub struct TerminalApplication {
     debugger: Debugger,
     /// shared debugee process pid, installed by hook
     debugee_pid: Arc<Mutex<Pid>>,
-    editor: Editor<RLHelper, DefaultHistory>,
+    editor: Editor<RLHelper, MemHistory>,
     debugee_out: Arc<PipeReader>,
     debugee_err: Arc<PipeReader>,
     control_tx: SyncSender<Control>,
@@ -189,15 +127,13 @@ impl TerminalApplication {
             let control_tx = self.control_tx.clone();
             thread::spawn(move || {
                 println!("{WELCOME_TEXT}");
-                _ = editor.load_history(HISTORY_FILE);
-
                 loop {
-                    let p = "(bs) ".to_string();
+                    let p = "(bs) ";
                     editor
                         .helper_mut()
                         .expect("unreachable: no helper")
-                        .colored_prompt = format!("\x1b[1;32m{p}\x1b[0m");
-                    let readline = editor.readline(&p);
+                        .colored_prompt = format!("{}", p.to_string().with(Color::DarkGreen));
+                    let readline = editor.readline(p);
                     match readline {
                         Ok(input) => {
                             if input == "q" || input == "quit" {
@@ -230,8 +166,6 @@ impl TerminalApplication {
                         }
                     }
                 }
-
-                editor.append_history(HISTORY_FILE).unwrap();
             });
         }
 
