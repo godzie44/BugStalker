@@ -38,7 +38,7 @@ use object::Object;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_long;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{fs, mem, u64};
 
@@ -625,7 +625,7 @@ impl Debugger {
     }
 
     fn address_for_line(&mut self, fine_name: &str, line: u64) -> Option<Address> {
-        if let Some(place) = self.debugee.dwarf.find_stmt_line(fine_name, line) {
+        if let Some(place) = self.debugee.dwarf.find_place(fine_name, line) {
             let addr = if self.debugee.execution_status == ExecutionStatus::InProgress {
                 Address::Relocated(place.address.relocate(self.debugee.mapping_offset()))
             } else {
@@ -707,6 +707,10 @@ impl Debugger {
         let mut map = RegisterMap::current(self.debugee.tracee_in_focus().pid)?;
         map.update(Register::try_from(register_name)?, val);
         Ok(map.persist(self.debugee.tracee_in_focus().pid)?)
+    }
+
+    pub fn known_files(&self) -> impl Iterator<Item = &PathBuf> {
+        self.debugee.dwarf.known_files()
     }
 }
 

@@ -151,6 +151,7 @@ dependencies = [
  "sysinfo",
  "thiserror",
  "thread_db",
+ "trie-rs",
  "tui",
  "tui-textarea",
  "typed-arena",
@@ -498,6 +499,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fid-rs"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c28658c0c3420305705adde833a0d2d614207507d013a5f25707553fb2ae2cd"
+dependencies = [
+ "rayon",
+]
+
+[[package]]
 name = "flate2"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -802,6 +812,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "abb12e687cfb44aa40f41fc3978ef76448f9b6038cad6aef4259d3c095a2382e"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "louds-rs"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e16a91fb20f74b6d9a758a0103a2884af525a2fa34fbfe19f4b3c5482a4a54e9"
+dependencies = [
+ "fid-rs",
 ]
 
 [[package]]
@@ -1510,6 +1529,15 @@ dependencies = [
  "object 0.30.2",
  "proc-maps",
  "thiserror",
+]
+
+[[package]]
+name = "trie-rs"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5096c019d49566aff57593a06e401c7f588da84e9a575d0ed2ac0913f51928c0"
+dependencies = [
+ "louds-rs",
 ]
 
 [[package]]

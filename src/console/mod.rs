@@ -63,6 +63,11 @@ impl AppBuilder {
             )
         }?;
 
+        if let Some(h) = editor.helper_mut() {
+            h.completer
+                .replace_known_files(debugger.known_files().cloned())
+        }
+
         Ok(TerminalApplication {
             debugger,
             debugee_pid,

@@ -33,6 +33,7 @@ use rayon::prelude::*;
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::ops::Deref;
+use std::path::PathBuf;
 use std::sync::Arc;
 pub use symbol::Symbol;
 
@@ -126,6 +127,11 @@ impl DebugeeContext {
         &self.inner.debug_addr
     }
 
+    /// Return a list of all known files.
+    pub fn known_files(&self) -> impl Iterator<Item = &PathBuf> {
+        self.units.iter().flat_map(|unit| unit.files())
+    }
+
     fn find_unit_by_pc(&self, pc: GlobalAddress) -> Option<&Unit> {
         self.units.iter().find(|&unit| {
             match unit
@@ -203,7 +209,7 @@ impl DebugeeContext {
         })
     }
 
-    pub fn find_stmt_line(&self, file: &str, line: u64) -> Option<unit::Place<'_>> {
+    pub fn find_place(&self, file: &str, line: u64) -> Option<unit::Place<'_>> {
         self.units
             .iter()
             .find_map(|unit| unit.find_stmt_line(file, line))

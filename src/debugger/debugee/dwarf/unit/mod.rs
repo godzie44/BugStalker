@@ -589,4 +589,9 @@ impl Unit {
             }
         }
     }
+
+    /// Return all files related to this unit.
+    pub fn files(&self) -> &[PathBuf] {
+        &self.files
+    }
 }
