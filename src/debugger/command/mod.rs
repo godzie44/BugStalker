@@ -52,6 +52,7 @@ use std::num::ParseIntError;
 use std::str::FromStr;
 
 pub const VAR_COMMAND: &str = "vars";
+pub const VAR_LOCAL_KW: &str = "locals";
 pub const ARG_COMMAND: &str = "args";
 pub const BACKTRACE_COMMAND: &str = "backtrace";
 pub const BACKTRACE_COMMAND_SHORT: &str = "bt";
@@ -154,7 +155,7 @@ impl Command {
         fn print_var_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             alt((
                 map(
-                    preceded(tag(VAR_COMMAND), preceded(multispace1, tag("locals"))),
+                    preceded(tag(VAR_COMMAND), preceded(multispace1, tag(VAR_LOCAL_KW))),
                     |_| Command::PrintVariables(Expression::Variable(VariableSelector::Any)),
                 ),
                 map(

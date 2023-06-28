@@ -201,6 +201,7 @@ impl Debugger {
     }
 
     /// Restart debugee by recreating debugee process, save all user defined breakpoints.
+    /// Return when new debugee stopped or ends.
     fn restart_debugee(&mut self) -> anyhow::Result<()> {
         self.breakpoints
             .iter()
@@ -228,6 +229,7 @@ impl Debugger {
     }
 
     /// Start debugee.
+    /// Return when debugee stopped or ends.
     pub fn start_debugee(&mut self) -> anyhow::Result<()> {
         if self.debugee.execution_status != ExecutionStatus::InProgress {
             return self.continue_execution();

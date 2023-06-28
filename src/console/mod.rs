@@ -1,5 +1,5 @@
 use super::debugger::command::Continue;
-use crate::console::editor::{create_editor, RLHelper};
+use crate::console::editor::{create_editor, CommandCompleter, RLHelper};
 use crate::console::hook::TerminalHook;
 use crate::console::print::ExternalPrinter;
 use crate::console::variable::render_variable_ir;
@@ -9,9 +9,9 @@ use crate::debugger::command::{
 };
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::render::RenderRepr;
+use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::{command, Debugger};
 use command::{Memory, Register};
-use crossterm::style::{Color, Stylize};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use os_pipe::PipeReader;
@@ -34,6 +34,9 @@ pub mod view;
 const WELCOME_TEXT: &str = r#"
 BugStalker greets
 "#;
+const PROMT: &str = "(bs) ";
+
+type BSEditor = Editor<RLHelper, MemHistory>;
 
 pub struct AppBuilder {
     debugee_out: PipeReader,
@@ -50,7 +53,7 @@ impl AppBuilder {
 
     pub fn build(self, process: Child<Installed>) -> anyhow::Result<TerminalApplication> {
         let (control_tx, control_rx) = mpsc::sync_channel::<Control>(0);
-        let mut editor = create_editor()?;
+        let mut editor = create_editor(PROMT)?;
 
         let debugee_pid = Arc::new(Mutex::new(Pid::from_raw(-1)));
         let debugger = {
@@ -65,7 +68,9 @@ impl AppBuilder {
 
         if let Some(h) = editor.helper_mut() {
             h.completer
-                .replace_known_files(debugger.known_files().cloned())
+                .lock()
+                .unwrap()
+                .replace_file_hints(debugger.known_files().cloned())
         }
 
         Ok(TerminalApplication {
@@ -89,7 +94,7 @@ pub struct TerminalApplication {
     debugger: Debugger,
     /// shared debugee process pid, installed by hook
     debugee_pid: Arc<Mutex<Pid>>,
-    editor: Editor<RLHelper, MemHistory>,
+    editor: BSEditor,
     debugee_out: Arc<PipeReader>,
     debugee_err: Arc<PipeReader>,
     control_tx: SyncSender<Control>,
@@ -125,35 +130,41 @@ impl TerminalApplication {
             thread::spawn(move || print_out!(stderr.as_ref(), "\x1b[31m{}", stderr_printer));
         }
 
-        let external_printer = ExternalPrinter::new(&mut self.editor)?;
+        let app_loop = AppLoop {
+            debugger: self.debugger,
+            control_rx: self.control_rx,
+            completer: Arc::clone(
+                &self
+                    .editor
+                    .helper_mut()
+                    .expect("helper must exists")
+                    .completer,
+            ),
+            printer: ExternalPrinter::new(&mut self.editor)?,
+        };
 
+        let mut editor = self.editor;
         {
-            let mut editor = self.editor;
             let control_tx = self.control_tx.clone();
             thread::spawn(move || {
                 println!("{WELCOME_TEXT}");
                 loop {
-                    let p = "(bs) ";
-                    editor
-                        .helper_mut()
-                        .expect("unreachable: no helper")
-                        .colored_prompt = format!("{}", p.to_string().with(Color::DarkGreen));
-                    let readline = editor.readline(p);
-                    match readline {
+                    let line = editor.readline(PROMT);
+                    match line {
                         Ok(input) => {
                             if input == "q" || input == "quit" {
-                                control_tx.send(Control::Terminate).unwrap();
+                                _ = control_tx.send(Control::Terminate);
                                 break;
                             } else {
-                                editor.add_history_entry(&input).unwrap();
-                                control_tx.send(Control::Cmd(input)).unwrap();
+                                _ = editor.add_history_entry(&input);
+                                _ = control_tx.send(Control::Cmd(input));
                             }
                         }
                         Err(err) => {
                             let on_sign = |sign: Signal| {
                                 if self.control_tx.try_send(Control::Terminate).is_err() {
-                                    kill(*self.debugee_pid.lock().unwrap(), sign).unwrap();
-                                    self.control_tx.send(Control::Terminate).unwrap();
+                                    _ = kill(*self.debugee_pid.lock().unwrap(), sign);
+                                    _ = self.control_tx.send(Control::Terminate);
                                 }
                             };
 
@@ -164,7 +175,7 @@ impl TerminalApplication {
                                 }
                                 _ => {
                                     println!("error: {:#}", err);
-                                    control_tx.send(Control::Terminate).unwrap();
+                                    _ = control_tx.send(Control::Terminate);
                                     break;
                                 }
                             }
@@ -173,12 +184,6 @@ impl TerminalApplication {
                 }
             });
         }
-
-        let app_loop = AppLoop {
-            debugger: self.debugger,
-            control_rx: self.control_rx,
-            printer: external_printer,
-        };
 
         app_loop.run();
 
@@ -190,6 +195,7 @@ struct AppLoop {
     debugger: Debugger,
     control_rx: Receiver<Control>,
     printer: ExternalPrinter,
+    completer: Arc<Mutex<CommandCompleter>>,
 }
 
 impl AppLoop {
@@ -204,6 +210,20 @@ impl AppLoop {
             }
             Control::Terminate => Ok(false),
         }
+    }
+
+    fn update_completer_variables(&self) -> anyhow::Result<()> {
+        let vars = self
+            .debugger
+            .read_variable(Expression::Variable(VariableSelector::Any))?;
+        let args = self
+            .debugger
+            .read_argument(Expression::Variable(VariableSelector::Any))?;
+
+        let mut completer = self.completer.lock().unwrap();
+        completer.replace_local_var_hints(vars.into_iter().map(|var| var.name()));
+        completer.replace_arg_hints(args.into_iter().map(|arg| arg.name()));
+        Ok(())
     }
 
     fn handle_command(&mut self, cmd: &str) -> anyhow::Result<()> {
@@ -264,7 +284,10 @@ impl AppLoop {
                     }
                 });
             }
-            Command::Continue => Continue::new(&mut self.debugger).handle()?,
+            Command::Continue => {
+                Continue::new(&mut self.debugger).handle()?;
+                _ = self.update_completer_variables();
+            }
             Command::PrintFrame => {
                 let frame = Frame::new(&self.debugger).handle()?;
                 self.printer.print(format!("cfa: {}", frame.cfa));
@@ -278,19 +301,32 @@ impl AppLoop {
             Command::Run => {
                 static ALREADY_RUN: AtomicBool = AtomicBool::new(false);
 
-                if ALREADY_RUN.load(Ordering::SeqCst) {
+                if ALREADY_RUN.load(Ordering::Acquire) {
                     if self.yes("Restart program? (y or n)")? {
                         Run::new(&mut self.debugger).restart()?
                     }
                 } else {
                     Run::new(&mut self.debugger).start()?;
-                    ALREADY_RUN.store(true, Ordering::SeqCst);
+                    ALREADY_RUN.store(true, Ordering::Release);
+                    _ = self.update_completer_variables();
                 }
             }
-            Command::StepInstruction => StepI::new(&mut self.debugger).handle()?,
-            Command::StepInto => StepInto::new(&mut self.debugger).handle()?,
-            Command::StepOut => StepOut::new(&mut self.debugger).handle()?,
-            Command::StepOver => StepOver::new(&mut self.debugger).handle()?,
+            Command::StepInstruction => {
+                StepI::new(&mut self.debugger).handle()?;
+                _ = self.update_completer_variables();
+            }
+            Command::StepInto => {
+                StepInto::new(&mut self.debugger).handle()?;
+                _ = self.update_completer_variables();
+            }
+            Command::StepOut => {
+                StepOut::new(&mut self.debugger).handle()?;
+                _ = self.update_completer_variables();
+            }
+            Command::StepOver => {
+                StepOver::new(&mut self.debugger).handle()?;
+                _ = self.update_completer_variables();
+            }
             Command::Breakpoint(bp_cmd) => Break::new(&mut self.debugger).handle(bp_cmd)?,
             Command::Memory(mem_cmd) => {
                 let read = Memory::new(&self.debugger).handle(mem_cmd)?;
