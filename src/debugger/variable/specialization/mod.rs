@@ -17,6 +17,38 @@ use fallible_iterator::FallibleIterator;
 use itertools::Itertools;
 use std::collections::HashMap;
 
+/// During program execution, the debugger may encounter uninitialized variables
+/// For example look at this code:
+/// ```rust
+///    let res: Result<(), String> = Ok(());
+//     if let Err(e) = res {
+//         unreachable!();
+//     }
+/// ```
+///
+/// if stop debugger at line 2 and and consider a variable `e` - capacity of this vector
+/// may be over 9000, this is obviously not the size that user expect.
+/// Therefore, artificial restrictions on size and capacity are introduced. This behavior may be
+/// changed in the future.
+const LEN_GUARD: i64 = 10_000;
+const CAP_GUARD: i64 = 10_000;
+
+fn guard_len(len: i64) -> i64 {
+    if len > LEN_GUARD {
+        LEN_GUARD
+    } else {
+        len
+    }
+}
+
+fn guard_cap(cap: i64) -> i64 {
+    if cap > CAP_GUARD {
+        CAP_GUARD
+    } else {
+        cap
+    }
+}
+
 #[derive(Clone)]
 pub struct VecVariable {
     pub structure: StructVariable,
@@ -139,6 +171,8 @@ impl<'a> VariableParserExtension<'a> {
         ir: VariableIR,
     ) -> anyhow::Result<StrVariable> {
         let len = ir.assume_field_as_scalar_number("length")?;
+        let len = guard_len(len);
+
         let data_ptr = ir.assume_field_as_pointer("data_ptr")?;
 
         let data = debugger::read_memory_by_pid(eval_ctx.pid, data_ptr as usize, len as usize)
@@ -169,6 +203,8 @@ impl<'a> VariableParserExtension<'a> {
         ir: VariableIR,
     ) -> anyhow::Result<StringVariable> {
         let len = ir.assume_field_as_scalar_number("len")?;
+        let len = guard_len(len);
+
         let data_ptr = ir.assume_field_as_pointer("pointer")?;
 
         let data = debugger::read_memory_by_pid(eval_ctx.pid, data_ptr as usize, len as usize)?;
@@ -204,7 +240,10 @@ impl<'a> VariableParserExtension<'a> {
             .ok_or_else(|| anyhow!("template parameter `T`"))?
             .ok_or_else(|| anyhow!("unreachable: template param die without type"))?;
         let len = ir.assume_field_as_scalar_number("len")?;
+        let len = guard_len(len);
+
         let cap = ir.assume_field_as_scalar_number("cap")?;
+        let cap = guard_cap(cap);
 
         let data_ptr = ir.assume_field_as_pointer("pointer")?;
 
@@ -607,6 +646,8 @@ impl<'a> VariableParserExtension<'a> {
             .ok_or_else(|| anyhow!("template parameter `T`"))?
             .ok_or_else(|| anyhow!("unreachable: template param die without type"))?;
         let len = ir.assume_field_as_scalar_number("len")? as usize;
+        let len = guard_len(len as i64) as usize;
+
         let el_type_size = self
             .parser
             .r#type
