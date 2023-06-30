@@ -336,7 +336,7 @@ pub struct CompletedResult<'a> {
 impl<'a> CompletedResult<'a> {
     pub fn into_scalar<T: Copy>(self) -> Result<T> {
         let bytes = self.into_raw_buffer(mem::size_of::<T>())?;
-        Ok(scalar_from_bytes(bytes))
+        Ok(scalar_from_bytes(&bytes))
     }
 
     pub fn into_raw_buffer(self, byte_size: usize) -> Result<Bytes> {
@@ -432,10 +432,8 @@ fn read_register(pid: Pid, reg: Register, size_in_bytes: usize, offset: u64) -> 
     Ok(Bytes::copy_from_slice(&bytes[..write_size]))
 }
 
-fn scalar_from_bytes<T: Copy>(bytes: Bytes) -> T {
+#[inline(never)]
+fn scalar_from_bytes<T: Copy>(bytes: &Bytes) -> T {
     let ptr = bytes.as_ptr();
-    if (ptr as usize) % mem::align_of::<T>() != 0 {
-        panic!("invalid type alignment");
-    }
-    unsafe { *ptr.cast() }
+    unsafe { std::ptr::read_unaligned::<T>(ptr as *const T) }
 }

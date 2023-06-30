@@ -14,7 +14,6 @@ use gimli::{
 use log::warn;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Display, Formatter};
-use std::mem;
 
 pub mod render;
 pub mod select;
@@ -540,7 +539,7 @@ impl<'a> VariableParser<'a> {
         r#type: &ScalarType,
     ) -> ScalarVariable {
         fn render_scalar<S: Copy + Display>(data: Option<Bytes>) -> Option<S> {
-            data.as_ref().map(|v| *scalar_from_bytes::<S>(v))
+            data.as_ref().map(|v| scalar_from_bytes::<S>(v))
         }
 
         #[allow(non_upper_case_globals)]
@@ -779,7 +778,7 @@ impl<'a> VariableParser<'a> {
         type_name: Option<String>,
         target_type: Option<TypeIdentity>,
     ) -> PointerVariable {
-        let mb_ptr = value.as_ref().map(scalar_from_bytes::<*const ()>).copied();
+        let mb_ptr = value.as_ref().map(scalar_from_bytes::<*const ()>);
 
         PointerVariable {
             identity,
@@ -1094,12 +1093,10 @@ impl<'a> Iterator for BfsIterator<'a> {
     }
 }
 
-fn scalar_from_bytes<T: Copy>(bytes: &Bytes) -> &T {
+#[inline(never)]
+fn scalar_from_bytes<T: Copy>(bytes: &Bytes) -> T {
     let ptr = bytes.as_ptr();
-    if (ptr as usize) % mem::align_of::<T>() != 0 {
-        panic!("invalid type alignment");
-    }
-    unsafe { &*ptr.cast() }
+    unsafe { std::ptr::read_unaligned::<T>(ptr as *const T) }
 }
 
 #[cfg(test)]
