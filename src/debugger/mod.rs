@@ -671,12 +671,28 @@ impl Debugger {
         evaluator.evaluate()
     }
 
+    // Reads any variable from the current thread, uses a select expression to filter variables
+    // and return their names.
+    pub fn read_variable_names(&self, select_expr: Expression) -> anyhow::Result<Vec<String>> {
+        disable_when_not_stared!(self);
+        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr)?;
+        evaluator.evaluate_names()
+    }
+
     // Reads any argument from the current function, uses a select expression to filter variables
     // and fetch their properties (such as structure fields or array elements).
     pub fn read_argument(&self, select_expr: Expression) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
         let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr)?;
         evaluator.evaluate_on_arguments()
+    }
+
+    // Reads any argument from the current function, uses a select expression to filter arguments
+    // and return their names.
+    pub fn read_argument_names(&self, select_expr: Expression) -> anyhow::Result<Vec<String>> {
+        disable_when_not_stared!(self);
+        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr)?;
+        evaluator.evaluate_on_arguments_names()
     }
 
     pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {

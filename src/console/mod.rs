@@ -215,14 +215,14 @@ impl AppLoop {
     fn update_completer_variables(&self) -> anyhow::Result<()> {
         let vars = self
             .debugger
-            .read_variable(Expression::Variable(VariableSelector::Any))?;
+            .read_variable_names(Expression::Variable(VariableSelector::Any))?;
         let args = self
             .debugger
-            .read_argument(Expression::Variable(VariableSelector::Any))?;
+            .read_argument_names(Expression::Variable(VariableSelector::Any))?;
 
         let mut completer = self.completer.lock().unwrap();
-        completer.replace_local_var_hints(vars.into_iter().map(|var| var.name()));
-        completer.replace_arg_hints(args.into_iter().map(|arg| arg.name()));
+        completer.replace_local_var_hints(vars);
+        completer.replace_arg_hints(args);
         Ok(())
     }
 

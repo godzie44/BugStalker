@@ -110,7 +110,7 @@ impl CommandCompleter {
     pub fn replace_local_var_hints(&mut self, variables: impl IntoIterator<Item = String>) {
         let mut builder = TrieBuilder::new();
         self.vars = variables.into_iter().collect();
-        self.vars.push(VAR_LOCAL_KW.to_string());
+        self.vars.push(VAR_LOCAL_KW.underlined().to_string());
         self.vars.iter().for_each(|var| {
             builder.push(var);
         });

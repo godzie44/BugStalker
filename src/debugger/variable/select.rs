@@ -60,6 +60,36 @@ impl<'a> SelectExpressionEvaluator<'a> {
         })
     }
 
+    /// Evaluate only variable names.
+    /// Only filter expression supported.
+    pub fn evaluate_names(&self) -> anyhow::Result<Vec<String>> {
+        match &self.expression {
+            Expression::Variable(selector) => {
+                let vars = match selector {
+                    VariableSelector::Name(variable_name) => self
+                        .debugger
+                        .debugee
+                        .dwarf
+                        .find_variables(self.location, variable_name),
+                    VariableSelector::Any => {
+                        let current_func = self
+                            .debugger
+                            .debugee
+                            .dwarf
+                            .find_function_by_pc(self.location.global_pc)
+                            .ok_or_else(|| anyhow!("not in function"))?;
+                        current_func.local_variables(self.location.global_pc)
+                    }
+                };
+                Ok(vars
+                    .into_iter()
+                    .filter_map(|die| die.die.name().map(ToOwned::to_owned))
+                    .collect())
+            }
+            _ => panic!("unsupported"),
+        }
+    }
+
     /// Evaluate select expression and returns list of matched variables.
     pub fn evaluate(&self) -> anyhow::Result<Vec<VariableIR>> {
         self.evaluate_inner(&self.expression)
@@ -105,12 +135,43 @@ impl<'a> SelectExpressionEvaluator<'a> {
         }
     }
 
-    /// Same as `evaluate` but for function arguments.
+    /// Same as [`SelectExpressionEvaluator::evaluate_names`] but for function arguments.
+    pub fn evaluate_on_arguments_names(&self) -> anyhow::Result<Vec<String>> {
+        match &self.expression {
+            Expression::Variable(selector) => {
+                let current_function = self
+                    .debugger
+                    .debugee
+                    .dwarf
+                    .find_function_by_pc(self.location.global_pc)
+                    .ok_or_else(|| anyhow!("not in function"))?;
+                let params = current_function.parameters();
+
+                let params = match selector {
+                    VariableSelector::Name(variable_name) => params
+                        .into_iter()
+                        .filter(|param| {
+                            param.die.base_attributes.name.as_ref() == Some(variable_name)
+                        })
+                        .collect::<Vec<_>>(),
+                    VariableSelector::Any => params,
+                };
+
+                Ok(params
+                    .into_iter()
+                    .filter_map(|die| die.die.name().map(ToOwned::to_owned))
+                    .collect())
+            }
+            _ => panic!("unsupported"),
+        }
+    }
+
+    /// Same as [`SelectExpressionEvaluator::evaluate`] but for function arguments.
     pub fn evaluate_on_arguments(&self) -> anyhow::Result<Vec<VariableIR>> {
         self.evaluate_on_arguments_inner(&self.expression)
     }
 
-    pub fn evaluate_on_arguments_inner(
+    fn evaluate_on_arguments_inner(
         &self,
         expression: &Expression,
     ) -> anyhow::Result<Vec<VariableIR>> {
