@@ -254,7 +254,7 @@ class CommandTestCase(unittest.TestCase):
         debugger.sendline('run')
         debugger.expect_exact('>    print(s, &args[5]);')
 
-        debugger.sendline('vars locals')
+        debugger.sendline('var locals')
         debugger.expect_exact('s = i64(6)')
 
     def test_function_breakpoint_remove(self):

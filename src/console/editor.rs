@@ -1,10 +1,10 @@
 use crate::debugger::command::{
-    ARG_COMMAND, BACKTRACE_COMMAND, BACKTRACE_COMMAND_SHORT, BREAK_COMMAND, BREAK_COMMAND_SHORT,
-    CONTINUE_COMMAND, CONTINUE_COMMAND_SHORT, FRAME_COMMAND, HELP_COMMAND, HELP_COMMAND_SHORT,
-    MEMORY_COMMAND, MEMORY_COMMAND_SHORT, REGISTER_COMMAND, REGISTER_COMMAND_SHORT, RUN_COMMAND,
-    RUN_COMMAND_SHORT, STEP_INSTRUCTION_COMMAND, STEP_INTO_COMMAND, STEP_INTO_COMMAND_SHORT,
-    STEP_OUT_COMMAND, STEP_OUT_COMMAND_SHORT, STEP_OVER_COMMAND, STEP_OVER_COMMAND_SHORT,
-    SYMBOL_COMMAND, VAR_COMMAND, VAR_LOCAL_KW,
+    ARG_ALL_KEY, ARG_COMMAND, BACKTRACE_COMMAND, BACKTRACE_COMMAND_SHORT, BREAK_COMMAND,
+    BREAK_COMMAND_SHORT, CONTINUE_COMMAND, CONTINUE_COMMAND_SHORT, FRAME_COMMAND, HELP_COMMAND,
+    HELP_COMMAND_SHORT, MEMORY_COMMAND, MEMORY_COMMAND_SHORT, REGISTER_COMMAND,
+    REGISTER_COMMAND_SHORT, RUN_COMMAND, RUN_COMMAND_SHORT, STEP_INSTRUCTION_COMMAND,
+    STEP_INTO_COMMAND, STEP_INTO_COMMAND_SHORT, STEP_OUT_COMMAND, STEP_OUT_COMMAND_SHORT,
+    STEP_OVER_COMMAND, STEP_OVER_COMMAND_SHORT, SYMBOL_COMMAND, VAR_COMMAND, VAR_LOCAL_KEY,
 };
 use crossterm::style::{Color, Stylize};
 use nom::branch::alt;
@@ -110,7 +110,7 @@ impl CommandCompleter {
     pub fn replace_local_var_hints(&mut self, variables: impl IntoIterator<Item = String>) {
         let mut builder = TrieBuilder::new();
         self.vars = variables.into_iter().collect();
-        self.vars.push(VAR_LOCAL_KW.underlined().to_string());
+        self.vars.push(VAR_LOCAL_KEY.underlined().to_string());
         self.vars.iter().for_each(|var| {
             builder.push(var);
         });
@@ -120,6 +120,7 @@ impl CommandCompleter {
     pub fn replace_arg_hints(&mut self, args: impl IntoIterator<Item = String>) {
         let mut builder = TrieBuilder::new();
         self.args = args.into_iter().collect();
+        self.vars.push(ARG_ALL_KEY.underlined().to_string());
         self.args.iter().for_each(|arg| {
             builder.push(arg);
         });

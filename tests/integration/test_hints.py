@@ -36,14 +36,14 @@ class HintsTestCase(unittest.TestCase):
         self.debugger.send("\n")
 
     def test_var_command_hints(self):
-        """Test variable autocompletion for `vars` command"""
+        """Test variable autocompletion for `var` command"""
         self.debugger.sendline('break vars.rs:9')
         self.debugger.expect_exact('break vars.rs:9')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('let int32 = 2_i32;')
 
-        self.debugger.send("vars \t\t")
+        self.debugger.send("var \t\t")
         self.debugger.expect_exact('int8')
         self.debugger.expect_exact('int16')
         self.debugger.expect_exact('\x1b[4mlocals\x1b[0m')
@@ -59,7 +59,7 @@ class HintsTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('println!("{by_val}");')
 
-        self.debugger.send("args \t\t")
+        self.debugger.send("arg \t\t")
         self.debugger.expect_exact('by_val')
         self.debugger.expect_exact('by_ref')
         self.debugger.expect_exact('vec')

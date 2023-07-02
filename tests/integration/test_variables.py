@@ -18,7 +18,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars locals')
+        self.debugger.sendline('var locals')
         self.debugger.expect_exact('int8 = i8(1)')
         self.debugger.expect_exact('int16 = i16(-1)')
         self.debugger.expect_exact('int32 = i32(2)')
@@ -46,7 +46,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let int128 = 3_i128;')
 
-        self.debugger.sendline('vars locals')
+        self.debugger.sendline('var locals')
         self.debugger.expect_exact('int8 = i8(1)')
         self.debugger.expect_exact('int16 = i16(-1)')
         self.debugger.expect_exact('int32 = i32(2)')
@@ -62,7 +62,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars locals')
+        self.debugger.sendline('var locals')
         self.debugger.expect_exact('tuple_0 = ()')
 
         self.debugger.expect_exact('tuple_1 = (f64, f64) {')
@@ -96,7 +96,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars locals')
+        self.debugger.sendline('var locals')
         self.debugger.expect_exact('arr_1 = [i32] {')
         self.debugger.expect_exact('0: i32(1)')
         self.debugger.expect_exact('1: i32(-1)')
@@ -137,7 +137,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars locals')
+        self.debugger.sendline('var locals')
         self.debugger.expect_exact('enum_1 = EnumA::B')
 
         self.debugger.expect_exact('enum_2 = EnumC::C {')
@@ -177,7 +177,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars locals')
+        self.debugger.sendline('var locals')
         self.debugger.expect_exact('a = i32(2)')
         self.debugger.expect(r'ref_a = &i32 \[0x[0-9a-f]{12}\]')
         self.debugger.expect(r'ptr_a = \*const i32 \[0x[0-9a-f]{12}\]')
@@ -213,21 +213,21 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars *ref_a')
+        self.debugger.sendline('var *ref_a')
         self.debugger.expect_exact('*ref_a = i32(2)')
-        self.debugger.sendline('vars *ptr_a')
+        self.debugger.sendline('var *ptr_a')
         self.debugger.expect_exact('*ptr_a = i32(2)')
-        self.debugger.sendline('vars *ptr_ptr_a')
+        self.debugger.sendline('var *ptr_ptr_a')
         self.debugger.expect(r'\*ptr_ptr_a = \*const i32 \[0x[0-9a-f]{12}\]')
-        self.debugger.sendline('vars **ptr_ptr_a')
+        self.debugger.sendline('var **ptr_ptr_a')
         self.debugger.expect_exact('**ptr_ptr_a = i32(2)')
-        self.debugger.sendline('vars *mut_ref_b')
+        self.debugger.sendline('var *mut_ref_b')
         self.debugger.expect_exact('*mut_ref_b = i32(2)')
-        self.debugger.sendline('vars *mut_ptr_c')
+        self.debugger.sendline('var *mut_ptr_c')
         self.debugger.expect_exact('*mut_ptr_c = i32(2)')
-        self.debugger.sendline('vars *box_d')
+        self.debugger.sendline('var *box_d')
         self.debugger.expect_exact('*box_d = i32(2)')
-        self.debugger.sendline('vars *ref_f')
+        self.debugger.sendline('var *ref_f')
         self.debugger.expect_exact('*ref_f = Foo {')
         self.debugger.expect_exact('bar: i32(1)')
         self.debugger.expect_exact('baz: [i32] {')
@@ -245,7 +245,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars locals')
+        self.debugger.sendline('var locals')
         self.debugger.expect_exact('a_alias = i32(1)')
 
     def test_read_vec_and_slice(self):
@@ -256,7 +256,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars locals')
+        self.debugger.sendline('var locals')
         self.debugger.expect_exact('vec1 = Vec<i32, alloc::alloc::Global> {')
         self.debugger.expect_exact('buf: [i32] {')
         self.debugger.expect_exact('0: i32(1)')
@@ -305,27 +305,27 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect(r'slice1 = &\[i32; 3\] \[0x[0-9a-f]{12}\]')
         self.debugger.expect(r'slice2 = &\[&\[i32; 3\]; 2\] \[0x[0-9a-f]{12}\]')
 
-        self.debugger.sendline('vars *slice1')
+        self.debugger.sendline('var *slice1')
         self.debugger.expect_exact('*slice1 = [i32]')
         self.debugger.expect_exact('0: i32(1)')
         self.debugger.expect_exact('1: i32(2)')
         self.debugger.expect_exact('2: i32(3)')
         self.debugger.expect_exact('}')
 
-        self.debugger.sendline('vars *slice2')
+        self.debugger.sendline('var *slice2')
         self.debugger.expect_exact('*slice2 = [&[i32; 3]] {')
         self.debugger.expect(r'0: &\[i32; 3\] \[0x[0-9a-f]{12}\]')
         self.debugger.expect(r'1: &\[i32; 3\] \[0x[0-9a-f]{12}\]')
         self.debugger.expect_exact('}')
 
-        self.debugger.sendline('vars *(*slice2)[0]')
+        self.debugger.sendline('var *(*slice2)[0]')
         self.debugger.expect_exact('*0 = [i32] {')
         self.debugger.expect_exact('0: i32(1)')
         self.debugger.expect_exact('1: i32(2)')
         self.debugger.expect_exact('2: i32(3)')
         self.debugger.expect_exact('}')
 
-        self.debugger.sendline('vars *(*slice2)[1]')
+        self.debugger.sendline('var *(*slice2)[1]')
         self.debugger.expect_exact('*1 = [i32] {')
         self.debugger.expect_exact('0: i32(1)')
         self.debugger.expect_exact('1: i32(2)')
@@ -340,7 +340,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars locals')
+        self.debugger.sendline('var locals')
         self.debugger.expect_exact('s1 = String(hello world)')
         self.debugger.expect_exact('s2 = &str(hello world)')
         self.debugger.expect_exact('s3 = &str(hello world)')
@@ -353,9 +353,9 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars GLOB_1')
+        self.debugger.sendline('var GLOB_1')
         self.debugger.expect_exact('vars::GLOB_1 = &str(glob_1)')
-        self.debugger.sendline('vars GLOB_2')
+        self.debugger.sendline('var GLOB_2')
         self.debugger.expect_exact('vars::GLOB_2 = i32(2)')
 
     def test_read_static_variables_different_modules(self):
@@ -366,7 +366,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars GLOB_3')
+        self.debugger.sendline('var GLOB_3')
         self.debugger.expect(r'vars::(ns_1::)?GLOB_3')
         self.debugger.expect(r'vars::(ns_1::)?GLOB_3')
 
@@ -378,10 +378,10 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>        let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars THREAD_LOCAL_VAR_1')
+        self.debugger.sendline('var THREAD_LOCAL_VAR_1')
         self.debugger.expect_exact(
             'vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(2)')
-        self.debugger.sendline('vars THREAD_LOCAL_VAR_2')
+        self.debugger.sendline('var THREAD_LOCAL_VAR_2')
         self.debugger.expect_exact(
             'vars::THREAD_LOCAL_VAR_2::__getit::__KEY = Cell<&str>(2)')
 
@@ -391,7 +391,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('continue')
         self.debugger.expect_exact('>        let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars THREAD_LOCAL_VAR_1')
+        self.debugger.sendline('var THREAD_LOCAL_VAR_1')
         self.debugger.expect_exact(
             'vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(uninit)')
 
@@ -401,7 +401,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('continue')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars THREAD_LOCAL_VAR_1')
+        self.debugger.sendline('var THREAD_LOCAL_VAR_1')
         self.debugger.expect_exact(
             'vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(1)')
 
@@ -413,7 +413,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars arr_2[0][2]')
+        self.debugger.sendline('var arr_2[0][2]')
         self.debugger.expect_exact('2 = i32(2)')
 
         self.debugger.sendline('break vars.rs:93')
@@ -421,7 +421,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('continue')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars enum_6.0.a')
+        self.debugger.sendline('var enum_6.0.a')
         self.debugger.expect_exact('a = i32(1)')
 
         self.debugger.sendline('break vars.rs:119')
@@ -429,7 +429,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('continue')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars *((*ref_f).foo)')
+        self.debugger.sendline('var *((*ref_f).foo)')
         self.debugger.expect_exact('*foo = i32(2)')
 
         self.debugger.sendline('break vars.rs:256')
@@ -437,7 +437,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('continue')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars hm2.abc')
+        self.debugger.sendline('var hm2.abc')
         self.debugger.expect_exact('abc = Vec<i32, alloc::alloc::Global> {')
         self.debugger.expect_exact('buf: [i32] {')
         self.debugger.expect_exact('1: i32(2)')
@@ -451,7 +451,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('continue')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars ptr[..4]')
+        self.debugger.sendline('var ptr[..4]')
         self.debugger.expect_exact('[*ptr] = [i32] {')
         self.debugger.expect_exact('0: i32(1)')
         self.debugger.expect_exact('1: i32(2)')
@@ -467,7 +467,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    let nop: Option<u8> = None;')
 
-        self.debugger.sendline('vars locals')
+        self.debugger.sendline('var locals')
 
         self.debugger.expect_exact('ptr_zst = &()')
 
@@ -532,5 +532,28 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('btree_set_zst = BTreeSet<(), alloc::alloc::Global> {')
         self.debugger.expect_exact('()(())')
         self.debugger.expect_exact('}')
+
+    def test_read_arguments(self):
+        """Reading rust tls variables"""
+        self.debugger.sendline('break vars.rs:227')
+        self.debugger.expect('break vars.rs:227')
+
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('let nop: Option<u8> = None;')
+
+        self.debugger.sendline('arg by_val')
+        self.debugger.expect_exact('by_val = i32(1)')
+        self.debugger.sendline('arg by_ref')
+        self.debugger.expect(r'by_ref = &i32 \[0x[0-9a-f]{12}\]')
+        self.debugger.sendline('arg vec')
+        self.debugger.expect_exact('vec = Vec<u8, alloc::alloc::Global> {')
+        self.debugger.sendline('arg box_arr')
+        self.debugger.expect_exact('box_arr = alloc::boxed::Box<[u8], alloc::alloc::Global> {')
+
+        self.debugger.sendline('arg all')
+        self.debugger.expect_exact('by_val = i32(1)')
+        self.debugger.expect_exact('by_ref = &i32')
+        self.debugger.expect_exact('vec = Vec<u8, alloc::alloc::Global> {')
+        self.debugger.expect_exact('box_arr = alloc::boxed::Box<[u8], alloc::alloc::Global> {')
 
 

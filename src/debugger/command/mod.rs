@@ -51,9 +51,10 @@ use nom_supreme::tag::complete::tag;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
-pub const VAR_COMMAND: &str = "vars";
-pub const VAR_LOCAL_KW: &str = "locals";
-pub const ARG_COMMAND: &str = "args";
+pub const VAR_COMMAND: &str = "var";
+pub const VAR_LOCAL_KEY: &str = "locals";
+pub const ARG_COMMAND: &str = "arg";
+pub const ARG_ALL_KEY: &str = "all";
 pub const BACKTRACE_COMMAND: &str = "backtrace";
 pub const BACKTRACE_COMMAND_SHORT: &str = "bt";
 pub const CONTINUE_COMMAND: &str = "continue";
@@ -155,7 +156,7 @@ impl Command {
         fn print_var_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             alt((
                 map(
-                    preceded(tag(VAR_COMMAND), preceded(multispace1, tag(VAR_LOCAL_KW))),
+                    preceded(tag(VAR_COMMAND), preceded(multispace1, tag(VAR_LOCAL_KEY))),
                     |_| Command::PrintVariables(Expression::Variable(VariableSelector::Any)),
                 ),
                 map(
@@ -171,7 +172,7 @@ impl Command {
         fn print_argument_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             alt((
                 map(
-                    preceded(tag(ARG_COMMAND), preceded(multispace1, tag("all"))),
+                    preceded(tag(ARG_COMMAND), preceded(multispace1, tag(ARG_ALL_KEY))),
                     |_| Command::PrintArguments(Expression::Variable(VariableSelector::Any)),
                 ),
                 map(
@@ -398,7 +399,7 @@ mod test {
         }
         let cases = vec![
             TestCase {
-                inputs: vec!["vars locals"],
+                inputs: vec!["var locals"],
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
@@ -407,7 +408,7 @@ mod test {
                 },
             },
             TestCase {
-                inputs: vec!["vars **var1"],
+                inputs: vec!["var **var1"],
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
@@ -416,11 +417,11 @@ mod test {
                 },
             },
             TestCase {
-                inputs: vec!["vars ("],
+                inputs: vec!["var ("],
                 command_matcher: |result| assert!(result.is_err()),
             },
             TestCase {
-                inputs: vec!["args all"],
+                inputs: vec!["arg all"],
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),

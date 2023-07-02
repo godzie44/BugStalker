@@ -51,7 +51,7 @@ class TodosTestCase(unittest.TestCase):
         self.debugger.sendline('q')
 
     def test_create_and_get(self):
-        """Create item, then try to get it and check that it exists in debugger (by `vars` command)"""
+        """Create item, then try to get it and check that it exists in debugger (by `var` command)"""
         # create breakpoint
         self.debugger.sendline('b main.rs:108')
         # get breakpoint
@@ -79,7 +79,7 @@ class TodosTestCase(unittest.TestCase):
         time.sleep(1)
 
         # break in get
-        self.debugger.sendline('vars locals')
+        self.debugger.sendline('var locals')
         self.debugger.expect_exact(
             'todos = Vec<todos::Todo, alloc::alloc::Global> {')
         self.debugger.expect_exact('0: Todo {')
