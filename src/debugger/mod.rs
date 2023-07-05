@@ -202,7 +202,7 @@ impl Debugger {
 
     /// Restart debugee by recreating debugee process, save all user defined breakpoints.
     /// Return when new debugee stopped or ends.
-    fn restart_debugee(&mut self) -> anyhow::Result<()> {
+    pub fn restart_debugee(&mut self) -> anyhow::Result<()> {
         self.breakpoints
             .iter()
             .try_for_each(|(_, bp)| bp.disable())?;

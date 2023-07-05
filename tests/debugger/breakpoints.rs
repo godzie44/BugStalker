@@ -2,6 +2,7 @@ use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
 use crate::prepare_debugee_process;
 use crate::{assert_no_proc, HW_APP};
+use bugstalker::debugger::address::Address;
 use bugstalker::debugger::Debugger;
 use serial_test::serial;
 
@@ -21,21 +22,37 @@ fn test_multiple_brkpt_on_addr() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
-    debugger
-        .set_breakpoint_at_line("hello_world.rs", 5)
-        .unwrap();
-    debugger
-        .set_breakpoint_at_line("hello_world.rs", 9)
-        .unwrap();
+    let mut dbg = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    dbg.set_breakpoint_at_line("hello_world.rs", 5).unwrap();
+    dbg.set_breakpoint_at_line("hello_world.rs", 9).unwrap();
 
-    debugger.start_debugee().unwrap();
+    dbg.start_debugee().unwrap();
+
+    // save addresses
+    assert_eq!(info.line.take(), Some(5));
+    let addr_1 = info.addr.take().unwrap();
+
+    dbg.continue_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(9));
+    let addr_2 = info.addr.take().unwrap();
+
+    dbg.remove_breakpoint_at_line("hello_world.rs", 5).unwrap();
+    dbg.remove_breakpoint_at_line("hello_world.rs", 9).unwrap();
+
+    // set new breakpoints at addresses
+    dbg.new_breakpoint(Address::Relocated(addr_1)).unwrap();
+    dbg.new_breakpoint(Address::Relocated(addr_2)).unwrap();
+
+    // restart
+    dbg.restart_debugee().unwrap();
+
+    // assert stop points
     assert_eq!(info.line.take(), Some(5));
 
-    debugger.continue_debugee().unwrap();
+    dbg.continue_debugee().unwrap();
     assert_eq!(info.line.take(), Some(9));
 
-    debugger.continue_debugee().unwrap();
+    dbg.continue_debugee().unwrap();
 
     assert_no_proc!(debugee_pid);
 }
