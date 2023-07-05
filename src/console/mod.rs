@@ -1,5 +1,6 @@
 use super::debugger::command::Continue;
 use crate::console::editor::{create_editor, CommandCompleter, RLHelper};
+use crate::console::help::*;
 use crate::console::hook::TerminalHook;
 use crate::console::print::ExternalPrinter;
 use crate::console::variable::render_variable_ir;
@@ -26,6 +27,7 @@ use std::thread;
 use std::time::Duration;
 
 mod editor;
+mod help;
 pub mod hook;
 pub mod print;
 mod variable;
@@ -341,15 +343,12 @@ impl AppLoop {
                     ));
                 });
             }
-            Command::Help(reason) => match reason {
-                None => {
-                    self.printer.print("help here (TODO)");
-                }
-                Some(reason) => {
+            Command::Help { reason, command } => {
+                if let Some(reason) = reason {
                     self.printer.print(reason);
-                    self.printer.print("help here (TODO)");
                 }
-            },
+                self.printer.print(help_for_command(command.as_deref()));
+            }
             Command::PrintSymbol(symbol) => {
                 let symbol = Symbol::new(&self.debugger).handle(&symbol)?;
                 self.printer

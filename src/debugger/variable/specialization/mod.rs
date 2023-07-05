@@ -21,9 +21,9 @@ use std::collections::HashMap;
 /// For example look at this code:
 /// ```rust
 ///    let res: Result<(), String> = Ok(());
-//     if let Err(e) = res {
-//         unreachable!();
-//     }
+///     if let Err(e) = res {
+///         unreachable!();
+///     }
 /// ```
 ///
 /// if stop debugger at line 2 and and consider a variable `e` - capacity of this vector

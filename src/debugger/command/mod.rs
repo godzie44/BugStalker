@@ -40,7 +40,7 @@ use nom::bytes::complete::is_not;
 use nom::character::complete::{
     alpha1, alphanumeric1, char, digit1, multispace1, not_line_ending, one_of,
 };
-use nom::combinator::{cut, eof, map, map_res, not, recognize};
+use nom::combinator::{cut, eof, map, map_res, not, opt, recognize};
 use nom::error::context;
 use nom::multi::{many0, many0_count, many1};
 use nom::sequence::{delimited, pair, preceded, separated_pair, terminated};
@@ -130,7 +130,10 @@ pub enum Command {
     Breakpoint(r#break::Command),
     Memory(memory::Command),
     Register(register::Command),
-    Help(Option<String>),
+    Help {
+        command: Option<String>,
+        reason: Option<String>,
+    },
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -220,7 +223,19 @@ impl Command {
             STEP_OVER_COMMAND,
             Command::StepOver
         );
-        let help_parser = parser2_no_args!(HELP_COMMAND_SHORT, HELP_COMMAND, Command::Help(None));
+
+        fn help_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
+            map(
+                preceded(
+                    alt((tag(HELP_COMMAND), tag(HELP_COMMAND_SHORT))),
+                    opt(preceded(multispace1, not_line_ending)),
+                ),
+                |s: Option<&str>| Command::Help {
+                    command: s.map(ToOwned::to_owned),
+                    reason: None,
+                },
+            )(input)
+        }
 
         fn backtrace_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             alt((
@@ -380,8 +395,9 @@ impl Command {
             command(MEMORY_COMMAND, memory_parser),
             command(REGISTER_COMMAND, register_parser),
             command(HELP_COMMAND, help_parser),
-            cut(map(not_line_ending, |_| {
-                Command::Help(Some("undefined command".to_string()))
+            cut(map(not_line_ending, |_| Command::Help {
+                command: None,
+                reason: Some("undefined command".to_string()),
             })),
         ))(input)
     }
