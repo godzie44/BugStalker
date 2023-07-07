@@ -283,7 +283,18 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect('bye!')
 
     def test_debugee_restart(self):
-        """Debugee process restarting"""
+        """Debugee process restart"""
+        self.debugger.sendline('run')
+        self.debugger.expect('Hello, world!')
+        self.debugger.expect('bye!')
+        self.debugger.sendline('run')
+        self.debugger.expect('Restart program?')
+        self.debugger.sendline('y')
+        self.debugger.expect('Hello, world!')
+        self.debugger.expect('bye!')
+
+    def test_debugee_restart_at_bp(self):
+        """Debugee process restarting at breakpoint"""
         self.debugger.sendline('break hello_world.rs:9')
         self.debugger.sendline('run')
         self.debugger.expect('Hello, world!')

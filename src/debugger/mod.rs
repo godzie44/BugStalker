@@ -203,16 +203,20 @@ impl Debugger {
     /// Restart debugee by recreating debugee process, save all user defined breakpoints.
     /// Return when new debugee stopped or ends.
     pub fn restart_debugee(&mut self) -> anyhow::Result<()> {
-        self.breakpoints
-            .iter()
-            .try_for_each(|(_, bp)| bp.disable())?;
+        if self.debugee.execution_status == ExecutionStatus::InProgress {
+            self.breakpoints
+                .iter()
+                .try_for_each(|(_, bp)| bp.disable())?;
+        }
 
-        let proc_pid = self.debugee.tracee_ctl().proc_pid();
-        signal::kill(proc_pid, SIGKILL)?;
-        _ = self
-            .debugee
-            .tracer_mut()
-            .resume(TraceContext::new(&self.breakpoints.values().collect()));
+        if self.debugee.execution_status != ExecutionStatus::Exited {
+            let proc_pid = self.debugee.tracee_ctl().proc_pid();
+            signal::kill(proc_pid, SIGKILL)?;
+            _ = self
+                .debugee
+                .tracer_mut()
+                .resume(TraceContext::new(&self.breakpoints.values().collect()));
+        }
 
         self.process = self.process.install()?;
 
