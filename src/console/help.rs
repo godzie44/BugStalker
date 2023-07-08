@@ -144,10 +144,10 @@ Posible location format:
 
 pub const HELP_SYMBOL: &str = "\
 \x1b[32;1msymbol\x1b[0m
-Print symbol kind and address.
+Print symbols matched by regular expression.
 
 Available subcomands:
-symbol <name>
+symbol <name_regex>
 ";
 
 pub const HELP_MEMORY: &str = "\

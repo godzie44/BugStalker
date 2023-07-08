@@ -12,9 +12,9 @@ fn test_symbol() {
     let debugee_pid = process.pid();
     let mut debugger = Debugger::new(process, TestHooks::default()).unwrap();
 
-    let main_sym = debugger.get_symbol("main").unwrap();
+    let main_sym = debugger.get_symbols("^main$").unwrap()[0];
     assert_eq!(SymbolKind::Text, main_sym.kind);
-    assert_ne!(main_sym.addr, 0);
+    assert_ne!(usize::from(main_sym.addr), 0);
 
     debugger.start_debugee().unwrap();
     assert_no_proc!(debugee_pid);

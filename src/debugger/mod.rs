@@ -246,11 +246,8 @@ impl Debugger {
         self.continue_execution()
     }
 
-    pub fn get_symbol(&self, name: &str) -> anyhow::Result<&Symbol> {
-        self.debugee
-            .dwarf
-            .find_symbol(name)
-            .ok_or_else(|| anyhow!("symbol not found"))
+    pub fn get_symbols(&self, regex: &str) -> anyhow::Result<Vec<&Symbol>> {
+        self.debugee.dwarf.find_symbols(regex)
     }
 
     pub fn frame_info(&self, tid: Pid) -> anyhow::Result<FrameInfo> {

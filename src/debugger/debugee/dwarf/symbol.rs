@@ -1,11 +1,13 @@
+use crate::debugger::address::GlobalAddress;
 use object::{Object, ObjectSymbol, ObjectSymbolTable, SymbolKind};
 use std::collections::HashMap;
 use std::ops::Deref;
 
 #[derive(Debug, Clone)]
 pub struct Symbol {
+    pub name: String,
     pub kind: SymbolKind,
-    pub addr: u64,
+    pub addr: GlobalAddress,
 }
 
 #[derive(Debug, Clone)]
@@ -30,12 +32,14 @@ impl SymbolTab {
                 sym_table
                     .symbols()
                     .map(|symbol| {
-                        let name: String = symbol.name().unwrap_or_default().into();
+                        let name = symbol.name().unwrap_or_default();
+                        let name = rustc_demangle::demangle(name).to_string();
                         (
-                            name,
+                            name.clone(),
                             Symbol {
+                                name,
                                 kind: symbol.kind(),
-                                addr: symbol.address(),
+                                addr: symbol.address().into(),
                             },
                         )
                     })

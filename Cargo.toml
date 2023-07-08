@@ -42,6 +42,7 @@ strum_macros = "0.24"
 signal-hook = "0.3.15"
 rayon = "1.7.0"
 trie-rs = "0.1.1"
+regex = "1.8.4"
 
 [dev-dependencies]
 sysinfo = "0.28.4"

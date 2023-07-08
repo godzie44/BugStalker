@@ -350,9 +350,13 @@ impl AppLoop {
                 self.printer.print(help_for_command(command.as_deref()));
             }
             Command::PrintSymbol(symbol) => {
-                let symbol = Symbol::new(&self.debugger).handle(&symbol)?;
-                self.printer
-                    .print(format!("{:?} {:#016X}", symbol.kind, symbol.addr));
+                let symbols = Symbol::new(&self.debugger).handle(&symbol)?;
+                for symbol in symbols {
+                    self.printer.print(format!(
+                        "{} - {:?} {}",
+                        symbol.name, symbol.kind, symbol.addr
+                    ));
+                }
             }
         }
 

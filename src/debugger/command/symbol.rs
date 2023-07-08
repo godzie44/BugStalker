@@ -10,7 +10,7 @@ impl<'a> Symbol<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn handle(self, symbol_name: &str) -> command::HandleResult<&'a dwarf::Symbol> {
-        Ok(self.dbg.get_symbol(symbol_name)?)
+    pub fn handle(self, regex: &str) -> command::HandleResult<Vec<&'a dwarf::Symbol>> {
+        Ok(self.dbg.get_symbols(regex)?)
     }
 }

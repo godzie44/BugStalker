@@ -30,6 +30,7 @@ use gimli::{
 use nix::unistd::Pid;
 use object::{Object, ObjectSection};
 use rayon::prelude::*;
+use regex::Regex;
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::ops::Deref;
@@ -215,8 +216,19 @@ impl DebugeeContext {
             .find_map(|unit| unit.find_stmt_line(file, line))
     }
 
-    pub fn find_symbol(&self, name: &str) -> Option<&Symbol> {
-        self.symbol_table.as_ref().and_then(|table| table.get(name))
+    pub fn find_symbols(&self, regex: &str) -> anyhow::Result<Vec<&Symbol>> {
+        let regex = Regex::new(regex)?;
+        let symbols = self
+            .symbol_table
+            .as_ref()
+            .map(|table| {
+                let keys = table
+                    .keys()
+                    .filter(|key| regex.find(key.as_str()).is_some());
+                keys.map(|k| &table[k]).collect()
+            })
+            .unwrap_or_default();
+        Ok(symbols)
     }
 
     pub fn deref_die<'this>(
