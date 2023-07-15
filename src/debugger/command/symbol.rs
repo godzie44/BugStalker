@@ -11,6 +11,8 @@ impl<'a> Symbol<'a> {
     }
 
     pub fn handle(self, regex: &str) -> command::HandleResult<Vec<&'a dwarf::Symbol>> {
-        Ok(self.dbg.get_symbols(regex)?)
+        let mut symbols = self.dbg.get_symbols(regex)?;
+        symbols.sort_by(|s1, s2| s1.name.cmp(&s2.name));
+        Ok(symbols)
     }
 }

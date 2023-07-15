@@ -219,8 +219,8 @@ class CommandTestCase(unittest.TestCase):
     def test_get_symbol(self):
         """Get debugee symbol"""
         self.debugger.sendline('symbol main')
+        self.debugger.expect('__libc_start_main')
         self.debugger.expect('main - Text 0x[0-9A-F]{,16}')
-        self.debugger.expect('__libc_start_main@GLIBC_2.34 - Text 0x[0-9A-F]{,16}')
 
     def test_backtrace(self):
         """Backtrace"""
