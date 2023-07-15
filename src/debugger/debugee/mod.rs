@@ -1,4 +1,4 @@
-use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
+use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::dwarf::unwind::libunwind;
 use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
 use crate::debugger::debugee::dwarf::{DebugeeContext, EndianArcSlice};
@@ -112,6 +112,8 @@ impl Debugee {
     }
 
     /// Return debugee process mapping offset.
+    ///
+    /// # Panics
     /// This method will panic if called before debugee started,
     /// calling a method on time is the responsibility of the caller.
     pub fn mapping_offset(&self) -> usize {
@@ -119,6 +121,8 @@ impl Debugee {
     }
 
     /// Return rendezvous struct.
+    ///
+    /// # Panics
     /// This method will panic if called before program entry point evaluated,
     /// calling a method on time is the responsibility of the caller.
     pub fn rendezvous(&self) -> &Rendezvous {

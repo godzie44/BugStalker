@@ -51,7 +51,8 @@ pub struct Place<'a> {
     unit: &'a Unit,
 }
 
-/// Like a ['Place'] but without reference to compilation unit.
+/// Like a [`Place`] but without reference to compilation unit.
+#[derive(Debug, Clone)]
 pub struct PlaceOwned {
     pub file: PathBuf,
     pub address: GlobalAddress,
