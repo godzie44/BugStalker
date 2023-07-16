@@ -2,7 +2,6 @@ use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
 use crate::prepare_debugee_process;
 use crate::{assert_no_proc, HW_APP};
-use bugstalker::debugger::address::Address;
 use bugstalker::debugger::Debugger;
 use serial_test::serial;
 
@@ -40,8 +39,8 @@ fn test_multiple_brkpt_on_addr() {
     dbg.remove_breakpoint_at_line("hello_world.rs", 9).unwrap();
 
     // set new breakpoints at addresses
-    dbg.new_breakpoint(Address::Relocated(addr_1)).unwrap();
-    dbg.new_breakpoint(Address::Relocated(addr_2)).unwrap();
+    dbg.set_breakpoint_at_addr(addr_1).unwrap();
+    dbg.set_breakpoint_at_addr(addr_2).unwrap();
 
     // restart
     dbg.restart_debugee().unwrap();

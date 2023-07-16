@@ -109,3 +109,12 @@ pub enum Address {
     Relocated(RelocatedAddress),
     Global(GlobalAddress),
 }
+
+impl Display for Address {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Address::Relocated(addr) => addr.fmt(f),
+            Address::Global(addr) => addr.fmt(f),
+        }
+    }
+}

@@ -9,13 +9,14 @@ pub mod rust;
 mod utils;
 pub mod variable;
 
+pub use breakpoint::BreakpointView;
 pub use debugee::dwarf::r#type::TypeDeclaration;
 pub use debugee::dwarf::unit::Place;
 pub use debugee::dwarf::unwind;
 pub use debugee::ThreadSnapshot;
 
 use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
-use crate::debugger::breakpoint::{Breakpoint, BrkptType};
+use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};
 use crate::debugger::debugee::dwarf::r#type::TypeCache;
 use crate::debugger::debugee::dwarf::unit::PlaceOwned;
 use crate::debugger::debugee::dwarf::unwind::libunwind;
@@ -36,7 +37,6 @@ use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::Pid;
 use object::Object;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::ffi::c_long;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -97,8 +97,9 @@ pub struct Debugger {
     process: Child<Installed>,
     /// Debugee static/runtime state and control flow.
     debugee: Debugee,
-    /// Active and non-active breakpoint list.
-    breakpoints: HashMap<Address, Breakpoint>,
+    /// Active breakpoint list.
+    //breakpoints: HashMap<Address, Breakpoint>,
+    breakpoints: BreakpointRegistry,
     /// Type declaration cache.
     type_cache: RefCell<TypeCache>,
     /// Debugger interrupt with UI by EventHook trait.
@@ -115,10 +116,11 @@ impl Debugger {
         let object = object::File::parse(&*mmap)?;
 
         let entry_point = GlobalAddress::from(object.entry());
-        let breakpoints = HashMap::from([(
+        let mut breakpoints = BreakpointRegistry::default();
+        breakpoints.add_uninit(UninitBreakpoint::new_entry_point(
             Address::Global(entry_point),
-            Breakpoint::new_entry_point(Address::Global(entry_point), process.pid()),
-        )]);
+            process.pid(),
+        ));
 
         hooks.on_process_install(process.pid());
 
@@ -137,39 +139,20 @@ impl Debugger {
         loop {
             let event = self
                 .debugee
-                .trace_until_stop(TraceContext::new(&self.breakpoints.values().collect()))?;
+                .trace_until_stop(TraceContext::new(&self.breakpoints.active_breakpoints()))?;
             match event {
                 StopReason::DebugeeExit(code) => {
                     self.hooks.on_exit(code);
                     break;
                 }
                 StopReason::DebugeeStart => {
-                    let mut brkpts_to_reloc = HashMap::with_capacity(self.breakpoints.len());
-                    let keys = self.breakpoints.keys().copied().collect::<Vec<_>>();
-                    for k in keys {
-                        if let Address::Global(addr) = k {
-                            brkpts_to_reloc.insert(addr, self.breakpoints.remove(&k).unwrap());
-                        }
-                    }
-                    for (addr, mut brkpt) in brkpts_to_reloc {
-                        brkpt.addr =
-                            Address::Relocated(addr.relocate(self.debugee.mapping_offset()));
-                        self.breakpoints.insert(brkpt.addr, brkpt);
-                    }
-                    self.breakpoints
-                        .iter()
-                        .try_for_each(|(_, brkpt)| brkpt.enable())?;
-
-                    debug_assert!(self
-                        .breakpoints
-                        .iter()
-                        .all(|(addr, _)| matches!(addr, Address::Relocated(_))));
+                    self.breakpoints.enable_all_endpoints(&self.debugee)?;
                 }
                 StopReason::NoSuchProcess(_) => {
                     break;
                 }
                 StopReason::Breakpoint(_, current_pc) => {
-                    if let Some(bp) = self.breakpoints.get(&Address::Relocated(current_pc)) {
+                    if let Some(bp) = self.breakpoints.get_enabled(current_pc) {
                         match bp.r#type() {
                             BrkptType::EntryPoint => {
                                 self.step_over_breakpoint()?;
@@ -204,18 +187,13 @@ impl Debugger {
     /// Return when new debugee stopped or ends.
     pub fn restart_debugee(&mut self) -> anyhow::Result<()> {
         if self.debugee.execution_status == ExecutionStatus::InProgress {
-            self.breakpoints
-                .iter()
-                .try_for_each(|(_, bp)| bp.disable())?;
+            self.breakpoints.disable_all_breakpoints(&self.debugee);
         }
 
         if self.debugee.execution_status != ExecutionStatus::Exited {
             let proc_pid = self.debugee.tracee_ctl().proc_pid();
             signal::kill(proc_pid, SIGKILL)?;
-            _ = self
-                .debugee
-                .tracer_mut()
-                .resume(TraceContext::new(&self.breakpoints.values().collect()));
+            _ = self.debugee.tracer_mut().resume(TraceContext::new(&vec![]));
         }
 
         self.process = self.process.install()?;
@@ -224,9 +202,7 @@ impl Debugger {
         _ = mem::replace(&mut self.debugee, new_debugee);
 
         // breakpoints will be enabled later, when StopReason::DebugeeStart state is reached
-        self.breakpoints.iter_mut().for_each(|(_, bp)| {
-            bp.pid = self.process.pid();
-        });
+        self.breakpoints.update_pid(self.process.pid());
 
         self.hooks.on_process_install(self.process.pid());
         self.continue_execution()
@@ -292,31 +268,29 @@ impl Debugger {
         Ok(libunwind::unwind(pid)?)
     }
 
-    fn add_breakpoint(&mut self, brkpt: Breakpoint) -> anyhow::Result<()> {
-        let addr = brkpt.addr;
-        if self.debugee.execution_status == ExecutionStatus::InProgress {
-            if let Some(existed) = self.breakpoints.get(&addr) {
-                existed.disable()?;
-            }
-            brkpt.enable()?;
-        }
-        self.breakpoints.insert(addr, brkpt);
-        Ok(())
-    }
+    // fn add_breakpoint(&mut self, brkpt: Breakpoint) -> anyhow::Result<&Breakpoint> {
+    //     let addr = brkpt.addr;
+    //     if self.debugee.execution_status == ExecutionStatus::InProgress {
+    //         if let Some(existed) = self.breakpoints.get(&addr) {
+    //             existed.disable()?;
+    //         }
+    //         brkpt.enable()?;
+    //     }
+    //     self.breakpoints.insert(addr, brkpt);
+    //     Ok(&self.breakpoints[&addr])
+    // }
 
-    pub fn new_breakpoint(&mut self, addr: Address) -> anyhow::Result<()> {
-        let brkpt = Breakpoint::new(addr, self.debugee.tracee_ctl().proc_pid());
-        self.add_breakpoint(brkpt)
-    }
+    // fn new_breakpoint(
+    //     &mut self,
+    //     addr: Address,
+    //     place: Option<PlaceOwned>,
+    // ) -> anyhow::Result<&Breakpoint> {
+    //     let brkpt = Breakpoint::new(addr, self.debugee.tracee_ctl().proc_pid(), place);
+    //     self.add_breakpoint(brkpt)
+    // }
 
-    pub fn remove_breakpoint(&mut self, addr: Address) -> anyhow::Result<()> {
-        let brkpt = self.breakpoints.remove(&addr);
-        if let Some(brkpt) = brkpt {
-            if brkpt.is_enabled() {
-                brkpt.disable()?;
-            }
-        }
-        Ok(())
+    fn remove_breakpoint(&mut self, addr: Address) -> anyhow::Result<Option<BreakpointView>> {
+        self.breakpoints.remove_by_addr(addr)
     }
 
     /// Read N bytes from debugee process.
@@ -347,13 +321,13 @@ impl Debugger {
     fn step_over_breakpoint(&mut self) -> anyhow::Result<()> {
         // cannot use debugee::Location mapping offset may be not init yet
         let tracee = self.debugee.tracee_in_focus();
-        let mb_brkpt = self.breakpoints.get(&Address::Relocated(tracee.pc()?));
+        let mb_brkpt = self.breakpoints.get_enabled(tracee.pc()?);
         let tracee_pid = tracee.pid;
         if let Some(brkpt) = mb_brkpt {
             if brkpt.is_enabled() {
                 brkpt.disable()?;
                 self.debugee.tracer_mut().single_step(
-                    TraceContext::new(&self.breakpoints.values().collect()),
+                    TraceContext::new(&self.breakpoints.active_breakpoints()),
                     tracee_pid,
                 )?;
                 brkpt.enable()?;
@@ -364,11 +338,11 @@ impl Debugger {
 
     fn single_step_instruction(&mut self) -> anyhow::Result<()> {
         let loc = self.current_thread_stop_at()?;
-        if self.breakpoints.get(&Address::Relocated(loc.pc)).is_some() {
+        if self.breakpoints.get_enabled(loc.pc).is_some() {
             self.step_over_breakpoint()
         } else {
             self.debugee.tracer_mut().single_step(
-                TraceContext::new(&self.breakpoints.values().collect()),
+                TraceContext::new(&self.breakpoints.active_breakpoints()),
                 loc.pid,
             )?;
             Ok(())
@@ -379,17 +353,12 @@ impl Debugger {
         disable_when_not_stared!(self);
         let location = self.current_thread_stop_at()?;
         if let Some(ret_addr) = libunwind::return_addr(location.pid)? {
-            let brkpt_is_set = self
-                .breakpoints
-                .get(&Address::Relocated(ret_addr))
-                .is_some();
+            let brkpt_is_set = self.breakpoints.get_enabled(ret_addr).is_some();
             if brkpt_is_set {
                 self.continue_execution()?;
             } else {
-                self.add_breakpoint(Breakpoint::new_temporary(
-                    Address::Relocated(ret_addr),
-                    location.pid,
-                ))?;
+                let brkpt = Breakpoint::new_temporary(ret_addr, location.pid);
+                self.breakpoints.add_and_enable(brkpt)?;
                 self.continue_execution()?;
                 self.remove_breakpoint(Address::Relocated(ret_addr))?;
 
@@ -534,10 +503,7 @@ impl Debugger {
                     && place.line_number != current_place.line_number
                 {
                     let load_addr = place.address.relocate(self.debugee.mapping_offset());
-                    if !self
-                        .breakpoints
-                        .contains_key(&Address::Relocated(load_addr))
-                    {
+                    if !self.breakpoints.get_enabled(load_addr).is_some() {
                         step_over_breakpoints.push(load_addr);
                         to_delete.push(load_addr);
                     }
@@ -553,19 +519,16 @@ impl Debugger {
         step_over_breakpoints
             .into_iter()
             .try_for_each(|load_addr| {
-                self.add_breakpoint(Breakpoint::new_temporary(
-                    Address::Relocated(load_addr),
-                    current_location.pid,
-                ))
+                self.breakpoints
+                    .add_and_enable(Breakpoint::new_temporary(load_addr, current_location.pid))
+                    .map(|_| ())
             })?;
 
         let return_addr = libunwind::return_addr(current_location.pid)?;
         if let Some(ret_addr) = return_addr {
-            if !self.breakpoints.contains_key(&Address::Relocated(ret_addr)) {
-                self.add_breakpoint(Breakpoint::new_temporary(
-                    Address::Relocated(ret_addr),
-                    current_location.pid,
-                ))?;
+            if !self.breakpoints.get_enabled(ret_addr).is_some() {
+                self.breakpoints
+                    .add_and_enable(Breakpoint::new_temporary(ret_addr, current_location.pid))?;
                 to_delete.push(ret_addr);
             }
         }
@@ -574,7 +537,7 @@ impl Debugger {
 
         to_delete
             .into_iter()
-            .try_for_each(|addr| self.remove_breakpoint(Address::Relocated(addr)))?;
+            .try_for_each(|addr| self.remove_breakpoint(Address::Relocated(addr)).map(|_| ()))?;
 
         // if a step is taken outside and new location pc not equals to place pc
         // then we then we stopped at the place of the previous function call, and got into an assignment operation or similar
@@ -603,54 +566,120 @@ impl Debugger {
         Ok(())
     }
 
-    fn address_for_fn(&self, name: &str) -> anyhow::Result<Address> {
+    fn address_for_fn(&self, name: &str) -> anyhow::Result<PlaceOwned> {
         let dwarf = &self.debugee.dwarf;
         let func = dwarf
             .find_function_by_name(name)
             .ok_or_else(|| anyhow!("function not found"))?;
-        let place = func.prolog_end_place()?;
-
-        Ok(
-            if self.debugee.execution_status == ExecutionStatus::InProgress {
-                Address::Relocated(place.address.relocate(self.debugee.mapping_offset()))
-            } else {
-                Address::Global(place.address)
-            },
-        )
+        let place = func.prolog_end_place()?.to_owned();
+        Ok(place)
     }
 
-    pub fn set_breakpoint_at_fn(&mut self, name: &str) -> anyhow::Result<()> {
-        self.new_breakpoint(self.address_for_fn(name)?)
-    }
+    pub fn set_breakpoint_at_addr(
+        &mut self,
+        addr: RelocatedAddress,
+    ) -> anyhow::Result<BreakpointView> {
+        let dwarf = &self.debugee.dwarf;
 
-    pub fn remove_breakpoint_at_fn(&mut self, name: &str) -> anyhow::Result<()> {
-        self.remove_breakpoint(self.address_for_fn(name)?)
-    }
-
-    fn address_for_line(&mut self, fine_name: &str, line: u64) -> Option<Address> {
-        if let Some(place) = self.debugee.dwarf.find_place(fine_name, line) {
-            let addr = if self.debugee.execution_status == ExecutionStatus::InProgress {
-                Address::Relocated(place.address.relocate(self.debugee.mapping_offset()))
-            } else {
-                Address::Global(place.address)
-            };
-            return Some(addr);
+        if self.debugee.in_progress() {
+            let global_addr = addr.into_global(self.debugee.mapping_offset());
+            let place = Some(
+                dwarf
+                    .find_place_from_pc(global_addr)
+                    .ok_or(anyhow!("unknown address"))?
+                    .to_owned(),
+            );
+            self.breakpoints
+                .add_and_enable(Breakpoint::new(addr, self.process.pid(), place))
+        } else {
+            Ok(self.breakpoints.add_uninit(UninitBreakpoint::new(
+                Address::Relocated(addr),
+                self.process.pid(),
+                None,
+            )))
         }
-        None
     }
 
-    pub fn set_breakpoint_at_line(&mut self, fine_name: &str, line: u64) -> anyhow::Result<()> {
-        if let Some(addr) = self.address_for_line(fine_name, line) {
-            self.new_breakpoint(addr)?;
-        }
-        Ok(())
+    pub fn remove_breakpoint_at_addr(
+        &mut self,
+        addr: RelocatedAddress,
+    ) -> anyhow::Result<Option<BreakpointView>> {
+        self.breakpoints.remove_by_addr(Address::Relocated(addr))
     }
 
-    pub fn remove_breakpoint_at_line(&mut self, fine_name: &str, line: u64) -> anyhow::Result<()> {
-        if let Some(addr) = self.address_for_line(fine_name, line) {
-            self.remove_breakpoint(addr)?;
+    pub fn set_breakpoint_at_fn(&mut self, name: &str) -> anyhow::Result<BreakpointView> {
+        let place = self.address_for_fn(name)?;
+
+        if self.debugee.in_progress() {
+            let addr = place.address.relocate(self.debugee.mapping_offset());
+            self.breakpoints
+                .add_and_enable(Breakpoint::new(addr, self.process.pid(), Some(place)))
+        } else {
+            Ok(self.breakpoints.add_uninit(UninitBreakpoint::new(
+                Address::Global(place.address),
+                self.process.pid(),
+                Some(place),
+            )))
         }
-        Ok(())
+    }
+
+    pub fn remove_breakpoint_at_fn(
+        &mut self,
+        name: &str,
+    ) -> anyhow::Result<Option<BreakpointView>> {
+        let place = self.address_for_fn(name)?;
+        if self.debugee.in_progress() {
+            self.breakpoints.remove_by_addr(Address::Relocated(
+                place.address.relocate(self.debugee.mapping_offset()),
+            ))
+        } else {
+            self.breakpoints
+                .remove_by_addr(Address::Global(place.address))
+        }
+    }
+
+    pub fn set_breakpoint_at_line(
+        &mut self,
+        fine_name: &str,
+        line: u64,
+    ) -> anyhow::Result<BreakpointView> {
+        let dwarf = &self.debugee.dwarf;
+        let place = dwarf
+            .find_place(fine_name, line)
+            .ok_or(anyhow!("no source file/line"))?
+            .to_owned();
+
+        if self.debugee.in_progress() {
+            let addr = place.address.relocate(self.debugee.mapping_offset());
+            self.breakpoints
+                .add_and_enable(Breakpoint::new(addr, self.process.pid(), Some(place)))
+        } else {
+            Ok(self.breakpoints.add_uninit(UninitBreakpoint::new(
+                Address::Global(place.address),
+                self.process.pid(),
+                Some(place),
+            )))
+        }
+    }
+
+    pub fn remove_breakpoint_at_line(
+        &mut self,
+        fine_name: &str,
+        line: u64,
+    ) -> anyhow::Result<Option<BreakpointView>> {
+        let dwarf = &self.debugee.dwarf;
+        let place = dwarf
+            .find_place(fine_name, line)
+            .ok_or(anyhow!("no source file/line"))?;
+
+        if self.debugee.in_progress() {
+            self.breakpoints.remove_by_addr(Address::Relocated(
+                place.address.relocate(self.debugee.mapping_offset()),
+            ))
+        } else {
+            self.breakpoints
+                .remove_by_addr(Address::Global(place.address))
+        }
     }
 
     // Reads all local variables from current function in current thread.
@@ -742,10 +771,7 @@ impl Drop for Debugger {
                 waitpid(self.debugee.tracee_ctl().proc_pid(), None).expect("waiting child");
             }
             ExecutionStatus::InProgress => {
-                self.breakpoints
-                    .iter()
-                    .try_for_each(|(_, bp)| bp.disable())
-                    .expect("stop debugee");
+                self.breakpoints.disable_all_breakpoints(&self.debugee);
 
                 let current_tids: Vec<Pid> = self
                     .debugee

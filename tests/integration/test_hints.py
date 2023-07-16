@@ -38,7 +38,7 @@ class HintsTestCase(unittest.TestCase):
     def test_var_command_hints(self):
         """Test variable autocompletion for `var` command"""
         self.debugger.sendline('break vars.rs:9')
-        self.debugger.expect_exact('break vars.rs:9')
+        self.debugger.expect_exact('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('let int32 = 2_i32;')
@@ -54,7 +54,7 @@ class HintsTestCase(unittest.TestCase):
     def test_arg_command_hints(self):
         """Test argument autocompletion for `args` command"""
         self.debugger.sendline('break vars.rs:222')
-        self.debugger.expect_exact('break vars.rs:222')
+        self.debugger.expect_exact('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('println!("{by_val}");')

@@ -19,13 +19,13 @@ class CommandTestCase(unittest.TestCase):
     def test_function_breakpoint(self):
         """Stop debugee at function by its name"""
         self.debugger.sendline('break main')
-        self.debugger.expect('break main')
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('fn main')
 
         self.debugger.sendline('break myprint')
-        self.debugger.expect('break myprint')
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('continue')
         self.debugger.expect('fn myprint')
@@ -38,7 +38,7 @@ class CommandTestCase(unittest.TestCase):
     def test_line_breakpoint(self):
         """Stop debugee at line by its number"""
         self.debugger.sendline('break hello_world.rs:15')
-        self.debugger.expect('break hello_world.rs:15')
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    println!("{}", s)')
@@ -51,9 +51,9 @@ class CommandTestCase(unittest.TestCase):
     def test_multiple_breakpoints_set(self):
         """Sets multiple breakpoints at line"""
         self.debugger.sendline('break hello_world.rs:5')
-        self.debugger.expect('break hello_world.rs:5')
+        self.debugger.expect('new breakpoint')
         self.debugger.sendline('break hello_world.rs:9')
-        self.debugger.expect('break hello_world.rs:9')
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('Hit breakpoint at address')
@@ -72,7 +72,7 @@ class CommandTestCase(unittest.TestCase):
         """Sets breakpoints at address"""
         # determine address first
         self.debugger.sendline('break hello_world.rs:5')
-        self.debugger.expect('break hello_world.rs:5')
+        self.debugger.expect('new breakpoint')
         self.debugger.sendline('run')
 
         addr = ""
@@ -91,7 +91,7 @@ class CommandTestCase(unittest.TestCase):
             './target/debug/bugstalker ./target/debug/hello_world')
         self.debugger.expect('BugStalker greets')
         self.debugger.sendline('break ' + addr)
-        self.debugger.expect('break ' + addr)
+        self.debugger.expect('new breakpoint')
         self.debugger.sendline('run')
         self.debugger.expect('Hit breakpoint at address ' + addr)
         self.debugger.sendline('continue')
@@ -102,9 +102,9 @@ class CommandTestCase(unittest.TestCase):
         """Register writes (by moving pc counter into program start)"""
         # determine program start and main ret addresses first
         self.debugger.sendline('break hello_world.rs:4')
-        self.debugger.expect('break hello_world.rs:4')
+        self.debugger.expect('new breakpoint')
         self.debugger.sendline('break hello_world.rs:10')
-        self.debugger.expect('break hello_world.rs:10')
+        self.debugger.expect('new breakpoint')
         self.debugger.sendline('run')
 
         start_addr = ""
@@ -138,7 +138,7 @@ class CommandTestCase(unittest.TestCase):
             './target/debug/bugstalker ./target/debug/hello_world')
         self.debugger.expect('BugStalker greets')
         self.debugger.sendline('break ' + ret_addr)
-        self.debugger.expect('break ' + ret_addr)
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('Hello, world!')
@@ -158,7 +158,7 @@ class CommandTestCase(unittest.TestCase):
             './target/debug/bugstalker ./target/debug/calc -- 1 2 3 --description result')
         debugger.expect('BugStalker greets')
         debugger.sendline('break calc.rs:10')
-        debugger.expect('break calc.rs:10')
+        debugger.expect('new breakpoint')
 
         debugger.sendline('run')
         debugger.expect('>    let s: i64')
@@ -182,7 +182,7 @@ class CommandTestCase(unittest.TestCase):
     def test_step_out(self):
         """Debugger step out command (move out from current function)"""
         self.debugger.sendline('break hello_world.rs:5')
-        self.debugger.expect('break hello_world.rs:5')
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('myprint("Hello, world!");')
@@ -195,7 +195,7 @@ class CommandTestCase(unittest.TestCase):
         """Debugger step over command (move to next line without
         entering functions)"""
         self.debugger.sendline('break hello_world.rs:5')
-        self.debugger.expect('break hello_world.rs:5')
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('myprint("Hello, world!");')
@@ -209,7 +209,7 @@ class CommandTestCase(unittest.TestCase):
     def test_step_over_on_fn_decl(self):
         """Stop debugee at function declaration line"""
         self.debugger.sendline('break hello_world.rs:14')
-        self.debugger.expect('break hello_world.rs:14')
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('Hit breakpoint at address')
@@ -225,7 +225,7 @@ class CommandTestCase(unittest.TestCase):
     def test_backtrace(self):
         """Backtrace"""
         self.debugger.sendline('break hello_world.rs:15')
-        self.debugger.expect('break hello_world.rs:15')
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    println!("{}", s)')
@@ -250,7 +250,7 @@ class CommandTestCase(unittest.TestCase):
             './target/debug/bugstalker ./target/debug/calc -- 1 2 3 --description result')
         debugger.expect('BugStalker greets')
         debugger.sendline('break calc.rs:15')
-        debugger.expect('break calc.rs:15')
+        debugger.expect('new breakpoint')
 
         debugger.sendline('run')
         debugger.expect_exact('>    print(s, &args[5]);')
@@ -261,10 +261,10 @@ class CommandTestCase(unittest.TestCase):
     def test_function_breakpoint_remove(self):
         """Stop debugee at function by its name"""
         self.debugger.sendline('break main')
-        self.debugger.expect('break main')
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('break remove main')
-        self.debugger.expect('break remove main')
+        self.debugger.expect('remove breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('bye!')
@@ -272,13 +272,13 @@ class CommandTestCase(unittest.TestCase):
     def test_line_breakpoint_remove(self):
         """Stop debugee at line by its number"""
         self.debugger.sendline('break hello_world.rs:15')
-        self.debugger.expect('break hello_world.rs:15')
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('>    println!("{}", s)')
 
         self.debugger.sendline('break remove hello_world.rs:15')
-        self.debugger.expect('break remove hello_world.rs:15')
+        self.debugger.expect('remove breakpoint')
 
         self.debugger.sendline('continue')
         self.debugger.expect('bye!')
@@ -297,6 +297,7 @@ class CommandTestCase(unittest.TestCase):
     def test_debugee_restart_at_bp(self):
         """Debugee process restarting at breakpoint"""
         self.debugger.sendline('break hello_world.rs:9')
+        self.debugger.expect('new breakpoint')
         self.debugger.sendline('run')
         self.debugger.expect('Hello, world!')
         self.debugger.sendline('run')

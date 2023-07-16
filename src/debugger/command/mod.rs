@@ -22,6 +22,7 @@ pub use memory::Memory;
 pub use r#break::Break;
 pub use r#break::Breakpoint;
 pub use r#break::Command as BreakpointCommand;
+pub use r#break::HandlingResult as BreakpointHandlingResult;
 pub use r#continue::Continue;
 pub use register::Register;
 pub use run::Run;

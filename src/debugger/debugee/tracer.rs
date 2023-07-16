@@ -1,4 +1,4 @@
-use crate::debugger::address::{Address, RelocatedAddress};
+use crate::debugger::address::RelocatedAddress;
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::code;
 use crate::debugger::debugee::tracee::{StopType, TraceeCtl, TraceeStatus};
@@ -326,7 +326,7 @@ impl Tracer {
                                 let brkpt = ctx
                                     .breakpoints
                                     .iter()
-                                    .find(|brkpt| brkpt.addr == Address::Relocated(current_pc))
+                                    .find(|brkpt| brkpt.addr == current_pc)
                                     .unwrap();
 
                                 if brkpt.is_temporary() && pid == brkpt.pid {

@@ -21,16 +21,16 @@ class MultithreadTestCase(unittest.TestCase):
         """Multithread debugee breakpoints"""
         # set breakpoint at program start
         self.debugger.sendline('break mt.rs:6')
-        self.debugger.expect('break mt.rs:6')
+        self.debugger.expect('new breakpoint')
         # set breakpoints at thread 1 code
         self.debugger.sendline('break mt.rs:22')
-        self.debugger.expect('break mt.rs:22')
+        self.debugger.expect('new breakpoint')
         # set breakpoint at thread 2 code
         self.debugger.sendline('break mt.rs:34')
-        self.debugger.expect('break mt.rs:34')
+        self.debugger.expect('new breakpoint')
         # set breakpoint at program ends
         self.debugger.sendline('break mt.rs:14')
-        self.debugger.expect('break mt.rs:14')
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('Hit breakpoint at address')
@@ -53,7 +53,7 @@ class MultithreadTestCase(unittest.TestCase):
     def test_multithreaded_backtrace(self):
         """Backtrace command for multithread debugee"""
         self.debugger.sendline('break mt.rs:22')
-        self.debugger.expect('break mt.rs:22')
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('thread 1 spawn')
@@ -66,7 +66,7 @@ class MultithreadTestCase(unittest.TestCase):
     def test_multithreaded_trace(self):
         """Trace command for multithread debugee"""
         self.debugger.sendline('break mt.rs:34')
-        self.debugger.expect('break mt.rs:34')
+        self.debugger.expect('new breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('Hit breakpoint at address')

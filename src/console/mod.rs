@@ -4,15 +4,17 @@ use crate::console::help::*;
 use crate::console::hook::TerminalHook;
 use crate::console::print::ExternalPrinter;
 use crate::console::variable::render_variable_ir;
+use crate::debugger;
 use crate::debugger::command::{
-    Arguments, Backtrace, Break, Command, Frame, Run, StepI, StepInto, StepOut, StepOver, Symbol,
-    Variables,
+    Arguments, Backtrace, Break, BreakpointHandlingResult, Command, Frame, Run, StepI, StepInto,
+    StepOut, StepOver, Symbol, Variables,
 };
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::{command, Debugger};
 use command::{Memory, Register};
+use crossterm::style::Stylize;
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use os_pipe::PipeReader;
@@ -329,7 +331,38 @@ impl AppLoop {
                 StepOver::new(&mut self.debugger).handle()?;
                 _ = self.update_completer_variables();
             }
-            Command::Breakpoint(bp_cmd) => Break::new(&mut self.debugger).handle(bp_cmd)?,
+            Command::Breakpoint(bp_cmd) => {
+                let print_bp = |action: &str, bp: &debugger::BreakpointView| match &bp.place {
+                    None => {
+                        self.printer.print(format!(
+                            "{action} {} at {}",
+                            bp.number,
+                            bp.addr.to_string().blue()
+                        ));
+                    }
+                    Some(place) => {
+                        self.printer.print(format!(
+                            "{action} {} at {}: {}:{} ",
+                            bp.number,
+                            place.address.to_string().blue(),
+                            place.file.to_str().unwrap_or_default().green(),
+                            place.line_number,
+                        ));
+                    }
+                };
+
+                match Break::new(&mut self.debugger).handle(bp_cmd)? {
+                    BreakpointHandlingResult::New(bp) => {
+                        print_bp("new breakpoint", &bp);
+                    }
+                    BreakpointHandlingResult::Removed(mb_bp) => match mb_bp {
+                        None => self.printer.print("Breakpoint not found"),
+                        Some(ref bp) => {
+                            print_bp("remove breakpoint", bp);
+                        }
+                    },
+                }
+            }
             Command::Memory(mem_cmd) => {
                 let read = Memory::new(&self.debugger).handle(mem_cmd)?;
                 self.printer.print(format!("{:#016X}", read));

@@ -111,6 +111,10 @@ impl Debugee {
         }
     }
 
+    pub fn in_progress(&self) -> bool {
+        self.execution_status == ExecutionStatus::InProgress
+    }
+
     /// Return debugee process mapping offset.
     ///
     /// # Panics
@@ -161,7 +165,7 @@ impl Debugee {
                 let at_entry_point = ctx
                     .breakpoints
                     .iter()
-                    .find(|bp| bp.addr == Address::Relocated(addr))
+                    .find(|bp| bp.addr == addr)
                     .map(|bp| bp.is_entry_point());
                 if at_entry_point == Some(true) {
                     self.rendezvous = Some(Rendezvous::new(
