@@ -145,7 +145,6 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect('bye!')
 
         self.debugger.sendline('register write rip ' + start_addr)
-        self.debugger.expect('register write rip ' + start_addr)
 
         self.debugger.sendline('continue')
         self.debugger.expect('Hello, world!')

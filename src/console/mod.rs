@@ -405,7 +405,6 @@ impl AppLoop {
             match action {
                 Control::Cmd(command) => {
                     thread::sleep(Duration::from_millis(1));
-                    self.printer.print(format!("> {}", command));
                     if let Err(e) = self.handle_command(&command) {
                         self.printer.print(format!("error: {:#}", e));
                     }

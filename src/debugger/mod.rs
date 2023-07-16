@@ -503,7 +503,7 @@ impl Debugger {
                     && place.line_number != current_place.line_number
                 {
                     let load_addr = place.address.relocate(self.debugee.mapping_offset());
-                    if !self.breakpoints.get_enabled(load_addr).is_some() {
+                    if self.breakpoints.get_enabled(load_addr).is_none() {
                         step_over_breakpoints.push(load_addr);
                         to_delete.push(load_addr);
                     }
@@ -526,7 +526,7 @@ impl Debugger {
 
         let return_addr = libunwind::return_addr(current_location.pid)?;
         if let Some(ret_addr) = return_addr {
-            if !self.breakpoints.get_enabled(ret_addr).is_some() {
+            if self.breakpoints.get_enabled(ret_addr).is_none() {
                 self.breakpoints
                     .add_and_enable(Breakpoint::new_temporary(ret_addr, current_location.pid))?;
                 to_delete.push(ret_addr);
