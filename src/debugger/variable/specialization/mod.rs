@@ -17,7 +17,7 @@ use fallible_iterator::FallibleIterator;
 use itertools::Itertools;
 use std::collections::HashMap;
 
-/// During program execution, the debugger may encounter uninitialized variables
+/// During program execution, the debugger may encounter uninitialized variables.
 /// For example look at this code:
 /// ```rust
 ///    let res: Result<(), String> = Ok(());

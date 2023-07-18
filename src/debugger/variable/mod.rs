@@ -853,14 +853,7 @@ impl<'a> VariableParser<'a> {
                     ));
                 };
 
-                if type_ns_h.contains(&[
-                    "std",
-                    "sys",
-                    "common",
-                    "thread_local",
-                    "fast_local",
-                    "fast",
-                ]) {
+                if type_ns_h.contains(&["std", "sys", "common", "thread_local", "fast_local"]) {
                     return VariableIR::Specialized(parser_ext.parse_tls(struct_var, type_params));
                 }
 
