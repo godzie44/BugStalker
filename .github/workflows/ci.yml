@@ -8,6 +8,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.70.0
+          override: true
+          components: rustfmt, clippy
       - name: Set up Python 3.7
         uses: actions/setup-python@v4
         with:
@@ -33,6 +39,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.70.0
+          override: true
+          components: rustfmt, clippy
       - name: Install libunwind
         run: sudo apt-get install libunwind-dev
       - name: Build debugger and test programs
