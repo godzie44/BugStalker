@@ -365,4 +365,19 @@ impl BreakpointRegistry {
     pub fn active_breakpoints(&self) -> Vec<&Breakpoint> {
         self.breakpoints.values().collect()
     }
+
+    /// Return view for all user defined breakpoints.
+    pub fn snapshot(&self) -> Vec<BreakpointView> {
+        let active_bps = self.breakpoints.values().filter_map(|bp| {
+            (bp.r#type() == BrkptType::UserDefined).then(|| BreakpointView::from(bp))
+        });
+        let disabled_brkpts = self.disabled_breakpoints.values().filter_map(|bp| {
+            (bp.r#type == BrkptType::UserDefined).then(|| BreakpointView::from(bp))
+        });
+
+        let mut snap = active_bps.chain(disabled_brkpts).collect::<Vec<_>>();
+        snap.sort_by(|a, b| a.number.cmp(&b.number));
+
+        snap
+    }
 }

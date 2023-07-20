@@ -282,6 +282,39 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.sendline('continue')
         self.debugger.expect('bye!')
 
+    def test_breakpoint_dump(self):
+        """View breakpoints list"""
+        self.debugger.sendline('break hello_world.rs:9')
+        self.debugger.expect('new breakpoint')
+        self.debugger.sendline('break myprint')
+        self.debugger.expect('new breakpoint')
+        self.debugger.sendline('break main')
+        self.debugger.expect('new breakpoint')
+        self.debugger.sendline('break hello_world.rs:7')
+        self.debugger.expect('new breakpoint')
+
+        self.debugger.sendline('break dump')
+        self.debugger.expect(r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9')
+        self.debugger.expect(r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:15')
+        self.debugger.expect(r'- Breakpoint 3 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:5')
+        self.debugger.expect(r'- Breakpoint 4 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:7')
+
+        self.debugger.sendline('run')
+
+        self.debugger.sendline('break dump')
+        self.debugger.expect(r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9')
+        self.debugger.expect(r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:15')
+        self.debugger.expect(r'- Breakpoint 3 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:5')
+        self.debugger.expect(r'- Breakpoint 4 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:7')
+
+        self.debugger.sendline('break remove main')
+        self.debugger.expect('remove breakpoint')
+
+        self.debugger.sendline('break dump')
+        self.debugger.expect(r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9')
+        self.debugger.expect(r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:15')
+        self.debugger.expect(r'- Breakpoint 4 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:7')
+
     def test_debugee_restart(self):
         """Debugee process restart"""
         self.debugger.sendline('run')

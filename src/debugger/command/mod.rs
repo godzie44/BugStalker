@@ -305,6 +305,9 @@ impl Command {
                             Command::Breakpoint(BreakpointCommand::Remove(brkpt))
                         }),
                     ),
+                    map(tag("dump"), |_| {
+                        Command::Breakpoint(BreakpointCommand::Dump)
+                    }),
                     map(breakpoint_arg_parser(), |brkpt| {
                         Command::Breakpoint(BreakpointCommand::Add(brkpt))
                     }),
@@ -573,6 +576,15 @@ mod test {
                     assert!(matches!(
                         result.unwrap(),
                         Command::Breakpoint(r#break::Command::Remove(Breakpoint::Address(a))) if a == 0x123
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec!["b dump", "break dump ", "   break   dump   "],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Breakpoint(r#break::Command::Dump)
                     ));
                 },
             },

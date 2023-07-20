@@ -12,6 +12,7 @@ pub enum Breakpoint {
 pub enum Command {
     Add(Breakpoint),
     Remove(Breakpoint),
+    Dump,
 }
 
 pub struct Break<'a> {
@@ -21,6 +22,7 @@ pub struct Break<'a> {
 pub enum HandlingResult<'a> {
     New(BreakpointView<'a>),
     Removed(Option<BreakpointView<'a>>),
+    Dump(Vec<BreakpointView<'a>>),
 }
 
 impl<'a> Break<'a> {
@@ -46,6 +48,7 @@ impl<'a> Break<'a> {
                 };
                 HandlingResult::Removed(res?)
             }
+            Command::Dump => HandlingResult::Dump(self.dbg.breakpoints_snapshot()),
         };
         Ok(result)
     }

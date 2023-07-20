@@ -133,8 +133,9 @@ pub const HELP_BREAK: &str = "\
 Manage breakpoints.
 
 Available subcomands:
-breakpoint <location> - set breakpoint to location
-breakpoint remove <location> - deactivate and delete selected breakpoint.
+break <location> - set breakpoint to location
+break remove <location> - deactivate and delete selected breakpoint.
+break dump - show all breakpoints.
 
 Posible location format:
 - at instruction. Example: break 0x55555555BD30

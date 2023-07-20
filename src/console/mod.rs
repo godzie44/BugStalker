@@ -361,6 +361,9 @@ impl AppLoop {
                             print_bp("remove breakpoint", bp);
                         }
                     },
+                    BreakpointHandlingResult::Dump(brkpts) => brkpts
+                        .iter()
+                        .for_each(|brkpt| print_bp("- Breakpoint", brkpt)),
                 }
             }
             Command::Memory(mem_cmd) => {

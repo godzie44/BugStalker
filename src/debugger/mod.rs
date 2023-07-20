@@ -97,8 +97,7 @@ pub struct Debugger {
     process: Child<Installed>,
     /// Debugee static/runtime state and control flow.
     debugee: Debugee,
-    /// Active breakpoint list.
-    //breakpoints: HashMap<Address, Breakpoint>,
+    /// Active and non-active breakpoints lists.
     breakpoints: BreakpointRegistry,
     /// Type declaration cache.
     type_cache: RefCell<TypeCache>,
@@ -680,6 +679,10 @@ impl Debugger {
             self.breakpoints
                 .remove_by_addr(Address::Global(place.address))
         }
+    }
+
+    pub fn breakpoints_snapshot(&self) -> Vec<BreakpointView> {
+        self.breakpoints.snapshot()
     }
 
     // Reads all local variables from current function in current thread.
