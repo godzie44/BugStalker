@@ -1,6 +1,6 @@
 use crate::cui::{context, AppState};
 use crate::debugger::address::RelocatedAddress;
-use crate::debugger::{EventHook, Place};
+use crate::debugger::{EventHook, FunctionDie, Place};
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use tui::style::{Color, Style};
@@ -16,7 +16,13 @@ impl CuiHook {
 }
 
 impl EventHook for CuiHook {
-    fn on_breakpoint(&self, _: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()> {
+    fn on_breakpoint(
+        &self,
+        _: RelocatedAddress,
+        _: u32,
+        place: Option<Place>,
+        _: Option<&FunctionDie>,
+    ) -> anyhow::Result<()> {
         if let Some(ref place) = place {
             let ctx = context::Context::current();
             ctx.set_trap_file_name(place.file.to_path_buf().to_string_lossy().to_string());
@@ -26,7 +32,12 @@ impl EventHook for CuiHook {
         Ok(())
     }
 
-    fn on_step(&self, _: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()> {
+    fn on_step(
+        &self,
+        _: RelocatedAddress,
+        place: Option<Place>,
+        _: Option<&FunctionDie>,
+    ) -> anyhow::Result<()> {
         if let Some(ref place) = place {
             let ctx = context::Context::current();
             ctx.set_trap_file_name(place.file.to_path_buf().to_string_lossy().to_string());

@@ -333,6 +333,9 @@ pub enum UnitResult<T> {
 /// then parsing of lazy unit part is happens
 #[macro_export]
 macro_rules! resolve_unit_call {
+    ($dwarf: expr, $unit: expr, $fn_name: tt) => {
+        resolve_unit_call!($dwarf, $unit, $fn_name,)
+    };
     ($dwarf: expr, $unit: expr, $fn_name: tt, $($arg: expr),*) => {{
         use $crate::debugger::debugee::dwarf::unit::DwarfUnitParser;
         use $crate::debugger::debugee::dwarf::unit::UnitResult;
@@ -448,7 +451,7 @@ impl Unit {
                 .files
                 .get(line.file_index as usize)
                 .expect("parse error"),
-            address: (line.address as usize).into(),
+            address: line.address.into(),
             line_number: line.line,
             column_number: line.column,
             pos_in_unit: line_pos,

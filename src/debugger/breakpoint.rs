@@ -27,7 +27,7 @@ static GLOBAL_BP_COUNTER: AtomicU32 = AtomicU32::new(1);
 pub struct Breakpoint {
     pub addr: RelocatedAddress,
     pub pid: Pid,
-    /// Breakpoint number, only user defined breakpoints have a number
+    /// Breakpoint number, > 0 for user defined breakpoints have a number, 0 for others
     number: u32,
     /// Place information, None if brkpt is temporary or entry point
     place: Option<PlaceOwned>,

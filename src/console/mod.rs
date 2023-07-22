@@ -353,12 +353,12 @@ impl AppLoop {
 
                 match Break::new(&mut self.debugger).handle(bp_cmd)? {
                     BreakpointHandlingResult::New(bp) => {
-                        print_bp("new breakpoint", &bp);
+                        print_bp("New breakpoint", &bp);
                     }
                     BreakpointHandlingResult::Removed(mb_bp) => match mb_bp {
                         None => self.printer.print("Breakpoint not found"),
                         Some(ref bp) => {
-                            print_bp("remove breakpoint", bp);
+                            print_bp("Remove breakpoint", bp);
                         }
                     },
                     BreakpointHandlingResult::Dump(brkpts) => brkpts

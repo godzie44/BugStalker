@@ -13,10 +13,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_read_scalar_variables(self):
         """Reading rust scalar values"""
         self.debugger.sendline('break vars.rs:30')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('30     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var locals')
         self.debugger.expect_exact('int8 = i8(1)')
@@ -41,10 +41,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_read_scalar_variables_at_place(self):
         """Local variables reading only from current lexical block"""
         self.debugger.sendline('break vars.rs:11')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let int128 = 3_i128;')
+        self.debugger.expect_exact('11     let int128 = 3_i128;')
 
         self.debugger.sendline('var locals')
         self.debugger.expect_exact('int8 = i8(1)')
@@ -57,10 +57,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_read_struct(self):
         """Reading rust structs"""
         self.debugger.sendline('break vars.rs:53')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('53     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var locals')
         self.debugger.expect_exact('tuple_0 = ()')
@@ -91,10 +91,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_read_array(self):
         """Reading rust arrays"""
         self.debugger.sendline('break vars.rs:61')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('61     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var locals')
         self.debugger.expect_exact('arr_1 = [i32] {')
@@ -132,10 +132,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_read_enum(self):
         """Reading rust enums"""
         self.debugger.sendline('break vars.rs:93')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('93     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var locals')
         self.debugger.expect_exact('enum_1 = EnumA::B')
@@ -172,10 +172,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_read_pointers(self):
         """Reading rust references and pointers"""
         self.debugger.sendline('break vars.rs:119')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('119     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var locals')
         self.debugger.expect_exact('a = i32(2)')
@@ -208,10 +208,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_deref_pointers(self):
         """Reading deref rust references and pointers"""
         self.debugger.sendline('break vars.rs:119')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('119     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var *ref_a')
         self.debugger.expect_exact('*ref_a = i32(2)')
@@ -240,10 +240,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_read_type_alias(self):
         """Reading rust variables with type aliases"""
         self.debugger.sendline('break vars.rs:126')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('126     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var locals')
         self.debugger.expect_exact('a_alias = i32(1)')
@@ -251,10 +251,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_read_vec_and_slice(self):
         """Reading rust vectors and slices"""
         self.debugger.sendline('break vars.rs:151')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('151     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var locals')
         self.debugger.expect_exact('vec1 = Vec<i32, alloc::alloc::Global> {')
@@ -335,10 +335,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_read_strings(self):
         """Reading rust strings and &str"""
         self.debugger.sendline('break vars.rs:159')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('159     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var locals')
         self.debugger.expect_exact('s1 = String(hello world)')
@@ -348,10 +348,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_read_static_variables(self):
         """Reading rust static's"""
         self.debugger.sendline('break vars.rs:168')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('168     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var GLOB_1')
         self.debugger.expect_exact('vars::GLOB_1 = &str(glob_1)')
@@ -361,10 +361,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_read_static_variables_different_modules(self):
         """Reading rust static's from another module"""
         self.debugger.sendline('break vars.rs:179')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('179     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var GLOB_3')
         self.debugger.expect(r'vars::(ns_1::)?GLOB_3')
@@ -373,10 +373,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_read_tls_variables(self):
         """Reading rust tls variables"""
         self.debugger.sendline('break vars.rs:194')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>        let nop: Option<u8> = None;')
+        self.debugger.expect_exact('194         let nop: Option<u8> = None;')
 
         self.debugger.sendline('var THREAD_LOCAL_VAR_1')
         self.debugger.expect_exact(
@@ -387,9 +387,9 @@ class VariablesTestCase(unittest.TestCase):
 
         # assert uninit tls variables
         self.debugger.sendline('break vars.rs:199')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
         self.debugger.sendline('continue')
-        self.debugger.expect_exact('>        let nop: Option<u8> = None;')
+        self.debugger.expect_exact('199         let nop: Option<u8> = None;')
 
         self.debugger.sendline('var THREAD_LOCAL_VAR_1')
         self.debugger.expect_exact(
@@ -397,9 +397,9 @@ class VariablesTestCase(unittest.TestCase):
 
         # assert tls variables changes in another thread
         self.debugger.sendline('break vars.rs:203')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
         self.debugger.sendline('continue')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('203     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var THREAD_LOCAL_VAR_1')
         self.debugger.expect_exact(
@@ -408,34 +408,34 @@ class VariablesTestCase(unittest.TestCase):
     def test_custom_select(self):
         """Reading memory by select expressions"""
         self.debugger.sendline('break vars.rs:61')
-        self.debugger.expect_exact('new breakpoint')
+        self.debugger.expect_exact('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('61     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var arr_2[0][2]')
         self.debugger.expect_exact('2 = i32(2)')
 
         self.debugger.sendline('break vars.rs:93')
-        self.debugger.expect_exact('new breakpoint')
+        self.debugger.expect_exact('New breakpoint')
         self.debugger.sendline('continue')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('93     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var enum_6.0.a')
         self.debugger.expect_exact('a = i32(1)')
 
         self.debugger.sendline('break vars.rs:119')
-        self.debugger.expect_exact('new breakpoint')
+        self.debugger.expect_exact('New breakpoint')
         self.debugger.sendline('continue')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('119     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var *((*ref_f).foo)')
         self.debugger.expect_exact('*foo = i32(2)')
 
         self.debugger.sendline('break vars.rs:256')
-        self.debugger.expect_exact('new breakpoint')
+        self.debugger.expect_exact('New breakpoint')
         self.debugger.sendline('continue')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('256     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var hm2.abc')
         self.debugger.expect_exact('abc = Vec<i32, alloc::alloc::Global> {')
@@ -447,9 +447,9 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('}')
 
         self.debugger.sendline('break vars.rs:389')
-        self.debugger.expect_exact('new breakpoint')
+        self.debugger.expect_exact('New breakpoint')
         self.debugger.sendline('continue')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('389     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var ptr[..4]')
         self.debugger.expect_exact('[*ptr] = [i32] {')
@@ -462,10 +462,10 @@ class VariablesTestCase(unittest.TestCase):
     def test_zst_types(self):
         """Read variables of zero sized types"""
         self.debugger.sendline('break vars.rs:425')
-        self.debugger.expect_exact('new breakpoint')
+        self.debugger.expect_exact('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('>    let nop: Option<u8> = None;')
+        self.debugger.expect_exact('425     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var locals')
 
@@ -536,7 +536,7 @@ class VariablesTestCase(unittest.TestCase):
     def test_read_arguments(self):
         """Reading rust tls variables"""
         self.debugger.sendline('break vars.rs:227')
-        self.debugger.expect('new breakpoint')
+        self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('let nop: Option<u8> = None;')

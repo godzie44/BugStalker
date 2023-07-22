@@ -1,5 +1,5 @@
 use bugstalker::debugger::address::RelocatedAddress;
-use bugstalker::debugger::{EventHook, Place};
+use bugstalker::debugger::{EventHook, FunctionDie, Place};
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use std::cell::Cell;
@@ -24,14 +24,26 @@ impl TestHooks {
 }
 
 impl EventHook for TestHooks {
-    fn on_breakpoint(&self, pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()> {
+    fn on_breakpoint(
+        &self,
+        pc: RelocatedAddress,
+        _: u32,
+        place: Option<Place>,
+        _: Option<&FunctionDie>,
+    ) -> anyhow::Result<()> {
         self.info.addr.set(Some(pc));
         let file = &self.info.file;
         file.set(place.as_ref().map(|p| p.file.to_str().unwrap().to_string()));
         self.info.line.set(place.map(|p| p.line_number));
         Ok(())
     }
-    fn on_step(&self, pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()> {
+
+    fn on_step(
+        &self,
+        pc: RelocatedAddress,
+        place: Option<Place>,
+        _: Option<&FunctionDie>,
+    ) -> anyhow::Result<()> {
         self.info.addr.set(Some(pc));
         let file = &self.info.file;
         file.set(place.as_ref().map(|p| p.file.to_str().unwrap().to_string()));

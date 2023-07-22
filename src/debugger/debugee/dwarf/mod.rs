@@ -160,10 +160,15 @@ impl DebugeeContext {
         unit.find_exact_place_by_pc(pc)
     }
 
+    /// Return a function inside which the given instruction is located.
+    ///
+    /// # Arguments
+    ///
+    /// * `pc`: instruction global address.
     pub fn find_function_by_pc(&self, pc: GlobalAddress) -> Option<ContextualDieRef<FunctionDie>> {
         let unit = self.find_unit_by_pc(pc)?;
         let pc = u64::from(pc);
-        let die_ranges = resolve_unit_call!(self.dwarf(), unit, die_ranges,);
+        let die_ranges = resolve_unit_call!(self.dwarf(), unit, die_ranges);
         let find_pos = match die_ranges.binary_search_by_key(&pc, |dr| dr.range.begin) {
             Ok(pos) => {
                 let mut idx = pos + 1;
@@ -191,9 +196,14 @@ impl DebugeeContext {
         })
     }
 
+    /// Return a function by its name.
+    ///
+    /// # Arguments
+    ///
+    /// * `needle`: function name.
     pub fn find_function_by_name(&self, needle: &str) -> Option<ContextualDieRef<FunctionDie>> {
         self.units.iter().find_map(|unit| {
-            let mut entry_it = resolve_unit_call!(self.dwarf(), unit, entries_it,);
+            let mut entry_it = resolve_unit_call!(self.dwarf(), unit, entries_it);
             entry_it.find_map(|entry| {
                 if let DieVariant::Function(func) = &entry.die {
                     if func.base_attributes.name.as_deref() == Some(needle) {

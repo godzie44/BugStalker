@@ -11,6 +11,7 @@ pub mod variable;
 
 pub use breakpoint::BreakpointView;
 pub use debugee::dwarf::r#type::TypeDeclaration;
+pub use debugee::dwarf::unit::FunctionDie;
 pub use debugee::dwarf::unit::Place;
 pub use debugee::dwarf::unwind;
 pub use debugee::ThreadSnapshot;
@@ -49,8 +50,16 @@ pub trait EventHook {
     /// # Arguments
     ///
     /// * `pc`: address of instruction where breakpoint is reached
+    /// * `num`: breakpoint number
     /// * `place`: stop place information
-    fn on_breakpoint(&self, pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()>;
+    /// * `function`: function debug information entry
+    fn on_breakpoint(
+        &self,
+        pc: RelocatedAddress,
+        num: u32,
+        place: Option<Place>,
+        function: Option<&FunctionDie>,
+    ) -> anyhow::Result<()>;
 
     /// Called when one of step commands is done.
     ///
@@ -58,7 +67,13 @@ pub trait EventHook {
     ///
     /// * `pc`: address of instruction where breakpoint is reached
     /// * `place`: stop place information
-    fn on_step(&self, pc: RelocatedAddress, place: Option<Place>) -> anyhow::Result<()>;
+    /// * `function`: function debug information entry
+    fn on_step(
+        &self,
+        pc: RelocatedAddress,
+        place: Option<Place>,
+        function: Option<&FunctionDie>,
+    ) -> anyhow::Result<()>;
 
     /// Called when debugee receive a OS signal. Debugee is in signal-stop at this moment.
     ///
@@ -161,7 +176,9 @@ impl Debugger {
                                 let pc = current_pc.into_global(self.debugee.mapping_offset());
                                 self.hooks.on_breakpoint(
                                     current_pc,
+                                    bp.number(),
                                     self.debugee.dwarf.find_place_from_pc(pc),
+                                    self.debugee.dwarf.find_function_by_pc(pc).map(|f| f.die),
                                 )?;
                                 break;
                             }
@@ -244,6 +261,10 @@ impl Debugger {
         self.hooks.on_step(
             location.pc,
             self.debugee.dwarf.find_place_from_pc(location.global_pc),
+            self.debugee
+                .dwarf
+                .find_function_by_pc(location.global_pc)
+                .map(|f| f.die),
         )
     }
 
@@ -254,6 +275,10 @@ impl Debugger {
         self.hooks.on_step(
             location.pc,
             self.debugee.dwarf.find_place_from_pc(location.global_pc),
+            self.debugee
+                .dwarf
+                .find_function_by_pc(location.global_pc)
+                .map(|f| f.die),
         )
     }
 
@@ -367,6 +392,10 @@ impl Debugger {
                     self.debugee
                         .dwarf
                         .find_place_from_pc(new_location.global_pc),
+                    self.debugee
+                        .dwarf
+                        .find_function_by_pc(new_location.global_pc)
+                        .map(|f| f.die),
                 )?;
             }
         }
@@ -560,6 +589,10 @@ impl Debugger {
             self.debugee
                 .dwarf
                 .find_place_from_pc(new_location.global_pc),
+            self.debugee
+                .dwarf
+                .find_function_by_pc(new_location.global_pc)
+                .map(|f| f.die),
         )?;
 
         Ok(())

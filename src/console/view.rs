@@ -18,7 +18,6 @@ impl FileView {
     }
 
     pub fn render_source(&self, place: &Place, bounds: u64) -> anyhow::Result<String> {
-        const DELIMITER: &str = "--------------------";
         let line_number = if place.line_number == 0 {
             1
         } else {
@@ -50,14 +49,11 @@ impl FileView {
             .enumerate()
             .skip(start as usize)
             .take((bounds * 2 + 1) as usize)
-            .fold(DELIMITER.to_string(), |acc, (pos, line)| {
-                if pos as u64 == line_pos {
-                    acc + "\n" + ">" + line
-                } else {
-                    acc + "\n" + line
-                }
+            .fold(String::default(), |acc, (pos, line)| {
+                let line_number = place.line_number as i64 - (line_pos as i64 - pos as i64);
+                format!("{acc}{line_number} {line}\n")
             });
 
-        Ok(result + "\n" + DELIMITER)
+        Ok(result)
     }
 }
