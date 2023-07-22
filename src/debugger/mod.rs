@@ -832,8 +832,12 @@ impl Drop for Debugger {
                 // kill debugee process
                 signal::kill(self.debugee.tracee_ctl().proc_pid(), Signal::SIGKILL)
                     .expect("kill debugee");
-                let wait_result =
-                    waitpid(self.debugee.tracee_ctl().proc_pid(), None).expect("waiting debugee");
+                let wait_result = loop {
+                    let wait_result = waitpid(Pid::from_raw(-1), None).expect("waiting debugee");
+                    if wait_result.pid() == Some(self.debugee.tracee_ctl().proc_pid()) {
+                        break wait_result;
+                    }
+                };
 
                 debug_assert!(matches!(
                     wait_result,

@@ -1,3 +1,4 @@
+import time
 import unittest
 import pexpect
 
@@ -78,3 +79,15 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.expect('std::thread::sleep')
         self.debugger.expect('thread')
         self.debugger.expect('mt::sum2')
+
+    def test_multithreaded_quit(self):
+        """Trace command for multithread debugee"""
+        self.debugger.sendline('break mt.rs:34')
+        self.debugger.expect('New breakpoint')
+
+        self.debugger.sendline('run')
+        self.debugger.expect('Hit breakpoint 1 at')
+        self.debugger.expect('34     let mut sum2 = 0;')
+        self.debugger.sendline('quit')
+        time.sleep(2)
+        self.assertFalse(self.debugger.isalive())
