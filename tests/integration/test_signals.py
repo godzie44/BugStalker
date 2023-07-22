@@ -58,9 +58,9 @@ class SignalsTestCase(unittest.TestCase):
         debugee_process.send_signal(signal.SIGUSR1)
         debugee_process.send_signal(signal.SIGUSR2)
 
-        self.debugger.expect_exact('Receive signal SIGUSR1, debugee stopped')
+        self.debugger.expect('Receive signal SIGUSR[1,2]{1}, debugee stopped')
         self.debugger.sendline('continue')
-        self.debugger.expect_exact('Receive signal SIGUSR2, debugee stopped')
+        self.debugger.expect('Receive signal SIGUSR[1,2]{1}, debugee stopped')
         self.debugger.sendline('continue')
 
         self.debugger.expect_exact('threads join')

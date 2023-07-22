@@ -48,7 +48,7 @@ fn multi_thread_signal_2() {
             let term = Arc::new(AtomicBool::new(false));
             signal_hook::flag::register(sig, Arc::clone(&term)).unwrap();
             while !term.load(Ordering::Relaxed) {
-                thread::sleep(std::time::Duration::from_millis(1000));
+                thread::sleep(Duration::from_millis(1000));
             }
         }
     }
