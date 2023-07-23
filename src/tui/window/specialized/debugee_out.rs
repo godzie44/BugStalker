@@ -1,5 +1,5 @@
-use crate::cui::window::{CuiComponent, RenderOpts};
-use crate::cui::{DebugeeStreamBuffer, StreamLine};
+use crate::tui::window::{RenderOpts, TuiComponent};
+use crate::tui::{DebugeeStreamBuffer, StreamLine};
 use crossterm::event::KeyEvent;
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
@@ -19,7 +19,7 @@ impl DebugeeOut {
     }
 }
 
-impl CuiComponent for DebugeeOut {
+impl TuiComponent for DebugeeOut {
     fn render(
         &self,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,

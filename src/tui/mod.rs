@@ -36,8 +36,8 @@ impl AppBuilder {
         }
     }
 
-    pub fn build(self, debugger: Debugger) -> CuiApplication {
-        CuiApplication::new(debugger, self.debugee_out, self.debugee_err)
+    pub fn build(self, debugger: Debugger) -> TuiApplication {
+        TuiApplication::new(debugger, self.debugee_out, self.debugee_err)
     }
 }
 
@@ -60,13 +60,13 @@ enum StreamLine {
     Err(String),
 }
 
-pub struct CuiApplication {
+pub struct TuiApplication {
     debugger: Debugger,
     debugee_out: PipeReader,
     debugee_err: PipeReader,
 }
 
-impl CuiApplication {
+impl TuiApplication {
     pub fn new(debugger: Debugger, debugee_out: PipeReader, debugee_err: PipeReader) -> Self {
         Self {
             debugger,

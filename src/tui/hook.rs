@@ -1,21 +1,21 @@
-use crate::cui::{context, AppState};
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::{EventHook, FunctionDie, Place};
+use crate::tui::{context, AppState};
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use tui::style::{Color, Style};
 use tui::text::{Span, Spans};
 
 #[derive(Default)]
-pub struct CuiHook {}
+pub struct TuiHook {}
 
-impl CuiHook {
+impl TuiHook {
     pub fn new() -> Self {
         Self {}
     }
 }
 
-impl EventHook for CuiHook {
+impl EventHook for TuiHook {
     fn on_breakpoint(
         &self,
         _: RelocatedAddress,

@@ -1,9 +1,9 @@
-use crate::cui::window::specialized::PersistentList;
-use crate::cui::window::{CuiComponent, RenderOpts};
 use crate::debugger::variable::render::{RenderRepr, ValueLayout};
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::variable::VariableIR;
 use crate::debugger::{command, Debugger};
+use crate::tui::window::specialized::PersistentList;
+use crate::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::cell::RefCell;
 use std::io::StdoutLock;
@@ -28,7 +28,7 @@ impl Variables {
     }
 }
 
-impl CuiComponent for Variables {
+impl TuiComponent for Variables {
     fn render(
         &self,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,

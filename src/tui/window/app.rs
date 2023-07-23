@@ -1,19 +1,19 @@
 use super::specialized::logs::Logs;
-use crate::cui::window::app::AppMode::Default as DefaultMode;
-use crate::cui::window::general::alert::Alert;
-use crate::cui::window::general::deck::WindowDeck;
-use crate::cui::window::general::help::ContextHelp;
-use crate::cui::window::general::input::UserInput;
-use crate::cui::window::message::{ActionMessage, Exchanger};
-use crate::cui::window::specialized::breakpoint::Breakpoints;
-use crate::cui::window::specialized::debugee_out::DebugeeOut;
-use crate::cui::window::specialized::debugee_view::DebugeeView;
-use crate::cui::window::specialized::trace::ThreadTrace;
-use crate::cui::window::specialized::variable::Variables;
-use crate::cui::window::{CuiComponent, RenderOpts};
-use crate::cui::{AppState, DebugeeStreamBuffer};
 use crate::debugger::Debugger;
 use crate::fire;
+use crate::tui::window::app::AppMode::Default as DefaultMode;
+use crate::tui::window::general::alert::Alert;
+use crate::tui::window::general::deck::WindowDeck;
+use crate::tui::window::general::help::ContextHelp;
+use crate::tui::window::general::input::UserInput;
+use crate::tui::window::message::{ActionMessage, Exchanger};
+use crate::tui::window::specialized::breakpoint::Breakpoints;
+use crate::tui::window::specialized::debugee_out::DebugeeOut;
+use crate::tui::window::specialized::debugee_view::DebugeeView;
+use crate::tui::window::specialized::trace::ThreadTrace;
+use crate::tui::window::specialized::variable::Variables;
+use crate::tui::window::{RenderOpts, TuiComponent};
+use crate::tui::{AppState, DebugeeStreamBuffer};
 use crossterm::event::KeyEvent;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -41,12 +41,12 @@ pub(super) struct AppWindow {
 
 impl AppWindow {
     pub fn new(debugger: Rc<RefCell<Debugger>>, stream_buff: DebugeeStreamBuffer) -> Self {
-        let breakpoints: Box<dyn CuiComponent> = Box::new(Breakpoints::new(debugger.clone()));
-        let variables: Box<dyn CuiComponent> = Box::new(Variables::new(debugger.clone()));
-        let threads: Box<dyn CuiComponent> = Box::new(ThreadTrace::new(debugger));
-        let debugee_view: Box<dyn CuiComponent> = Box::new(DebugeeView::new());
-        let logs: Box<dyn CuiComponent> = Box::<Logs>::default();
-        let debugee_out: Box<dyn CuiComponent> = Box::new(DebugeeOut::new(stream_buff));
+        let breakpoints: Box<dyn TuiComponent> = Box::new(Breakpoints::new(debugger.clone()));
+        let variables: Box<dyn TuiComponent> = Box::new(Variables::new(debugger.clone()));
+        let threads: Box<dyn TuiComponent> = Box::new(ThreadTrace::new(debugger));
+        let debugee_view: Box<dyn TuiComponent> = Box::new(DebugeeView::new());
+        let logs: Box<dyn TuiComponent> = Box::<Logs>::default();
+        let debugee_out: Box<dyn TuiComponent> = Box::new(DebugeeOut::new(stream_buff));
 
         let left_deck_states = HashMap::from([
             (variables.name(), AppState::DebugeeBreak),
@@ -88,7 +88,7 @@ impl AppWindow {
     }
 }
 
-impl CuiComponent for AppWindow {
+impl TuiComponent for AppWindow {
     fn render(
         &self,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,

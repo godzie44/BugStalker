@@ -1,7 +1,7 @@
-use crate::cui::window::specialized::PersistentList;
-use crate::cui::window::{CuiComponent, RenderOpts};
 use crate::debugger::command::BacktraceCommand;
 use crate::debugger::{command, Debugger, ThreadSnapshot};
+use crate::tui::window::specialized::PersistentList;
+use crate::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::cell::RefCell;
 use std::io::StdoutLock;
@@ -26,7 +26,7 @@ impl ThreadTrace {
     }
 }
 
-impl CuiComponent for ThreadTrace {
+impl TuiComponent for ThreadTrace {
     fn render(
         &self,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,

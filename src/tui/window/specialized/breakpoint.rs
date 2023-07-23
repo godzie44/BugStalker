@@ -1,9 +1,9 @@
-use crate::cui::window::message::{ActionMessage, Exchanger};
-use crate::cui::window::specialized::PersistentList;
-use crate::cui::window::{CuiComponent, RenderOpts};
 use crate::debugger::command::{Breakpoint, BreakpointCommand, Command};
 use crate::debugger::{command, Debugger};
 use crate::fire;
+use crate::tui::window::message::{ActionMessage, Exchanger};
+use crate::tui::window::specialized::PersistentList;
+use crate::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::cell::RefCell;
 use std::io::StdoutLock;
@@ -28,7 +28,7 @@ impl Breakpoints {
     }
 }
 
-impl CuiComponent for Breakpoints {
+impl TuiComponent for Breakpoints {
     fn render(
         &self,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,

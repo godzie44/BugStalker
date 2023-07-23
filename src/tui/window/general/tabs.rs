@@ -1,6 +1,6 @@
-use crate::cui::window::{message, CuiComponent, RenderOpts};
-use crate::cui::{context, AppState};
 use crate::fire;
+use crate::tui::window::{message, RenderOpts, TuiComponent};
+use crate::tui::{context, AppState};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::HashMap;
 use std::io::StdoutLock;
@@ -11,7 +11,7 @@ use tui::text::{Span, Spans};
 use tui::widgets::{Block, BorderType, Borders};
 use tui::Frame;
 
-pub(in crate::cui::window) struct TabVariant {
+pub(in crate::tui::window) struct TabVariant {
     title: String,
     active_state: Option<AppState>,
     on_select: message::ActionMessage,
@@ -19,7 +19,7 @@ pub(in crate::cui::window) struct TabVariant {
 }
 
 impl TabVariant {
-    pub(in crate::cui::window) fn new(
+    pub(in crate::tui::window) fn new(
         title: impl Into<String>,
         on_select: message::ActionMessage,
         message_recipient: &'static str,
@@ -32,7 +32,7 @@ impl TabVariant {
         }
     }
 
-    pub(in crate::cui::window) fn contextual(
+    pub(in crate::tui::window) fn contextual(
         title: impl Into<String>,
         on_select: message::ActionMessage,
         state: AppState,
@@ -47,7 +47,7 @@ impl TabVariant {
     }
 }
 
-pub(in crate::cui::window) struct Tabs {
+pub(in crate::tui::window) struct Tabs {
     name: &'static str,
     title: &'static str,
     tabs: Vec<TabVariant>,
@@ -56,7 +56,7 @@ pub(in crate::cui::window) struct Tabs {
 }
 
 impl Tabs {
-    pub(in crate::cui::window) fn new(
+    pub(in crate::tui::window) fn new(
         name: &'static str,
         title: &'static str,
         tabs: Vec<TabVariant>,
@@ -78,7 +78,7 @@ impl Tabs {
     }
 }
 
-impl CuiComponent for Tabs {
+impl TuiComponent for Tabs {
     fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, _: RenderOpts) {
         let titles = self
             .tabs

@@ -1,7 +1,7 @@
-use crate::cui::window::message::ActionMessage;
-use crate::cui::window::{message, CuiComponent, RenderOpts};
-use crate::cui::{context, AppState};
 use crate::fire;
+use crate::tui::window::message::ActionMessage;
+use crate::tui::window::{message, RenderOpts, TuiComponent};
+use crate::tui::{context, AppState};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
@@ -11,13 +11,13 @@ use tui::widgets::{Block, Borders};
 use tui::Frame;
 use tui_textarea::TextArea;
 
-pub(in crate::cui::window) struct UserInput {
+pub(in crate::tui::window) struct UserInput {
     textarea: TextArea<'static>,
     input_recipient_component: &'static str,
 }
 
 impl UserInput {
-    pub(in crate::cui::window) fn new() -> Self {
+    pub(in crate::tui::window) fn new() -> Self {
         let mut textarea = TextArea::default();
         textarea.set_cursor_line_style(Style::default());
         textarea.set_style(Style::default().fg(Color::LightGreen));
@@ -35,7 +35,7 @@ impl UserInput {
     }
 }
 
-impl CuiComponent for UserInput {
+impl TuiComponent for UserInput {
     fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, _: RenderOpts) {
         frame.render_widget(self.textarea.widget(), rect);
     }

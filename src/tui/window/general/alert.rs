@@ -1,5 +1,5 @@
-use crate::cui::context;
-use crate::cui::window::{CuiComponent, RenderOpts};
+use crate::tui::context;
+use crate::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
@@ -11,7 +11,7 @@ use tui::Frame;
 #[derive(Default)]
 pub struct Alert {}
 
-impl CuiComponent for Alert {
+impl TuiComponent for Alert {
     fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, _: RenderOpts) {
         if let Some(txt) = context::Context::current().alert() {
             let block = Block::default()

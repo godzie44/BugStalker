@@ -1,5 +1,5 @@
-use crate::cui::window::{CuiComponent, RenderOpts};
-use crate::cui::{context, AppState};
+use crate::tui::window::{RenderOpts, TuiComponent};
+use crate::tui::{context, AppState};
 use crossterm::event::KeyEvent;
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
@@ -8,9 +8,9 @@ use tui::style::{Color, Style};
 use tui::widgets::{Block, BorderType, Paragraph};
 use tui::Frame;
 
-pub(in crate::cui::window) struct ContextHelp {}
+pub(in crate::tui::window) struct ContextHelp {}
 
-impl CuiComponent for ContextHelp {
+impl TuiComponent for ContextHelp {
     fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, _: RenderOpts) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)

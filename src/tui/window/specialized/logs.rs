@@ -1,4 +1,4 @@
-use crate::cui::window::{CuiComponent, RenderOpts};
+use crate::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::KeyEvent;
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
@@ -10,7 +10,7 @@ use tui::Frame;
 #[derive(Default)]
 pub(crate) struct Logs {}
 
-impl CuiComponent for Logs {
+impl TuiComponent for Logs {
     fn render(
         &self,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,

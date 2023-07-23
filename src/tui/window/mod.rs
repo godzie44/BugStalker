@@ -1,8 +1,8 @@
-use crate::cui::window::app::AppWindow;
-use crate::cui::window::message::Exchanger;
-use crate::cui::{context, AppState, DebugeeStreamBuffer, Event};
 use crate::debugger::command::{Continue, Run, StepInto, StepOut, StepOver};
 use crate::debugger::Debugger;
+use crate::tui::window::app::AppWindow;
+use crate::tui::window::message::Exchanger;
+use crate::tui::{context, AppState, DebugeeStreamBuffer, Event};
 use crossterm::event::{DisableMouseCapture, KeyCode, KeyEvent};
 use crossterm::terminal::{disable_raw_mode, LeaveAlternateScreen};
 use std::cell::RefCell;
@@ -23,7 +23,7 @@ pub struct RenderOpts {
     pub in_focus: bool,
 }
 
-pub trait CuiComponent {
+pub trait TuiComponent {
     fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, opts: RenderOpts);
     fn handle_user_event(&mut self, e: KeyEvent);
     #[allow(unused)]

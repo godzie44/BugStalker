@@ -1,5 +1,5 @@
-use crate::cui::context;
-use crate::cui::window::{CuiComponent, RenderOpts};
+use crate::tui::context;
+use crate::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::cell::{Cell, RefCell};
 use std::collections::hash_map::Entry;
@@ -38,7 +38,7 @@ impl DebugeeView {
     }
 }
 
-impl CuiComponent for DebugeeView {
+impl TuiComponent for DebugeeView {
     fn render(
         &self,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,

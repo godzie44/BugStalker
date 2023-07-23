@@ -1,9 +1,9 @@
-use crate::cui::window::general::tabs;
-use crate::cui::window::general::tabs::{TabVariant, Tabs};
-use crate::cui::window::message::{ActionMessage, Exchanger};
-use crate::cui::window::{CuiComponent, RenderOpts};
-use crate::cui::AppState;
 use crate::fire;
+use crate::tui::window::general::tabs;
+use crate::tui::window::general::tabs::{TabVariant, Tabs};
+use crate::tui::window::message::{ActionMessage, Exchanger};
+use crate::tui::window::{RenderOpts, TuiComponent};
+use crate::tui::AppState;
 use crossterm::event::KeyEvent;
 use std::collections::HashMap;
 use std::default::Default;
@@ -17,13 +17,13 @@ pub struct WindowDeck {
     visible_window: &'static str,
     in_focus_window: Option<&'static str>,
     tabs: Tabs,
-    windows: HashMap<&'static str, Box<dyn CuiComponent>>,
+    windows: HashMap<&'static str, Box<dyn TuiComponent>>,
 }
 
 impl WindowDeck {
     pub fn new(
         name: &'static str,
-        windows: Vec<Box<dyn CuiComponent>>,
+        windows: Vec<Box<dyn TuiComponent>>,
         state_asserts: HashMap<&'static str, AppState>,
     ) -> Self {
         let tab_variants = windows
@@ -64,7 +64,7 @@ impl WindowDeck {
     }
 }
 
-impl CuiComponent for WindowDeck {
+impl TuiComponent for WindowDeck {
     fn render(
         &self,
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,

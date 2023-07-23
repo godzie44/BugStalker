@@ -1,8 +1,8 @@
 use bugstalker::console::AppBuilder;
-use bugstalker::cui;
-use bugstalker::cui::hook::CuiHook;
 use bugstalker::debugger::process::Child;
 use bugstalker::debugger::{rust, Debugger};
+use bugstalker::tui;
+use bugstalker::tui::hook::TuiHook;
 use clap::{arg, Parser};
 use std::path::PathBuf;
 
@@ -40,10 +40,10 @@ fn main() {
         .expect("initial process instantiation fail");
 
     match args.ui.as_str() {
-        "cui" => {
+        "tui" => {
             let debugger =
-                Debugger::new(process, CuiHook::new()).expect("prepare application fail");
-            let app = cui::AppBuilder::new(stdout_reader, stderr_reader).build(debugger);
+                Debugger::new(process, TuiHook::new()).expect("prepare application fail");
+            let app = tui::AppBuilder::new(stdout_reader, stderr_reader).build(debugger);
             app.run().expect("run application fail");
         }
         _ => {
