@@ -187,6 +187,10 @@ impl Completer for CommandCompleter {
 
         match CompletableCommand::recognize(line) {
             Ok(CompletableCommand::Breakpoint(maybe_file)) => {
+                if maybe_file.trim().is_empty() {
+                    return Ok((0, vec![]));
+                }
+
                 let variants = self.file_hints.predictive_search(&maybe_file);
                 if !variants.is_empty() {
                     let variants_iter = variants.iter().map(|var| {
