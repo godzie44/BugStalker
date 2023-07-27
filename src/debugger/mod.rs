@@ -292,27 +292,6 @@ impl Debugger {
         Ok(libunwind::unwind(pid)?)
     }
 
-    // fn add_breakpoint(&mut self, brkpt: Breakpoint) -> anyhow::Result<&Breakpoint> {
-    //     let addr = brkpt.addr;
-    //     if self.debugee.execution_status == ExecutionStatus::InProgress {
-    //         if let Some(existed) = self.breakpoints.get(&addr) {
-    //             existed.disable()?;
-    //         }
-    //         brkpt.enable()?;
-    //     }
-    //     self.breakpoints.insert(addr, brkpt);
-    //     Ok(&self.breakpoints[&addr])
-    // }
-
-    // fn new_breakpoint(
-    //     &mut self,
-    //     addr: Address,
-    //     place: Option<PlaceOwned>,
-    // ) -> anyhow::Result<&Breakpoint> {
-    //     let brkpt = Breakpoint::new(addr, self.debugee.tracee_ctl().proc_pid(), place);
-    //     self.add_breakpoint(brkpt)
-    // }
-
     fn remove_breakpoint(&mut self, addr: Address) -> anyhow::Result<Option<BreakpointView>> {
         self.breakpoints.remove_by_addr(addr)
     }
