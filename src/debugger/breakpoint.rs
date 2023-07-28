@@ -317,8 +317,8 @@ impl BreakpointRegistry {
         Ok(None)
     }
 
-    /// Enable currently disabled endpoints.
-    pub fn enable_all_endpoints(&mut self, debugee: &Debugee) -> anyhow::Result<()> {
+    /// Enable currently disabled breakpoints.
+    pub fn enable_all_breakpoints(&mut self, debugee: &Debugee) -> anyhow::Result<()> {
         let mut disabled_breakpoints = std::mem::take(&mut self.disabled_breakpoints);
         for (_, uninit_brkpt) in disabled_breakpoints.drain() {
             let brkpt = uninit_brkpt.try_into_brkpt(debugee)?;

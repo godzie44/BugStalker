@@ -161,7 +161,7 @@ impl Debugger {
                     break;
                 }
                 StopReason::DebugeeStart => {
-                    self.breakpoints.enable_all_endpoints(&self.debugee)?;
+                    self.breakpoints.enable_all_breakpoints(&self.debugee)?;
                 }
                 StopReason::NoSuchProcess(_) => {
                     break;
