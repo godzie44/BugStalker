@@ -13,6 +13,7 @@ use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::Pid;
 use ouroboros::self_referencing;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU32, Ordering};
 use thread_db;
 
 #[self_referencing]
@@ -38,6 +39,8 @@ pub enum TraceeStatus {
 /// Tracee is a thread attached to debugger with ptrace.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tracee {
+    /// Thread number, used for user interaction with tracee
+    pub number: u32,
     /// Tracee thread id.
     pub pid: Pid,
     /// Tracee current status.
@@ -45,6 +48,15 @@ pub struct Tracee {
 }
 
 impl Tracee {
+    fn new_stopped(pid: Pid) -> Self {
+        static NEXT_TRACEE_NUM: AtomicU32 = AtomicU32::new(0);
+        Self {
+            number: NEXT_TRACEE_NUM.fetch_add(1, Ordering::Relaxed),
+            pid,
+            status: Stopped(Interrupt),
+        }
+    }
+
     /// Wait for change of tracee status.
     pub fn wait_one(&self) -> nix::Result<WaitStatus> {
         debug!(target: "tracer", "wait for tracee status, thread {pid}", pid = self.pid);
@@ -114,7 +126,7 @@ impl Tracee {
 
 pub struct TraceeCtl {
     process_pid: Pid,
-    in_tracee_tid: Pid,
+    in_focus_tid: Pid,
     threads_state: HashMap<Pid, Tracee>,
     thread_db_proc: Option<ThreadDBProcess>,
 }
@@ -123,14 +135,8 @@ impl TraceeCtl {
     pub fn new(proc_pid: Pid) -> TraceeCtl {
         Self {
             process_pid: proc_pid,
-            in_tracee_tid: proc_pid,
-            threads_state: HashMap::from([(
-                proc_pid,
-                Tracee {
-                    pid: proc_pid,
-                    status: Stopped(Interrupt),
-                },
-            )]),
+            in_focus_tid: proc_pid,
+            threads_state: HashMap::from([(proc_pid, Tracee::new_stopped(proc_pid))]),
             thread_db_proc: None,
         }
     }
@@ -157,24 +163,19 @@ impl TraceeCtl {
     }
 
     /// Set tracee into focus.
-    pub fn set_tracee_to_focus(&mut self, tid: Pid) {
-        self.in_tracee_tid = tid
+    pub fn set_tracee_into_focus(&mut self, tid: Pid) {
+        self.in_focus_tid = tid
     }
 
     /// Return current focused tracee.
     pub(super) fn tracee_in_focus(&self) -> &Tracee {
-        &self.threads_state[&self.in_tracee_tid]
+        &self.threads_state[&self.in_focus_tid]
     }
 
-    /// Adds thread to badge in `created` status.
-    /// `created` actual for ptrace events like PTRACE_EVENT_CLONE, when wee known about new thread but
-    /// this not created yet.
+    /// Adds thread to control.
     pub fn add(&mut self, pid: Pid) -> &Tracee {
         debug!(target: "tracer", "add new tracee, thread: {pid}");
-        let new = Tracee {
-            pid,
-            status: Stopped(Interrupt),
-        };
+        let new = Tracee::new_stopped(pid);
         self.threads_state.insert(pid, new);
         &self.threads_state[&pid]
     }

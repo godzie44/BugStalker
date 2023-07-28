@@ -12,6 +12,7 @@ mod step_into;
 mod step_out;
 mod step_over;
 mod symbol;
+mod thread;
 pub mod variables;
 
 pub use arguments::Arguments;
@@ -31,6 +32,8 @@ pub use step_into::StepInto;
 pub use step_out::StepOut;
 pub use step_over::StepOver;
 pub use symbol::Symbol;
+pub use thread::Result as ThreadResult;
+pub use thread::Thread as ThreadCommand;
 pub use variables::Variables;
 
 use crate::debugger::variable::select::{Expression, VariableSelector};
@@ -77,6 +80,7 @@ pub const MEMORY_COMMAND: &str = "memory";
 pub const MEMORY_COMMAND_SHORT: &str = "mem";
 pub const REGISTER_COMMAND: &str = "register";
 pub const REGISTER_COMMAND_SHORT: &str = "reg";
+pub const THREAD_COMMAND: &str = "thread";
 pub const HELP_COMMAND: &str = "help";
 pub const HELP_COMMAND_SHORT: &str = "h";
 
@@ -131,6 +135,7 @@ pub enum Command {
     Breakpoint(r#break::Command),
     Memory(memory::Command),
     Register(register::Command),
+    Thread(thread::Command),
     Help {
         command: Option<String>,
         reason: Option<String>,
@@ -383,6 +388,25 @@ impl Command {
             )(input)
         }
 
+        fn thread_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
+            preceded(
+                pair(tag(THREAD_COMMAND), multispace1),
+                alt((
+                    map(tag("dump"), |_| Command::Thread(thread::Command::Dump)),
+                    map(tag("current"), |_| {
+                        Command::Thread(thread::Command::Current)
+                    }),
+                    map_res(
+                        preceded(pair(tag("switch"), multispace1), digit1),
+                        |num: &str| -> Result<Command, <u32 as FromStr>::Err> {
+                            let num: u32 = num.parse::<u32>()?;
+                            Ok(Command::Thread(thread::Command::Switch(num)))
+                        },
+                    ),
+                )),
+            )(input)
+        }
+
         alt((
             command(VAR_COMMAND, print_var_parser),
             command(ARG_COMMAND, print_argument_parser),
@@ -399,6 +423,7 @@ impl Command {
             command(MEMORY_COMMAND, memory_parser),
             command(REGISTER_COMMAND, register_parser),
             command(HELP_COMMAND, help_parser),
+            command(THREAD_COMMAND, thread_parser),
             cut(map(not_line_ending, |_| Command::Help {
                 command: None,
                 reason: Some("undefined command".to_string()),
@@ -642,6 +667,33 @@ mod test {
                     assert!(matches!(
                         result.unwrap(),
                         Command::Register(register::Command::Write(r, v)) if r == "rip" && v == 0x123
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec!["thread dump", "thread    dump  "],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Thread(thread::Command::Dump)
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec!["thread current", "thread    current  "],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Thread(thread::Command::Current)
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec!["thread switch 1", " thread  switch 1  "],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Thread(thread::Command::Switch(1))
                     ));
                 },
             },

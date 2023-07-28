@@ -182,6 +182,7 @@ impl Debugee {
         Ok(event)
     }
 
+    #[inline(always)]
     pub fn tracee_ctl(&self) -> &TraceeCtl {
         &self.tracer.tracee_ctl
     }
@@ -237,6 +238,15 @@ impl Debugee {
 
     /// Returns tracee currently in focus.
     pub fn tracee_in_focus(&self) -> &Tracee {
-        self.tracer.tracee_ctl.tracee_in_focus()
+        self.tracee_ctl().tracee_in_focus()
+    }
+
+    /// Change focus to other tracee thread.
+    pub fn set_tracee_into_focus(&mut self, num: u32) -> anyhow::Result<Tracee> {
+        let mut snapshot = self.tracee_ctl().snapshot();
+        let tracee = snapshot.drain(..).find(|tracee| tracee.number == num);
+        let tracee = tracee.ok_or(anyhow!("tracee {num} not found"))?;
+        self.tracer.tracee_ctl.set_tracee_into_focus(tracee.pid);
+        Ok(tracee)
     }
 }

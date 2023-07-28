@@ -17,6 +17,7 @@ b, break <addr>|<file:line>|<function>      -- manage breakpoints
 symbol <name>                               -- print symbol kind and address
 mem, memory read|write <addr>               -- read or write into debugged program memory
 reg, register read|write|dump <addr>        -- read, write, or view debugged program registers
+thread dump|current|switch <number>         -- show list of threads or current (in focus) thread or set thread in focus
 h, help |<command>                          -- show help
 q, quit                                     -- exit the BugStalker 
 "#;
@@ -170,6 +171,16 @@ register write <reg_name> <value> - set new value to register by name
 register dump - print list of registers with it values
 ";
 
+pub const HELP_THREAD: &str = "\
+\x1b[32;1mthread\x1b[0m
+Show threads information or set thread to focus.
+
+Available subcomands:
+thread dump - print list of thread information
+thread current - prints thread that has focus
+thread switch <number> - set thread <number> to focus
+";
+
 pub const HELP_QUIT: &str = "\
 \x1b[32;1mq, quit\x1b[0m
 Exit the BugStalker, kill debugee before it.
@@ -193,6 +204,7 @@ pub fn help_for_command(command: Option<&str>) -> &str {
         Some(command::SYMBOL_COMMAND) => HELP_SYMBOL,
         Some(command::MEMORY_COMMAND) | Some(command::MEMORY_COMMAND_SHORT) => HELP_MEMORY,
         Some(command::REGISTER_COMMAND) | Some(command::REGISTER_COMMAND_SHORT) => HELP_REGISTER,
+        Some(command::THREAD_COMMAND) => HELP_THREAD,
         Some("q") | Some("quit") => HELP_QUIT,
         _ => "unknown command",
     }

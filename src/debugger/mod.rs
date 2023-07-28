@@ -23,6 +23,7 @@ use crate::debugger::debugee::dwarf::unit::PlaceOwned;
 use crate::debugger::debugee::dwarf::unwind::libunwind;
 use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
 use crate::debugger::debugee::dwarf::{DwarfUnwinder, Symbol};
+use crate::debugger::debugee::tracee::Tracee;
 use crate::debugger::debugee::tracer::{StopReason, TraceContext};
 use crate::debugger::debugee::{Debugee, ExecutionStatus, FrameInfo, Location};
 use crate::debugger::process::{Child, Installed};
@@ -285,6 +286,16 @@ impl Debugger {
     pub fn thread_state(&self) -> anyhow::Result<Vec<ThreadSnapshot>> {
         disable_when_not_stared!(self);
         self.debugee.thread_state()
+    }
+
+    /// Sets the thread into focus.
+    ///
+    /// # Arguments
+    ///
+    /// * `num`: thread number
+    pub fn set_thread_into_focus(&mut self, num: u32) -> anyhow::Result<Tracee> {
+        disable_when_not_stared!(self);
+        self.debugee.set_tracee_into_focus(num)
     }
 
     pub fn backtrace(&self, pid: Pid) -> anyhow::Result<Backtrace> {

@@ -81,7 +81,7 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.expect('mt::sum2')
 
     def test_multithreaded_quit(self):
-        """Trace command for multithread debugee"""
+        """Quit command for multithread debugee"""
         self.debugger.sendline('break mt.rs:34')
         self.debugger.expect('New breakpoint')
 
@@ -91,3 +91,53 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.sendline('quit')
         time.sleep(2)
         self.assertFalse(self.debugger.isalive())
+
+    def test_thread_info(self):
+        """Thread dump/current command for multithread debugee"""
+        self.debugger.sendline('break mt.rs:38')
+        self.debugger.expect('New breakpoint')
+
+        self.debugger.sendline('run')
+        self.debugger.expect('Hit breakpoint 1 at')
+
+        self.debugger.sendline('thread dump')
+        self.debugger.expect_exact('#1 thread id')
+        self.debugger.expect_exact('#2 thread id')
+        self.debugger.expect_exact('#3 thread id')
+
+        self.debugger.sendline('thread current')
+        self.debugger.expect_exact('#3 thread id')
+
+    def test_thread_switch(self):
+        """Trace switch command for multithread debugee"""
+        self.debugger.sendline('break mt.rs:38')
+        self.debugger.expect('New breakpoint')
+
+        self.debugger.sendline('run')
+        self.debugger.expect('Hit breakpoint 1 at')
+
+        self.debugger.sendline('thread current')
+        self.debugger.expect_exact('#3 thread id')
+
+        # switch to another thread
+        self.debugger.sendline('thread switch 2')
+        self.debugger.expect_exact('Thread #2 brought into focus')
+
+        self.debugger.sendline('thread current')
+        self.debugger.expect_exact('#2 thread id')
+
+        # try to step in new in focus thread
+        self.debugger.sendline('step')
+        self.debugger.expect_exact('230             while secs > 0 || nsecs > 0 {')
+        self.debugger.sendline('step')
+        self.debugger.expect_exact('870 }')
+        self.debugger.sendline('step')
+        self.debugger.expect_exact('22     let mut sum = 0;')
+        self.debugger.sendline('step')
+
+        # try to view variables from a new in focus thread
+        self.debugger.sendline('var locals')
+        self.debugger.expect_exact('sum = i32(0)')
+
+
+

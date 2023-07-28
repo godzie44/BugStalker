@@ -7,7 +7,7 @@ use crate::console::variable::render_variable_ir;
 use crate::debugger;
 use crate::debugger::command::{
     Arguments, Backtrace, Break, BreakpointHandlingResult, Command, Frame, Run, StepI, StepInto,
-    StepOut, StepOver, Symbol, Variables,
+    StepOut, StepOver, Symbol, ThreadCommand, ThreadResult, Variables,
 };
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::render::RenderRepr;
@@ -250,7 +250,8 @@ impl AppLoop {
                 let bt = Backtrace::new(&self.debugger).handle(cmd)?;
                 bt.iter().for_each(|thread| {
                     self.printer.print(format!(
-                        "thread {} - {}",
+                        "thread #{}, {} - {}",
+                        thread.thread.number,
                         thread.thread.pid,
                         thread
                             .bt
@@ -392,6 +393,40 @@ impl AppLoop {
                         "{} - {:?} {}",
                         symbol.name, symbol.kind, symbol.addr
                     ));
+                }
+            }
+            Command::Thread(cmd) => {
+                let result = ThreadCommand::new(&mut self.debugger).handle(cmd)?;
+                match result {
+                    ThreadResult::List(mut list) => {
+                        list.sort_by(|t1, t2| t1.thread.number.cmp(&t2.thread.number));
+                        for thread in list {
+                            let current_frame = thread.bt.and_then(|mut bt| bt.drain(..).next());
+                            let ip = current_frame
+                                .as_ref()
+                                .map(|f| f.ip.to_string())
+                                .unwrap_or("???".to_string())
+                                .blue();
+                            let func = current_frame
+                                .and_then(|f| f.func_name)
+                                .unwrap_or("???".to_string())
+                                .green();
+
+                            let view = format!(
+                                "#{} thread id: {}, {} in {}",
+                                thread.thread.number, thread.thread.pid, ip, func
+                            );
+
+                            if thread.in_focus {
+                                self.printer.print(format!("{}", view.bold()))
+                            } else {
+                                self.printer.print(view)
+                            }
+                        }
+                    }
+                    ThreadResult::BroughtIntoFocus(thread) => self
+                        .printer
+                        .print(format!("Thread #{} brought into focus", thread.number)),
                 }
             }
         }
