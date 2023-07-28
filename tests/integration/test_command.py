@@ -238,8 +238,8 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect_exact('15     println!("{}", s)')
 
         self.debugger.sendline('bt')
-        self.debugger.expect(r'myprint \(0x[0-9A-F]{14,16} \+ 0x[0-9A-F]{1,16}\)')
-        self.debugger.expect(r'hello_world::main \(0x[0-9A-F]{14,16} \+ 0x[0-9A-F]{1,16}\)')
+        self.debugger.expect_exact('myprint')
+        self.debugger.expect_exact('hello_world::main')
 
     @staticmethod
     def test_args_for_executable():

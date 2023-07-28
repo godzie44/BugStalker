@@ -39,6 +39,13 @@ const WELCOME_TEXT: &str = r#"
 BugStalker greets
 "#;
 const PROMT: &str = "(bs) ";
+const UNKNOWN_PLACEHOLDER: &str = "???";
+
+macro_rules! str_or_unknown {
+    ($e: expr) => {
+        $e.unwrap_or_else(|| UNKNOWN_PLACEHOLDER.to_string())
+    };
+}
 
 type BSEditor = Editor<RLHelper, MemHistory>;
 
@@ -248,42 +255,37 @@ impl AppLoop {
                 }),
             Command::PrintBacktrace(cmd) => {
                 let bt = Backtrace::new(&self.debugger).handle(cmd)?;
-                bt.iter().for_each(|thread| {
+                bt.into_iter().for_each(|thread| {
                     self.printer.print(format!(
                         "thread #{}, {} - {}",
                         thread.thread.number,
                         thread.thread.pid,
-                        thread
+                        str_or_unknown!(thread
                             .bt
                             .as_ref()
-                            .and_then(|bt| bt.get(0).map(|f| f.ip))
-                            .unwrap_or(0_usize.into())
+                            .and_then(|bt| bt.get(0).map(|f| f.ip.to_string())))
+                        .blue()
                     ));
 
-                    if let Some(ref bt) = thread.bt {
-                        for frame in bt.iter() {
-                            match &frame.func_name {
-                                None => {
-                                    self.printer.print(format!("{} - ????", frame.ip));
-                                }
-                                Some(fn_name) => {
-                                    let user_bt_end = fn_name == "main"
-                                        || fn_name.contains("::main")
-                                        || fn_name.contains("::thread_start");
+                    if let Some(bt) = thread.bt {
+                        for (frame_num, frame) in bt.into_iter().enumerate() {
+                            let fn_name = str_or_unknown!(frame.func_name.clone());
 
-                                    let fn_ip = frame.fn_start_ip.unwrap_or_default();
-                                    self.printer.print(format!(
-                                        "{} - {} ({} + {:#X})",
-                                        frame.ip,
-                                        fn_name,
-                                        fn_ip,
-                                        frame.ip.as_u64() - fn_ip.as_u64(),
-                                    ));
+                            let user_bt_end = fn_name == "main"
+                                || fn_name.contains("::main")
+                                || fn_name.contains("::thread_start");
 
-                                    if user_bt_end {
-                                        break;
-                                    }
-                                }
+                            let fn_ip = frame.fn_start_ip.unwrap_or_default();
+                            self.printer.print(format!(
+                                "#{frame_num} {} - {} ({} + {:#X})",
+                                frame.ip.to_string().blue(),
+                                fn_name.to_string().green(),
+                                fn_ip.to_string().blue(),
+                                frame.ip.as_u64() - fn_ip.as_u64(),
+                            ));
+
+                            if user_bt_end {
+                                break;
                             }
                         }
                     }
@@ -402,15 +404,11 @@ impl AppLoop {
                         list.sort_by(|t1, t2| t1.thread.number.cmp(&t2.thread.number));
                         for thread in list {
                             let current_frame = thread.bt.and_then(|mut bt| bt.drain(..).next());
-                            let ip = current_frame
-                                .as_ref()
-                                .map(|f| f.ip.to_string())
-                                .unwrap_or("???".to_string())
-                                .blue();
-                            let func = current_frame
-                                .and_then(|f| f.func_name)
-                                .unwrap_or("???".to_string())
-                                .green();
+                            let ip =
+                                str_or_unknown!(current_frame.as_ref().map(|f| f.ip.to_string()))
+                                    .blue();
+                            let func =
+                                str_or_unknown!(current_frame.and_then(|f| f.func_name)).green();
 
                             let view = format!(
                                 "#{} thread id: {}, {} in {}",
