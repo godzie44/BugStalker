@@ -347,7 +347,6 @@ impl Tracer {
                                 }
                             }
 
-                            self.tracee_ctl.set_tracee_into_focus(pid);
                             self.tracee_ctl
                                 .tracee_ensure_mut(pid)
                                 .set_stop(StopType::Interrupt);

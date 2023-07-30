@@ -59,7 +59,7 @@ impl<'a> Register<'a> {
                     Reg::Es,
                 ];
 
-                let register_map = RegisterMap::current(self.dbg.debugee.tracee_in_focus().pid)
+                let register_map = RegisterMap::current(self.dbg.exploration_ctx().pid_on_focus())
                     .map_err(|e| HandlingError::Debugger(e.into()))?;
 
                 Ok(registers_to_dump

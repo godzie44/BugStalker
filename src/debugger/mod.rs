@@ -107,6 +107,41 @@ macro_rules! disable_when_not_stared {
     };
 }
 
+/// Exploration context. Contains current explored thread and program counter.
+/// May changed by user (by `thread` or `frame` command)
+/// or by debugger (at breakpoints, after steps, etc.).
+pub struct ExplContext {
+    on_focus_location: Location,
+}
+
+impl ExplContext {
+    /// Create new context with known thread but without known program counter value.
+    /// It is useful when debugee not started yet or restarted.
+    ///
+    /// # Arguments
+    ///
+    /// * `pid`: thread id
+    pub fn new_non_running(pid: Pid) -> ExplContext {
+        Self {
+            on_focus_location: Location {
+                pc: 0_u64.into(),
+                global_pc: 0_u64.into(),
+                pid,
+            },
+        }
+    }
+
+    #[inline(always)]
+    pub fn location(&self) -> Location {
+        self.on_focus_location
+    }
+
+    #[inline(always)]
+    pub fn pid_on_focus(&self) -> Pid {
+        self.location().pid
+    }
+}
+
 /// Main structure of bug-stalker, control debugee state and provides application functionality.
 pub struct Debugger {
     /// Child process where debugee is running.
@@ -119,6 +154,8 @@ pub struct Debugger {
     type_cache: RefCell<TypeCache>,
     /// Debugger interrupt with UI by EventHook trait.
     hooks: Box<dyn EventHook>,
+    /// Current exploration context.
+    expl_context: ExplContext,
 }
 
 impl Debugger {
@@ -137,17 +174,56 @@ impl Debugger {
             process.pid(),
         ));
 
-        hooks.on_process_install(process.pid());
+        let process_id = process.pid();
+        hooks.on_process_install(process_id);
 
         Ok(Self {
-            debugee: Debugee::new_non_running(program_path, process.pid(), &object)?,
+            debugee: Debugee::new_non_running(program_path, process_id, &object)?,
             process,
             breakpoints,
             hooks: Box::new(hooks),
             type_cache: RefCell::default(),
+            expl_context: ExplContext::new_non_running(process_id),
         })
     }
 
+    /// Return last set exploration context.
+    #[inline(always)]
+    pub fn exploration_ctx(&self) -> &ExplContext {
+        &self.expl_context
+    }
+
+    /// Update current program counters for current in focus thread.
+    fn expl_ctx_update_location(&mut self) -> anyhow::Result<&ExplContext> {
+        let old_ctx = self.exploration_ctx();
+        self.expl_context = ExplContext {
+            on_focus_location: self
+                .debugee
+                .get_tracee_ensure(old_ctx.pid_on_focus())
+                .location(&self.debugee)?,
+        };
+        Ok(&self.expl_context)
+    }
+
+    /// Change in focus thread and update program counters.
+    ///
+    /// # Arguments
+    ///
+    /// * `pid`: new in focus thread id
+    fn expl_ctx_switch_thread(&mut self, pid: Pid) -> anyhow::Result<&ExplContext> {
+        self.expl_context = ExplContext {
+            on_focus_location: self
+                .debugee
+                .get_tracee_ensure(pid)
+                .location(&self.debugee)?,
+        };
+        Ok(&self.expl_context)
+    }
+
+    /// Continue debugee execution. Step over breakpoint if called at it.
+    /// Return if breakpoint is reached or signal occurred or debugee exit.
+    ///
+    /// **! change exploration context**
     fn continue_execution(&mut self) -> anyhow::Result<()> {
         self.step_over_breakpoint()?;
 
@@ -162,11 +238,14 @@ impl Debugger {
                 }
                 StopReason::DebugeeStart => {
                     self.breakpoints.enable_all_breakpoints(&self.debugee)?;
+                    self.expl_ctx_update_location()?;
                 }
                 StopReason::NoSuchProcess(_) => {
                     break;
                 }
-                StopReason::Breakpoint(_, current_pc) => {
+                StopReason::Breakpoint(pid, current_pc) => {
+                    self.expl_ctx_switch_thread(pid)?;
+
                     if let Some(bp) = self.breakpoints.get_enabled(current_pc) {
                         match bp.r#type() {
                             BrkptType::EntryPoint => {
@@ -189,7 +268,8 @@ impl Debugger {
                         }
                     }
                 }
-                StopReason::SignalStop(_, sign) => {
+                StopReason::SignalStop(pid, sign) => {
+                    self.expl_ctx_switch_thread(pid)?;
                     // todo inject signal on next continue
                     self.hooks.on_signal(sign);
                     break;
@@ -202,6 +282,8 @@ impl Debugger {
 
     /// Restart debugee by recreating debugee process, save all user defined breakpoints.
     /// Return when new debugee stopped or ends.
+    ///
+    /// **! change exploration context**
     pub fn restart_debugee(&mut self) -> anyhow::Result<()> {
         if self.debugee.execution_status == ExecutionStatus::InProgress {
             self.breakpoints.disable_all_breakpoints(&self.debugee);
@@ -222,6 +304,7 @@ impl Debugger {
         self.breakpoints.update_pid(self.process.pid());
 
         self.hooks.on_process_install(self.process.pid());
+        self.expl_context = ExplContext::new_non_running(self.process.pid());
         self.continue_execution()
     }
 
@@ -234,11 +317,17 @@ impl Debugger {
         Ok(())
     }
 
+    /// Continue debugee execution.
     pub fn continue_debugee(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
         self.continue_execution()
     }
 
+    /// Return list of symbols matching regular expression.
+    ///
+    /// # Arguments
+    ///
+    /// * `regex`: regular expression
     pub fn get_symbols(&self, regex: &str) -> anyhow::Result<Vec<&Symbol>> {
         self.debugee.dwarf.find_symbols(regex)
     }
@@ -254,38 +343,45 @@ impl Debugger {
         )
     }
 
+    /// Do single step (until debugee reaches a different source line).
+    ///
+    /// **! change exploration context**
     pub fn step_into(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
-        self.step_in()?;
-
-        let location = self.current_thread_stop_at()?;
+        let ctx = self.step_in()?;
+        let pc = ctx.location().pc;
+        let global_pc = ctx.location().global_pc;
         self.hooks.on_step(
-            location.pc,
-            self.debugee.dwarf.find_place_from_pc(location.global_pc),
+            pc,
+            self.debugee.dwarf.find_place_from_pc(global_pc),
             self.debugee
                 .dwarf
-                .find_function_by_pc(location.global_pc)
+                .find_function_by_pc(global_pc)
                 .map(|f| f.die),
         )
     }
 
+    /// Move in focus thread to next instruction.
+    ///
+    /// **! change exploration context**
     pub fn stepi(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
-        self.single_step_instruction()?;
-        let location = self.current_thread_stop_at()?;
+        let ctx = self.single_step_instruction()?;
+        let pc = ctx.location().pc;
+        let global_pc = ctx.location().global_pc;
         self.hooks.on_step(
-            location.pc,
-            self.debugee.dwarf.find_place_from_pc(location.global_pc),
+            pc,
+            self.debugee.dwarf.find_place_from_pc(global_pc),
             self.debugee
                 .dwarf
-                .find_function_by_pc(location.global_pc)
+                .find_function_by_pc(global_pc)
                 .map(|f| f.die),
         )
     }
 
     pub fn thread_state(&self) -> anyhow::Result<Vec<ThreadSnapshot>> {
         disable_when_not_stared!(self);
-        self.debugee.thread_state()
+        self.debugee.thread_state(self.exploration_ctx())
     }
 
     /// Sets the thread into focus.
@@ -295,7 +391,9 @@ impl Debugger {
     /// * `num`: thread number
     pub fn set_thread_into_focus(&mut self, num: u32) -> anyhow::Result<Tracee> {
         disable_when_not_stared!(self);
-        self.debugee.set_tracee_into_focus(num)
+        let tracee = self.debugee.get_tracee_by_num(num)?;
+        self.expl_ctx_switch_thread(tracee.pid)?;
+        Ok(tracee)
     }
 
     pub fn backtrace(&self, pid: Pid) -> anyhow::Result<Backtrace> {
@@ -328,13 +426,14 @@ impl Debugger {
         }
     }
 
-    pub fn current_thread_stop_at(&self) -> nix::Result<Location> {
-        self.debugee.tracee_in_focus().location(&self.debugee)
-    }
-
-    fn step_over_breakpoint(&mut self) -> anyhow::Result<()> {
+    /// If current on focus thread is stopped at a breakpoint, then it takes a step through this point.
+    ///
+    /// **! change exploration context**
+    fn step_over_breakpoint(&mut self) -> anyhow::Result<&ExplContext> {
         // cannot use debugee::Location mapping offset may be not init yet
-        let tracee = self.debugee.tracee_in_focus();
+        let tracee = self
+            .debugee
+            .get_tracee_ensure(self.exploration_ctx().pid_on_focus());
         let mb_brkpt = self.breakpoints.get_enabled(tracee.pc()?);
         let tracee_pid = tracee.pid;
         if let Some(brkpt) = mb_brkpt {
@@ -345,27 +444,34 @@ impl Debugger {
                     tracee_pid,
                 )?;
                 brkpt.enable()?;
+                return self.expl_ctx_update_location();
             }
         }
-        Ok(())
+        Ok(self.exploration_ctx())
     }
 
-    fn single_step_instruction(&mut self) -> anyhow::Result<()> {
-        let loc = self.current_thread_stop_at()?;
+    /// Move debugee to next instruction, step over breakpoint if needed.
+    ///
+    /// **! change exploration context**
+    fn single_step_instruction(&mut self) -> anyhow::Result<&ExplContext> {
+        let loc = self.exploration_ctx().location();
         if self.breakpoints.get_enabled(loc.pc).is_some() {
-            self.step_over_breakpoint()
+            Ok(self.step_over_breakpoint()?)
         } else {
             self.debugee.tracer_mut().single_step(
                 TraceContext::new(&self.breakpoints.active_breakpoints()),
                 loc.pid,
             )?;
-            Ok(())
+            self.expl_ctx_update_location()
         }
     }
 
+    /// Move to higher stack frame.
+    ///
+    /// **! change exploration context**
     pub fn step_out(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
-        let location = self.current_thread_stop_at()?;
+        let location = self.exploration_ctx().location();
         if let Some(ret_addr) = libunwind::return_addr(location.pid)? {
             let brkpt_is_set = self.breakpoints.get_enabled(ret_addr).is_some();
             if brkpt_is_set {
@@ -376,7 +482,7 @@ impl Debugger {
                 self.continue_execution()?;
                 self.remove_breakpoint(Address::Relocated(ret_addr))?;
 
-                let new_location = self.current_thread_stop_at()?;
+                let new_location = self.exploration_ctx().location();
                 self.hooks.on_step(
                     new_location.pc,
                     self.debugee
@@ -389,10 +495,14 @@ impl Debugger {
                 )?;
             }
         }
+        self.expl_ctx_update_location()?;
         Ok(())
     }
 
-    pub fn step_in(&mut self) -> anyhow::Result<()> {
+    /// Do single step (until debugee reaches a different source line).
+    ///
+    /// **! change exploration context**
+    pub fn step_in(&mut self) -> anyhow::Result<&ExplContext> {
         disable_when_not_stared!(self);
 
         // make instruction step but ignoring functions prolog
@@ -400,47 +510,49 @@ impl Debugger {
         fn long_step(debugger: &mut Debugger) -> anyhow::Result<PlaceOwned> {
             loop {
                 // initial step
-                debugger.single_step_instruction()?;
+                let ctx = debugger.single_step_instruction()?;
 
-                let mut location = debugger.current_thread_stop_at()?;
+                let mut location = ctx.location();
                 let func = loop {
                     let dwarf = &debugger.debugee.dwarf;
                     if let Some(func) = dwarf.find_function_by_pc(location.global_pc) {
                         break func;
                     }
-                    debugger.single_step_instruction()?;
-                    location = debugger.current_thread_stop_at()?;
+                    let ctx = debugger.single_step_instruction()?;
+                    location = ctx.location();
                 };
 
                 let prolog = func.prolog()?;
                 // if pc in prolog range - step until function body is reached
                 while debugger
-                    .current_thread_stop_at()?
+                    .exploration_ctx()
+                    .location()
                     .global_pc
                     .in_range(&prolog)
                 {
                     debugger.single_step_instruction()?;
                 }
 
+                let location = debugger.exploration_ctx().location();
                 if let Some(place) = debugger
                     .debugee
                     .dwarf
-                    .find_exact_place_from_pc(debugger.current_thread_stop_at()?.global_pc)
+                    .find_exact_place_from_pc(location.global_pc)
                 {
                     return Ok(place.to_owned());
                 }
             }
         }
 
-        let mut location = self.current_thread_stop_at()?;
+        let mut location = self.exploration_ctx().location();
 
         let start_place = loop {
             let dwarf = &self.debugee.dwarf;
             if let Some(place) = dwarf.find_place_from_pc(location.global_pc) {
                 break place;
             }
-            self.single_step_instruction()?;
-            location = self.current_thread_stop_at()?;
+            let ctx = self.single_step_instruction()?;
+            location = ctx.location();
         };
 
         let sp_file = start_place.file.to_path_buf();
@@ -453,10 +565,8 @@ impl Debugger {
                 continue;
             }
             let in_same_place = sp_file == next_place.file && sp_line == next_place.line_number;
-            let next_cfa = self
-                .debugee
-                .dwarf
-                .get_cfa(&self.debugee, self.current_thread_stop_at()?)?;
+            let location = self.exploration_ctx().location();
+            let next_cfa = self.debugee.dwarf.get_cfa(&self.debugee, location)?;
 
             // step is done if:
             // 1) we may step at same place in code but in another stack frame
@@ -466,21 +576,24 @@ impl Debugger {
             }
         }
 
-        Ok(())
+        self.expl_ctx_update_location()
     }
 
+    /// Do debugee step (over subroutine calls to).
+    ///
+    /// **! change exploration context**
     pub fn step_over(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
 
-        let mut current_location = self.current_thread_stop_at()?;
+        let mut current_location = self.exploration_ctx().location();
 
         let func = loop {
             let dwarf = &self.debugee.dwarf;
             if let Some(func) = dwarf.find_function_by_pc(current_location.global_pc) {
                 break func;
             }
-            self.single_step_instruction()?;
-            current_location = self.current_thread_stop_at()?;
+            let ctx = self.single_step_instruction()?;
+            current_location = ctx.location();
         };
 
         let prolog = func.prolog()?;
@@ -560,7 +673,7 @@ impl Debugger {
         // if a step is taken outside and new location pc not equals to place pc
         // then we then we stopped at the place of the previous function call, and got into an assignment operation or similar
         // in this case do a single step
-        let mut new_location = self.current_thread_stop_at()?;
+        let mut new_location = self.exploration_ctx().location();
         if Some(new_location.pc) == return_addr {
             let place = self
                 .debugee
@@ -569,10 +682,12 @@ impl Debugger {
                 .ok_or_else(|| anyhow!("unknown function range"))?;
 
             if place.address != new_location.global_pc {
-                self.step_in()?;
-                new_location = self.current_thread_stop_at()?;
+                let ctx = self.step_in()?;
+                new_location = ctx.location();
             }
         }
+
+        self.expl_ctx_update_location()?;
 
         self.hooks.on_step(
             new_location.pc,
@@ -586,15 +701,6 @@ impl Debugger {
         )?;
 
         Ok(())
-    }
-
-    fn address_for_fn(&self, name: &str) -> anyhow::Result<PlaceOwned> {
-        let dwarf = &self.debugee.dwarf;
-        let func = dwarf
-            .find_function_by_name(name)
-            .ok_or_else(|| anyhow!("function not found"))?;
-        let place = func.prolog_end_place()?.to_owned();
-        Ok(place)
     }
 
     pub fn set_breakpoint_at_addr(
@@ -630,7 +736,7 @@ impl Debugger {
     }
 
     pub fn set_breakpoint_at_fn(&mut self, name: &str) -> anyhow::Result<BreakpointView> {
-        let place = self.address_for_fn(name)?;
+        let place = self.debugee.dwarf.get_function_place(name)?;
 
         if self.debugee.in_progress() {
             let addr = place.address.relocate(self.debugee.mapping_offset());
@@ -649,7 +755,7 @@ impl Debugger {
         &mut self,
         name: &str,
     ) -> anyhow::Result<Option<BreakpointView>> {
-        let place = self.address_for_fn(name)?;
+        let place = self.debugee.dwarf.get_function_place(name)?;
         if self.debugee.in_progress() {
             self.breakpoints.remove_by_addr(Address::Relocated(
                 place.address.relocate(self.debugee.mapping_offset()),
@@ -754,7 +860,7 @@ impl Debugger {
     pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {
         disable_when_not_stared!(self);
 
-        Ok(RegisterMap::current(self.debugee.tracee_in_focus().pid)?
+        Ok(RegisterMap::current(self.exploration_ctx().pid_on_focus())?
             .value(Register::from_str(register_name)?))
     }
 
@@ -769,7 +875,7 @@ impl Debugger {
             .context_for(Location {
                 pc,
                 global_pc: pc.into_global(self.debugee.mapping_offset()),
-                pid: self.debugee.tracee_in_focus().pid,
+                pid: self.exploration_ctx().pid_on_focus(),
             })?
             .ok_or(anyhow!("fetch register fail"))?
             .registers())
@@ -778,9 +884,10 @@ impl Debugger {
     pub fn set_register_value(&self, register_name: &str, val: u64) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
 
-        let mut map = RegisterMap::current(self.debugee.tracee_in_focus().pid)?;
+        let in_focus_pid = self.exploration_ctx().pid_on_focus();
+        let mut map = RegisterMap::current(in_focus_pid)?;
         map.update(Register::try_from(register_name)?, val);
-        Ok(map.persist(self.debugee.tracee_in_focus().pid)?)
+        Ok(map.persist(in_focus_pid)?)
     }
 
     pub fn known_files(&self) -> impl Iterator<Item = &PathBuf> {

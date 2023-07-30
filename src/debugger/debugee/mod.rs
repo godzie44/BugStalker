@@ -5,6 +5,7 @@ use crate::debugger::debugee::dwarf::{DebugeeContext, EndianArcSlice};
 use crate::debugger::debugee::rendezvous::Rendezvous;
 use crate::debugger::debugee::tracee::{Tracee, TraceeCtl};
 use crate::debugger::debugee::tracer::{StopReason, TraceContext, Tracer};
+use crate::debugger::ExplContext;
 use crate::weak_error;
 use anyhow::anyhow;
 use log::{info, warn};
@@ -221,14 +222,14 @@ impl Debugee {
         })
     }
 
-    pub fn thread_state(&self) -> anyhow::Result<Vec<ThreadSnapshot>> {
+    pub fn thread_state(&self, ctx: &ExplContext) -> anyhow::Result<Vec<ThreadSnapshot>> {
         let threads = self.tracee_ctl().snapshot();
         Ok(threads
             .into_iter()
             .map(|tracee| {
                 let mb_bt = weak_error!(libunwind::unwind(tracee.pid));
                 ThreadSnapshot {
-                    in_focus: &tracee == self.tracee_ctl().tracee_in_focus(),
+                    in_focus: tracee.pid == ctx.pid_on_focus(),
                     thread: tracee,
                     bt: mb_bt,
                 }
@@ -236,17 +237,29 @@ impl Debugee {
             .collect())
     }
 
-    /// Returns tracee currently in focus.
-    pub fn tracee_in_focus(&self) -> &Tracee {
-        self.tracee_ctl().tracee_in_focus()
+    /// Return tracee by it's thread id.
+    ///
+    /// # Arguments
+    ///
+    /// * `pid`: tracee thread id
+    ///
+    /// returns: &Tracee
+    ///
+    /// # Panics
+    ///
+    /// This method panics if thread with pid `pid` not run
+    pub fn get_tracee_ensure(&self, pid: Pid) -> &Tracee {
+        self.tracee_ctl().tracee_ensure(pid)
     }
 
-    /// Change focus to other tracee thread.
-    pub fn set_tracee_into_focus(&mut self, num: u32) -> anyhow::Result<Tracee> {
+    /// Return tracee by it's number.
+    ///
+    /// # Arguments
+    ///
+    /// * `num`: tracee number
+    pub fn get_tracee_by_num(&self, num: u32) -> anyhow::Result<Tracee> {
         let mut snapshot = self.tracee_ctl().snapshot();
         let tracee = snapshot.drain(..).find(|tracee| tracee.number == num);
-        let tracee = tracee.ok_or(anyhow!("tracee {num} not found"))?;
-        self.tracer.tracee_ctl.set_tracee_into_focus(tracee.pid);
-        Ok(tracee)
+        tracee.ok_or(anyhow!("tracee {num} not found"))
     }
 }

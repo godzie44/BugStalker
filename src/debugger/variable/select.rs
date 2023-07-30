@@ -55,7 +55,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
     pub fn new(debugger: &'a Debugger, expression: Expression) -> anyhow::Result<Self> {
         Ok(Self {
             debugger,
-            location: debugger.current_thread_stop_at()?,
+            location: debugger.exploration_ctx().location(),
             expression,
         })
     }

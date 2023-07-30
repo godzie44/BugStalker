@@ -122,7 +122,7 @@ fn test_registers() {
 
     // there is only info about return address (dwarf reg 16) in .debug_info section
     // so assert it with libunwind provided address
-    let pc = debugger.current_thread_stop_at().unwrap().pc;
+    let pc = debugger.exploration_ctx().location().pc;
     let frame = debugger.frame_info(debugee_pid).unwrap();
     let registers = debugger.current_thread_registers_at_pc(pc).unwrap();
     assert_eq!(

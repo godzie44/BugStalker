@@ -13,7 +13,8 @@ use crate::debugger::debugee::dwarf::r#type::ComplexType;
 use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
 use crate::debugger::debugee::dwarf::unit::{
-    DieRef, DieVariant, DwarfUnitParser, Entry, FunctionDie, Node, ParameterDie, Unit, VariableDie,
+    DieRef, DieVariant, DwarfUnitParser, Entry, FunctionDie, Node, ParameterDie, PlaceOwned, Unit,
+    VariableDie,
 };
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
@@ -224,6 +225,13 @@ impl DebugeeContext {
         self.units
             .iter()
             .find_map(|unit| unit.find_stmt_line(file, line))
+    }
+
+    pub fn get_function_place(&self, fn_name: &str) -> anyhow::Result<PlaceOwned> {
+        let func = self
+            .find_function_by_name(fn_name)
+            .ok_or_else(|| anyhow!("function not found"))?;
+        Ok(func.prolog_end_place()?.to_owned())
     }
 
     pub fn find_symbols(&self, regex: &str) -> anyhow::Result<Vec<&Symbol>> {

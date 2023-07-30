@@ -126,7 +126,6 @@ impl Tracee {
 
 pub struct TraceeCtl {
     process_pid: Pid,
-    in_focus_tid: Pid,
     threads_state: HashMap<Pid, Tracee>,
     thread_db_proc: Option<ThreadDBProcess>,
 }
@@ -135,7 +134,6 @@ impl TraceeCtl {
     pub fn new(proc_pid: Pid) -> TraceeCtl {
         Self {
             process_pid: proc_pid,
-            in_focus_tid: proc_pid,
             threads_state: HashMap::from([(proc_pid, Tracee::new_stopped(proc_pid))]),
             thread_db_proc: None,
         }
@@ -160,16 +158,6 @@ impl TraceeCtl {
     /// Return pid of debugee process main thread.
     pub fn proc_pid(&self) -> Pid {
         self.process_pid
-    }
-
-    /// Set tracee into focus.
-    pub fn set_tracee_into_focus(&mut self, tid: Pid) {
-        self.in_focus_tid = tid
-    }
-
-    /// Return current focused tracee.
-    pub(super) fn tracee_in_focus(&self) -> &Tracee {
-        &self.threads_state[&self.in_focus_tid]
     }
 
     /// Adds thread to control.
