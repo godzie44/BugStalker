@@ -5,7 +5,7 @@ use crate::debugger::debugee::dwarf::{DebugeeContext, EndianArcSlice};
 use crate::debugger::debugee::rendezvous::Rendezvous;
 use crate::debugger::debugee::tracee::{Tracee, TraceeCtl};
 use crate::debugger::debugee::tracer::{StopReason, TraceContext, Tracer};
-use crate::debugger::ExplContext;
+use crate::debugger::ExplorationContext;
 use crate::weak_error;
 use anyhow::anyhow;
 use log::{info, warn};
@@ -206,23 +206,23 @@ impl Debugee {
         Ok(lowest_map.start())
     }
 
-    pub fn frame_info(&self, location: Location) -> anyhow::Result<FrameInfo> {
+    pub fn frame_info(&self, ctx: &ExplorationContext) -> anyhow::Result<FrameInfo> {
         let func = self
             .dwarf
-            .find_function_by_pc(location.global_pc)
-            .ok_or_else(|| anyhow!("current function not found"))?;
+            .find_function_by_pc(ctx.location().global_pc)
+            .ok_or_else(|| anyhow!("current function not found 2"))?;
 
-        let base_addr = func.frame_base_addr(location.pid, self, location.global_pc)?;
+        let base_addr = func.frame_base_addr(ctx, self, ctx.location().global_pc)?;
 
-        let cfa = self.dwarf.get_cfa(self, location)?;
+        let cfa = self.dwarf.get_cfa(self, ctx)?;
         Ok(FrameInfo {
             cfa,
             base_addr,
-            return_addr: libunwind::return_addr(location.pid)?,
+            return_addr: libunwind::return_addr(ctx.pid_on_focus())?,
         })
     }
 
-    pub fn thread_state(&self, ctx: &ExplContext) -> anyhow::Result<Vec<ThreadSnapshot>> {
+    pub fn thread_state(&self, ctx: &ExplorationContext) -> anyhow::Result<Vec<ThreadSnapshot>> {
         let threads = self.tracee_ctl().snapshot();
         Ok(threads
             .into_iter()

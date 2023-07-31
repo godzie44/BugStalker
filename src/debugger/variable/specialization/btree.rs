@@ -156,7 +156,11 @@ impl Leaf {
         ptr: *const (),
         markup: &LeafNodeMarkup,
     ) -> anyhow::Result<Leaf> {
-        let leaf_bytes = debugger::read_memory_by_pid(eval_ctx.pid, ptr as usize, markup.size)?;
+        let leaf_bytes = debugger::read_memory_by_pid(
+            eval_ctx.expl_ctx.pid_on_focus(),
+            ptr as usize,
+            markup.size,
+        )?;
         Self::from_bytes(eval_ctx, r#type, leaf_bytes, markup)
     }
 
@@ -227,7 +231,11 @@ impl Internal {
         l_markup: &LeafNodeMarkup,
         i_markup: &InternalNodeMarkup,
     ) -> anyhow::Result<Self> {
-        let bytes = debugger::read_memory_by_pid(eval_ctx.pid, ptr as usize, i_markup.size)?;
+        let bytes = debugger::read_memory_by_pid(
+            eval_ctx.expl_ctx.pid_on_focus(),
+            ptr as usize,
+            i_markup.size,
+        )?;
 
         let edges_v = i_markup
             .edges

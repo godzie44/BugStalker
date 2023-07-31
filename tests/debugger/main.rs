@@ -96,7 +96,7 @@ fn test_frame_cfa() {
         .value(Register::Rsp);
 
     debugger.continue_debugee().unwrap();
-    let frame_info = debugger.frame_info(debugee_pid).unwrap();
+    let frame_info = debugger.frame_info().unwrap();
 
     // expect that cfa equals stack pointer from callee function.
     assert_eq!(sp, u64::from(frame_info.cfa));
@@ -123,7 +123,7 @@ fn test_registers() {
     // there is only info about return address (dwarf reg 16) in .debug_info section
     // so assert it with libunwind provided address
     let pc = debugger.exploration_ctx().location().pc;
-    let frame = debugger.frame_info(debugee_pid).unwrap();
+    let frame = debugger.frame_info().unwrap();
     let registers = debugger.current_thread_registers_at_pc(pc).unwrap();
     assert_eq!(
         u64::from(frame.return_addr.unwrap()),

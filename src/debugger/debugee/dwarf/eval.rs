@@ -1,12 +1,12 @@
 use crate::debugger;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
-use crate::debugger::debugee;
 use crate::debugger::debugee::dwarf::eval::EvalError::{OptionRequired, UnsupportedRequire};
 use crate::debugger::debugee::dwarf::unit::DieRef;
 use crate::debugger::debugee::dwarf::unit::{DieVariant, Unit};
 use crate::debugger::debugee::dwarf::{ContextualDieRef, DwarfUnwinder, EndianArcSlice};
 use crate::debugger::debugee::Debugee;
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
+use crate::debugger::{debugee, ExplorationContext};
 use anyhow::anyhow;
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{
@@ -55,37 +55,28 @@ impl<'a> RequirementsResolver<'a> {
     }
 
     /// Return base address of current frame.
-    fn base_addr(&self, pid: Pid) -> anyhow::Result<RelocatedAddress> {
-        match self.base_address.borrow_mut().entry(pid) {
+    fn base_addr(&self, ctx: &ExplorationContext) -> anyhow::Result<RelocatedAddress> {
+        match self.base_address.borrow_mut().entry(ctx.pid_on_focus()) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(e) => {
-                let loc = self
-                    .debugee
-                    .tracee_ctl()
-                    .tracee_ensure(pid)
-                    .location(self.debugee)?;
+                let loc = ctx.location();
                 let func = self
                     .debugee
                     .dwarf
                     .find_function_by_pc(loc.global_pc)
-                    .ok_or_else(|| anyhow!("current function not found"))?;
-                let base_addr = func.frame_base_addr(pid, self.debugee, loc.global_pc)?;
+                    .ok_or_else(|| anyhow!("current function not found 1"))?;
+                let base_addr = func.frame_base_addr(ctx, self.debugee, loc.global_pc)?;
                 Ok(*e.insert(base_addr))
             }
         }
     }
 
     /// Return canonical frame address of current frame.
-    fn cfa(&self, pid: Pid) -> anyhow::Result<RelocatedAddress> {
-        match self.cfa.borrow_mut().entry(pid) {
+    fn cfa(&self, ctx: &ExplorationContext) -> anyhow::Result<RelocatedAddress> {
+        match self.cfa.borrow_mut().entry(ctx.pid_on_focus()) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(e) => {
-                let loc = self
-                    .debugee
-                    .tracee_ctl()
-                    .tracee_ensure(pid)
-                    .location(self.debugee)?;
-                let cfa = self.debugee.dwarf.get_cfa(self.debugee, loc)?;
+                let cfa = self.debugee.dwarf.get_cfa(self.debugee, ctx)?;
                 Ok(*e.insert(cfa))
             }
         }
@@ -128,12 +119,13 @@ impl<'a> RequirementsResolver<'a> {
             .into();
 
         let unwinder = DwarfUnwinder::new(self.debugee);
+        let location = debugee::Location {
+            pid,
+            pc: entry_pc.relocate(self.debugee.mapping_offset()),
+            global_pc: entry_pc,
+        };
         Ok(unwinder
-            .context_for(debugee::Location {
-                pid,
-                pc: entry_pc.relocate(self.debugee.mapping_offset()),
-                global_pc: entry_pc,
-            })?
+            .context_for(&ExplorationContext::new(location))?
             .ok_or(anyhow!("fetch register fail"))?
             .registers())
     }
@@ -204,14 +196,18 @@ impl<'a> ExpressionEvaluator<'a> {
         }
     }
 
-    pub fn evaluate(&self, pid: Pid, expr: Expression<EndianArcSlice>) -> Result<CompletedResult> {
-        self.evaluate_with_resolver(ExternalRequirementsResolver::default(), pid, expr)
+    pub fn evaluate(
+        &self,
+        ctx: &'a ExplorationContext,
+        expr: Expression<EndianArcSlice>,
+    ) -> Result<CompletedResult> {
+        self.evaluate_with_resolver(ExternalRequirementsResolver::default(), ctx, expr)
     }
 
     pub fn evaluate_with_resolver(
         &self,
         mut resolver: ExternalRequirementsResolver,
-        pid: Pid,
+        ctx: &'a ExplorationContext,
         expr: Expression<EndianArcSlice>,
     ) -> Result<CompletedResult> {
         let mut eval = expr.evaluation(self.encoding);
@@ -226,15 +222,17 @@ impl<'a> ExpressionEvaluator<'a> {
                     let value_type = self.value_type_from_offset(base_type);
 
                     // if there is registers dump for functions entry - use it
-                    let bytes = if let Some(regs) = resolver.entry_registers.remove(&pid) {
-                        regs.value(register)?
-                    } else {
-                        DwarfRegisterMap::from(RegisterMap::current(pid)?).value(register)?
-                    };
+                    let bytes =
+                        if let Some(regs) = resolver.entry_registers.remove(&ctx.pid_on_focus()) {
+                            regs.value(register)?
+                        } else {
+                            DwarfRegisterMap::from(RegisterMap::current(ctx.pid_on_focus())?)
+                                .value(register)?
+                        };
                     result = eval.resume_with_register(Value::from_u64(value_type, bytes)?)?;
                 }
                 EvaluationResult::RequiresFrameBase => {
-                    result = eval.resume_with_frame_base(self.resolver.base_addr(pid)?.into())?;
+                    result = eval.resume_with_frame_base(self.resolver.base_addr(ctx)?.into())?;
                 }
                 EvaluationResult::RequiresAtLocation(_) => {
                     let buf = EndianArcSlice::new(
@@ -257,8 +255,12 @@ impl<'a> ExpressionEvaluator<'a> {
                     base_type,
                     ..
                 } => {
-                    let memory = debugger::read_memory_by_pid(pid, address as usize, size as usize)
-                        .map_err(EvalError::Nix)?;
+                    let memory = debugger::read_memory_by_pid(
+                        ctx.pid_on_focus(),
+                        address as usize,
+                        size as usize,
+                    )
+                    .map_err(EvalError::Nix)?;
 
                     let value_type = self.value_type_from_offset(base_type);
                     let value = match value_type {
@@ -281,7 +283,7 @@ impl<'a> ExpressionEvaluator<'a> {
                     result = eval.resume_with_relocated_address(addr + relocation_addr as u64)?;
                 }
                 EvaluationResult::RequiresTls(offset) => {
-                    let addr = self.resolver.resolve_tls(pid, offset)?;
+                    let addr = self.resolver.resolve_tls(ctx.pid_on_focus(), offset)?;
                     result = eval.resume_with_tls(addr.into())?;
                 }
                 EvaluationResult::RequiresIndexedAddress { index, relocate } => {
@@ -297,14 +299,14 @@ impl<'a> ExpressionEvaluator<'a> {
                     result = eval.resume_with_indexed_address(addr)?;
                 }
                 EvaluationResult::RequiresCallFrameCfa => {
-                    let cfa = self.resolver.cfa(pid)?;
+                    let cfa = self.resolver.cfa(ctx)?;
                     result = eval.resume_with_call_frame_cfa(cfa.into())?;
                 }
                 EvaluationResult::RequiresEntryValue(expr) => {
-                    let regs = self.resolver.resolve_registers(pid)?;
-                    let ctx_resolver =
-                        ExternalRequirementsResolver::default().with_entry_registers(pid, regs);
-                    let eval_res = self.evaluate_with_resolver(ctx_resolver, pid, expr)?;
+                    let regs = self.resolver.resolve_registers(ctx.pid_on_focus())?;
+                    let ctx_resolver = ExternalRequirementsResolver::default()
+                        .with_entry_registers(ctx.pid_on_focus(), regs);
+                    let eval_res = self.evaluate_with_resolver(ctx_resolver, ctx, expr)?;
                     let u = eval_res.into_scalar::<u64>()?;
                     result = eval.resume_with_entry_value(Value::Generic(u))?;
                 }
@@ -321,7 +323,7 @@ impl<'a> ExpressionEvaluator<'a> {
             debugee: self.resolver.debugee,
             unit: self.unit,
             inner: eval.result(),
-            pid,
+            ctx,
         })
     }
 }
@@ -330,7 +332,7 @@ pub struct CompletedResult<'a> {
     inner: Vec<Piece<EndianArcSlice>>,
     debugee: &'a Debugee,
     unit: &'a Unit,
-    pid: Pid,
+    ctx: &'a ExplorationContext,
 }
 
 impl<'a> CompletedResult<'a> {
@@ -350,12 +352,20 @@ impl<'a> CompletedResult<'a> {
 
             match piece.location {
                 Location::Register { register } => {
-                    buf.put(read_register(self.pid, register, read_size, offset)?);
+                    buf.put(read_register(
+                        self.ctx.pid_on_focus(),
+                        register,
+                        read_size,
+                        offset,
+                    )?);
                 }
                 Location::Address { address } => {
-                    let memory =
-                        debugger::read_memory_by_pid(self.pid, address as usize, read_size)
-                            .map_err(EvalError::Nix)?;
+                    let memory = debugger::read_memory_by_pid(
+                        self.ctx.pid_on_focus(),
+                        address as usize,
+                        read_size,
+                    )
+                    .map_err(EvalError::Nix)?;
                     buf.put(Bytes::from(memory));
                 }
                 Location::Value { value } => {
@@ -397,14 +407,7 @@ impl<'a> CompletedResult<'a> {
                             .r#type()
                             .ok_or_else(|| EvalError::Other(anyhow!("unknown die type")))?;
                         let bytes = ctx_die
-                            .read_value(
-                                self.debugee
-                                    .tracee_ctl()
-                                    .tracee_ensure(self.pid)
-                                    .location(self.debugee)?,
-                                self.debugee,
-                                &r#type,
-                            )
+                            .read_value(self.ctx, self.debugee, &r#type)
                             .ok_or_else(|| {
                                 EvalError::Other(anyhow!("implicit pointer address invalid value"))
                             })?;

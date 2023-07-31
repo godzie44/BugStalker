@@ -1,6 +1,6 @@
+use crate::debugger::debugee::dwarf;
 use crate::debugger::debugee::dwarf::r#type::ComplexType;
 use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef};
-use crate::debugger::debugee::{dwarf, Location};
 use crate::debugger::variable::VariableIR;
 use crate::debugger::{variable, Debugger};
 use crate::{ctx_resolve_unit_call, weak_error};
@@ -29,7 +29,6 @@ pub enum Expression {
 /// Evaluate `Expression` at current breakpoint (for current debugee location).
 pub struct SelectExpressionEvaluator<'a> {
     debugger: &'a Debugger,
-    location: Location,
     expression: Expression,
 }
 
@@ -55,7 +54,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
     pub fn new(debugger: &'a Debugger, expression: Expression) -> anyhow::Result<Self> {
         Ok(Self {
             debugger,
-            location: debugger.exploration_ctx().location(),
+            //  expl_context: debugger.exploration_ctx(),
             expression,
         })
     }
@@ -63,6 +62,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
     /// Evaluate only variable names.
     /// Only filter expression supported.
     pub fn evaluate_names(&self) -> anyhow::Result<Vec<String>> {
+        let ctx = self.debugger.exploration_ctx();
         match &self.expression {
             Expression::Variable(selector) => {
                 let vars = match selector {
@@ -70,15 +70,15 @@ impl<'a> SelectExpressionEvaluator<'a> {
                         .debugger
                         .debugee
                         .dwarf
-                        .find_variables(self.location, variable_name),
+                        .find_variables(ctx.location(), variable_name),
                     VariableSelector::Any => {
                         let current_func = self
                             .debugger
                             .debugee
                             .dwarf
-                            .find_function_by_pc(self.location.global_pc)
+                            .find_function_by_pc(ctx.location().global_pc)
                             .ok_or_else(|| anyhow!("not in function"))?;
-                        current_func.local_variables(self.location.global_pc)
+                        current_func.local_variables(ctx.location().global_pc)
                     }
                 };
                 Ok(vars
@@ -96,6 +96,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
     }
 
     fn evaluate_inner(&self, expression: &Expression) -> anyhow::Result<Vec<VariableIR>> {
+        let ctx = self.debugger.exploration_ctx();
         // evaluate variable one by one in `evaluate_single_variable` method
         // here just filter variables
         match expression {
@@ -105,15 +106,15 @@ impl<'a> SelectExpressionEvaluator<'a> {
                         .debugger
                         .debugee
                         .dwarf
-                        .find_variables(self.location, variable_name),
+                        .find_variables(ctx.location(), variable_name),
                     VariableSelector::Any => {
                         let current_func = self
                             .debugger
                             .debugee
                             .dwarf
-                            .find_function_by_pc(self.location.global_pc)
+                            .find_function_by_pc(ctx.location().global_pc)
                             .ok_or_else(|| anyhow!("not in function"))?;
-                        current_func.local_variables(self.location.global_pc)
+                        current_func.local_variables(ctx.location().global_pc)
                     }
                 };
 
@@ -143,7 +144,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     .debugger
                     .debugee
                     .dwarf
-                    .find_function_by_pc(self.location.global_pc)
+                    .find_function_by_pc(self.debugger.exploration_ctx().location().global_pc)
                     .ok_or_else(|| anyhow!("not in function"))?;
                 let params = current_function.parameters();
 
@@ -181,7 +182,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     .debugger
                     .debugee
                     .dwarf
-                    .find_function_by_pc(self.location.global_pc)
+                    .find_function_by_pc(self.debugger.exploration_ctx().location().global_pc)
                     .ok_or_else(|| anyhow!("not in function"))?;
                 let params = current_function.parameters();
 
@@ -224,14 +225,18 @@ impl<'a> SelectExpressionEvaluator<'a> {
         let evaluator = ctx_resolve_unit_call!(variable_die, evaluator, &self.debugger.debugee);
         let evaluation_context = &dwarf::r#type::EvaluationContext {
             evaluator: &evaluator,
-            pid: self.location.pid,
+            expl_ctx: self.debugger.exploration_ctx(),
         };
 
         match expression {
             Expression::Variable(_) => Some(parser.parse(
                 evaluation_context,
                 variable::VariableIdentity::from_variable_die(variable_die),
-                variable_die.read_value(self.location, &self.debugger.debugee, r#type),
+                variable_die.read_value(
+                    &self.debugger.exploration_ctx(),
+                    &self.debugger.debugee,
+                    r#type,
+                ),
             )),
             Expression::Field(expr, field) => {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;

@@ -4,11 +4,11 @@ use crate::debugger::debugee::dwarf::unit::{
     TypeMemberDie, UnionTypeDie,
 };
 use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianArcSlice, NamespaceHierarchy};
+use crate::debugger::ExplorationContext;
 use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::{AttributeValue, DwAte, Expression};
 use log::warn;
-use nix::unistd::Pid;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem;
@@ -19,7 +19,7 @@ pub type TypeIdentity = DieRef;
 
 pub struct EvaluationContext<'a> {
     pub evaluator: &'a ExpressionEvaluator<'a>,
-    pub pid: Pid,
+    pub expl_ctx: &'a ExplorationContext,
 }
 
 #[derive(Clone)]
@@ -34,7 +34,7 @@ impl MemberLocationExpression {
             .evaluate_with_resolver(
                 eval::ExternalRequirementsResolver::new()
                     .with_at_location(entity_addr.to_ne_bytes()),
-                eval_ctx.pid,
+                eval_ctx.expl_ctx,
                 self.expr.clone(),
             )?
             .into_scalar::<usize>()?)
@@ -90,7 +90,7 @@ impl ArrayBoundValueExpression {
     fn bound(&self, eval_ctx: &EvaluationContext) -> anyhow::Result<i64> {
         Ok(eval_ctx
             .evaluator
-            .evaluate(eval_ctx.pid, self.expr.clone())?
+            .evaluate(eval_ctx.expl_ctx, self.expr.clone())?
             .into_scalar::<i64>()?)
     }
 }

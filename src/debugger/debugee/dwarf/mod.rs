@@ -18,6 +18,7 @@ use crate::debugger::debugee::dwarf::unit::{
 };
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
+use crate::debugger::ExplorationContext;
 use crate::{resolve_unit_call, weak_error};
 use anyhow::anyhow;
 use bytes::Bytes;
@@ -28,7 +29,6 @@ use gimli::{
     LocationLists, Range, RunTimeEndian, Section, UnitOffset, UnwindContext, UnwindSection,
     UnwindTableRow,
 };
-use nix::unistd::Pid;
 use object::{Object, ObjectSection};
 use rayon::prelude::*;
 use regex::Regex;
@@ -85,7 +85,7 @@ impl DebugeeContext {
         debugee: &Debugee,
         registers: &DwarfRegisterMap,
         utr: &UnwindTableRow<EndianArcSlice>,
-        location: Location,
+        ctx: &ExplorationContext,
     ) -> anyhow::Result<RelocatedAddress> {
         let rule = utr.cfa();
         match rule {
@@ -95,10 +95,10 @@ impl DebugeeContext {
             }
             CfaRule::Expression(expr) => {
                 let unit = self
-                    .find_unit_by_pc(location.global_pc)
+                    .find_unit_by_pc(ctx.location().global_pc)
                     .ok_or_else(|| anyhow!("undefined unit"))?;
                 let evaluator = resolve_unit_call!(&debugee.dwarf.inner, unit, evaluator, debugee);
-                let expr_result = evaluator.evaluate(location.pid, expr.clone())?;
+                let expr_result = evaluator.evaluate(ctx, expr.clone())?;
 
                 Ok((expr_result.into_scalar::<usize>()?).into())
             }
@@ -108,20 +108,20 @@ impl DebugeeContext {
     pub fn get_cfa(
         &self,
         debugee: &Debugee,
-        location: Location,
+        expl_ctx: &ExplorationContext,
     ) -> anyhow::Result<RelocatedAddress> {
         let mut ctx = Box::new(UnwindContext::new());
         let row = self.eh_frame.unwind_info_for_address(
             &self.bases,
             &mut ctx,
-            location.global_pc.into(),
+            expl_ctx.location().global_pc.into(),
             EhFrame::cie_from_offset,
         )?;
         self.evaluate_cfa(
             debugee,
-            &DwarfRegisterMap::from(RegisterMap::current(location.pid)?),
+            &DwarfRegisterMap::from(RegisterMap::current(expl_ctx.pid_on_focus())?),
             row,
-            location,
+            expl_ctx,
         )
     }
 
@@ -546,7 +546,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
 
     pub fn frame_base_addr(
         &self,
-        pid: Pid,
+        ctx: &ExplorationContext,
         debugee: &Debugee,
         pc: GlobalAddress,
     ) -> anyhow::Result<RelocatedAddress> {
@@ -561,7 +561,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
             .ok_or_else(|| anyhow!("frame base attribute not an expression"))?;
 
         let evaluator = ctx_resolve_unit_call!(self, evaluator, debugee);
-        let result = evaluator.evaluate(pid, expr)?.into_scalar::<usize>()?;
+        let result = evaluator.evaluate(ctx, expr)?.into_scalar::<usize>()?;
         Ok(result.into())
     }
 
@@ -705,19 +705,19 @@ impl<'ctx, D: AsAllocatedValue> ContextualDieRef<'ctx, D> {
 
     pub fn read_value(
         &self,
-        location: Location,
+        ctx: &ExplorationContext,
         debugee: &Debugee,
         r#type: &ComplexType,
     ) -> Option<Bytes> {
         self.die
-            .location_expr(self.context, self.unit(), location.global_pc)
+            .location_expr(self.context, self.unit(), ctx.location().global_pc)
             .and_then(|expr| {
                 let evaluator = ctx_resolve_unit_call!(self, evaluator, debugee);
-                let eval_result = weak_error!(evaluator.evaluate(location.pid, expr))?;
+                let eval_result = weak_error!(evaluator.evaluate(ctx, expr))?;
                 weak_error!(eval_result.into_raw_buffer(r#type.type_size_in_bytes(
                     &EvaluationContext {
                         evaluator: &evaluator,
-                        pid: location.pid,
+                        expl_ctx: ctx,
                     },
                     r#type.root
                 )? as usize))

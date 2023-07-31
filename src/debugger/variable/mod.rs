@@ -205,7 +205,12 @@ impl PointerVariable {
 
         self.value.map(|ptr| {
             let val = deref_size.and_then(|sz| {
-                debugger::read_memory_by_pid(eval_ctx.pid, ptr as usize, sz as usize).ok()
+                debugger::read_memory_by_pid(
+                    eval_ctx.expl_ctx.pid_on_focus(),
+                    ptr as usize,
+                    sz as usize,
+                )
+                .ok()
             });
             let mut identity = self.identity.clone();
             identity.name = identity.name.map(|n| format!("*{n}"));
@@ -228,7 +233,7 @@ impl PointerVariable {
 
         self.value.and_then(|ptr| {
             let val = weak_error!(debugger::read_memory_by_pid(
-                eval_ctx.pid,
+                eval_ctx.expl_ctx.pid_on_focus(),
                 ptr as usize,
                 deref_size * len
             ))?;

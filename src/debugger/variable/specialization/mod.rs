@@ -175,8 +175,12 @@ impl<'a> VariableParserExtension<'a> {
 
         let data_ptr = ir.assume_field_as_pointer("data_ptr")?;
 
-        let data = debugger::read_memory_by_pid(eval_ctx.pid, data_ptr as usize, len as usize)
-            .map(Bytes::from)?;
+        let data = debugger::read_memory_by_pid(
+            eval_ctx.expl_ctx.pid_on_focus(),
+            data_ptr as usize,
+            len as usize,
+        )
+        .map(Bytes::from)?;
 
         Ok(StrVariable {
             identity: ir.identity().clone(),
@@ -207,7 +211,11 @@ impl<'a> VariableParserExtension<'a> {
 
         let data_ptr = ir.assume_field_as_pointer("pointer")?;
 
-        let data = debugger::read_memory_by_pid(eval_ctx.pid, data_ptr as usize, len as usize)?;
+        let data = debugger::read_memory_by_pid(
+            eval_ctx.expl_ctx.pid_on_focus(),
+            data_ptr as usize,
+            len as usize,
+        )?;
 
         Ok(StringVariable {
             identity: ir.identity().clone(),
@@ -254,7 +262,7 @@ impl<'a> VariableParserExtension<'a> {
             .ok_or_else(|| anyhow!("unknown element size"))?;
 
         let data = debugger::read_memory_by_pid(
-            eval_ctx.pid,
+            eval_ctx.expl_ctx.pid_on_focus(),
             data_ptr as usize,
             len as usize * el_type_size as usize,
         )
@@ -409,11 +417,11 @@ impl<'a> VariableParserExtension<'a> {
         let reflection =
             HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
 
-        let iterator = reflection.iter(eval_ctx.pid)?;
+        let iterator = reflection.iter(eval_ctx.expl_ctx.pid_on_focus())?;
         let kv_items = iterator
             .map_err(anyhow::Error::from)
             .filter_map(|bucket| {
-                let data = bucket.read(eval_ctx.pid);
+                let data = bucket.read(eval_ctx.expl_ctx.pid_on_focus());
                 let tuple = self.parser.parse_inner(
                     eval_ctx,
                     VariableIdentity::no_namespace(Some("kv".to_string())),
@@ -476,11 +484,11 @@ impl<'a> VariableParserExtension<'a> {
         let reflection =
             HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
 
-        let iterator = reflection.iter(eval_ctx.pid)?;
+        let iterator = reflection.iter(eval_ctx.expl_ctx.pid_on_focus())?;
         let items = iterator
             .map_err(anyhow::Error::from)
             .filter_map(|bucket| {
-                let data = bucket.read(eval_ctx.pid);
+                let data = bucket.read(eval_ctx.expl_ctx.pid_on_focus());
 
                 let tuple = self.parser.parse_inner(
                     eval_ctx,
@@ -672,9 +680,12 @@ impl<'a> VariableParserExtension<'a> {
 
         let data_ptr = ir.assume_field_as_pointer("pointer")?;
 
-        let data =
-            debugger::read_memory_by_pid(eval_ctx.pid, data_ptr as usize, cap * el_type_size)
-                .map(Bytes::from)?;
+        let data = debugger::read_memory_by_pid(
+            eval_ctx.expl_ctx.pid_on_focus(),
+            data_ptr as usize,
+            cap * el_type_size,
+        )
+        .map(Bytes::from)?;
 
         let items = slice_ranges
             .0

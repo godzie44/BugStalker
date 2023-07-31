@@ -4,6 +4,7 @@ use crate::debugger::debugee::dwarf::EndianArcSlice;
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::utils::TryGetOrInsert;
+use crate::debugger::ExplorationContext;
 use crate::{debugger, resolve_unit_call, weak_error};
 use anyhow::anyhow;
 use gimli::{EhFrame, FrameDescriptionEntry, RegisterRule, UnwindSection};
@@ -30,14 +31,14 @@ impl<'a> UnwindContext<'a> {
     fn new(
         debugee: &'a Debugee,
         registers: DwarfRegisterMap,
-        location: Location,
+        expl_ctx: &ExplorationContext,
     ) -> anyhow::Result<Option<Self>> {
         let dwarf = &debugee.dwarf;
         let mut next_registers = registers.clone();
         let registers_snap = registers;
         let fde = match dwarf.eh_frame.fde_for_address(
             &dwarf.bases,
-            location.global_pc.into(),
+            expl_ctx.location().global_pc.into(),
             EhFrame::cie_from_offset,
         ) {
             Ok(fde) => fde,
@@ -52,14 +53,14 @@ impl<'a> UnwindContext<'a> {
             &dwarf.eh_frame,
             &dwarf.bases,
             &mut ctx,
-            location.global_pc.into(),
+            expl_ctx.location().global_pc.into(),
         )?;
-        let cfa = dwarf.evaluate_cfa(debugee, &registers_snap, row, location)?;
+        let cfa = dwarf.evaluate_cfa(debugee, &registers_snap, row, expl_ctx)?;
 
         let mut lazy_evaluator = None;
         let evaluator_init_fn = || -> anyhow::Result<ExpressionEvaluator> {
             let unit = dwarf
-                .find_unit_by_pc(location.global_pc)
+                .find_unit_by_pc(expl_ctx.location().global_pc)
                 .ok_or_else(|| anyhow!("undefined unit"))?;
 
             let evaluator = resolve_unit_call!(&dwarf.inner, unit, evaluator, debugee);
@@ -71,7 +72,8 @@ impl<'a> UnwindContext<'a> {
                 let value = match rule {
                     RegisterRule::Undefined => return None,
                     RegisterRule::SameValue => {
-                        let register_map = weak_error!(RegisterMap::current(location.pid))?;
+                        let register_map =
+                            weak_error!(RegisterMap::current(expl_ctx.pid_on_focus()))?;
                         weak_error!(DwarfRegisterMap::from(register_map).value(*register))?
                     }
                     RegisterRule::Offset(offset) => {
@@ -79,7 +81,7 @@ impl<'a> UnwindContext<'a> {
                             RelocatedAddress::from(usize::from(cfa).wrapping_add(*offset as usize));
 
                         let bytes = weak_error!(debugger::read_memory_by_pid(
-                            location.pid,
+                            expl_ctx.location().pid,
                             addr.into(),
                             mem::size_of::<u64>()
                         ))?;
@@ -92,11 +94,10 @@ impl<'a> UnwindContext<'a> {
                     RegisterRule::Expression(expr) => {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
-                        let expr_result =
-                            weak_error!(evaluator.evaluate(location.pid, expr.clone()))?;
+                        let expr_result = weak_error!(evaluator.evaluate(expl_ctx, expr.clone()))?;
                         let addr = weak_error!(expr_result.into_scalar::<usize>())?;
                         let bytes = weak_error!(debugger::read_memory_by_pid(
-                            location.pid,
+                            expl_ctx.pid_on_focus(),
                             addr,
                             mem::size_of::<u64>()
                         ))?;
@@ -107,8 +108,7 @@ impl<'a> UnwindContext<'a> {
                     RegisterRule::ValExpression(expr) => {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
-                        let expr_result =
-                            weak_error!(evaluator.evaluate(location.pid, expr.clone()))?;
+                        let expr_result = weak_error!(evaluator.evaluate(expl_ctx, expr.clone()))?;
                         weak_error!(expr_result.into_scalar::<u64>())?
                     }
                     RegisterRule::Architectural => return None,
@@ -120,17 +120,20 @@ impl<'a> UnwindContext<'a> {
 
         Ok(Some(Self {
             registers: next_registers,
-            location,
+            location: expl_ctx.location(),
             debugee,
             fde,
             cfa,
         }))
     }
 
-    fn next(previous_ctx: UnwindContext<'a>, location: Location) -> anyhow::Result<Option<Self>> {
+    fn next(
+        previous_ctx: UnwindContext<'a>,
+        ctx: &ExplorationContext,
+    ) -> anyhow::Result<Option<Self>> {
         let mut next_frame_registers: DwarfRegisterMap = previous_ctx.registers;
         next_frame_registers.update(gimli::Register(7), previous_ctx.cfa.into());
-        UnwindContext::new(previous_ctx.debugee, next_frame_registers, location)
+        UnwindContext::new(previous_ctx.debugee, next_frame_registers, ctx)
     }
 
     fn return_address(&self) -> Option<RelocatedAddress> {
@@ -176,17 +179,20 @@ impl<'a> DwarfUnwinder<'a> {
     /// # Arguments
     ///
     /// * `location`: position information about instruction pointer and thread where unwind start from.
-    pub fn unwind(&self, location: Location) -> anyhow::Result<Vec<FrameSpan>> {
+    pub fn unwind(&self, ctx: &ExplorationContext) -> anyhow::Result<Vec<FrameSpan>> {
         let mb_unwind_ctx = UnwindContext::new(
             self.debugee,
-            DwarfRegisterMap::from(RegisterMap::current(location.pid)?),
-            location,
+            DwarfRegisterMap::from(RegisterMap::current(ctx.pid_on_focus())?),
+            ctx,
         )?;
         let Some(mut unwind_ctx) = mb_unwind_ctx else {
             return Ok(vec![]);
         };
 
-        let function = self.debugee.dwarf.find_function_by_pc(location.global_pc);
+        let function = self
+            .debugee
+            .dwarf
+            .find_function_by_pc(ctx.location().global_pc);
         let fn_start_at = function.and_then(|func| {
             func.prolog_start_place()
                 .ok()
@@ -196,7 +202,7 @@ impl<'a> DwarfUnwinder<'a> {
         let mut bt = vec![FrameSpan {
             func_name: function.and_then(|func| func.full_name()),
             fn_start_ip: fn_start_at,
-            ip: location.pc,
+            ip: ctx.location().pc,
         }];
 
         // start unwind
@@ -207,10 +213,11 @@ impl<'a> DwarfUnwinder<'a> {
                 pid: unwind_ctx.location.pid,
             };
 
-            unwind_ctx = match UnwindContext::next(unwind_ctx, next_location)? {
-                None => break,
-                Some(ctx) => ctx,
-            };
+            unwind_ctx =
+                match UnwindContext::next(unwind_ctx, &ExplorationContext::new(next_location))? {
+                    None => break,
+                    Some(ctx) => ctx,
+                };
 
             let function = self
                 .debugee
@@ -238,11 +245,14 @@ impl<'a> DwarfUnwinder<'a> {
     /// # Arguments
     ///
     /// * `location`: some debugee thread position.
-    pub fn return_address(&self, location: Location) -> anyhow::Result<Option<RelocatedAddress>> {
+    pub fn return_address(
+        &self,
+        ctx: &ExplorationContext,
+    ) -> anyhow::Result<Option<RelocatedAddress>> {
         let mb_unwind_ctx = UnwindContext::new(
             self.debugee,
-            DwarfRegisterMap::from(RegisterMap::current(location.pid)?),
-            location,
+            DwarfRegisterMap::from(RegisterMap::current(ctx.pid_on_focus())?),
+            ctx,
         )?;
 
         if let Some(unwind_ctx) = mb_unwind_ctx {
@@ -256,11 +266,11 @@ impl<'a> DwarfUnwinder<'a> {
     /// # Arguments
     ///
     /// * `location`: some debugee thread position.
-    pub fn context_for(&self, location: Location) -> anyhow::Result<Option<UnwindContext>> {
+    pub fn context_for(&self, ctx: &ExplorationContext) -> anyhow::Result<Option<UnwindContext>> {
         UnwindContext::new(
             self.debugee,
-            DwarfRegisterMap::from(RegisterMap::current(location.pid)?),
-            location,
+            DwarfRegisterMap::from(RegisterMap::current(ctx.pid_on_focus())?),
+            ctx,
         )
     }
 }
