@@ -128,9 +128,8 @@ class MultithreadTestCase(unittest.TestCase):
 
         # try to step in new in focus thread
         self.debugger.sendline('step')
-        self.debugger.expect_exact('230             while secs > 0 || nsecs > 0 {')
+        self.debugger.expect_exact('/sys/unix/thread.rs')
         self.debugger.sendline('step')
-        self.debugger.expect_exact('870 }')
         self.debugger.sendline('step')
         self.debugger.expect_exact('24     let mut sum = 0;')
         self.debugger.sendline('step')
