@@ -432,10 +432,10 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('var *((*ref_f).foo)')
         self.debugger.expect_exact('*foo = i32(2)')
 
-        self.debugger.sendline('break vars.rs:256')
+        self.debugger.sendline('break vars.rs:261')
         self.debugger.expect_exact('New breakpoint')
         self.debugger.sendline('continue')
-        self.debugger.expect_exact('256     let nop: Option<u8> = None;')
+        self.debugger.expect_exact('261     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var hm2.abc')
         self.debugger.expect_exact('abc = Vec<i32, alloc::alloc::Global> {')
@@ -446,10 +446,10 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('cap: usize(3)')
         self.debugger.expect_exact('}')
 
-        self.debugger.sendline('break vars.rs:389')
+        self.debugger.sendline('break vars.rs:394')
         self.debugger.expect_exact('New breakpoint')
         self.debugger.sendline('continue')
-        self.debugger.expect_exact('389     let nop: Option<u8> = None;')
+        self.debugger.expect_exact('394     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var ptr[..4]')
         self.debugger.expect_exact('[*ptr] = [i32] {')
@@ -461,11 +461,11 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_zst_types(self):
         """Read variables of zero sized types"""
-        self.debugger.sendline('break vars.rs:425')
+        self.debugger.sendline('break vars.rs:430')
         self.debugger.expect_exact('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('425     let nop: Option<u8> = None;')
+        self.debugger.expect_exact('430     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var locals')
 
@@ -535,7 +535,7 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_read_arguments(self):
         """Reading rust tls variables"""
-        self.debugger.sendline('break vars.rs:227')
+        self.debugger.sendline('break vars.rs:232')
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')

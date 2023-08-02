@@ -230,6 +230,12 @@ pub struct UnionTypeDie {
 }
 
 #[derive(Debug, Clone)]
+pub struct SubroutineDie {
+    pub base_attributes: DieAttributes,
+    pub return_type_ref: Option<DieRef>,
+}
+
+#[derive(Debug, Clone)]
 pub struct InlineSubroutineDie {
     pub base_attributes: DieAttributes,
     pub call_file: Option<u64>,
@@ -257,6 +263,7 @@ pub enum DieVariant {
     TemplateType(TemplateTypeParameter),
     Namespace(Namespace),
     Parameter(ParameterDie),
+    Subroutine(SubroutineDie),
     InlineSubroutine(InlineSubroutineDie),
 }
 

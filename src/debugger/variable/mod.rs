@@ -203,6 +203,12 @@ impl PointerVariable {
             .and_then(|t| parser.r#type.type_size_in_bytes(eval_ctx, t));
         let target_type = self.target_type?;
 
+        let target_type_decl = parser.r#type.types.get(&target_type);
+        if matches!(target_type_decl, Some(TypeDeclaration::Subroutine { .. })) {
+            // this variable is a fn pointer - don't deref it
+            return None;
+        }
+
         self.value.map(|ptr| {
             let val = deref_size.and_then(|sz| {
                 debugger::read_memory_by_pid(
@@ -266,6 +272,13 @@ impl PointerVariable {
     }
 }
 
+/// Represents subroutine.
+#[derive(Clone)]
+pub struct SubroutineVariable {
+    pub identity: VariableIdentity,
+    pub return_type_name: Option<String>,
+}
+
 /// Variable intermediate representation.
 #[derive(Clone)]
 pub enum VariableIR {
@@ -275,6 +288,7 @@ pub enum VariableIR {
     CEnum(CEnumVariable),
     RustEnum(RustEnumVariable),
     Pointer(PointerVariable),
+    Subroutine(SubroutineVariable),
     Specialized(SpecializedVariableIR),
 }
 
@@ -378,6 +392,7 @@ impl VariableIR {
                 SpecializedVariableIR::Rc { original, .. } => &original.identity,
                 SpecializedVariableIR::Arc { original, .. } => &original.identity,
             },
+            VariableIR::Subroutine(s) => &s.identity,
         }
     }
 
@@ -404,6 +419,7 @@ impl VariableIR {
                 SpecializedVariableIR::Rc { original, .. } => &mut original.identity,
                 SpecializedVariableIR::Arc { original, .. } => &mut original.identity,
             },
+            VariableIR::Subroutine(s) => &mut s.identity,
         }
     }
 
@@ -982,6 +998,14 @@ impl<'a> VariableParser<'a> {
                     members,
                 );
                 VariableIR::Struct(struct_var)
+            }
+            TypeDeclaration::Subroutine { return_type, .. } => {
+                let ret_type = return_type.and_then(|t_id| self.r#type.type_name(t_id));
+                let fn_var = SubroutineVariable {
+                    identity,
+                    return_type_name: ret_type,
+                };
+                VariableIR::Subroutine(fn_var)
             }
         }
     }

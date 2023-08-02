@@ -53,7 +53,7 @@ class HintsTestCase(unittest.TestCase):
 
     def test_arg_command_hints(self):
         """Test argument autocompletion for `args` command"""
-        self.debugger.sendline('break vars.rs:222')
+        self.debugger.sendline('break vars.rs:227')
         self.debugger.expect_exact('New breakpoint')
 
         self.debugger.sendline('run')

@@ -72,6 +72,10 @@ impl RenderRepr for VariableIR {
                 SpecializedVariableIR::Rc { original, .. }
                 | SpecializedVariableIR::Arc { original, .. } => &original.type_name,
             },
+            VariableIR::Subroutine(_) => {
+                // currently this line is unreachable cause dereference fn pointer is forbidden
+                &None
+            }
         };
         r#type.as_deref().unwrap_or("unknown")
     }
@@ -190,6 +194,10 @@ impl RenderRepr for VariableIR {
                     }
                 },
             },
+            VariableIR::Subroutine(_) => {
+                // currently this line is unreachable cause dereference fn pointer is forbidden
+                return None;
+            }
         };
         Some(value_repr)
     }

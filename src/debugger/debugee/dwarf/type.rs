@@ -1,7 +1,7 @@
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::unit::{
     ArrayDie, BaseTypeDie, DieRef, DieVariant, EnumTypeDie, PointerType, StructTypeDie,
-    TypeMemberDie, UnionTypeDie,
+    SubroutineDie, TypeMemberDie, UnionTypeDie,
 };
 use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::ExplorationContext;
@@ -227,6 +227,11 @@ pub enum TypeDeclaration {
         /// key `None` is default enumerator
         enumerators: HashMap<Option<i64>, StructureMember>,
     },
+    Subroutine {
+        namespaces: NamespaceHierarchy,
+        name: Option<String>,
+        return_type: Option<TypeIdentity>,
+    },
 }
 
 /// Type representation. This is a graph of types where vertexes is a type declaration and edges
@@ -254,6 +259,7 @@ impl ComplexType {
             TypeDeclaration::RustEnum { name, .. } => name.clone(),
             TypeDeclaration::Pointer { name, .. } => name.clone(),
             TypeDeclaration::Union { name, .. } => name.clone(),
+            TypeDeclaration::Subroutine { name, .. } => name.clone(),
         }
     }
 
@@ -271,6 +277,7 @@ impl ComplexType {
             TypeDeclaration::RustEnum { byte_size, .. } => *byte_size,
             TypeDeclaration::Pointer { .. } => Some(mem::size_of::<usize>() as u64),
             TypeDeclaration::Union { byte_size, .. } => *byte_size,
+            TypeDeclaration::Subroutine { .. } => Some(mem::size_of::<usize>() as u64),
         }
     }
 
@@ -350,6 +357,7 @@ impl<'a> Iterator for BfsIterator<'a> {
                     }
                 });
             }
+            TypeDeclaration::Subroutine { .. } => {}
         }
 
         Some(type_decl)
@@ -421,6 +429,12 @@ impl TypeParser {
                 die,
             })),
             DieVariant::UnionTypeDie(die) => Some(self.parse_union(ContextualDieRef {
+                context: ctx_die.context,
+                unit_idx: unit.idx(),
+                node: &entry.node,
+                die,
+            })),
+            DieVariant::Subroutine(die) => Some(self.parse_subroutine(ContextualDieRef {
                 context: ctx_die.context,
                 unit_idx: unit.idx(),
                 node: &entry.node,
@@ -751,6 +765,23 @@ impl TypeParser {
             namespaces: ctx_die.namespaces(),
             name,
             target_type: mb_type_ref,
+        }
+    }
+
+    fn parse_subroutine(
+        &mut self,
+        ctx_die: ContextualDieRef<'_, SubroutineDie>,
+    ) -> TypeDeclaration {
+        let name = ctx_die.die.base_attributes.name.clone();
+        let mb_ret_type_ref = ctx_die.die.return_type_ref;
+        if let Some(reference) = mb_ret_type_ref {
+            self.parse_inner(ctx_die, reference);
+        }
+
+        TypeDeclaration::Subroutine {
+            namespaces: ctx_die.namespaces(),
+            name,
+            return_type: mb_ret_type_ref,
         }
     }
 }

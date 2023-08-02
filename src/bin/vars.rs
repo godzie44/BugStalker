@@ -215,6 +215,11 @@ fn fn_and_closure() {
     let trait_mut: Box<dyn FnMut()> = Box::new(move || println!("{b}"));
     let trait_fn: Box<dyn Fn()> = Box::new(move || println!("{c}"));
 
+    fn some_fn() -> u8 {
+        1
+    }
+    let fn_ptr = some_fn;
+
     let nop: Option<u8> = None;
 }
 

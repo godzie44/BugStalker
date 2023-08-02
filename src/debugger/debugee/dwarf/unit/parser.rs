@@ -1,9 +1,9 @@
 use crate::debugger::debugee::dwarf::unit::{
     ArrayDie, ArraySubrangeDie, BaseTypeDie, DieAttributes, DieRange, DieRef, DieVariant, Entry,
     EnumTypeDie, EnumeratorDie, FunctionDie, InlineSubroutineDie, LexicalBlockDie, LineRow,
-    Namespace, Node, ParameterDie, PointerType, StructTypeDie, TemplateTypeParameter,
-    TypeMemberDie, UnionTypeDie, Unit, UnitLazyPart, UnitProperties, VariableDie, Variant,
-    VariantPart,
+    Namespace, Node, ParameterDie, PointerType, StructTypeDie, SubroutineDie,
+    TemplateTypeParameter, TypeMemberDie, UnionTypeDie, Unit, UnitLazyPart, UnitProperties,
+    VariableDie, Variant, VariantPart,
 };
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::rust::Environment;
@@ -151,6 +151,10 @@ impl<'a> DwarfUnitParser<'a> {
                         fb_addr: die.attr(DW_AT_frame_base)?,
                     })
                 }
+                gimli::DW_TAG_subroutine_type => DieVariant::Subroutine(SubroutineDie {
+                    base_attributes: base_attrs,
+                    return_type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
+                }),
                 gimli::DW_TAG_inlined_subroutine => {
                     DieVariant::InlineSubroutine(InlineSubroutineDie {
                         base_attributes: base_attrs,

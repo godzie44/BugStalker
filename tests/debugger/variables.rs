@@ -985,10 +985,10 @@ fn test_read_closures() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 218).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 223).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(218));
+    assert_eq!(info.line.take(), Some(223));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_struct(&vars[0], "inc", "{closure_env#0}", |_, _| {
@@ -1090,6 +1090,7 @@ fn test_read_closures() {
             _ => panic!("2 members expected"),
         },
     );
+    assert_pointer(&vars[10], "fn_ptr", "fn() -> u8");
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
@@ -1103,10 +1104,10 @@ fn test_arguments() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 227).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 232).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(227));
+    assert_eq!(info.line.take(), Some(232));
 
     let args = debugger
         .read_argument(select::Expression::Variable(VariableSelector::Any))
@@ -1151,10 +1152,10 @@ fn test_read_union() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 239).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 244).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(239));
+    assert_eq!(info.line.take(), Some(244));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_struct(&vars[0], "union", "Union1", |i, member| match i {
@@ -1176,10 +1177,10 @@ fn test_read_hashmap() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 256).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 261).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(256));
+    assert_eq!(info.line.take(), Some(261));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_hashmap(
@@ -1235,7 +1236,7 @@ fn test_read_hashmap() {
         |items| {
             assert_eq!(items.len(), 100);
 
-            let mut exp_items = (0..100).into_iter().collect::<Vec<_>>();
+            let mut exp_items = (0..100).collect::<Vec<_>>();
             exp_items.sort_by_key(|i1| i1.to_string());
 
             for i in 0..100 {
@@ -1332,10 +1333,10 @@ fn test_read_hashset() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 269).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 274).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(269));
+    assert_eq!(info.line.take(), Some(274));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_hashset(
@@ -1397,10 +1398,10 @@ fn test_circular_ref_types() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 296).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 301).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(296));
+    assert_eq!(info.line.take(), Some(301));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_rc(&vars[0], "a_circ", "Rc<vars::circular::List>");
@@ -1449,26 +1450,26 @@ fn test_lexical_blocks() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 302).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 307).unwrap();
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(302));
+    assert_eq!(info.line.take(), Some(307));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_eq!(vars.len(), 1);
     assert_eq!(vars[0].name(), "alpha");
 
-    debugger.set_breakpoint_at_line("vars.rs", 304).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 309).unwrap();
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(304));
+    assert_eq!(info.line.take(), Some(309));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_eq!(vars.len(), 2);
     assert_eq!(vars[0].name(), "alpha");
     assert_eq!(vars[1].name(), "beta");
 
-    debugger.set_breakpoint_at_line("vars.rs", 305).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 310).unwrap();
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(305));
+    assert_eq!(info.line.take(), Some(310));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_eq!(vars.len(), 3);
@@ -1476,9 +1477,9 @@ fn test_lexical_blocks() {
     assert_eq!(vars[1].name(), "beta");
     assert_eq!(vars[2].name(), "gama");
 
-    debugger.set_breakpoint_at_line("vars.rs", 311).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 316).unwrap();
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(311));
+    assert_eq!(info.line.take(), Some(316));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_eq!(vars.len(), 2);
@@ -1497,9 +1498,9 @@ fn test_btree_map() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 329).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 334).unwrap();
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(329));
+    assert_eq!(info.line.take(), Some(334));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_btree_map(
@@ -1559,7 +1560,7 @@ fn test_btree_map() {
         |items| {
             assert_eq!(items.len(), 100);
 
-            let exp_items = (0..100).into_iter().collect::<Vec<_>>();
+            let exp_items = (0..100).collect::<Vec<_>>();
 
             for i in 0..100 {
                 assert_scalar(
@@ -1630,10 +1631,10 @@ fn test_read_btree_set() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 342).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 347).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(342));
+    assert_eq!(info.line.take(), Some(347));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_btree_set(
@@ -1654,7 +1655,7 @@ fn test_read_btree_set() {
         "BTreeSet<i32, alloc::alloc::Global>",
         |items| {
             assert_eq!(items.len(), 100);
-            let exp_items = (0..100).into_iter().collect::<Vec<_>>();
+            let exp_items = (0..100).collect::<Vec<_>>();
 
             for i in 0..100 {
                 assert_scalar(
@@ -1694,10 +1695,10 @@ fn test_read_vec_deque() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 360).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 365).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(360));
+    assert_eq!(info.line.take(), Some(365));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_vec_deque(
@@ -1764,10 +1765,10 @@ fn test_read_atomic() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 370).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 375).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(370));
+    assert_eq!(info.line.take(), Some(375));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_struct(&vars[0], "int32_atomic", "AtomicI32", |i, member| match i {
@@ -1806,10 +1807,10 @@ fn test_cell() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 382).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 387).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(382));
+    assert_eq!(info.line.take(), Some(387));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_cell(&vars[0], "a_cell", "Cell<i32>", |value| {
@@ -1845,10 +1846,10 @@ fn test_shared_ptr() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 404).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 409).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(404));
+    assert_eq!(info.line.take(), Some(409));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_rc(&vars[0], "rc0", "Rc<i32>");
@@ -1955,10 +1956,10 @@ fn test_zst_types() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 425).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 430).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(425));
+    assert_eq!(info.line.take(), Some(430));
 
     let vars = debugger.read_local_variables().unwrap();
 
