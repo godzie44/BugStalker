@@ -3,8 +3,8 @@ use crate::debugger::command;
 pub const HELP: &str = r#"
 Available debugger commands:
 
-var <name>|locals                           -- show local and global variables
-arg <name>|all                              -- show arguments of current stack frame
+var <name or expression>|locals             -- show local and global variables
+arg <name or expression>|all                -- show arguments of current stack frame
 bt, backtrace <>|all                        -- print backtrace of all stack frames in current thread or from all threads
 f, frame info|switch <number>               -- print current stack frame information or change frame
 c, continue                                 -- continue program being debugged, after signal or breakpoint
@@ -50,7 +50,7 @@ Show local and global variables, supports data queries expressions over variable
 
 Available subcomands:
 var locals - print current stack frame local variables
-var <name> - print local and global variables with selected name
+var <name or expression> - print local and global variables with selected name
 
 Examples of usage:
 var locals - print current stack frame local variables
@@ -67,7 +67,7 @@ Show current stack frame arguments, supports data queries expressions over argum
 
 Available subcomands:
 arg all - print all arguments
-arg <name> - print argument with selected name
+arg <name or expression> - print argument with selected name
 
 Examples of usage:
 arg all - print current stack frame local variables

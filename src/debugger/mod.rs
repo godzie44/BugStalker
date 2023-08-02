@@ -6,6 +6,7 @@ mod debugee;
 pub mod process;
 pub mod register;
 pub mod rust;
+mod step;
 mod utils;
 pub mod variable;
 
@@ -19,7 +20,6 @@ pub use debugee::ThreadSnapshot;
 use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};
 use crate::debugger::debugee::dwarf::r#type::TypeCache;
-use crate::debugger::debugee::dwarf::unit::PlaceOwned;
 use crate::debugger::debugee::dwarf::unwind::libunwind;
 use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
 use crate::debugger::debugee::dwarf::{DwarfUnwinder, Symbol};
@@ -351,11 +351,17 @@ impl Debugger {
         self.debugee.dwarf.find_symbols(regex)
     }
 
+    /// Return in focus frame information.
     pub fn frame_info(&self) -> anyhow::Result<FrameInfo> {
         disable_when_not_stared!(self);
         self.debugee.frame_info(self.exploration_ctx())
     }
 
+    /// Set new frame into focus.
+    ///
+    /// # Arguments
+    ///
+    /// * `num`: frame number in backtrace
     pub fn set_frame_into_focus(&mut self, num: u32) -> anyhow::Result<u32> {
         disable_when_not_stared!(self);
         let pid = self.exploration_ctx().pid_on_focus();
@@ -414,6 +420,7 @@ impl Debugger {
         )
     }
 
+    /// Return list of currently running debugee threads.
     pub fn thread_state(&self) -> anyhow::Result<Vec<ThreadSnapshot>> {
         disable_when_not_stared!(self);
         self.debugee.thread_state(self.exploration_ctx())
@@ -431,16 +438,22 @@ impl Debugger {
         Ok(tracee)
     }
 
+    /// Return stack trace.
+    ///
+    /// # Arguments
+    ///
+    /// * `pid`: thread id
     pub fn backtrace(&self, pid: Pid) -> anyhow::Result<Backtrace> {
         disable_when_not_stared!(self);
         Ok(libunwind::unwind(pid)?)
     }
 
-    fn remove_breakpoint(&mut self, addr: Address) -> anyhow::Result<Option<BreakpointView>> {
-        self.breakpoints.remove_by_addr(addr)
-    }
-
     /// Read N bytes from debugee process.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr`: address in debugee address space where reads
+    /// * `read_n`: read byte count
     pub fn read_memory(&self, addr: usize, read_n: usize) -> anyhow::Result<Vec<u8>> {
         disable_when_not_stared!(self);
         Ok(read_memory_by_pid(
@@ -450,6 +463,12 @@ impl Debugger {
         )?)
     }
 
+    /// Write sizeof(uintptr_t) bytes in debugee address space
+    ///
+    /// # Arguments
+    ///
+    /// * `addr`: address to write
+    /// * `value`: value to write
     pub fn write_memory(&self, addr: uintptr_t, value: uintptr_t) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
         unsafe {
@@ -461,274 +480,30 @@ impl Debugger {
         }
     }
 
-    /// If current on focus thread is stopped at a breakpoint, then it takes a step through this point.
-    ///
-    /// **! change exploration context**
-    fn step_over_breakpoint(&mut self) -> anyhow::Result<&ExplorationContext> {
-        // cannot use debugee::Location mapping offset may be not init yet
-        let tracee = self
-            .debugee
-            .get_tracee_ensure(self.exploration_ctx().pid_on_focus());
-        let mb_brkpt = self.breakpoints.get_enabled(tracee.pc()?);
-        let tracee_pid = tracee.pid;
-        if let Some(brkpt) = mb_brkpt {
-            if brkpt.is_enabled() {
-                brkpt.disable()?;
-                self.debugee.tracer_mut().single_step(
-                    TraceContext::new(&self.breakpoints.active_breakpoints()),
-                    tracee_pid,
-                )?;
-                brkpt.enable()?;
-                return self.expl_ctx_update_location();
-            }
-        }
-        Ok(self.exploration_ctx())
-    }
-
-    /// Move debugee to next instruction, step over breakpoint if needed.
-    ///
-    /// **! change exploration context**
-    fn single_step_instruction(&mut self) -> anyhow::Result<&ExplorationContext> {
-        let loc = self.exploration_ctx().location();
-        if self.breakpoints.get_enabled(loc.pc).is_some() {
-            Ok(self.step_over_breakpoint()?)
-        } else {
-            self.debugee.tracer_mut().single_step(
-                TraceContext::new(&self.breakpoints.active_breakpoints()),
-                loc.pid,
-            )?;
-            self.expl_ctx_update_location()
-        }
-    }
-
     /// Move to higher stack frame.
-    ///
-    /// **! change exploration context**
     pub fn step_out(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
-        let ctx = self.expl_ctx_restore_frame()?;
-        let location = ctx.location();
-        if let Some(ret_addr) = libunwind::return_addr(location.pid)? {
-            let brkpt_is_set = self.breakpoints.get_enabled(ret_addr).is_some();
-            if brkpt_is_set {
-                self.continue_execution()?;
-            } else {
-                let brkpt = Breakpoint::new_temporary(ret_addr, location.pid);
-                self.breakpoints.add_and_enable(brkpt)?;
-                self.continue_execution()?;
-                self.remove_breakpoint(Address::Relocated(ret_addr))?;
-
-                let new_location = self.exploration_ctx().location();
-                self.hooks.on_step(
-                    new_location.pc,
-                    self.debugee
-                        .dwarf
-                        .find_place_from_pc(new_location.global_pc),
-                    self.debugee
-                        .dwarf
-                        .find_function_by_pc(new_location.global_pc)
-                        .map(|f| f.die),
-                )?;
-            }
-        }
-        self.expl_ctx_update_location()?;
-        Ok(())
-    }
-
-    /// Do single step (until debugee reaches a different source line).
-    ///
-    /// **! change exploration context**
-    fn step_in(&mut self) -> anyhow::Result<&ExplorationContext> {
-        // make instruction step but ignoring functions prolog
-        // initial function must exists (do instruction steps until it's not)
-        fn long_step(debugger: &mut Debugger) -> anyhow::Result<PlaceOwned> {
-            loop {
-                // initial step
-                let ctx = debugger.single_step_instruction()?;
-
-                let mut location = ctx.location();
-                let func = loop {
-                    let dwarf = &debugger.debugee.dwarf;
-                    if let Some(func) = dwarf.find_function_by_pc(location.global_pc) {
-                        break func;
-                    }
-                    let ctx = debugger.single_step_instruction()?;
-                    location = ctx.location();
-                };
-
-                let prolog = func.prolog()?;
-                // if pc in prolog range - step until function body is reached
-                while debugger
-                    .exploration_ctx()
-                    .location()
-                    .global_pc
-                    .in_range(&prolog)
-                {
-                    debugger.single_step_instruction()?;
-                }
-
-                let location = debugger.exploration_ctx().location();
-                if let Some(place) = debugger
-                    .debugee
-                    .dwarf
-                    .find_exact_place_from_pc(location.global_pc)
-                {
-                    return Ok(place.to_owned());
-                }
-            }
-        }
-
-        let mut location = self.exploration_ctx().location();
-
-        let start_place = loop {
-            let dwarf = &self.debugee.dwarf;
-            if let Some(place) = dwarf.find_place_from_pc(location.global_pc) {
-                break place;
-            }
-            let ctx = self.single_step_instruction()?;
-            location = ctx.location();
-        };
-
-        let sp_file = start_place.file.to_path_buf();
-        let sp_line = start_place.line_number;
-        let start_cfa = self
-            .debugee
-            .dwarf
-            .get_cfa(&self.debugee, &ExplorationContext::new(location, 0))?;
-
-        loop {
-            let next_place = long_step(self)?;
-            if !next_place.is_stmt {
-                continue;
-            }
-            let in_same_place = sp_file == next_place.file && sp_line == next_place.line_number;
-            let location = self.exploration_ctx().location();
-            let next_cfa = self
-                .debugee
+        self.expl_ctx_restore_frame()?;
+        self.step_out_frame()?;
+        let new_location = self.exploration_ctx().location();
+        self.hooks.on_step(
+            new_location.pc,
+            self.debugee
                 .dwarf
-                .get_cfa(&self.debugee, &ExplorationContext::new(location, 0))?;
-
-            // step is done if:
-            // 1) we may step at same place in code but in another stack frame
-            // 2) we step at another place in code (file + line)
-            if start_cfa != next_cfa || !in_same_place {
-                break;
-            }
-        }
-
-        self.expl_ctx_update_location()
+                .find_place_from_pc(new_location.global_pc),
+            self.debugee
+                .dwarf
+                .find_function_by_pc(new_location.global_pc)
+                .map(|f| f.die),
+        )
     }
 
     /// Do debugee step (over subroutine calls to).
-    ///
-    /// **! change exploration context**
     pub fn step_over(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
-        let ctx = self.expl_ctx_restore_frame()?;
-
-        let mut current_location = ctx.location();
-
-        let func = loop {
-            let dwarf = &self.debugee.dwarf;
-            if let Some(func) = dwarf.find_function_by_pc(current_location.global_pc) {
-                break func;
-            }
-            let ctx = self.single_step_instruction()?;
-            current_location = ctx.location();
-        };
-
-        let prolog = func.prolog()?;
-        let dwarf = &self.debugee.dwarf;
-        let inline_ranges = func.inline_ranges();
-
-        let current_place = dwarf
-            .find_place_from_pc(current_location.global_pc)
-            .ok_or_else(|| anyhow!("current line not found"))?;
-
-        let mut step_over_breakpoints = vec![];
-        let mut to_delete = vec![];
-
-        for range in func.ranges() {
-            let mut place = func
-                .unit()
-                .find_place_by_pc(GlobalAddress::from(range.begin))
-                .ok_or_else(|| anyhow!("unknown function range"))?;
-
-            while place.address.in_range(range) {
-                // skip places in function prolog
-                if place.address.in_range(&prolog) {
-                    match place.next() {
-                        None => break,
-                        Some(n) => place = n,
-                    }
-                    continue;
-                }
-
-                // guard from step at inlined function body
-                let in_inline_range = inline_ranges
-                    .iter()
-                    .any(|inline_range| place.address.in_range(inline_range));
-
-                if !in_inline_range
-                    && place.is_stmt
-                    && place.address != current_place.address
-                    && place.line_number != current_place.line_number
-                {
-                    let load_addr = place.address.relocate(self.debugee.mapping_offset());
-                    if self.breakpoints.get_enabled(load_addr).is_none() {
-                        step_over_breakpoints.push(load_addr);
-                        to_delete.push(load_addr);
-                    }
-                }
-
-                match place.next() {
-                    None => break,
-                    Some(n) => place = n,
-                }
-            }
-        }
-
-        step_over_breakpoints
-            .into_iter()
-            .try_for_each(|load_addr| {
-                self.breakpoints
-                    .add_and_enable(Breakpoint::new_temporary(load_addr, current_location.pid))
-                    .map(|_| ())
-            })?;
-
-        let return_addr = libunwind::return_addr(current_location.pid)?;
-        if let Some(ret_addr) = return_addr {
-            if self.breakpoints.get_enabled(ret_addr).is_none() {
-                self.breakpoints
-                    .add_and_enable(Breakpoint::new_temporary(ret_addr, current_location.pid))?;
-                to_delete.push(ret_addr);
-            }
-        }
-
-        self.continue_execution()?;
-
-        to_delete
-            .into_iter()
-            .try_for_each(|addr| self.remove_breakpoint(Address::Relocated(addr)).map(|_| ()))?;
-
-        // if a step is taken outside and new location pc not equals to place pc
-        // then we then we stopped at the place of the previous function call, and got into an assignment operation or similar
-        // in this case do a single step
-        let mut new_location = self.exploration_ctx().location();
-        if Some(new_location.pc) == return_addr {
-            let place = self
-                .debugee
-                .dwarf
-                .find_place_from_pc(new_location.global_pc)
-                .ok_or_else(|| anyhow!("unknown function range"))?;
-
-            if place.address != new_location.global_pc {
-                let ctx = self.step_in()?;
-                new_location = ctx.location();
-            }
-        }
-
-        self.expl_ctx_update_location()?;
+        self.expl_ctx_restore_frame()?;
+        self.step_over_any()?;
+        let new_location = self.exploration_ctx().location();
 
         self.hooks.on_step(
             new_location.pc,
@@ -739,11 +514,14 @@ impl Debugger {
                 .dwarf
                 .find_function_by_pc(new_location.global_pc)
                 .map(|f| f.die),
-        )?;
-
-        Ok(())
+        )
     }
 
+    /// Create and enable breakpoint at debugee address space
+    ///
+    /// # Arguments
+    ///
+    /// * `addr`: address where debugee must be stopped
     pub fn set_breakpoint_at_addr(
         &mut self,
         addr: RelocatedAddress,
@@ -769,6 +547,20 @@ impl Debugger {
         }
     }
 
+    /// Disable and remove breakpoint by its address.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr`: breakpoint address
+    fn remove_breakpoint(&mut self, addr: Address) -> anyhow::Result<Option<BreakpointView>> {
+        self.breakpoints.remove_by_addr(addr)
+    }
+
+    /// Disable and remove breakpoint by its address.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr`: breakpoint address
     pub fn remove_breakpoint_at_addr(
         &mut self,
         addr: RelocatedAddress,
@@ -776,6 +568,11 @@ impl Debugger {
         self.breakpoints.remove_by_addr(Address::Relocated(addr))
     }
 
+    /// Create and enable breakpoint at debugee address space on the following function start.
+    ///
+    /// # Arguments
+    ///
+    /// * `name`: function name where debugee must be stopped
     pub fn set_breakpoint_at_fn(&mut self, name: &str) -> anyhow::Result<BreakpointView> {
         let place = self.debugee.dwarf.get_function_place(name)?;
 
@@ -792,6 +589,11 @@ impl Debugger {
         }
     }
 
+    /// Disable and remove breakpoint from function start.
+    ///
+    /// # Arguments
+    ///
+    /// * `name`: function name
     pub fn remove_breakpoint_at_fn(
         &mut self,
         name: &str,
@@ -807,6 +609,12 @@ impl Debugger {
         }
     }
 
+    /// Create and enable breakpoint at the following file and line number.
+    ///
+    /// # Arguments
+    ///
+    /// * `fine_name`: file name (ex: "main.rs")
+    /// * `line`: line number
     pub fn set_breakpoint_at_line(
         &mut self,
         fine_name: &str,
@@ -831,6 +639,12 @@ impl Debugger {
         }
     }
 
+    /// Disable and remove breakpoint at the following file and line number.
+    ///
+    /// # Arguments
+    ///
+    /// * `fine_name`: file name (ex: "main.rs")
+    /// * `line`: line number
     pub fn remove_breakpoint_at_line(
         &mut self,
         fine_name: &str,
@@ -851,11 +665,12 @@ impl Debugger {
         }
     }
 
+    /// Return list of breakpoints.
     pub fn breakpoints_snapshot(&self) -> Vec<BreakpointView> {
         self.breakpoints.snapshot()
     }
 
-    // Reads all local variables from current function in current thread.
+    /// Reads all local variables from current function in current thread.
     pub fn read_local_variables(&self) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
 
@@ -866,38 +681,59 @@ impl Debugger {
         evaluator.evaluate()
     }
 
-    // Reads any variable from the current thread, uses a select expression to filter variables
-    // and fetch their properties (such as structure fields or array elements).
+    /// Reads any variable from the current thread, uses a select expression to filter variables
+    /// and fetch their properties (such as structure fields or array elements).
+    ///
+    /// # Arguments
+    ///
+    /// * `select_expr`: data query expression
     pub fn read_variable(&self, select_expr: Expression) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
         let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr)?;
         evaluator.evaluate()
     }
 
-    // Reads any variable from the current thread, uses a select expression to filter variables
-    // and return their names.
+    ///  Reads any variable from the current thread, uses a select expression to filter variables
+    /// and return their names.
+    ///
+    /// # Arguments
+    ///
+    /// * `select_expr`: data query expression
     pub fn read_variable_names(&self, select_expr: Expression) -> anyhow::Result<Vec<String>> {
         disable_when_not_stared!(self);
         let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr)?;
         evaluator.evaluate_names()
     }
 
-    // Reads any argument from the current function, uses a select expression to filter variables
-    // and fetch their properties (such as structure fields or array elements).
+    /// Reads any argument from the current function, uses a select expression to filter variables
+    /// and fetch their properties (such as structure fields or array elements).
+    ///
+    /// # Arguments
+    ///
+    /// * `select_expr`: data query expression
     pub fn read_argument(&self, select_expr: Expression) -> anyhow::Result<Vec<VariableIR>> {
         disable_when_not_stared!(self);
         let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr)?;
         evaluator.evaluate_on_arguments()
     }
 
-    // Reads any argument from the current function, uses a select expression to filter arguments
-    // and return their names.
+    /// Reads any argument from the current function, uses a select expression to filter arguments
+    /// and return their names.
+    ///
+    /// # Arguments
+    ///
+    /// * `select_expr`: data query expression
     pub fn read_argument_names(&self, select_expr: Expression) -> anyhow::Result<Vec<String>> {
         disable_when_not_stared!(self);
         let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr)?;
         evaluator.evaluate_on_arguments_names()
     }
 
+    /// Return following register value.
+    ///
+    /// # Arguments
+    ///
+    /// * `register_name`: x86-64 register name (ex: `rip`)
     pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {
         disable_when_not_stared!(self);
 
@@ -905,6 +741,11 @@ impl Debugger {
             .value(Register::from_str(register_name)?))
     }
 
+    /// Return registers dump for on focus thread at instruction defined by pc.
+    ///
+    /// # Arguments
+    ///
+    /// * `pc`: program counter value
     pub fn current_thread_registers_at_pc(
         &self,
         pc: RelocatedAddress,
@@ -924,6 +765,12 @@ impl Debugger {
             .registers())
     }
 
+    /// Set new register value.
+    ///
+    /// # Arguments
+    ///
+    /// * `register_name`: x86-64 register name (ex: `rip`)
+    /// * `val`: 8 bite value
     pub fn set_register_value(&self, register_name: &str, val: u64) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
 
@@ -933,6 +780,7 @@ impl Debugger {
         Ok(map.persist(in_focus_pid)?)
     }
 
+    /// Return list of known files income from dwarf parser.
     pub fn known_files(&self) -> impl Iterator<Item = &PathBuf> {
         self.debugee.dwarf.known_files()
     }

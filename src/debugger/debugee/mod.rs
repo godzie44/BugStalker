@@ -34,10 +34,15 @@ pub struct FrameInfo {
     pub return_addr: Option<RelocatedAddress>,
 }
 
+/// Debugee thread description.
 pub struct ThreadSnapshot {
+    /// Running thread info - pid, number and status.
     pub thread: Tracee,
+    /// Backtrace
     pub bt: Option<Backtrace>,
+    /// On focus frame number (if focus on this thread)
     pub focus_frame: Option<usize>,
+    /// True if thread in focus, false elsewhere
     pub in_focus: bool,
 }
 
