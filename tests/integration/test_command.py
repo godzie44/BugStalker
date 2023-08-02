@@ -346,3 +346,25 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect('Hello, world!')
         self.debugger.sendline('continue')
         self.debugger.expect('bye!')
+
+    @staticmethod
+    def test_frame_switch():
+        """Switch stack frame and assert argument values"""
+        debugger = pexpect.spawn(
+            './target/debug/bugstalker ./target/debug/calc -- 1 2 3 --description result')
+        debugger.expect('BugStalker greets')
+        debugger.sendline('break calc.rs:19')
+        debugger.expect_exact('New breakpoint 1')
+
+        debugger.sendline('r')
+        debugger.expect_exact('Hit breakpoint 1')
+
+        debugger.sendline('arg all')
+        debugger.expect_exact('a = i64(1)')
+        debugger.expect_exact('b = i64(2)')
+
+        debugger.sendline('frame switch 1')
+        debugger.sendline('arg all')
+        debugger.expect_exact('a = i64(1)')
+        debugger.expect_exact('b = i64(2)')
+        debugger.expect_exact('c = i64(3)')

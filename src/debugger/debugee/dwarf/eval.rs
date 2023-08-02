@@ -6,6 +6,7 @@ use crate::debugger::debugee::dwarf::unit::{DieVariant, Unit};
 use crate::debugger::debugee::dwarf::{ContextualDieRef, DwarfUnwinder, EndianArcSlice};
 use crate::debugger::debugee::Debugee;
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
+use crate::debugger::unwind::libunwind;
 use crate::debugger::{debugee, ExplorationContext};
 use anyhow::anyhow;
 use bytes::{BufMut, Bytes, BytesMut};
@@ -31,6 +32,8 @@ pub enum EvalError {
     UnsupportedRequire(String),
     #[error("nix error {0}")]
     Nix(#[from] nix::Error),
+    #[error("unwind error {0}")]
+    Unwind(#[from] unwind::Error),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -64,8 +67,8 @@ impl<'a> RequirementsResolver<'a> {
                     .debugee
                     .dwarf
                     .find_function_by_pc(loc.global_pc)
-                    .ok_or_else(|| anyhow!("current function not found 1"))?;
-                let base_addr = func.frame_base_addr(ctx, self.debugee, loc.global_pc)?;
+                    .ok_or_else(|| anyhow!("current function not found"))?;
+                let base_addr = func.frame_base_addr(ctx, self.debugee)?;
                 Ok(*e.insert(base_addr))
             }
         }
@@ -97,12 +100,8 @@ impl<'a> RequirementsResolver<'a> {
         self.debugee.dwarf.debug_addr()
     }
 
-    fn resolve_registers(&self, pid: Pid) -> anyhow::Result<DwarfRegisterMap> {
-        let current_loc = self
-            .debugee
-            .tracee_ctl()
-            .tracee_ensure(pid)
-            .location(self.debugee)?;
+    fn resolve_registers(&self, ctx: &ExplorationContext) -> anyhow::Result<DwarfRegisterMap> {
+        let current_loc = ctx.location();
         let current_fn = self
             .debugee
             .dwarf
@@ -118,16 +117,35 @@ impl<'a> RequirementsResolver<'a> {
             .ok_or_else(|| anyhow!("entry point pc not found"))?
             .into();
 
-        let unwinder = DwarfUnwinder::new(self.debugee);
-        let location = debugee::Location {
-            pid,
-            pc: entry_pc.relocate(self.debugee.mapping_offset()),
-            global_pc: entry_pc,
-        };
-        Ok(unwinder
-            .context_for(&ExplorationContext::new(location))?
-            .ok_or(anyhow!("fetch register fail"))?
-            .registers())
+        let backtrace = libunwind::unwind(ctx.pid_on_focus())?;
+        let entry_pc_rel = entry_pc.relocate(self.debugee.mapping_offset());
+        backtrace
+            .iter()
+            .enumerate()
+            .find(|(_, frame)| frame.fn_start_ip == Some(entry_pc_rel))
+            .map(|(num, _)| -> anyhow::Result<DwarfRegisterMap> {
+                // try to use libunwind if frame determined
+                let mut registers = RegisterMap::current(ctx.pid_on_focus())?.into();
+                libunwind::restore_registers_at_frame(
+                    ctx.pid_on_focus(),
+                    &mut registers,
+                    num as u32,
+                )?;
+                Ok(registers)
+            })
+            .unwrap_or_else(|| {
+                // use dwarf unwinder as a fallback
+                let unwinder = DwarfUnwinder::new(self.debugee);
+                let location = debugee::Location {
+                    pid: ctx.pid_on_focus(),
+                    pc: entry_pc_rel,
+                    global_pc: entry_pc,
+                };
+                Ok(unwinder
+                    .context_for(&ExplorationContext::new(location, ctx.focus_frame))?
+                    .ok_or(anyhow!("fetch register fail"))?
+                    .registers())
+            })
     }
 }
 
@@ -222,13 +240,17 @@ impl<'a> ExpressionEvaluator<'a> {
                     let value_type = self.value_type_from_offset(base_type);
 
                     // if there is registers dump for functions entry - use it
-                    let bytes =
-                        if let Some(regs) = resolver.entry_registers.remove(&ctx.pid_on_focus()) {
-                            regs.value(register)?
-                        } else {
-                            DwarfRegisterMap::from(RegisterMap::current(ctx.pid_on_focus())?)
-                                .value(register)?
-                        };
+                    let bytes = if let Some(regs) =
+                        resolver.entry_registers.remove(&ctx.pid_on_focus())
+                    {
+                        regs.value(register)?
+                    } else {
+                        let pid = ctx.pid_on_focus();
+                        let mut registers = DwarfRegisterMap::from(RegisterMap::current(pid)?);
+                        // try to use registers for in focus frame
+                        libunwind::restore_registers_at_frame(pid, &mut registers, ctx.frame())?;
+                        registers.value(register)?
+                    };
                     result = eval.resume_with_register(Value::from_u64(value_type, bytes)?)?;
                 }
                 EvaluationResult::RequiresFrameBase => {
@@ -303,7 +325,7 @@ impl<'a> ExpressionEvaluator<'a> {
                     result = eval.resume_with_call_frame_cfa(cfa.into())?;
                 }
                 EvaluationResult::RequiresEntryValue(expr) => {
-                    let regs = self.resolver.resolve_registers(ctx.pid_on_focus())?;
+                    let regs = self.resolver.resolve_registers(ctx)?;
                     let ctx_resolver = ExternalRequirementsResolver::default()
                         .with_entry_registers(ctx.pid_on_focus(), regs);
                     let eval_res = self.evaluate_with_resolver(ctx_resolver, ctx, expr)?;
@@ -352,12 +374,7 @@ impl<'a> CompletedResult<'a> {
 
             match piece.location {
                 Location::Register { register } => {
-                    buf.put(read_register(
-                        self.ctx.pid_on_focus(),
-                        register,
-                        read_size,
-                        offset,
-                    )?);
+                    buf.put(read_register(self.ctx, register, read_size, offset)?);
                 }
                 Location::Address { address } => {
                     let memory = debugger::read_memory_by_pid(
@@ -428,8 +445,17 @@ impl<'a> CompletedResult<'a> {
     }
 }
 
-fn read_register(pid: Pid, reg: Register, size_in_bytes: usize, offset: u64) -> Result<Bytes> {
-    let register_value = DwarfRegisterMap::from(RegisterMap::current(pid)?).value(reg)?;
+fn read_register(
+    ctx: &ExplorationContext,
+    reg: Register,
+    size_in_bytes: usize,
+    offset: u64,
+) -> Result<Bytes> {
+    let pid = ctx.pid_on_focus();
+    let mut registers = DwarfRegisterMap::from(RegisterMap::current(pid)?);
+    // try to use registers for in focus frame
+    libunwind::restore_registers_at_frame(pid, &mut registers, ctx.frame())?;
+    let register_value = registers.value(reg)?;
     let bytes = (register_value >> offset).to_ne_bytes();
     let write_size = min(size_in_bytes, std::mem::size_of::<u64>());
     Ok(Bytes::copy_from_slice(&bytes[..write_size]))

@@ -19,6 +19,7 @@ pub use arguments::Arguments;
 pub use backtrace::Backtrace;
 pub use backtrace::Command as BacktraceCommand;
 pub use frame::Frame;
+pub use frame::Result as FrameResult;
 pub use memory::Memory;
 pub use r#break::Break;
 pub use r#break::Breakpoint;
@@ -64,6 +65,7 @@ pub const BACKTRACE_COMMAND_SHORT: &str = "bt";
 pub const CONTINUE_COMMAND: &str = "continue";
 pub const CONTINUE_COMMAND_SHORT: &str = "c";
 pub const FRAME_COMMAND: &str = "frame";
+pub const FRAME_COMMAND_SHORT: &str = "f";
 pub const RUN_COMMAND: &str = "run";
 pub const RUN_COMMAND_SHORT: &str = "r";
 pub const STEP_INSTRUCTION_COMMAND: &str = "stepi";
@@ -125,7 +127,7 @@ pub enum Command {
     PrintArguments(Expression),
     PrintBacktrace(backtrace::Command),
     Continue,
-    PrintFrame,
+    Frame(frame::Command),
     Run,
     StepInstruction,
     StepInto,
@@ -150,7 +152,7 @@ pub enum HandlingError {
     Debugger(#[from] anyhow::Error),
 }
 
-pub type HandleResult<T> = std::result::Result<T, HandlingError>;
+pub type HandleResult<T> = Result<T, HandlingError>;
 
 impl Command {
     /// Parse input string into command.
@@ -214,7 +216,6 @@ impl Command {
 
         let continue_parser =
             parser2_no_args!(CONTINUE_COMMAND_SHORT, CONTINUE_COMMAND, Command::Continue);
-        let frame_parser = parser1_no_args!(FRAME_COMMAND, Command::PrintFrame);
         let run_parser = parser2_no_args!(RUN_COMMAND_SHORT, RUN_COMMAND, Command::Run);
         let stepi_parser = parser1_no_args!(STEP_INSTRUCTION_COMMAND, Command::StepInstruction);
         let step_into_parser = parser2_no_args!(
@@ -407,6 +408,25 @@ impl Command {
             )(input)
         }
 
+        fn frame_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
+            preceded(
+                alt((
+                    pair(tag(FRAME_COMMAND_SHORT), multispace1),
+                    pair(tag(FRAME_COMMAND), multispace1),
+                )),
+                alt((
+                    map(tag("info"), |_| Command::Frame(frame::Command::Info)),
+                    map_res(
+                        preceded(pair(tag("switch"), multispace1), digit1),
+                        |num: &str| -> Result<Command, <u32 as FromStr>::Err> {
+                            let num: u32 = num.parse::<u32>()?;
+                            Ok(Command::Frame(frame::Command::Switch(num)))
+                        },
+                    ),
+                )),
+            )(input)
+        }
+
         alt((
             command(VAR_COMMAND, print_var_parser),
             command(ARG_COMMAND, print_argument_parser),
@@ -501,9 +521,30 @@ mod test {
                 },
             },
             TestCase {
-                inputs: vec!["frame"],
+                inputs: vec!["frame info ", "  frame  info"],
                 command_matcher: |result| {
-                    assert!(matches!(result.unwrap(), Command::PrintFrame));
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Frame(frame::Command::Info)
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec!["f info ", "  f  info"],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Frame(frame::Command::Info)
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec!["frame switch 1", "  frame  switch   1 "],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Frame(frame::Command::Switch(1))
+                    ));
                 },
             },
             TestCase {

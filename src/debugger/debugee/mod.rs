@@ -5,6 +5,7 @@ use crate::debugger::debugee::dwarf::{DebugeeContext, EndianArcSlice};
 use crate::debugger::debugee::rendezvous::Rendezvous;
 use crate::debugger::debugee::tracee::{Tracee, TraceeCtl};
 use crate::debugger::debugee::tracer::{StopReason, TraceContext, Tracer};
+use crate::debugger::unwind::FrameSpan;
 use crate::debugger::ExplorationContext;
 use crate::weak_error;
 use anyhow::anyhow;
@@ -23,6 +24,9 @@ pub mod tracer;
 /// Stack frame information.
 #[derive(Debug, Default, Clone)]
 pub struct FrameInfo {
+    pub num: u32,
+    pub frame: FrameSpan,
+    /// Dwarf frame base address
     pub base_addr: RelocatedAddress,
     /// CFA is defined to be the value of the stack  pointer at the call site in the previous frame
     /// (which may be different from its value on entry to the current frame).
@@ -33,6 +37,7 @@ pub struct FrameInfo {
 pub struct ThreadSnapshot {
     pub thread: Tracee,
     pub bt: Option<Backtrace>,
+    pub focus_frame: Option<usize>,
     pub in_focus: bool,
 }
 
@@ -210,15 +215,23 @@ impl Debugee {
         let func = self
             .dwarf
             .find_function_by_pc(ctx.location().global_pc)
-            .ok_or_else(|| anyhow!("current function not found 2"))?;
+            .ok_or_else(|| anyhow!("current function not found"))?;
 
-        let base_addr = func.frame_base_addr(ctx, self, ctx.location().global_pc)?;
-
+        let base_addr = func.frame_base_addr(ctx, self)?;
         let cfa = self.dwarf.get_cfa(self, ctx)?;
+        let backtrace = libunwind::unwind(ctx.pid_on_focus())?;
+        let (bt_frame_num, frame) = backtrace
+            .iter()
+            .enumerate()
+            .find(|(_, frame)| frame.ip == ctx.location().pc)
+            .expect("frame must exists");
+        let return_addr = backtrace.get(bt_frame_num + 1).map(|f| f.ip);
         Ok(FrameInfo {
+            frame: frame.clone(),
+            num: bt_frame_num as u32,
             cfa,
             base_addr,
-            return_addr: libunwind::return_addr(ctx.pid_on_focus())?,
+            return_addr,
         })
     }
 
@@ -228,10 +241,17 @@ impl Debugee {
             .into_iter()
             .map(|tracee| {
                 let mb_bt = weak_error!(libunwind::unwind(tracee.pid));
+                let frame_num = mb_bt.as_ref().and_then(|bt| {
+                    bt.iter()
+                        .enumerate()
+                        .find_map(|(i, frame)| (frame.ip == ctx.location().pc).then_some(i))
+                });
+
                 ThreadSnapshot {
                     in_focus: tracee.pid == ctx.pid_on_focus(),
                     thread: tracee,
                     bt: mb_bt,
+                    focus_frame: frame_num,
                 }
             })
             .collect())

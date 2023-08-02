@@ -11,7 +11,7 @@ use gimli::{EhFrame, FrameDescriptionEntry, RegisterRule, UnwindSection};
 use std::mem;
 
 /// Represents information about single stack frame in unwind path.
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct FrameSpan {
     pub func_name: Option<String>,
     pub fn_start_ip: Option<RelocatedAddress>,
@@ -127,7 +127,7 @@ impl<'a> UnwindContext<'a> {
         }))
     }
 
-    fn next(
+    pub fn next(
         previous_ctx: UnwindContext<'a>,
         ctx: &ExplorationContext,
     ) -> anyhow::Result<Option<Self>> {
@@ -213,11 +213,13 @@ impl<'a> DwarfUnwinder<'a> {
                 pid: unwind_ctx.location.pid,
             };
 
-            unwind_ctx =
-                match UnwindContext::next(unwind_ctx, &ExplorationContext::new(next_location))? {
-                    None => break,
-                    Some(ctx) => ctx,
-                };
+            unwind_ctx = match UnwindContext::next(
+                unwind_ctx,
+                &ExplorationContext::new(next_location, ctx.focus_frame + 1),
+            )? {
+                None => break,
+                Some(ctx) => ctx,
+            };
 
             let function = self
                 .debugee
@@ -278,6 +280,7 @@ impl<'a> DwarfUnwinder<'a> {
 pub mod libunwind {
     use super::FrameSpan;
     use crate::debugger::address::RelocatedAddress;
+    use crate::debugger::register::DwarfRegisterMap;
     use nix::unistd::Pid;
     use unwind::{Accessors, AddressSpace, Byteorder, Cursor, PTraceState, RegNum};
 
@@ -338,5 +341,30 @@ pub mod libunwind {
         }
 
         Ok(Some(RelocatedAddress::from(cursor.register(RegNum::IP)?)))
+    }
+
+    pub fn restore_registers_at_frame(
+        pid: Pid,
+        registers: &mut DwarfRegisterMap,
+        frame_num: u32,
+    ) -> unwind::Result<()> {
+        let state = PTraceState::new(pid.as_raw() as u32)?;
+        let address_space = AddressSpace::new(Accessors::ptrace(), Byteorder::DEFAULT)?;
+        let mut cursor = Cursor::remote(&address_space, &state)?;
+
+        for _ in 0..frame_num {
+            if !cursor.step()? {
+                return Ok(());
+            }
+        }
+
+        if let Ok(ip) = cursor.register(RegNum::IP) {
+            registers.update(gimli::Register(16), ip);
+        }
+        if let Ok(sp) = cursor.register(RegNum::SP) {
+            registers.update(gimli::Register(7), sp);
+        }
+
+        Ok(())
     }
 }

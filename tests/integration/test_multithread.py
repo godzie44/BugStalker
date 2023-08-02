@@ -139,5 +139,25 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.sendline('var locals')
         self.debugger.expect_exact('sum = i32(0)')
 
+    def test_thread_switch_frame_switch(self):
+        """Trace switch and frame switch command for multithread debugee"""
+        self.debugger.sendline('break mt.rs:38')
+        self.debugger.expect('New breakpoint')
 
+        self.debugger.sendline('run')
+        self.debugger.expect('Hit breakpoint 1 at')
 
+        self.debugger.sendline('thread current')
+        self.debugger.expect_exact('#3 thread id')
+
+        # switch to another thread
+        self.debugger.sendline('thread switch 2')
+        self.debugger.expect_exact('Thread #2 brought into focus')
+
+        self.debugger.sendline('thread current')
+        self.debugger.expect_exact('#2 thread id')
+
+        self.debugger.sendline('frame switch 3')
+        self.debugger.expect_exact('switch to #3')
+        self.debugger.sendline('var locals')
+        self.debugger.expect_exact('sum3_jh = JoinHandle<i32> {')

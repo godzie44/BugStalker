@@ -6,8 +6,8 @@ use crate::console::print::ExternalPrinter;
 use crate::console::variable::render_variable_ir;
 use crate::debugger;
 use crate::debugger::command::{
-    Arguments, Backtrace, Break, BreakpointHandlingResult, Command, Frame, Run, StepI, StepInto,
-    StepOut, StepOver, Symbol, ThreadCommand, ThreadResult, Variables,
+    Arguments, Backtrace, Break, BreakpointHandlingResult, Command, Frame, FrameResult, Run, StepI,
+    StepInto, StepOut, StepOver, Symbol, ThreadCommand, ThreadResult, Variables,
 };
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::render::RenderRepr;
@@ -276,14 +276,19 @@ impl AppLoop {
                                 || fn_name.contains("::thread_start");
 
                             let fn_ip = frame.fn_start_ip.unwrap_or_default();
-                            self.printer.print(format!(
+
+                            let mut frame_info = format!(
                                 "#{frame_num} {} - {} ({} + {:#X})",
                                 frame.ip.to_string().blue(),
                                 fn_name.to_string().green(),
                                 fn_ip.to_string().blue(),
                                 frame.ip.as_u64() - fn_ip.as_u64(),
-                            ));
+                            );
+                            if thread.focus_frame == Some(frame_num) {
+                                frame_info = frame_info.bold().to_string();
+                            }
 
+                            self.printer.print(frame_info);
                             if user_bt_end {
                                 break;
                             }
@@ -295,15 +300,31 @@ impl AppLoop {
                 Continue::new(&mut self.debugger).handle()?;
                 _ = self.update_completer_variables();
             }
-            Command::PrintFrame => {
-                let frame = Frame::new(&self.debugger).handle()?;
-                self.printer.print(format!("cfa: {}", frame.cfa));
-                self.printer.print(format!(
-                    "return address: {}",
-                    frame
-                        .return_addr
-                        .map_or(String::from("unknown"), |addr| format!("{}", addr))
-                ));
+            Command::Frame(cmd) => {
+                let result = Frame::new(&mut self.debugger).handle(cmd)?;
+                match result {
+                    FrameResult::FrameInfo(frame) => {
+                        self.printer.print(format!(
+                            "frame #{} ({})",
+                            frame.num,
+                            frame
+                                .frame
+                                .func_name
+                                .as_deref()
+                                .unwrap_or("unknown")
+                                .green()
+                        ));
+                        let cfa = frame.cfa.to_string().blue();
+                        self.printer.print(format!("cfa: {cfa}"));
+                        let ret_addr = frame.return_addr.map_or(String::from("unknown"), |addr| {
+                            addr.to_string().blue().to_string()
+                        });
+                        self.printer.print(format!("return address: {ret_addr}"));
+                    }
+                    FrameResult::BroughtIntoFocus(num) => {
+                        self.printer.print(format!("switch to #{num}"));
+                    }
+                }
             }
             Command::Run => {
                 static ALREADY_RUN: AtomicBool = AtomicBool::new(false);

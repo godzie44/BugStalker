@@ -233,7 +233,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
                 evaluation_context,
                 variable::VariableIdentity::from_variable_die(variable_die),
                 variable_die.read_value(
-                    &self.debugger.exploration_ctx(),
+                    self.debugger.exploration_ctx(),
                     &self.debugger.debugee,
                     r#type,
                 ),

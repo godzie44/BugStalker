@@ -111,7 +111,8 @@ macro_rules! disable_when_not_stared {
 /// May changed by user (by `thread` or `frame` command)
 /// or by debugger (at breakpoints, after steps, etc.).
 pub struct ExplorationContext {
-    on_focus_location: Location,
+    focus_location: Location,
+    focus_frame: u32,
 }
 
 impl ExplorationContext {
@@ -123,24 +124,31 @@ impl ExplorationContext {
     /// * `pid`: thread id
     pub fn new_non_running(pid: Pid) -> ExplorationContext {
         Self {
-            on_focus_location: Location {
+            focus_location: Location {
                 pc: 0_u64.into(),
                 global_pc: 0_u64.into(),
                 pid,
             },
+            focus_frame: 0,
         }
     }
 
     /// Create new context.
-    pub fn new(location: Location) -> Self {
+    pub fn new(location: Location, frame_num: u32) -> Self {
         Self {
-            on_focus_location: location,
+            focus_location: location,
+            focus_frame: frame_num,
         }
     }
 
     #[inline(always)]
     pub fn location(&self) -> Location {
-        self.on_focus_location
+        self.focus_location
+    }
+
+    #[inline(always)]
+    pub fn frame(&self) -> u32 {
+        self.focus_frame
     }
 
     #[inline(always)]
@@ -207,8 +215,14 @@ impl Debugger {
             self.debugee
                 .get_tracee_ensure(old_ctx.pid_on_focus())
                 .location(&self.debugee)?,
+            0,
         );
         Ok(&self.expl_context)
+    }
+
+    /// Restore frame from user defined to real.
+    fn expl_ctx_restore_frame(&mut self) -> anyhow::Result<&ExplorationContext> {
+        self.expl_ctx_update_location()
     }
 
     /// Change in focus thread and update program counters.
@@ -221,6 +235,7 @@ impl Debugger {
             self.debugee
                 .get_tracee_ensure(pid)
                 .location(&self.debugee)?,
+            0,
         );
         Ok(&self.expl_context)
     }
@@ -275,7 +290,6 @@ impl Debugger {
                 }
                 StopReason::SignalStop(pid, sign) => {
                     self.expl_ctx_switch_thread(pid)?;
-                    // todo inject signal on next continue
                     self.hooks.on_signal(sign);
                     break;
                 }
@@ -349,11 +363,14 @@ impl Debugger {
         let frame = backtrace
             .get(num as usize)
             .ok_or(anyhow!("frame {num} not found"))?;
-        self.expl_context = ExplorationContext::new(Location {
-            pc: frame.ip,
-            global_pc: frame.ip.into_global(self.debugee.mapping_offset()),
-            pid,
-        });
+        self.expl_context = ExplorationContext::new(
+            Location {
+                pc: frame.ip,
+                global_pc: frame.ip.into_global(self.debugee.mapping_offset()),
+                pid,
+            },
+            num,
+        );
         Ok(num)
     }
 
@@ -362,6 +379,8 @@ impl Debugger {
     /// **! change exploration context**
     pub fn step_into(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
+        self.expl_ctx_restore_frame()?;
+
         let ctx = self.step_in()?;
         let pc = ctx.location().pc;
         let global_pc = ctx.location().global_pc;
@@ -380,6 +399,8 @@ impl Debugger {
     /// **! change exploration context**
     pub fn stepi(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
+        self.expl_ctx_restore_frame()?;
+
         let ctx = self.single_step_instruction()?;
         let pc = ctx.location().pc;
         let global_pc = ctx.location().global_pc;
@@ -485,7 +506,8 @@ impl Debugger {
     /// **! change exploration context**
     pub fn step_out(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
-        let location = self.exploration_ctx().location();
+        let ctx = self.expl_ctx_restore_frame()?;
+        let location = ctx.location();
         if let Some(ret_addr) = libunwind::return_addr(location.pid)? {
             let brkpt_is_set = self.breakpoints.get_enabled(ret_addr).is_some();
             if brkpt_is_set {
@@ -516,9 +538,7 @@ impl Debugger {
     /// Do single step (until debugee reaches a different source line).
     ///
     /// **! change exploration context**
-    pub fn step_in(&mut self) -> anyhow::Result<&ExplorationContext> {
-        disable_when_not_stared!(self);
-
+    fn step_in(&mut self) -> anyhow::Result<&ExplorationContext> {
         // make instruction step but ignoring functions prolog
         // initial function must exists (do instruction steps until it's not)
         fn long_step(debugger: &mut Debugger) -> anyhow::Result<PlaceOwned> {
@@ -574,7 +594,7 @@ impl Debugger {
         let start_cfa = self
             .debugee
             .dwarf
-            .get_cfa(&self.debugee, &ExplorationContext::new(location))?;
+            .get_cfa(&self.debugee, &ExplorationContext::new(location, 0))?;
 
         loop {
             let next_place = long_step(self)?;
@@ -586,7 +606,7 @@ impl Debugger {
             let next_cfa = self
                 .debugee
                 .dwarf
-                .get_cfa(&self.debugee, &ExplorationContext::new(location))?;
+                .get_cfa(&self.debugee, &ExplorationContext::new(location, 0))?;
 
             // step is done if:
             // 1) we may step at same place in code but in another stack frame
@@ -604,8 +624,9 @@ impl Debugger {
     /// **! change exploration context**
     pub fn step_over(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
+        let ctx = self.expl_ctx_restore_frame()?;
 
-        let mut current_location = self.exploration_ctx().location();
+        let mut current_location = ctx.location();
 
         let func = loop {
             let dwarf = &self.debugee.dwarf;
@@ -896,7 +917,9 @@ impl Debugger {
             pid: self.exploration_ctx().pid_on_focus(),
         };
         Ok(unwinder
-            .context_for(&ExplorationContext::new(location))?
+            // there is no chance to determine frame number, cause pc may owned by code outside backtrace
+            // so set frame num to 0 is ok
+            .context_for(&ExplorationContext::new(location, 0))?
             .ok_or(anyhow!("fetch register fail"))?
             .registers())
     }

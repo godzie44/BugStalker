@@ -548,7 +548,6 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         &self,
         ctx: &ExplorationContext,
         debugee: &Debugee,
-        pc: GlobalAddress,
     ) -> anyhow::Result<RelocatedAddress> {
         let attr = self
             .die
@@ -557,7 +556,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
             .ok_or_else(|| anyhow!("no frame base attr"))?;
 
         let expr = DwarfLocation(attr)
-            .try_as_expression(self.context, self.unit(), pc)
+            .try_as_expression(self.context, self.unit(), ctx.location().global_pc)
             .ok_or_else(|| anyhow!("frame base attribute not an expression"))?;
 
         let evaluator = ctx_resolve_unit_call!(self, evaluator, debugee);

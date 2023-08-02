@@ -6,7 +6,7 @@ Available debugger commands:
 var <name>|locals                           -- show local and global variables
 arg <name>|all                              -- show arguments of current stack frame
 bt, backtrace <>|all                        -- print backtrace of all stack frames in current thread or from all threads
-frame                                       -- print current stack frame information
+f, frame info|switch <number>               -- print current stack frame information or change frame
 c, continue                                 -- continue program being debugged, after signal or breakpoint
 r, run                                      -- start or restart debugged programm 
 stepi                                       -- step one instruction
@@ -91,8 +91,12 @@ thread {id} - {current ip value}
 ";
 
 pub const HELP_FRAME: &str = "\
-\x1b[32;1mframe\x1b[0m
-Show current stack frame information.
+\x1b[32;1mf, frame\x1b[0m
+Show current stack frame info or set frame to focus.
+
+Available subcomands:
+frame info - show current stack frame information (see output explanation)
+frame switch <number> - set frame <number> to focus
 
 Output format:
 cfa: {address} -- canonical frame address
@@ -193,7 +197,7 @@ pub fn help_for_command(command: Option<&str>) -> &str {
         Some(command::VAR_COMMAND) => HELP_VAR,
         Some(command::ARG_COMMAND) => HELP_ARG,
         Some(command::BACKTRACE_COMMAND) | Some(command::BACKTRACE_COMMAND_SHORT) => HELP_BACKTRACE,
-        Some(command::FRAME_COMMAND) => HELP_FRAME,
+        Some(command::FRAME_COMMAND) | Some(command::FRAME_COMMAND_SHORT) => HELP_FRAME,
         Some(command::CONTINUE_COMMAND) | Some(command::CONTINUE_COMMAND_SHORT) => HELP_CONTINUE,
         Some(command::RUN_COMMAND) | Some(command::RUN_COMMAND_SHORT) => HELP_RUN,
         Some(command::STEP_INSTRUCTION_COMMAND) => HELP_STEPI,
