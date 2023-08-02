@@ -27,18 +27,18 @@ fn test_multithreaded_breakpoints() {
     // set breakpoint at program start.
     debugger.set_breakpoint_at_line("mt.rs", 6).unwrap();
     // set breakpoints at thread 1 code.
-    debugger.set_breakpoint_at_line("mt.rs", 22).unwrap();
+    debugger.set_breakpoint_at_line("mt.rs", 24).unwrap();
     // set breakpoint at thread 2 code.
-    debugger.set_breakpoint_at_line("mt.rs", 34).unwrap();
+    debugger.set_breakpoint_at_line("mt.rs", 36).unwrap();
     // set breakpoint at program ends.
     debugger.set_breakpoint_at_line("mt.rs", 14).unwrap();
 
     debugger.start_debugee().unwrap();
     assert_eq!(info.line.take(), Some(6));
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(34));
+    assert_eq!(info.line.take(), Some(36));
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(22));
+    assert_eq!(info.line.take(), Some(24));
     debugger.continue_debugee().unwrap();
     assert_eq!(info.line.take(), Some(14));
 
@@ -60,10 +60,10 @@ fn test_multithreaded_backtrace() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("mt.rs", 22).unwrap();
+    debugger.set_breakpoint_at_line("mt.rs", 24).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(22));
+    assert_eq!(info.line.take(), Some(24));
 
     let threads = debugger.thread_state().unwrap();
     let current_thread = threads.into_iter().find(|t| t.in_focus).unwrap();
@@ -87,10 +87,10 @@ fn test_multithreaded_trace() {
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
 
-    debugger.set_breakpoint_at_line("mt.rs", 33).unwrap();
+    debugger.set_breakpoint_at_line("mt.rs", 23).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(33));
+    assert_eq!(info.line.take(), Some(23));
 
     let trace = debugger.thread_state().unwrap();
     assert_eq!(trace.len(), 5);

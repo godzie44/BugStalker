@@ -24,10 +24,10 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.sendline('break mt.rs:6')
         self.debugger.expect('New breakpoint')
         # set breakpoints at thread 1 code
-        self.debugger.sendline('break mt.rs:22')
+        self.debugger.sendline('break mt.rs:24')
         self.debugger.expect('New breakpoint')
         # set breakpoint at thread 2 code
-        self.debugger.sendline('break mt.rs:34')
+        self.debugger.sendline('break mt.rs:36')
         self.debugger.expect('New breakpoint')
         # set breakpoint at program ends
         self.debugger.sendline('break mt.rs:14')
@@ -41,10 +41,10 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.expect_exact('thread 2 spawn')
         self.debugger.expect_exact('sum3 (unused): 45')
         self.debugger.expect('Hit breakpoint 3 at')
-        self.debugger.expect_exact('34     let mut sum2 = 0;')
+        self.debugger.expect_exact('36     let mut sum2 = 0;')
         self.debugger.sendline('continue')
         self.debugger.expect('Hit breakpoint 2 at')
-        self.debugger.expect_exact('22     let mut sum = 0;')
+        self.debugger.expect_exact('24     let mut sum = 0;')
         self.debugger.sendline('continue')
         self.debugger.expect('Hit breakpoint 4 at')
         self.debugger.expect_exact('14     println!("total {}", sum1 + sum2);')
@@ -53,25 +53,25 @@ class MultithreadTestCase(unittest.TestCase):
 
     def test_multithreaded_backtrace(self):
         """Backtrace command for multithread debugee"""
-        self.debugger.sendline('break mt.rs:22')
+        self.debugger.sendline('break mt.rs:24')
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('thread 1 spawn')
         self.debugger.expect('Hit breakpoint 1 at')
-        self.debugger.expect('22     let mut sum = 0;')
+        self.debugger.expect('24     let mut sum = 0;')
         self.debugger.sendline('backtrace')
         self.debugger.expect('mt::sum1')
         self.debugger.expect('std::sys::unix::thread::Thread::new::thread_start')
 
     def test_multithreaded_trace(self):
         """Trace command for multithread debugee"""
-        self.debugger.sendline('break mt.rs:34')
+        self.debugger.sendline('break mt.rs:36')
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('Hit breakpoint 1 at')
-        self.debugger.expect('34     let mut sum2 = 0;')
+        self.debugger.expect('36     let mut sum2 = 0;')
         self.debugger.sendline('backtrace all')
         self.debugger.expect('thread')
         self.debugger.expect('mt::main')
@@ -82,19 +82,19 @@ class MultithreadTestCase(unittest.TestCase):
 
     def test_multithreaded_quit(self):
         """Quit command for multithread debugee"""
-        self.debugger.sendline('break mt.rs:34')
+        self.debugger.sendline('break mt.rs:36')
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('Hit breakpoint 1 at')
-        self.debugger.expect('34     let mut sum2 = 0;')
+        self.debugger.expect('36     let mut sum2 = 0;')
         self.debugger.sendline('quit')
         time.sleep(2)
         self.assertFalse(self.debugger.isalive())
 
     def test_thread_info(self):
         """Thread dump/current command for multithread debugee"""
-        self.debugger.sendline('break mt.rs:38')
+        self.debugger.sendline('break mt.rs:40')
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
@@ -110,7 +110,7 @@ class MultithreadTestCase(unittest.TestCase):
 
     def test_thread_switch(self):
         """Trace switch command for multithread debugee"""
-        self.debugger.sendline('break mt.rs:38')
+        self.debugger.sendline('break mt.rs:40')
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
@@ -132,7 +132,7 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.sendline('step')
         self.debugger.expect_exact('870 }')
         self.debugger.sendline('step')
-        self.debugger.expect_exact('22     let mut sum = 0;')
+        self.debugger.expect_exact('24     let mut sum = 0;')
         self.debugger.sendline('step')
 
         # try to view variables from a new in focus thread
@@ -141,7 +141,7 @@ class MultithreadTestCase(unittest.TestCase):
 
     def test_thread_switch_frame_switch(self):
         """Trace switch and frame switch command for multithread debugee"""
-        self.debugger.sendline('break mt.rs:38')
+        self.debugger.sendline('break mt.rs:40')
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')

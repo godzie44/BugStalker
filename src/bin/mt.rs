@@ -17,6 +17,8 @@ fn main() {
 }
 
 fn sum1() -> i32 {
+    // wait some times until thread `sum2` starting
+    thread::sleep(Duration::from_millis(100));
     let sum3_jh = thread::spawn(sum3);
     thread::sleep(Duration::from_secs(2));
     let mut sum = 0;
