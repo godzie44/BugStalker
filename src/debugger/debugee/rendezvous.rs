@@ -6,9 +6,10 @@ use nix::unistd::Pid;
 use object::elf::DT_DEBUG;
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub struct LinkMap {
-    addr: RelocatedAddress,
-    name: String,
+    pub addr: RelocatedAddress,
+    pub name: String,
 }
 
 #[derive(Debug, thiserror::Error)]

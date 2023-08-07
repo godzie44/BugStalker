@@ -97,7 +97,8 @@ impl DebugeeContext {
                 let unit = self
                     .find_unit_by_pc(ctx.location().global_pc)
                     .ok_or_else(|| anyhow!("undefined unit"))?;
-                let evaluator = resolve_unit_call!(&debugee.dwarf.inner, unit, evaluator, debugee);
+                let evaluator =
+                    resolve_unit_call!(&debugee.dwarf().inner, unit, evaluator, debugee);
                 let expr_result = evaluator.evaluate(ctx, expr.clone())?;
 
                 Ok((expr_result.into_scalar::<usize>()?).into())
@@ -329,6 +330,29 @@ impl DebugeeContext {
 
     pub fn dwarf(&self) -> &Dwarf<EndianArcSlice> {
         &self.inner
+    }
+
+    /// Return the maximum and minimum address from the collection of unit ranges.
+    pub fn range(&self) -> Option<Range> {
+        // ranges already sorted by begin addr
+        let begin = self
+            .units
+            .iter()
+            .filter_map(|u| u.ranges().first().map(|r| r.begin))
+            .min()?;
+
+        let end = self
+            .units
+            .iter()
+            .map(|u| {
+                u.ranges().iter().fold(
+                    begin,
+                    |end, range| if range.end > end { range.end } else { end },
+                )
+            })
+            .max()?;
+
+        Some(Range { begin, end })
     }
 }
 

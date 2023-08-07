@@ -65,7 +65,7 @@ impl<'a> RequirementsResolver<'a> {
                 let loc = ctx.location();
                 let func = self
                     .debugee
-                    .dwarf
+                    .dwarf()
                     .find_function_by_pc(loc.global_pc)
                     .ok_or_else(|| anyhow!("current function not found"))?;
                 let base_addr = func.frame_base_addr(ctx, self.debugee)?;
@@ -79,7 +79,7 @@ impl<'a> RequirementsResolver<'a> {
         match self.cfa.borrow_mut().entry(ctx.pid_on_focus()) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(e) => {
-                let cfa = self.debugee.dwarf.get_cfa(self.debugee, ctx)?;
+                let cfa = self.debugee.dwarf().get_cfa(self.debugee, ctx)?;
                 Ok(*e.insert(cfa))
             }
         }
@@ -97,14 +97,14 @@ impl<'a> RequirementsResolver<'a> {
     }
 
     fn debug_addr_section(&self) -> &DebugAddr<EndianArcSlice> {
-        self.debugee.dwarf.debug_addr()
+        self.debugee.dwarf().debug_addr()
     }
 
     fn resolve_registers(&self, ctx: &ExplorationContext) -> anyhow::Result<DwarfRegisterMap> {
         let current_loc = ctx.location();
         let current_fn = self
             .debugee
-            .dwarf
+            .dwarf()
             .find_function_by_pc(current_loc.global_pc)
             .ok_or_else(|| anyhow!("not in function"))?;
         let entry_pc: GlobalAddress = current_fn
@@ -408,14 +408,14 @@ impl<'a> CompletedResult<'a> {
                     let die_ref = DieRef::Global(value);
                     let (entry, unit) = self
                         .debugee
-                        .dwarf
+                        .dwarf()
                         .deref_die(self.unit, die_ref)
                         .ok_or_else(|| {
                             EvalError::Other(anyhow!("die not found by ref: {die_ref:?}"))
                         })?;
                     if let DieVariant::Variable(ref variable) = &entry.die {
                         let ctx_die = ContextualDieRef {
-                            context: &self.debugee.dwarf,
+                            context: self.debugee.dwarf(),
                             unit_idx: unit.idx(),
                             node: &entry.node,
                             die: variable,

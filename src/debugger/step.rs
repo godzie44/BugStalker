@@ -20,7 +20,7 @@ impl Debugger {
 
                 let mut location = ctx.location();
                 let func = loop {
-                    let dwarf = &debugger.debugee.dwarf;
+                    let dwarf = debugger.debugee.dwarf();
                     if let Some(func) = dwarf.find_function_by_pc(location.global_pc) {
                         break func;
                     }
@@ -42,7 +42,7 @@ impl Debugger {
                 let location = debugger.exploration_ctx().location();
                 if let Some(place) = debugger
                     .debugee
-                    .dwarf
+                    .dwarf()
                     .find_exact_place_from_pc(location.global_pc)
                 {
                     return Ok(place.to_owned());
@@ -53,7 +53,7 @@ impl Debugger {
         let mut location = self.exploration_ctx().location();
 
         let start_place = loop {
-            let dwarf = &self.debugee.dwarf;
+            let dwarf = &self.debugee.dwarf();
             if let Some(place) = dwarf.find_place_from_pc(location.global_pc) {
                 break place;
             }
@@ -65,7 +65,7 @@ impl Debugger {
         let sp_line = start_place.line_number;
         let start_cfa = self
             .debugee
-            .dwarf
+            .dwarf()
             .get_cfa(&self.debugee, &ExplorationContext::new(location, 0))?;
 
         loop {
@@ -77,7 +77,7 @@ impl Debugger {
             let location = self.exploration_ctx().location();
             let next_cfa = self
                 .debugee
-                .dwarf
+                .dwarf()
                 .get_cfa(&self.debugee, &ExplorationContext::new(location, 0))?;
 
             // step is done if:
@@ -160,7 +160,7 @@ impl Debugger {
         let mut current_location = ctx.location();
 
         let func = loop {
-            let dwarf = &self.debugee.dwarf;
+            let dwarf = &self.debugee.dwarf();
             if let Some(func) = dwarf.find_function_by_pc(current_location.global_pc) {
                 break func;
             }
@@ -169,7 +169,7 @@ impl Debugger {
         };
 
         let prolog = func.prolog()?;
-        let dwarf = &self.debugee.dwarf;
+        let dwarf = &self.debugee.dwarf();
         let inline_ranges = func.inline_ranges();
 
         let current_place = dwarf
@@ -249,7 +249,7 @@ impl Debugger {
         if Some(new_location.pc) == return_addr {
             let place = self
                 .debugee
-                .dwarf
+                .dwarf()
                 .find_place_from_pc(new_location.global_pc)
                 .ok_or_else(|| anyhow!("unknown function range"))?;
 

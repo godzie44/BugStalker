@@ -33,7 +33,7 @@ impl<'a> UnwindContext<'a> {
         registers: DwarfRegisterMap,
         expl_ctx: &ExplorationContext,
     ) -> anyhow::Result<Option<Self>> {
-        let dwarf = &debugee.dwarf;
+        let dwarf = &debugee.dwarf();
         let mut next_registers = registers.clone();
         let registers_snap = registers;
         let fde = match dwarf.eh_frame.fde_for_address(
@@ -191,7 +191,7 @@ impl<'a> DwarfUnwinder<'a> {
 
         let function = self
             .debugee
-            .dwarf
+            .dwarf()
             .find_function_by_pc(ctx.location().global_pc);
         let fn_start_at = function.and_then(|func| {
             func.prolog_start_place()
@@ -223,7 +223,7 @@ impl<'a> DwarfUnwinder<'a> {
 
             let function = self
                 .debugee
-                .dwarf
+                .dwarf()
                 .find_function_by_pc(next_location.global_pc);
             let fn_start_at = function.and_then(|func| {
                 func.prolog_start_place()

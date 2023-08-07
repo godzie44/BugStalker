@@ -2,6 +2,7 @@ use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::dwarf::unwind::libunwind;
 use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
 use crate::debugger::debugee::dwarf::{DebugeeContext, EndianArcSlice};
+use crate::debugger::debugee::registry::DwarfRegistry;
 use crate::debugger::debugee::rendezvous::Rendezvous;
 use crate::debugger::debugee::tracee::{Tracee, TraceeCtl};
 use crate::debugger::debugee::tracer::{StopReason, TraceContext, Tracer};
@@ -12,11 +13,12 @@ use anyhow::anyhow;
 use log::{info, warn};
 use nix::unistd::Pid;
 use object::{Object, ObjectSection};
-use proc_maps::MapRange;
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 pub mod dwarf;
+mod registry;
 mod rendezvous;
 pub mod tracee;
 pub mod tracer;
@@ -66,18 +68,16 @@ pub enum ExecutionStatus {
 pub struct Debugee {
     /// debugee running-status.
     pub execution_status: ExecutionStatus,
-    /// preparsed debugee dwarf.
-    pub dwarf: DebugeeContext<EndianArcSlice>,
     /// Debugee tracer. Control debugee process.
     tracer: Tracer,
     /// path to debugee file.
     path: PathBuf,
-    /// debugee process map address.
-    mapping_addr: Option<usize>,
     /// elf file sections (name => address).
     object_sections: HashMap<String, u64>,
     /// rendezvous struct maintained by dyn linker.
     rendezvous: Option<Rendezvous>,
+    /// Registry for dwarf information of program and shared libraries.
+    dwarf_registry: DwarfRegistry,
 }
 
 impl Debugee {
@@ -91,17 +91,19 @@ impl Debugee {
         OBJ: Object<'a, 'b>,
     {
         let dwarf_builder = dwarf::DebugeeContextBuilder::default();
+        let dwarf = dwarf_builder.build(object)?;
+        let registry = DwarfRegistry::new(proc, path.to_path_buf(), dwarf);
+
         Ok(Self {
             execution_status: ExecutionStatus::Unload,
             path: path.into(),
-            mapping_addr: None,
-            dwarf: dwarf_builder.build(object)?,
             object_sections: object
                 .sections()
                 .filter_map(|section| Some((section.name().ok()?.to_string(), section.address())))
                 .collect(),
             rendezvous: None,
             tracer: Tracer::new(proc),
+            dwarf_registry: registry,
         })
     }
 
@@ -114,11 +116,10 @@ impl Debugee {
         Self {
             execution_status: ExecutionStatus::Unload,
             path: self.path.clone(),
-            mapping_addr: None,
-            dwarf: self.dwarf.clone(),
             object_sections: self.object_sections.clone(),
             rendezvous: None,
             tracer: Tracer::new(proc),
+            dwarf_registry: self.dwarf_registry.extend(proc),
         }
     }
 
@@ -132,7 +133,9 @@ impl Debugee {
     /// This method will panic if called before debugee started,
     /// calling a method on time is the responsibility of the caller.
     pub fn mapping_offset(&self) -> usize {
-        self.mapping_addr.expect("mapping address must exists")
+        self.dwarf_registry
+            .get_program_mapping()
+            .expect("mapping address must exists")
     }
 
     /// Return rendezvous struct.
@@ -170,7 +173,7 @@ impl Debugee {
             }
             StopReason::DebugeeStart => {
                 self.execution_status = ExecutionStatus::InProgress;
-                self.mapping_addr = Some(self.define_mapping_addr()?);
+                self.dwarf_registry.update_mappings()?;
             }
             StopReason::Breakpoint(tid, addr) => {
                 let at_entry_point = ctx
@@ -198,32 +201,14 @@ impl Debugee {
         &self.tracer.tracee_ctl
     }
 
-    fn define_mapping_addr(&mut self) -> anyhow::Result<usize> {
-        let absolute_debugee_path_buf = self.path.canonicalize()?;
-        let absolute_debugee_path = absolute_debugee_path_buf.as_path();
-
-        let proc_maps: Vec<MapRange> =
-            proc_maps::get_process_maps(self.tracee_ctl().proc_pid().as_raw())?
-                .into_iter()
-                .filter(|map| map.filename() == Some(absolute_debugee_path))
-                .collect();
-
-        let lowest_map = proc_maps
-            .iter()
-            .min_by(|map1, map2| map1.start().cmp(&map2.start()))
-            .ok_or_else(|| anyhow!("mapping not found"))?;
-
-        Ok(lowest_map.start())
-    }
-
     pub fn frame_info(&self, ctx: &ExplorationContext) -> anyhow::Result<FrameInfo> {
         let func = self
-            .dwarf
+            .dwarf()
             .find_function_by_pc(ctx.location().global_pc)
             .ok_or_else(|| anyhow!("current function not found"))?;
 
         let base_addr = func.frame_base_addr(ctx, self)?;
-        let cfa = self.dwarf.get_cfa(self, ctx)?;
+        let cfa = self.dwarf().get_cfa(self, ctx)?;
         let backtrace = libunwind::unwind(ctx.pid_on_focus())?;
         let (bt_frame_num, frame) = backtrace
             .iter()
@@ -286,5 +271,10 @@ impl Debugee {
         let mut snapshot = self.tracee_ctl().snapshot();
         let tracee = snapshot.drain(..).find(|tracee| tracee.number == num);
         tracee.ok_or(anyhow!("tracee {num} not found"))
+    }
+
+    #[inline(always)]
+    pub fn dwarf(&self) -> &DebugeeContext<EndianArcSlice> {
+        self.dwarf_registry.get_program_dwarf()
     }
 }
