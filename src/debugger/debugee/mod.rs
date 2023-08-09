@@ -8,11 +8,12 @@ use crate::debugger::debugee::tracee::{Tracee, TraceeCtl};
 use crate::debugger::debugee::tracer::{StopReason, TraceContext, Tracer};
 use crate::debugger::unwind::FrameSpan;
 use crate::debugger::ExplorationContext;
-use crate::weak_error;
+use crate::{print_warns, weak_error};
 use anyhow::anyhow;
 use log::{info, warn};
 use nix::unistd::Pid;
 use object::{Object, ObjectSection};
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -81,17 +82,11 @@ pub struct Debugee {
 }
 
 impl Debugee {
-    pub fn new_non_running<'a, 'b, OBJ>(
-        path: &Path,
-        proc: Pid,
-        object: &'a OBJ,
-    ) -> anyhow::Result<Self>
-    where
-        'a: 'b,
-        OBJ: Object<'a, 'b>,
-    {
+    pub fn new_non_running(path: &Path, proc: Pid, object: &object::File) -> anyhow::Result<Self> {
         let dwarf_builder = dwarf::DebugeeContextBuilder::default();
-        let dwarf = dwarf_builder.build(object)?;
+        let dwarf = dwarf_builder
+            .build(path, object)?
+            .ok_or(anyhow!("no debug information for executable {path:?}"))?;
         let registry = DwarfRegistry::new(proc, path.to_path_buf(), dwarf);
 
         Ok(Self {
@@ -165,6 +160,23 @@ impl Debugee {
         }
     }
 
+    /// Parse dwarf information from new dependency.
+    fn parse_dependency(dep_file: &str) -> anyhow::Result<Option<DebugeeContext>> {
+        // empty string represent a program executable that must already parsed
+        // libvdso should also be skipped
+        if dep_file.is_empty() || dep_file.contains("vdso") {
+            return Ok(None);
+        }
+
+        let file = fs::File::open(dep_file)?;
+        let mmap = unsafe { memmap2::Mmap::map(&file)? };
+        let object = object::File::parse(&*mmap)?;
+
+        let dwarf_builder = dwarf::DebugeeContextBuilder::default();
+        let dwarf = dwarf_builder.build(PathBuf::from(dep_file).as_path(), &object)?;
+        Ok(dwarf)
+    }
+
     pub fn trace_until_stop(&mut self, ctx: TraceContext) -> anyhow::Result<StopReason> {
         let event = self.tracer.resume(ctx)?;
         match event {
@@ -173,7 +185,7 @@ impl Debugee {
             }
             StopReason::DebugeeStart => {
                 self.execution_status = ExecutionStatus::InProgress;
-                self.dwarf_registry.update_mappings()?;
+                print_warns!(self.dwarf_registry.update_mappings()?);
             }
             StopReason::Breakpoint(tid, addr) => {
                 let at_entry_point = ctx
@@ -188,6 +200,36 @@ impl Debugee {
                         &self.object_sections,
                     )?);
                     self.init_libthread_db();
+
+                    let lmaps = self
+                        .rendezvous
+                        .as_ref()
+                        .expect("rendezvous must exists")
+                        .link_maps()?;
+
+                    let dep_names: Vec<_> = lmaps.into_iter().map(|lm| lm.name).collect();
+
+                    let dwarfs: Vec<_> = dep_names
+                        .into_par_iter()
+                        .filter_map(|dep| {
+                            let parse_result = Self::parse_dependency(&dep);
+                            match parse_result {
+                                Ok(mb_dep) => mb_dep.map(|dwarf| (dep, dwarf)),
+                                Err(e) => {
+                                    warn!(target: "debugger", "broken dependency {}: {:#}", dep, e);
+                                    None
+                                }
+                            }
+                        })
+                        .collect();
+
+                    dwarfs.into_iter().for_each(|(dep_name, dwarf)| {
+                        if let Err(e) = self.dwarf_registry.add(&dep_name, dwarf) {
+                            warn!(target: "debugger", "broken dependency {}: {:#}", dep_name, e);
+                        }
+                    });
+
+                    print_warns!(self.dwarf_registry.update_mappings()?);
                 }
             }
             _ => {}
@@ -275,6 +317,8 @@ impl Debugee {
 
     #[inline(always)]
     pub fn dwarf(&self) -> &DebugeeContext<EndianArcSlice> {
-        self.dwarf_registry.get_program_dwarf()
+        self.dwarf_registry
+            .get_program_dwarf()
+            .expect("dwarf info must exists")
     }
 }

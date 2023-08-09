@@ -20,7 +20,7 @@ use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::ExplorationContext;
 use crate::{resolve_unit_call, weak_error};
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;
@@ -29,15 +29,19 @@ use gimli::{
     LocationLists, Range, RunTimeEndian, Section, UnitOffset, UnwindContext, UnwindSection,
     UnwindTableRow,
 };
+use log::{debug, info, warn};
+use memmap2::Mmap;
 use object::{Object, ObjectSection};
 use rayon::prelude::*;
 use regex::Regex;
 use std::borrow::Cow;
 use std::collections::VecDeque;
-use std::ops::Deref;
-use std::path::PathBuf;
+use std::fs;
+use std::ops::{Add, Deref};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 pub use symbol::Symbol;
+use walkdir::WalkDir;
 
 pub type EndianArcSlice = gimli::EndianArcSlice<gimli::RunTimeEndian>;
 
@@ -66,6 +70,7 @@ impl Clone for DebugeeContext {
                 ranges: self.inner.ranges.clone(),
                 file_type: self.inner.file_type,
                 sup: self.inner.sup.clone(),
+                abbreviations_cache: Default::default(),
             },
             eh_frame: self.eh_frame.clone(),
             bases: self.bases.clone(),
@@ -376,19 +381,91 @@ impl DebugeeContextBuilder {
         Ok(gimli::EndianArcSlice::new(Arc::from(&*data), endian))
     }
 
-    pub fn build<'a, 'b, OBJ>(
+    // todo configure this path
+    const DEBUG_FILES_DIR: &'static str = "/usr/lib/debug";
+
+    fn get_dwarf_from_separate_debug_file<'a, 'b, OBJ>(
         &self,
         obj_file: &'a OBJ,
-    ) -> anyhow::Result<DebugeeContext<EndianArcSlice>>
+    ) -> anyhow::Result<Option<(PathBuf, Mmap)>>
     where
         'a: 'b,
         OBJ: Object<'a, 'b>,
     {
-        let endian = if obj_file.is_little_endian() {
+        // try build-id
+        let debug_id_sect = obj_file.section_by_name(".note.gnu.build-id");
+        if let Some(build_id) = debug_id_sect {
+            let data = build_id.data()?;
+            // skip 16 byte header
+            let note = &data[16..];
+            if note.len() < 2 {
+                bail!("invalid debug-id note format")
+            }
+
+            let dir = format!("{:x}", note[0]);
+            let file = note[1..]
+                .iter()
+                .map(|&b| format!("{:x}", b))
+                .collect::<Vec<String>>()
+                .join("")
+                .add(".debug");
+
+            let path = PathBuf::from(Self::DEBUG_FILES_DIR)
+                .join(".build-id")
+                .join(dir)
+                .join(file);
+            let file = fs::File::open(path.as_path())?;
+            let mmap = unsafe { memmap2::Mmap::map(&file)? };
+            return Ok(Some((path, mmap)));
+        }
+
+        // try debug link
+        let debug_link_sect = obj_file.section_by_name(".gnu_debuglink");
+        if let Some(sect) = debug_link_sect {
+            let data = sect.data()?;
+            let data: Vec<u8> = data.iter().take_while(|&&b| b != 0).copied().collect();
+            let debug_link = std::str::from_utf8(&data)?;
+
+            for entry in WalkDir::new(Self::DEBUG_FILES_DIR)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                let name = entry.file_name().to_string_lossy();
+                if name.contains(debug_link) {
+                    let file = fs::File::open(entry.path())?;
+                    let mmap = unsafe { memmap2::Mmap::map(&file)? };
+                    return Ok(Some((entry.path().to_path_buf(), mmap)));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub fn build(
+        &self,
+        obj_path: &Path,
+        file: &object::File,
+    ) -> anyhow::Result<Option<DebugeeContext>> {
+        let endian = if file.is_little_endian() {
             RunTimeEndian::Little
         } else {
             RunTimeEndian::Big
         };
+
+        let debug_split_file_data;
+        let debug_split_file;
+        let obj_file =
+            if let Ok(Some((path, debug_file))) = self.get_dwarf_from_separate_debug_file(file) {
+                debug!(target: "dwarf-loader", "{obj_path:?} has separate debug information file");
+                debug!(target: "dwarf-loader", "load debug information from {path:?}");
+                debug_split_file_data = debug_file;
+                debug_split_file = object::File::parse(&*debug_split_file_data)?;
+                &debug_split_file
+            } else {
+                debug!(target: "dwarf-loader", "load debug information from {obj_path:?}");
+                file
+            };
 
         let dwarf = Dwarf::load(|id| Self::load_section(id, obj_file, endian))?;
         let symbol_table = SymbolTab::new(obj_file);
@@ -420,6 +497,11 @@ impl DebugeeContextBuilder {
         let parser = DwarfUnitParser::new(&dwarf);
 
         let headers = dwarf.units().collect::<Vec<_>>()?;
+        if headers.is_empty() {
+            // no units means no debug info
+            info!(target: "dwarf-loader", "no debug information for {obj_path:?}");
+            return Ok(None);
+        }
         let mut units = headers
             .into_par_iter()
             .map(|header| -> gimli::Result<Unit> {
@@ -431,13 +513,13 @@ impl DebugeeContextBuilder {
         units.sort_unstable_by_key(|u| u.offset());
         units.iter_mut().enumerate().for_each(|(i, u)| u.set_idx(i));
 
-        Ok(DebugeeContext {
+        Ok(Some(DebugeeContext {
             inner: dwarf,
             eh_frame,
             bases,
             units,
             symbol_table,
-        })
+        }))
     }
 }
 

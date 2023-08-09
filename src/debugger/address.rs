@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 /// Represent address in running program.
 /// Relocated address is a `GlobalAddress` + user VAS segment offset.
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, Default, PartialOrd)]
 pub struct RelocatedAddress(usize);
 
 impl RelocatedAddress {
