@@ -13,8 +13,8 @@ use crate::debugger::debugee::dwarf::r#type::ComplexType;
 use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
 use crate::debugger::debugee::dwarf::unit::{
-    DieRef, DieVariant, DwarfUnitParser, Entry, FunctionDie, Node, ParameterDie, PlaceOwned, Unit,
-    VariableDie,
+    DieRef, DieVariant, DwarfUnitParser, Entry, FunctionDie, Node, ParameterDie,
+    PlaceDescriptorOwned, Unit, VariableDie,
 };
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
@@ -29,7 +29,7 @@ use gimli::{
     LocationLists, Range, RunTimeEndian, Section, UnitOffset, UnwindContext, UnwindSection,
     UnwindTableRow,
 };
-use log::{debug, info, warn};
+use log::{debug, info};
 use memmap2::Mmap;
 use object::{Object, ObjectSection};
 use rayon::prelude::*;
@@ -45,7 +45,8 @@ use walkdir::WalkDir;
 
 pub type EndianArcSlice = gimli::EndianArcSlice<gimli::RunTimeEndian>;
 
-pub struct DebugeeContext<R: gimli::Reader = EndianArcSlice> {
+pub struct DebugInformation<R: gimli::Reader = EndianArcSlice> {
+    pub file: PathBuf,
     inner: Dwarf<R>,
     eh_frame: EhFrame<R>,
     bases: BaseAddresses,
@@ -53,9 +54,10 @@ pub struct DebugeeContext<R: gimli::Reader = EndianArcSlice> {
     symbol_table: Option<SymbolTab>,
 }
 
-impl Clone for DebugeeContext {
+impl Clone for DebugInformation {
     fn clone(&self) -> Self {
         Self {
+            file: self.file.clone(),
             inner: Dwarf {
                 debug_abbrev: self.inner.debug_abbrev.clone(),
                 debug_addr: self.inner.debug_addr.clone(),
@@ -80,7 +82,11 @@ impl Clone for DebugeeContext {
     }
 }
 
-impl DebugeeContext {
+impl DebugInformation {
+    pub fn pathname(&self) -> &Path {
+        self.file.as_path()
+    }
+
     pub fn locations(&self) -> &LocationLists<EndianArcSlice> {
         &self.inner.locations
     }
@@ -102,8 +108,7 @@ impl DebugeeContext {
                 let unit = self
                     .find_unit_by_pc(ctx.location().global_pc)
                     .ok_or_else(|| anyhow!("undefined unit"))?;
-                let evaluator =
-                    resolve_unit_call!(&debugee.dwarf().inner, unit, evaluator, debugee);
+                let evaluator = resolve_unit_call!(&self.inner, unit, evaluator, debugee);
                 let expr_result = evaluator.evaluate(ctx, expr.clone())?;
 
                 Ok((expr_result.into_scalar::<usize>()?).into())
@@ -156,13 +161,13 @@ impl DebugeeContext {
     }
 
     /// Returns best matched place by program counter global address.
-    pub fn find_place_from_pc(&self, pc: GlobalAddress) -> Option<unit::Place> {
+    pub fn find_place_from_pc(&self, pc: GlobalAddress) -> Option<unit::PlaceDescriptor> {
         let unit = self.find_unit_by_pc(pc)?;
         unit.find_place_by_pc(pc)
     }
 
     /// Returns place with line address equals to program counter global address.
-    pub fn find_exact_place_from_pc(&self, pc: GlobalAddress) -> Option<unit::Place> {
+    pub fn find_exact_place_from_pc(&self, pc: GlobalAddress) -> Option<unit::PlaceDescriptor> {
         let unit = self.find_unit_by_pc(pc)?;
         unit.find_exact_place_by_pc(pc)
     }
@@ -227,21 +232,20 @@ impl DebugeeContext {
         })
     }
 
-    pub fn find_place(&self, file: &str, line: u64) -> Option<unit::Place<'_>> {
+    pub fn find_place(&self, file: &str, line: u64) -> Option<unit::PlaceDescriptor<'_>> {
         self.units
             .iter()
             .find_map(|unit| unit.find_stmt_line(file, line))
     }
 
-    pub fn get_function_place(&self, fn_name: &str) -> anyhow::Result<PlaceOwned> {
+    pub fn get_function_place(&self, fn_name: &str) -> anyhow::Result<PlaceDescriptorOwned> {
         let func = self
             .find_function_by_name(fn_name)
             .ok_or_else(|| anyhow!("function not found"))?;
         Ok(func.prolog_end_place()?.to_owned())
     }
 
-    pub fn find_symbols(&self, regex: &str) -> anyhow::Result<Vec<&Symbol>> {
-        let regex = Regex::new(regex)?;
+    pub fn find_symbols(&self, regex: &Regex) -> Vec<&Symbol> {
         let symbols = self
             .symbol_table
             .as_ref()
@@ -252,7 +256,7 @@ impl DebugeeContext {
                 keys.map(|k| &table[k]).collect()
             })
             .unwrap_or_default();
-        Ok(symbols)
+        symbols
     }
 
     pub fn deref_die<'this>(
@@ -446,33 +450,16 @@ impl DebugeeContextBuilder {
         &self,
         obj_path: &Path,
         file: &object::File,
-    ) -> anyhow::Result<Option<DebugeeContext>> {
+    ) -> anyhow::Result<Option<DebugInformation>> {
         let endian = if file.is_little_endian() {
             RunTimeEndian::Little
         } else {
             RunTimeEndian::Big
         };
 
-        let debug_split_file_data;
-        let debug_split_file;
-        let obj_file =
-            if let Ok(Some((path, debug_file))) = self.get_dwarf_from_separate_debug_file(file) {
-                debug!(target: "dwarf-loader", "{obj_path:?} has separate debug information file");
-                debug!(target: "dwarf-loader", "load debug information from {path:?}");
-                debug_split_file_data = debug_file;
-                debug_split_file = object::File::parse(&*debug_split_file_data)?;
-                &debug_split_file
-            } else {
-                debug!(target: "dwarf-loader", "load debug information from {obj_path:?}");
-                file
-            };
-
-        let dwarf = Dwarf::load(|id| Self::load_section(id, obj_file, endian))?;
-        let symbol_table = SymbolTab::new(obj_file);
-        let eh_frame = EhFrame::load(|id| Self::load_section(id, obj_file, endian))?;
-
+        let eh_frame = EhFrame::load(|id| Self::load_section(id, file, endian))?;
         let section_addr = |name: &str| -> Option<u64> {
-            obj_file.sections().find_map(|section| {
+            file.sections().find_map(|section| {
                 if section.name().ok()? == name {
                     Some(section.address())
                 } else {
@@ -494,14 +481,31 @@ impl DebugeeContextBuilder {
             bases = bases.set_eh_frame_hdr(eh_frame_hdr);
         }
 
-        let parser = DwarfUnitParser::new(&dwarf);
+        let debug_split_file_data;
+        let debug_split_file;
+        let debug_info_file =
+            if let Ok(Some((path, debug_file))) = self.get_dwarf_from_separate_debug_file(file) {
+                debug!(target: "dwarf-loader", "{obj_path:?} has separate debug information file");
+                debug!(target: "dwarf-loader", "load debug information from {path:?}");
+                debug_split_file_data = debug_file;
+                debug_split_file = object::File::parse(&*debug_split_file_data)?;
+                &debug_split_file
+            } else {
+                debug!(target: "dwarf-loader", "load debug information from {obj_path:?}");
+                file
+            };
 
+        let dwarf = Dwarf::load(|id| Self::load_section(id, debug_info_file, endian))?;
+        let symbol_table = SymbolTab::new(debug_info_file);
+
+        let parser = DwarfUnitParser::new(&dwarf);
         let headers = dwarf.units().collect::<Vec<_>>()?;
         if headers.is_empty() {
             // no units means no debug info
             info!(target: "dwarf-loader", "no debug information for {obj_path:?}");
             return Ok(None);
         }
+
         let mut units = headers
             .into_par_iter()
             .map(|header| -> gimli::Result<Unit> {
@@ -513,7 +517,8 @@ impl DebugeeContextBuilder {
         units.sort_unstable_by_key(|u| u.offset());
         units.iter_mut().enumerate().for_each(|(i, u)| u.set_idx(i));
 
-        Ok(Some(DebugeeContext {
+        Ok(Some(DebugInformation {
+            file: obj_path.to_path_buf(),
             inner: dwarf,
             eh_frame,
             bases,
@@ -532,7 +537,7 @@ pub trait AsAllocatedValue {
 
     fn location_expr(
         &self,
-        dwarf_ctx: &DebugeeContext<EndianArcSlice>,
+        dwarf_ctx: &DebugInformation<EndianArcSlice>,
         unit: &Unit,
         pc: GlobalAddress,
     ) -> Option<Expression<EndianArcSlice>> {
@@ -604,7 +609,7 @@ impl NamespaceHierarchy {
 }
 
 pub struct ContextualDieRef<'a, T> {
-    pub context: &'a DebugeeContext,
+    pub context: &'a DebugInformation,
     pub unit_idx: usize,
     pub node: &'a Node,
     pub die: &'a T,
@@ -713,7 +718,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         result
     }
 
-    pub fn prolog_start_place(&self) -> anyhow::Result<unit::Place> {
+    pub fn prolog_start_place(&self) -> anyhow::Result<unit::PlaceDescriptor> {
         let low_pc = self
             .die
             .base_attributes
@@ -727,7 +732,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
             .ok_or_else(|| anyhow!("invalid function entry"))
     }
 
-    pub fn prolog_end_place(&self) -> anyhow::Result<unit::Place> {
+    pub fn prolog_end_place(&self) -> anyhow::Result<unit::PlaceDescriptor> {
         let mut place = self.prolog_start_place()?;
         while !place.prolog_end {
             match place.next() {

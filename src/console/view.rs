@@ -1,4 +1,4 @@
-use crate::debugger::Place;
+use crate::debugger::PlaceDescriptor;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -17,7 +17,7 @@ impl FileView {
         }
     }
 
-    pub fn render_source(&self, place: &Place, bounds: u64) -> anyhow::Result<String> {
+    pub fn render_source(&self, place: &PlaceDescriptor, bounds: u64) -> anyhow::Result<String> {
         let line_number = if place.line_number == 0 {
             1
         } else {

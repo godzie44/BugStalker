@@ -1,5 +1,5 @@
 use crate::debugger::address::{Address, RelocatedAddress};
-use crate::debugger::debugee::dwarf::unit::PlaceOwned;
+use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
 use crate::debugger::debugee::Debugee;
 use anyhow::anyhow;
 use nix::libc::c_void;
@@ -30,7 +30,7 @@ pub struct Breakpoint {
     /// Breakpoint number, > 0 for user defined breakpoints have a number, 0 for others
     number: u32,
     /// Place information, None if brkpt is temporary or entry point
-    place: Option<PlaceOwned>,
+    place: Option<PlaceDescriptorOwned>,
     saved_data: Cell<u8>,
     enabled: Cell<bool>,
     r#type: BrkptType,
@@ -49,7 +49,7 @@ impl Breakpoint {
         addr: RelocatedAddress,
         pid: Pid,
         number: u32,
-        place: Option<PlaceOwned>,
+        place: Option<PlaceDescriptorOwned>,
         r#type: BrkptType,
     ) -> Self {
         Self {
@@ -63,7 +63,7 @@ impl Breakpoint {
         }
     }
 
-    pub fn new(addr: RelocatedAddress, pid: Pid, place: Option<PlaceOwned>) -> Self {
+    pub fn new(addr: RelocatedAddress, pid: Pid, place: Option<PlaceDescriptorOwned>) -> Self {
         Self::new_inner(
             addr,
             pid,
@@ -90,7 +90,7 @@ impl Breakpoint {
     /// # Panics
     /// Panic if a breakpoint not a user defined.
     /// It is the caller responsibility to check that the type is [`BrkptType::UserDefined`].
-    pub fn place(&self) -> Option<&PlaceOwned> {
+    pub fn place(&self) -> Option<&PlaceDescriptorOwned> {
         match self.r#type {
             BrkptType::UserDefined => self.place.as_ref(),
             BrkptType::EntryPoint | BrkptType::Temporary => {
@@ -145,7 +145,7 @@ pub struct UninitBreakpoint {
     addr: Address,
     pid: Pid,
     number: u32,
-    place: Option<PlaceOwned>,
+    place: Option<PlaceDescriptorOwned>,
     r#type: BrkptType,
 }
 
@@ -154,7 +154,7 @@ impl UninitBreakpoint {
         addr: Address,
         pid: Pid,
         number: u32,
-        place: Option<PlaceOwned>,
+        place: Option<PlaceDescriptorOwned>,
         r#type: BrkptType,
     ) -> Self {
         Self {
@@ -166,7 +166,7 @@ impl UninitBreakpoint {
         }
     }
 
-    pub fn new(addr: Address, pid: Pid, place: Option<PlaceOwned>) -> Self {
+    pub fn new(addr: Address, pid: Pid, place: Option<PlaceDescriptorOwned>) -> Self {
         Self::new_inner(
             addr,
             pid,
@@ -190,8 +190,10 @@ impl UninitBreakpoint {
             self.r#type == BrkptType::EntryPoint || self.r#type == BrkptType::UserDefined
         );
 
+        // todo only brkpts at executable object supported
+        let dwarf = debugee.program_debug_info()?;
         let global_addr = match self.addr {
-            Address::Relocated(addr) => addr.into_global(debugee.mapping_offset()),
+            Address::Relocated(addr) => addr.into_global(debugee)?,
             Address::Global(addr) => addr,
         };
 
@@ -199,9 +201,11 @@ impl UninitBreakpoint {
             if self.place.is_some() {
                 self.place
             } else {
+                // todo: currently you can set breakpoint only at addresses that belongs to executable object
+                let dwarf = debugee.program_debug_info()?;
+
                 Some(
-                    debugee
-                        .dwarf()
+                    dwarf
                         .find_place_from_pc(global_addr)
                         .ok_or(anyhow!("unknown place for address: {}", self.addr))?
                         .to_owned(),
@@ -212,7 +216,7 @@ impl UninitBreakpoint {
         };
 
         Ok(Breakpoint::new_inner(
-            global_addr.relocate(debugee.mapping_offset()),
+            global_addr.relocate(debugee.mapping_offset_for_file(dwarf)?),
             self.pid,
             self.number,
             place,
@@ -224,7 +228,7 @@ impl UninitBreakpoint {
 pub struct BreakpointView<'a> {
     pub addr: Address,
     pub number: u32,
-    pub place: Option<Cow<'a, PlaceOwned>>,
+    pub place: Option<Cow<'a, PlaceDescriptorOwned>>,
 }
 
 impl<'a> From<Breakpoint> for BreakpointView<'a> {
@@ -331,14 +335,14 @@ impl BreakpointRegistry {
     }
 
     /// Disable currently enabled breakpoints.
-    pub fn disable_all_breakpoints(&mut self, debugee: &Debugee) {
+    pub fn disable_all_breakpoints(&mut self, debugee: &Debugee) -> anyhow::Result<()> {
         let mut breakpoints = std::mem::take(&mut self.breakpoints);
         for (_, brkpt) in breakpoints.drain() {
             if let Err(e) = brkpt.disable() {
                 log::warn!(target: "debugger", "broken breakpoint {}: {:#}", brkpt.number(), e);
             }
 
-            let addr = Address::Global(brkpt.addr.into_global(debugee.mapping_offset()));
+            let addr = Address::Global(brkpt.addr.into_global(debugee)?);
             match brkpt.r#type {
                 BrkptType::EntryPoint => {
                     self.add_uninit(UninitBreakpoint::new_entry_point(addr, brkpt.pid));
@@ -349,6 +353,8 @@ impl BreakpointRegistry {
                 BrkptType::Temporary => {}
             }
         }
+
+        Ok(())
     }
 
     /// Update pid of all breakpoints.

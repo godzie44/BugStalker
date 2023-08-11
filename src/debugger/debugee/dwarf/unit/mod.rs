@@ -39,7 +39,7 @@ pub struct DieRange {
 
 /// Represent an place in program text identified by file name
 /// line number and column number.
-pub struct Place<'a> {
+pub struct PlaceDescriptor<'a> {
     pub file: &'a Path,
     pub address: GlobalAddress,
     pub line_number: u64,
@@ -51,9 +51,9 @@ pub struct Place<'a> {
     unit: &'a Unit,
 }
 
-/// Like a [`Place`] but without reference to compilation unit.
+/// Like a [`PlaceDescriptor`] but without reference to compilation unit.
 #[derive(Debug, Clone)]
-pub struct PlaceOwned {
+pub struct PlaceDescriptorOwned {
     pub file: PathBuf,
     pub address: GlobalAddress,
     pub line_number: u64,
@@ -64,7 +64,7 @@ pub struct PlaceOwned {
     pub prolog_end: bool,
 }
 
-impl<'a> Debug for Place<'a> {
+impl<'a> Debug for PlaceDescriptor<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
             "file: {:?}, line: {}, addr: {}, is_stmt: {}, col: {}, epilog_begin: {}, prolog_end: {}",
@@ -73,17 +73,17 @@ impl<'a> Debug for Place<'a> {
     }
 }
 
-impl<'a> Place<'a> {
-    pub fn next(&self) -> Option<Place<'a>> {
+impl<'a> PlaceDescriptor<'a> {
+    pub fn next(&self) -> Option<PlaceDescriptor<'a>> {
         self.unit.find_place(self.pos_in_unit + 1)
     }
 
-    pub fn line_eq(&self, other: &Place) -> bool {
+    pub fn line_eq(&self, other: &PlaceDescriptor) -> bool {
         self.file == other.file && self.line_number == other.line_number
     }
 
-    pub fn to_owned(&self) -> PlaceOwned {
-        PlaceOwned {
+    pub fn to_owned(&self) -> PlaceDescriptorOwned {
+        PlaceDescriptorOwned {
             file: self.file.to_path_buf(),
             address: self.address,
             line_number: self.line_number,
@@ -96,7 +96,7 @@ impl<'a> Place<'a> {
     }
 }
 
-impl<'a> PartialEq for Place<'a> {
+impl<'a> PartialEq for PlaceDescriptor<'a> {
     fn eq(&self, other: &Self) -> bool {
         self.file == other.file
             && self.address == other.address
@@ -400,7 +400,7 @@ impl Unit {
     }
 
     /// Return unit index in unit registry.
-    /// See [`crate::debugger::debugee::dwarf::DebugeeContext`]
+    /// See [`crate::debugger::debugee::dwarf::DebugInformation`]
     pub fn idx(&self) -> usize {
         if self.idx == usize::MAX {
             panic!("undefined index")
@@ -409,7 +409,7 @@ impl Unit {
     }
 
     /// Set index in unit registry.
-    /// See [`crate::debugger::debugee::dwarf::DebugeeContext`]
+    /// See [`crate::debugger::debugee::dwarf::DebugInformation`]
     pub(super) fn set_idx(&mut self, idx: usize) {
         self.idx = idx;
     }
@@ -450,10 +450,10 @@ impl Unit {
         &self.ranges
     }
 
-    /// Return [`Place`] by index for lines vector in unit.
-    fn find_place(&self, line_pos: usize) -> Option<Place> {
+    /// Return [`PlaceDescriptor`] by index for lines vector in unit.
+    fn find_place(&self, line_pos: usize) -> Option<PlaceDescriptor> {
         let line = self.lines.get(line_pos)?;
-        Some(Place {
+        Some(PlaceDescriptor {
             file: self
                 .files
                 .get(line.file_index as usize)
@@ -469,12 +469,12 @@ impl Unit {
         })
     }
 
-    /// Return nearest [`Place`] for given program counter.
+    /// Return nearest [`PlaceDescriptor`] for given program counter.
     ///
     /// # Arguments
     ///
     /// * `pc`: program counter represented by global address.
-    pub fn find_place_by_pc(&self, pc: GlobalAddress) -> Option<Place> {
+    pub fn find_place_by_pc(&self, pc: GlobalAddress) -> Option<PlaceDescriptor> {
         let pc = u64::from(pc);
         let pos = match self.lines.binary_search_by_key(&pc, |line| line.address) {
             Ok(p) => p,
@@ -489,7 +489,7 @@ impl Unit {
     /// # Arguments
     ///
     /// * `pc`: program counter represented by global address.
-    pub fn find_exact_place_by_pc(&self, pc: GlobalAddress) -> Option<Place> {
+    pub fn find_exact_place_by_pc(&self, pc: GlobalAddress) -> Option<PlaceDescriptor> {
         let pc = u64::from(pc);
         match self.lines.binary_search_by_key(&pc, |line| line.address) {
             Ok(p) => self.find_place(p),
@@ -497,13 +497,13 @@ impl Unit {
         }
     }
 
-    /// Return [`Place`] for given file and line.
+    /// Return [`PlaceDescriptor`] for given file and line.
     ///
     /// # Arguments
     ///
     /// * `file`: file name
     /// * `line`: line number
-    pub fn find_stmt_line(&self, file: &str, line: u64) -> Option<Place<'_>> {
+    pub fn find_stmt_line(&self, file: &str, line: u64) -> Option<PlaceDescriptor<'_>> {
         let found = self
             .files
             .iter()

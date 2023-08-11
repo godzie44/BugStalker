@@ -1,16 +1,23 @@
+use crate::debugger::debugee::Debugee;
 use gimli::Range;
 use std::fmt::{Display, Formatter};
 
 /// Represent address in running program.
 /// Relocated address is a `GlobalAddress` + user VAS segment offset.
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, Default, PartialOrd)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, Default, PartialOrd, Ord)]
 pub struct RelocatedAddress(usize);
 
 impl RelocatedAddress {
-    pub fn into_global(self, offset: usize) -> GlobalAddress {
+    #[inline(always)]
+    pub fn remove_vas_region_offset(self, offset: usize) -> GlobalAddress {
         GlobalAddress(self.0 - offset)
     }
 
+    pub fn into_global(self, debugee: &Debugee) -> anyhow::Result<GlobalAddress> {
+        Ok(self.remove_vas_region_offset(debugee.mapping_offset_for_pc(self)?))
+    }
+
+    #[inline(always)]
     pub fn offset(self, offset: isize) -> RelocatedAddress {
         if offset >= 0 {
             self.0 + offset as usize
@@ -20,10 +27,12 @@ impl RelocatedAddress {
         .into()
     }
 
+    #[inline(always)]
     pub fn as_u64(self) -> u64 {
         u64::from(self)
     }
 
+    #[inline(always)]
     pub fn as_usize(self) -> usize {
         usize::from(self)
     }

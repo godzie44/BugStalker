@@ -1,7 +1,7 @@
 use crate::console::print::ExternalPrinter;
 use crate::console::view::FileView;
 use crate::debugger::address::RelocatedAddress;
-use crate::debugger::Place;
+use crate::debugger::PlaceDescriptor;
 use crate::debugger::{EventHook, FunctionDie};
 use crossterm::style::Stylize;
 use nix::sys::signal::Signal;
@@ -37,7 +37,7 @@ impl EventHook for TerminalHook {
         &self,
         pc: RelocatedAddress,
         num: u32,
-        mb_place: Option<Place>,
+        mb_place: Option<PlaceDescriptor>,
         mb_func: Option<&FunctionDie>,
     ) -> anyhow::Result<()> {
         let msg = format!("Hit breakpoint {num} at {}:", format!("{pc}").blue());
@@ -60,7 +60,7 @@ impl EventHook for TerminalHook {
     fn on_step(
         &self,
         _: RelocatedAddress,
-        mb_place: Option<Place>,
+        mb_place: Option<PlaceDescriptor>,
         mb_func: Option<&FunctionDie>,
     ) -> anyhow::Result<()> {
         if let Some(place) = mb_place {

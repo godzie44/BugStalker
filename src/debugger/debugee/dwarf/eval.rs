@@ -65,7 +65,7 @@ impl<'a> RequirementsResolver<'a> {
                 let loc = ctx.location();
                 let func = self
                     .debugee
-                    .dwarf()
+                    .debug_info(ctx.location().pc)?
                     .find_function_by_pc(loc.global_pc)
                     .ok_or_else(|| anyhow!("current function not found"))?;
                 let base_addr = func.frame_base_addr(ctx, self.debugee)?;
@@ -79,14 +79,17 @@ impl<'a> RequirementsResolver<'a> {
         match self.cfa.borrow_mut().entry(ctx.pid_on_focus()) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(e) => {
-                let cfa = self.debugee.dwarf().get_cfa(self.debugee, ctx)?;
+                let cfa = self
+                    .debugee
+                    .debug_info(ctx.location().pc)?
+                    .get_cfa(self.debugee, ctx)?;
                 Ok(*e.insert(cfa))
             }
         }
     }
 
-    fn relocation_addr(&self) -> usize {
-        self.debugee.mapping_offset()
+    fn relocation_addr(&self, ctx: &ExplorationContext) -> anyhow::Result<usize> {
+        self.debugee.mapping_offset_for_pc(ctx.location().pc)
     }
 
     fn resolve_tls(&self, pid: Pid, offset: u64) -> anyhow::Result<RelocatedAddress> {
@@ -96,15 +99,18 @@ impl<'a> RequirementsResolver<'a> {
             .tls_addr(pid, lm_addr, offset as usize)
     }
 
-    fn debug_addr_section(&self) -> &DebugAddr<EndianArcSlice> {
-        self.debugee.dwarf().debug_addr()
+    fn debug_addr_section(
+        &self,
+        ctx: &ExplorationContext,
+    ) -> anyhow::Result<&DebugAddr<EndianArcSlice>> {
+        Ok(self.debugee.debug_info(ctx.location().pc)?.debug_addr())
     }
 
     fn resolve_registers(&self, ctx: &ExplorationContext) -> anyhow::Result<DwarfRegisterMap> {
         let current_loc = ctx.location();
         let current_fn = self
             .debugee
-            .dwarf()
+            .debug_info(ctx.location().pc)?
             .find_function_by_pc(current_loc.global_pc)
             .ok_or_else(|| anyhow!("not in function"))?;
         let entry_pc: GlobalAddress = current_fn
@@ -118,7 +124,8 @@ impl<'a> RequirementsResolver<'a> {
             .into();
 
         let backtrace = libunwind::unwind(ctx.pid_on_focus())?;
-        let entry_pc_rel = entry_pc.relocate(self.debugee.mapping_offset());
+        let entry_pc_rel =
+            entry_pc.relocate(self.debugee.mapping_offset_for_pc(ctx.location().pc)?);
         backtrace
             .iter()
             .enumerate()
@@ -301,7 +308,7 @@ impl<'a> ExpressionEvaluator<'a> {
                     result = eval.resume_with_memory(value)?;
                 }
                 EvaluationResult::RequiresRelocatedAddress(addr) => {
-                    let relocation_addr = self.resolver.relocation_addr();
+                    let relocation_addr = self.resolver.relocation_addr(ctx)?;
                     result = eval.resume_with_relocated_address(addr + relocation_addr as u64)?;
                 }
                 EvaluationResult::RequiresTls(offset) => {
@@ -309,14 +316,14 @@ impl<'a> ExpressionEvaluator<'a> {
                     result = eval.resume_with_tls(addr.into())?;
                 }
                 EvaluationResult::RequiresIndexedAddress { index, relocate } => {
-                    let debug_addr = self.resolver.debug_addr_section();
+                    let debug_addr = self.resolver.debug_addr_section(ctx)?;
                     let mut addr = debug_addr.get_address(
                         self.unit.address_size(),
                         self.unit.addr_base(),
                         index,
                     )?;
                     if relocate {
-                        addr += self.resolver.relocation_addr() as u64;
+                        addr += self.resolver.relocation_addr(ctx)? as u64;
                     }
                     result = eval.resume_with_indexed_address(addr)?;
                 }
@@ -406,16 +413,13 @@ impl<'a> CompletedResult<'a> {
                 }
                 Location::ImplicitPointer { value, byte_offset } => {
                     let die_ref = DieRef::Global(value);
-                    let (entry, unit) = self
-                        .debugee
-                        .dwarf()
-                        .deref_die(self.unit, die_ref)
-                        .ok_or_else(|| {
-                            EvalError::Other(anyhow!("die not found by ref: {die_ref:?}"))
-                        })?;
+                    let dwarf = self.debugee.debug_info(self.ctx.location().pc)?;
+                    let (entry, unit) = dwarf.deref_die(self.unit, die_ref).ok_or_else(|| {
+                        EvalError::Other(anyhow!("die not found by ref: {die_ref:?}"))
+                    })?;
                     if let DieVariant::Variable(ref variable) = &entry.die {
                         let ctx_die = ContextualDieRef {
-                            context: self.debugee.dwarf(),
+                            context: dwarf,
                             unit_idx: unit.idx(),
                             node: &entry.node,
                             die: variable,

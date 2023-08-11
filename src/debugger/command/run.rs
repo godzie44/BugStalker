@@ -13,12 +13,12 @@ impl<'a> Run<'a> {
     /// Run a debugee program.
     /// Return when debugee stopped or ends.
     pub fn start(&mut self) -> command::HandleResult<()> {
-        Ok(self.dbg.start_debugee().context("start fail")?)
+        Ok(self.dbg.start_debugee().context("start error")?)
     }
 
     /// Restart debugee process with saving all user defined breakpoints.
     /// Return when new debugee stopped or ends.
     pub fn restart(&mut self) -> command::HandleResult<()> {
-        Ok(self.dbg.restart_debugee().context("restart fail")?)
+        Ok(self.dbg.restart_debugee().context("restart error")?)
     }
 }

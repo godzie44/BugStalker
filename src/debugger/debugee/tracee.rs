@@ -114,12 +114,12 @@ impl Tracee {
     }
 
     /// Get current tracee location.
-    pub fn location(&self, debugee: &Debugee) -> nix::Result<Location> {
+    pub fn location(&self, debugee: &Debugee) -> anyhow::Result<Location> {
         let pc = self.pc()?;
         Ok(Location {
             pid: self.pid,
             pc,
-            global_pc: pc.into_global(debugee.mapping_offset()),
+            global_pc: pc.into_global(debugee)?,
         })
     }
 }

@@ -1,6 +1,6 @@
 use crate::debugger::address::GlobalAddress;
 use crate::debugger::debugee::dwarf::unit::Unit;
-use crate::debugger::debugee::dwarf::{DebugeeContext, EndianArcSlice};
+use crate::debugger::debugee::dwarf::{DebugInformation, EndianArcSlice};
 use crate::weak_error;
 use fallible_iterator::FallibleIterator;
 use gimli::{Attribute, AttributeValue, Expression};
@@ -18,7 +18,7 @@ impl<'a> Location<'a> {
     /// Return `None` otherwise.
     pub(super) fn try_as_expression(
         &self,
-        dwarf_ctx: &DebugeeContext<EndianArcSlice>,
+        dwarf_ctx: &DebugInformation<EndianArcSlice>,
         unit: &Unit,
         pc: GlobalAddress,
     ) -> Option<Expression<EndianArcSlice>> {

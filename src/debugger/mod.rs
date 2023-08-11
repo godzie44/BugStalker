@@ -13,7 +13,7 @@ pub mod variable;
 pub use breakpoint::BreakpointView;
 pub use debugee::dwarf::r#type::TypeDeclaration;
 pub use debugee::dwarf::unit::FunctionDie;
-pub use debugee::dwarf::unit::Place;
+pub use debugee::dwarf::unit::PlaceDescriptor;
 pub use debugee::dwarf::unwind;
 pub use debugee::ThreadSnapshot;
 
@@ -38,6 +38,7 @@ use nix::sys::signal::{Signal, SIGKILL};
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::Pid;
 use object::Object;
+use regex::Regex;
 use std::cell::RefCell;
 use std::ffi::c_long;
 use std::path::{Path, PathBuf};
@@ -58,7 +59,7 @@ pub trait EventHook {
         &self,
         pc: RelocatedAddress,
         num: u32,
-        place: Option<Place>,
+        place: Option<PlaceDescriptor>,
         function: Option<&FunctionDie>,
     ) -> anyhow::Result<()>;
 
@@ -72,7 +73,7 @@ pub trait EventHook {
     fn on_step(
         &self,
         pc: RelocatedAddress,
-        place: Option<Place>,
+        place: Option<PlaceDescriptor>,
         function: Option<&FunctionDie>,
     ) -> anyhow::Result<()>;
 
@@ -257,7 +258,7 @@ impl Debugger {
                 }
                 StopReason::DebugeeStart => {
                     self.breakpoints.enable_all_breakpoints(&self.debugee)?;
-                    self.expl_ctx_update_location()?;
+                    //self.expl_ctx_update_location()?;
                 }
                 StopReason::NoSuchProcess(_) => {
                     break;
@@ -272,12 +273,15 @@ impl Debugger {
                                 continue;
                             }
                             BrkptType::UserDefined => {
-                                let pc = current_pc.into_global(self.debugee.mapping_offset());
+                                let pc = current_pc.into_global(&self.debugee)?;
+                                let dwarf = self
+                                    .debugee
+                                    .debug_info(self.exploration_ctx().location().pc)?;
                                 self.hooks.on_breakpoint(
                                     current_pc,
                                     bp.number(),
-                                    self.debugee.dwarf().find_place_from_pc(pc),
-                                    self.debugee.dwarf().find_function_by_pc(pc).map(|f| f.die),
+                                    dwarf.find_place_from_pc(pc),
+                                    dwarf.find_function_by_pc(pc).map(|f| f.die),
                                 )?;
                                 break;
                             }
@@ -304,7 +308,7 @@ impl Debugger {
     /// **! change exploration context**
     pub fn restart_debugee(&mut self) -> anyhow::Result<()> {
         if self.debugee.execution_status == ExecutionStatus::InProgress {
-            self.breakpoints.disable_all_breakpoints(&self.debugee);
+            self.breakpoints.disable_all_breakpoints(&self.debugee)?;
         }
 
         if self.debugee.execution_status != ExecutionStatus::Exited {
@@ -347,7 +351,14 @@ impl Debugger {
     ///
     /// * `regex`: regular expression
     pub fn get_symbols(&self, regex: &str) -> anyhow::Result<Vec<&Symbol>> {
-        self.debugee.dwarf().find_symbols(regex)
+        let regex = Regex::new(regex)?;
+
+        Ok(self
+            .debugee
+            .debug_info_all()
+            .iter()
+            .flat_map(|dwarf| dwarf.find_symbols(&regex))
+            .collect())
     }
 
     /// Return in focus frame information.
@@ -371,7 +382,7 @@ impl Debugger {
         self.expl_context = ExplorationContext::new(
             Location {
                 pc: frame.ip,
-                global_pc: frame.ip.into_global(self.debugee.mapping_offset()),
+                global_pc: frame.ip.into_global(&self.debugee)?,
                 pid,
             },
             num,
@@ -389,13 +400,11 @@ impl Debugger {
         let ctx = self.step_in()?;
         let pc = ctx.location().pc;
         let global_pc = ctx.location().global_pc;
+        let dwarf = self.debugee.debug_info(pc)?;
         self.hooks.on_step(
             pc,
-            self.debugee.dwarf().find_place_from_pc(global_pc),
-            self.debugee
-                .dwarf()
-                .find_function_by_pc(global_pc)
-                .map(|f| f.die),
+            dwarf.find_place_from_pc(global_pc),
+            dwarf.find_function_by_pc(global_pc).map(|f| f.die),
         )
     }
 
@@ -409,13 +418,11 @@ impl Debugger {
         let ctx = self.single_step_instruction()?;
         let pc = ctx.location().pc;
         let global_pc = ctx.location().global_pc;
+        let dwarf = self.debugee.debug_info(pc)?;
         self.hooks.on_step(
             pc,
-            self.debugee.dwarf().find_place_from_pc(global_pc),
-            self.debugee
-                .dwarf()
-                .find_function_by_pc(global_pc)
-                .map(|f| f.die),
+            dwarf.find_place_from_pc(global_pc),
+            dwarf.find_function_by_pc(global_pc).map(|f| f.die),
         )
     }
 
@@ -485,13 +492,11 @@ impl Debugger {
         self.expl_ctx_restore_frame()?;
         self.step_out_frame()?;
         let new_location = self.exploration_ctx().location();
+        let dwarf = self.debugee.debug_info(new_location.pc)?;
         self.hooks.on_step(
             new_location.pc,
-            self.debugee
-                .dwarf()
-                .find_place_from_pc(new_location.global_pc),
-            self.debugee
-                .dwarf()
+            dwarf.find_place_from_pc(new_location.global_pc),
+            dwarf
                 .find_function_by_pc(new_location.global_pc)
                 .map(|f| f.die),
         )
@@ -503,14 +508,11 @@ impl Debugger {
         self.expl_ctx_restore_frame()?;
         self.step_over_any()?;
         let new_location = self.exploration_ctx().location();
-
+        let dwarf = self.debugee.debug_info(new_location.pc)?;
         self.hooks.on_step(
             new_location.pc,
-            self.debugee
-                .dwarf()
-                .find_place_from_pc(new_location.global_pc),
-            self.debugee
-                .dwarf()
+            dwarf.find_place_from_pc(new_location.global_pc),
+            dwarf
                 .find_function_by_pc(new_location.global_pc)
                 .map(|f| f.die),
         )
@@ -525,16 +527,20 @@ impl Debugger {
         &mut self,
         addr: RelocatedAddress,
     ) -> anyhow::Result<BreakpointView> {
-        let dwarf = &self.debugee.dwarf();
-
         if self.debugee.in_progress() {
-            let global_addr = addr.into_global(self.debugee.mapping_offset());
-            let place = Some(
-                dwarf
-                    .find_place_from_pc(global_addr)
-                    .ok_or(anyhow!("unknown address"))?
-                    .to_owned(),
-            );
+            let dwarf = self.debugee.debug_info(addr);
+            let global_addr = addr.into_global(&self.debugee)?;
+
+            let place = dwarf
+                .ok()
+                .map(|dwarf| {
+                    dwarf
+                        .find_place_from_pc(global_addr)
+                        .map(|p| p.to_owned())
+                        .ok_or(anyhow!("unknown address"))
+                })
+                .transpose()?;
+
             self.breakpoints
                 .add_and_enable(Breakpoint::new(addr, self.process.pid(), place))
         } else {
@@ -573,10 +579,14 @@ impl Debugger {
     ///
     /// * `name`: function name where debugee must be stopped
     pub fn set_breakpoint_at_fn(&mut self, name: &str) -> anyhow::Result<BreakpointView> {
-        let place = self.debugee.dwarf().get_function_place(name)?;
+        // todo: currently you can set breakpoint only at functions that belongs to executable object
+        let dwarf = self.debugee.program_debug_info()?;
+        let place = dwarf.get_function_place(name)?;
 
         if self.debugee.in_progress() {
-            let addr = place.address.relocate(self.debugee.mapping_offset());
+            let addr = place
+                .address
+                .relocate(self.debugee.mapping_offset_for_file(dwarf)?);
             self.breakpoints
                 .add_and_enable(Breakpoint::new(addr, self.process.pid(), Some(place)))
         } else {
@@ -597,10 +607,14 @@ impl Debugger {
         &mut self,
         name: &str,
     ) -> anyhow::Result<Option<BreakpointView>> {
-        let place = self.debugee.dwarf().get_function_place(name)?;
+        // todo: currently you can set breakpoint only at addresses that belongs to executable object
+        let dwarf = self.debugee.program_debug_info()?;
+        let place = dwarf.get_function_place(name)?;
         if self.debugee.in_progress() {
             self.breakpoints.remove_by_addr(Address::Relocated(
-                place.address.relocate(self.debugee.mapping_offset()),
+                place
+                    .address
+                    .relocate(self.debugee.mapping_offset_for_file(dwarf)?),
             ))
         } else {
             self.breakpoints
@@ -619,14 +633,17 @@ impl Debugger {
         fine_name: &str,
         line: u64,
     ) -> anyhow::Result<BreakpointView> {
-        let dwarf = &self.debugee.dwarf();
+        // todo: currently you can set breakpoint only at addresses that belongs to executable object
+        let dwarf = self.debugee.program_debug_info()?;
         let place = dwarf
             .find_place(fine_name, line)
             .ok_or(anyhow!("no source file/line"))?
             .to_owned();
 
         if self.debugee.in_progress() {
-            let addr = place.address.relocate(self.debugee.mapping_offset());
+            let addr = place
+                .address
+                .relocate(self.debugee.mapping_offset_for_file(dwarf)?);
             self.breakpoints
                 .add_and_enable(Breakpoint::new(addr, self.process.pid(), Some(place)))
         } else {
@@ -649,14 +666,17 @@ impl Debugger {
         fine_name: &str,
         line: u64,
     ) -> anyhow::Result<Option<BreakpointView>> {
-        let dwarf = &self.debugee.dwarf();
+        // todo: currently you can set breakpoint only at addresses that belongs to executable object
+        let dwarf = self.debugee.program_debug_info()?;
         let place = dwarf
             .find_place(fine_name, line)
             .ok_or(anyhow!("no source file/line"))?;
 
         if self.debugee.in_progress() {
             self.breakpoints.remove_by_addr(Address::Relocated(
-                place.address.relocate(self.debugee.mapping_offset()),
+                place
+                    .address
+                    .relocate(self.debugee.mapping_offset_for_file(dwarf)?),
             ))
         } else {
             self.breakpoints
@@ -753,7 +773,7 @@ impl Debugger {
         let unwinder = DwarfUnwinder::new(&self.debugee);
         let location = Location {
             pc,
-            global_pc: pc.into_global(self.debugee.mapping_offset()),
+            global_pc: pc.into_global(&self.debugee)?,
             pid: self.exploration_ctx().pid_on_focus(),
         };
         Ok(unwinder
@@ -781,7 +801,10 @@ impl Debugger {
 
     /// Return list of known files income from dwarf parser.
     pub fn known_files(&self) -> impl Iterator<Item = &PathBuf> {
-        self.debugee.dwarf().known_files()
+        self.debugee
+            .debug_info_all()
+            .into_iter()
+            .flat_map(|dwarf| dwarf.known_files())
     }
 }
 
@@ -794,7 +817,7 @@ impl Drop for Debugger {
                 waitpid(self.debugee.tracee_ctl().proc_pid(), None).expect("waiting child");
             }
             ExecutionStatus::InProgress => {
-                self.breakpoints.disable_all_breakpoints(&self.debugee);
+                _ = self.breakpoints.disable_all_breakpoints(&self.debugee);
 
                 let current_tids: Vec<Pid> = self
                     .debugee

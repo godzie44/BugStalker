@@ -1,5 +1,5 @@
 use crate::debugger::address::RelocatedAddress;
-use crate::debugger::{EventHook, FunctionDie, Place};
+use crate::debugger::{EventHook, FunctionDie, PlaceDescriptor};
 use crate::tui::{context, AppState};
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
@@ -20,7 +20,7 @@ impl EventHook for TuiHook {
         &self,
         _: RelocatedAddress,
         _: u32,
-        place: Option<Place>,
+        place: Option<PlaceDescriptor>,
         _: Option<&FunctionDie>,
     ) -> anyhow::Result<()> {
         if let Some(ref place) = place {
@@ -35,7 +35,7 @@ impl EventHook for TuiHook {
     fn on_step(
         &self,
         _: RelocatedAddress,
-        place: Option<Place>,
+        place: Option<PlaceDescriptor>,
         _: Option<&FunctionDie>,
     ) -> anyhow::Result<()> {
         if let Some(ref place) = place {

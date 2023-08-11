@@ -1,7 +1,7 @@
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::dwarf::unwind::libunwind;
 use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
-use crate::debugger::debugee::dwarf::{DebugeeContext, EndianArcSlice};
+use crate::debugger::debugee::dwarf::DebugInformation;
 use crate::debugger::debugee::registry::DwarfRegistry;
 use crate::debugger::debugee::rendezvous::Rendezvous;
 use crate::debugger::debugee::tracee::{Tracee, TraceeCtl};
@@ -84,9 +84,9 @@ pub struct Debugee {
 impl Debugee {
     pub fn new_non_running(path: &Path, proc: Pid, object: &object::File) -> anyhow::Result<Self> {
         let dwarf_builder = dwarf::DebugeeContextBuilder::default();
-        let dwarf = dwarf_builder
-            .build(path, object)?
-            .ok_or(anyhow!("no debug information for executable {path:?}"))?;
+        let dwarf = dwarf_builder.build(path, object)?.ok_or(anyhow!(
+            "no debug information for executable object {path:?}"
+        ))?;
         let registry = DwarfRegistry::new(proc, path.to_path_buf(), dwarf);
 
         Ok(Self {
@@ -122,17 +122,6 @@ impl Debugee {
         self.execution_status == ExecutionStatus::InProgress
     }
 
-    /// Return debugee process mapping offset.
-    ///
-    /// # Panics
-    /// This method will panic if called before debugee started,
-    /// calling a method on time is the responsibility of the caller.
-    pub fn mapping_offset(&self) -> usize {
-        self.dwarf_registry
-            .get_program_mapping()
-            .expect("mapping address must exists")
-    }
-
     /// Return rendezvous struct.
     ///
     /// # Panics
@@ -150,18 +139,18 @@ impl Debugee {
     fn init_libthread_db(&mut self) {
         match self.tracer.tracee_ctl.init_thread_db() {
             Ok(_) => {
-                info!("libthread_db enabled")
+                info!(target: "loading", "libthread_db enabled")
             }
             Err(e) => {
                 warn!(
-                    "libthread_db load fail with \"{e}\", some thread debug functions are omitted"
+                    target: "loading", "libthread_db load fail with \"{e}\", some thread debug functions are omitted"
                 );
             }
         }
     }
 
     /// Parse dwarf information from new dependency.
-    fn parse_dependency(dep_file: &str) -> anyhow::Result<Option<DebugeeContext>> {
+    fn parse_dependency(dep_file: &str) -> anyhow::Result<Option<DebugInformation>> {
         // empty string represent a program executable that must already parsed
         // libvdso should also be skipped
         if dep_file.is_empty() || dep_file.contains("vdso") {
@@ -193,10 +182,11 @@ impl Debugee {
                     .iter()
                     .find(|bp| bp.addr == addr)
                     .map(|bp| bp.is_entry_point());
+                let main_dwarf = self.program_debug_info()?;
                 if at_entry_point == Some(true) {
                     self.rendezvous = Some(Rendezvous::new(
                         tid,
-                        self.mapping_offset(),
+                        self.mapping_offset_for_file(main_dwarf)?,
                         &self.object_sections,
                     )?);
                     self.init_libthread_db();
@@ -244,13 +234,13 @@ impl Debugee {
     }
 
     pub fn frame_info(&self, ctx: &ExplorationContext) -> anyhow::Result<FrameInfo> {
-        let func = self
-            .dwarf()
+        let dwarf = self.debug_info(ctx.location().pc)?;
+        let func = dwarf
             .find_function_by_pc(ctx.location().global_pc)
             .ok_or_else(|| anyhow!("current function not found"))?;
 
         let base_addr = func.frame_base_addr(ctx, self)?;
-        let cfa = self.dwarf().get_cfa(self, ctx)?;
+        let cfa = dwarf.get_cfa(self, ctx)?;
         let backtrace = libunwind::unwind(ctx.pid_on_focus())?;
         let (bt_frame_num, frame) = backtrace
             .iter()
@@ -315,10 +305,47 @@ impl Debugee {
         tracee.ok_or(anyhow!("tracee {num} not found"))
     }
 
+    /// Return debug information about program determined by program counter address.
     #[inline(always)]
-    pub fn dwarf(&self) -> &DebugeeContext<EndianArcSlice> {
+    pub fn debug_info(&self, addr: RelocatedAddress) -> anyhow::Result<&DebugInformation> {
         self.dwarf_registry
-            .get_program_dwarf()
-            .expect("dwarf info must exists")
+            .find_by_addr(addr)
+            .ok_or(anyhow!("no debugee information for current location"))
+    }
+
+    /// Get main executable object debug information.
+    #[inline(always)]
+    pub fn program_debug_info(&self) -> anyhow::Result<&DebugInformation> {
+        self.dwarf_registry
+            .find_main_program_dwarf()
+            .ok_or(anyhow!("no debugee information for executable object"))
+    }
+
+    /// Return all known debug information. Debug info about main executable is located at the zero index.
+    #[inline(always)]
+    pub fn debug_info_all(&self) -> Vec<&DebugInformation> {
+        self.dwarf_registry.all_dwarf()
+    }
+
+    /// Return mapped memory region offset for region.
+    ///
+    /// # Arguments
+    ///
+    /// * `pc`: VAS address, determine region for which offset is needed.
+    pub fn mapping_offset_for_pc(&self, addr: RelocatedAddress) -> anyhow::Result<usize> {
+        self.dwarf_registry.find_mapping_offset(addr).ok_or(anyhow!(
+            "determine mapping offset fail, unknown current location"
+        ))
+    }
+
+    /// Return mapped memory region offset for region.
+    ///
+    /// # Arguments
+    ///
+    /// * `dwarf`: debug information (with file path inside) for determine memory region.
+    pub fn mapping_offset_for_file(&self, dwarf: &DebugInformation) -> anyhow::Result<usize> {
+        self.dwarf_registry
+            .find_mapping_offset_for_file(dwarf)
+            .ok_or(anyhow!("determine mapping offset fail, unknown segment"))
     }
 }

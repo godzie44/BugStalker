@@ -1,23 +1,30 @@
 use crate::debugger::address::RelocatedAddress;
-use crate::debugger::debugee::dwarf::{DebugeeContext, EndianArcSlice};
+use crate::debugger::debugee::dwarf::{DebugInformation, EndianArcSlice};
 use anyhow::{anyhow, Error};
 use gimli::Range;
 use nix::unistd::Pid;
 use proc_maps::MapRange;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[derive(Debug)]
 struct TextRange {
     from: RelocatedAddress,
     to: RelocatedAddress,
 }
 
+/// Registry contains debug information about main executable object and loaded shared libraries.
 pub struct DwarfRegistry {
+    /// process pid
     pid: Pid,
+    /// main executable file
     program_path: PathBuf,
-    files: HashMap<PathBuf, DebugeeContext>,
-    ranges: HashMap<PathBuf, TextRange>,
-    /// regions map addresses, each region is a shared lib or debugee program.
+    /// debug information map
+    files: HashMap<PathBuf, DebugInformation>,
+    /// ordered .text section address ranges, calculates by dwarf units ranges
+    ranges: Vec<(PathBuf, TextRange)>,
+    /// regions map addresses, each region is a shared lib or debugee program
     mappings: HashMap<PathBuf, usize>,
 }
 
@@ -32,13 +39,13 @@ impl DwarfRegistry {
     pub fn new(
         pid: Pid,
         program_path: PathBuf,
-        program_dwarf: DebugeeContext<EndianArcSlice>,
+        program_dwarf: DebugInformation<EndianArcSlice>,
     ) -> Self {
         Self {
             pid,
             program_path: program_path.clone(),
             files: HashMap::from([(program_path, program_dwarf)]),
-            ranges: HashMap::new(),
+            ranges: vec![],
             mappings: HashMap::new(),
         }
     }
@@ -50,7 +57,7 @@ impl DwarfRegistry {
         let proc_maps: Vec<MapRange> = proc_maps::get_process_maps(self.pid.as_raw())?;
 
         let mut mappings = HashMap::with_capacity(self.files.len());
-        let mut ranges = HashMap::with_capacity(self.files.len());
+        let mut ranges = vec![];
         let mut errors = Vec::new();
 
         self.files.iter().for_each(|(file, dwarf)| {
@@ -76,28 +83,33 @@ impl DwarfRegistry {
             let range = dwarf.range().unwrap_or(Range { begin: 0, end: 0 });
 
             mappings.insert(file.clone(), mapping);
-            ranges.insert(
+            ranges.push((
                 file.clone(),
                 TextRange {
                     from: RelocatedAddress::from(range.begin as usize + mapping),
                     to: RelocatedAddress::from(range.end as usize + mapping),
                 },
-            );
+            ));
         });
 
         self.mappings = mappings;
+        ranges.sort_unstable_by(|(_, r1), (_, r2)| r1.from.cmp(&r2.from));
         self.ranges = ranges;
 
         Ok(errors)
     }
 
-    /// Add new dwarf information.
+    /// Add new debug information into registry.
     ///
     /// # Arguments
     ///
-    /// * `file`: path to executable or shared lib
+    /// * `file`: path to executable object or shared lib
     /// * `dwarf`: parsed dwarf information
-    pub fn add(&mut self, file: &str, dwarf: DebugeeContext<EndianArcSlice>) -> anyhow::Result<()> {
+    pub fn add(
+        &mut self,
+        file: &str,
+        dwarf: DebugInformation<EndianArcSlice>,
+    ) -> anyhow::Result<()> {
         let path = PathBuf::from(file);
         // validate path
         path.canonicalize()?;
@@ -105,24 +117,66 @@ impl DwarfRegistry {
         Ok(())
     }
 
-    pub fn find_by_addr(&self, addr: RelocatedAddress) -> Option<&DebugeeContext<EndianArcSlice>> {
-        let file = self.ranges.iter().find_map(|(file, range)| {
-            if range.from >= addr && range.to <= addr {
-                return Some(file);
-            }
-            None
-        })?;
-
-        self.files.get(file)
+    /// Return all known debug information. Debug info about main executable object
+    /// is located at the zero index.
+    pub fn all_dwarf(&self) -> Vec<&DebugInformation> {
+        let mut dwarfs: Vec<_> = self.files.values().collect();
+        dwarfs.sort_unstable_by(|d1, d2| {
+            if d1.pathname() == self.program_path {
+                return Ordering::Less;
+            };
+            d1.pathname().cmp(&d2.file)
+        });
+        dwarfs
     }
 
-    /// Get program mapping offset.
-    pub fn get_program_mapping(&self) -> Option<usize> {
-        self.mappings.get(&self.program_path).copied()
+    fn find_range(&self, addr: RelocatedAddress) -> Option<&(PathBuf, TextRange)> {
+        self.ranges
+            .binary_search_by(|(_, range)| {
+                if addr >= range.from && addr <= range.to {
+                    Ordering::Equal
+                } else if range.from > addr {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            })
+            .ok()
+            .map(|idx| &self.ranges[idx])
     }
 
-    /// Get executable program dwarf information.
-    pub fn get_program_dwarf(&self) -> Option<&DebugeeContext<EndianArcSlice>> {
+    /// Return debug information that describes .text section determined by given address.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr`: memory address that determine .text section.
+    pub fn find_by_addr(&self, addr: RelocatedAddress) -> Option<&DebugInformation> {
+        let (path, _) = self.find_range(addr)?;
+        self.files.get(path)
+    }
+
+    /// Calculate virtual memory region to which the address belongs and return
+    /// this region offset.
+    ///
+    /// # Arguments
+    ///
+    /// * `pc`: address for determine VAS region.
+    pub fn find_mapping_offset(&self, addr: RelocatedAddress) -> Option<usize> {
+        let (path, _) = self.find_range(addr)?;
+        self.mappings.get(path).copied()
+    }
+
+    /// Return offset of mapped memory region.
+    ///
+    /// # Arguments
+    ///
+    /// * `dwarf`: debug information for determine memory region.
+    pub fn find_mapping_offset_for_file(&self, dwarf: &DebugInformation) -> Option<usize> {
+        self.mappings.get(dwarf.pathname()).copied()
+    }
+
+    /// Find main executable object debug information.
+    pub fn find_main_program_dwarf(&self) -> Option<&DebugInformation> {
         self.files.get(&self.program_path)
     }
 
@@ -136,7 +190,8 @@ impl DwarfRegistry {
             pid: new_pid,
             program_path: self.program_path.clone(),
             files: self.files.clone(),
-            ranges: HashMap::default(),
+            // mappings and ranges must be redefined
+            ranges: vec![],
             mappings: HashMap::default(),
         }
     }

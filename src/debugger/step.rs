@@ -1,6 +1,6 @@
 use crate::debugger::address::{Address, GlobalAddress};
 use crate::debugger::breakpoint::Breakpoint;
-use crate::debugger::debugee::dwarf::unit::PlaceOwned;
+use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
 use crate::debugger::debugee::tracer::TraceContext;
 use crate::debugger::unwind::libunwind;
 use crate::debugger::{Debugger, ExplorationContext};
@@ -13,14 +13,14 @@ impl Debugger {
     pub(super) fn step_in(&mut self) -> anyhow::Result<&ExplorationContext> {
         // make instruction step but ignoring functions prolog
         // initial function must exists (do instruction steps until it's not)
-        fn long_step(debugger: &mut Debugger) -> anyhow::Result<PlaceOwned> {
+        fn long_step(debugger: &mut Debugger) -> anyhow::Result<PlaceDescriptorOwned> {
             loop {
                 // initial step
                 let ctx = debugger.single_step_instruction()?;
 
                 let mut location = ctx.location();
                 let func = loop {
-                    let dwarf = debugger.debugee.dwarf();
+                    let dwarf = debugger.debugee.debug_info(location.pc)?;
                     if let Some(func) = dwarf.find_function_by_pc(location.global_pc) {
                         break func;
                     }
@@ -42,7 +42,7 @@ impl Debugger {
                 let location = debugger.exploration_ctx().location();
                 if let Some(place) = debugger
                     .debugee
-                    .dwarf()
+                    .debug_info(location.pc)?
                     .find_exact_place_from_pc(location.global_pc)
                 {
                     return Ok(place.to_owned());
@@ -53,7 +53,7 @@ impl Debugger {
         let mut location = self.exploration_ctx().location();
 
         let start_place = loop {
-            let dwarf = &self.debugee.dwarf();
+            let dwarf = &self.debugee.debug_info(location.pc)?;
             if let Some(place) = dwarf.find_place_from_pc(location.global_pc) {
                 break place;
             }
@@ -65,7 +65,7 @@ impl Debugger {
         let sp_line = start_place.line_number;
         let start_cfa = self
             .debugee
-            .dwarf()
+            .debug_info(location.pc)?
             .get_cfa(&self.debugee, &ExplorationContext::new(location, 0))?;
 
         loop {
@@ -77,7 +77,7 @@ impl Debugger {
             let location = self.exploration_ctx().location();
             let next_cfa = self
                 .debugee
-                .dwarf()
+                .debug_info(location.pc)?
                 .get_cfa(&self.debugee, &ExplorationContext::new(location, 0))?;
 
             // step is done if:
@@ -160,7 +160,7 @@ impl Debugger {
         let mut current_location = ctx.location();
 
         let func = loop {
-            let dwarf = &self.debugee.dwarf();
+            let dwarf = &self.debugee.debug_info(current_location.pc)?;
             if let Some(func) = dwarf.find_function_by_pc(current_location.global_pc) {
                 break func;
             }
@@ -169,7 +169,7 @@ impl Debugger {
         };
 
         let prolog = func.prolog()?;
-        let dwarf = &self.debugee.dwarf();
+        let dwarf = &self.debugee.debug_info(current_location.pc)?;
         let inline_ranges = func.inline_ranges();
 
         let current_place = dwarf
@@ -205,7 +205,9 @@ impl Debugger {
                     && place.address != current_place.address
                     && place.line_number != current_place.line_number
                 {
-                    let load_addr = place.address.relocate(self.debugee.mapping_offset());
+                    let load_addr = place
+                        .address
+                        .relocate(self.debugee.mapping_offset_for_pc(current_location.pc)?);
                     if self.breakpoints.get_enabled(load_addr).is_none() {
                         step_over_breakpoints.push(load_addr);
                         to_delete.push(load_addr);
@@ -249,7 +251,7 @@ impl Debugger {
         if Some(new_location.pc) == return_addr {
             let place = self
                 .debugee
-                .dwarf()
+                .debug_info(new_location.pc)?
                 .find_place_from_pc(new_location.global_pc)
                 .ok_or_else(|| anyhow!("unknown function range"))?;
 

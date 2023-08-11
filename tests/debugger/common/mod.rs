@@ -1,5 +1,5 @@
 use bugstalker::debugger::address::RelocatedAddress;
-use bugstalker::debugger::{EventHook, FunctionDie, Place};
+use bugstalker::debugger::{EventHook, FunctionDie, PlaceDescriptor};
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use std::cell::Cell;
@@ -28,7 +28,7 @@ impl EventHook for TestHooks {
         &self,
         pc: RelocatedAddress,
         _: u32,
-        place: Option<Place>,
+        place: Option<PlaceDescriptor>,
         _: Option<&FunctionDie>,
     ) -> anyhow::Result<()> {
         self.info.addr.set(Some(pc));
@@ -41,7 +41,7 @@ impl EventHook for TestHooks {
     fn on_step(
         &self,
         pc: RelocatedAddress,
-        place: Option<Place>,
+        place: Option<PlaceDescriptor>,
         _: Option<&FunctionDie>,
     ) -> anyhow::Result<()> {
         self.info.addr.set(Some(pc));

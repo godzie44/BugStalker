@@ -128,6 +128,7 @@ class MultithreadTestCase(unittest.TestCase):
 
         # try to step in new in focus thread
         self.debugger.sendline('step')
+        self.debugger.sendline('step')
         self.debugger.expect_exact('/sys/unix/thread.rs')
         self.debugger.sendline('step')
         self.debugger.sendline('step')

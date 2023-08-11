@@ -33,7 +33,7 @@ impl<'a> UnwindContext<'a> {
         registers: DwarfRegisterMap,
         expl_ctx: &ExplorationContext,
     ) -> anyhow::Result<Option<Self>> {
-        let dwarf = &debugee.dwarf();
+        let dwarf = &debugee.debug_info(expl_ctx.location().pc)?;
         let mut next_registers = registers.clone();
         let registers_snap = registers;
         let fde = match dwarf.eh_frame.fde_for_address(
@@ -151,15 +151,15 @@ impl<'a> UnwindContext<'a> {
 
 /// Unwind debugee call stack by dwarf information.
 ///
-/// `DwarfUnwinder` also useful for getting return address for current location and register values for subroutine entry.
+/// [`DwarfUnwinder`] also useful for getting return address for current location and register values for subroutine entry.
 ///
-/// Currently this application using `unwind::libunwind` module for stack unwinding.
+/// Currently this application using [`libunwind`] module for stack unwinding.
 /// Main reason of it that `DwarfUnwinder` knows locations information about which is in the `eh_frame` section of elf file.
 /// But not all possible locations can be found in `eh_frame`, and for this locations unwinding may fail.
 /// For example one of threads may be in syscall when we want to unwind his stack.
 /// Libunwind is more generic approach because it relies on details specific to specific architectures,
-/// and this why `DwarfUnwinder` is unused in stack unwinding case.
-/// Nevertheless `DwarfUnwinder` may be useful for getting return address and register values.
+/// and that's why [`DwarfUnwinder`] is unused in stack unwinding case.
+/// Nevertheless [`DwarfUnwinder`] may be useful for getting return address and register values.
 pub struct DwarfUnwinder<'a> {
     debugee: &'a Debugee,
 }
@@ -191,12 +191,13 @@ impl<'a> DwarfUnwinder<'a> {
 
         let function = self
             .debugee
-            .dwarf()
+            .debug_info(ctx.location().pc)?
             .find_function_by_pc(ctx.location().global_pc);
+        let mapping_offset = self.debugee.mapping_offset_for_pc(ctx.location().pc)?;
         let fn_start_at = function.and_then(|func| {
             func.prolog_start_place()
                 .ok()
-                .map(|prolog| prolog.address.relocate(self.debugee.mapping_offset()))
+                .map(|prolog| prolog.address.relocate(mapping_offset))
         });
 
         let mut bt = vec![FrameSpan {
@@ -209,7 +210,7 @@ impl<'a> DwarfUnwinder<'a> {
         while let Some(return_addr) = unwind_ctx.return_address() {
             let next_location = Location {
                 pc: return_addr,
-                global_pc: return_addr.into_global(self.debugee.mapping_offset()),
+                global_pc: return_addr.into_global(self.debugee)?,
                 pid: unwind_ctx.location.pid,
             };
 
@@ -223,12 +224,13 @@ impl<'a> DwarfUnwinder<'a> {
 
             let function = self
                 .debugee
-                .dwarf()
+                .debug_info(ctx.location().pc)?
                 .find_function_by_pc(next_location.global_pc);
+            let mapping_offset = self.debugee.mapping_offset_for_pc(ctx.location().pc)?;
             let fn_start_at = function.and_then(|func| {
                 func.prolog_start_place()
                     .ok()
-                    .map(|prolog| prolog.address.relocate(self.debugee.mapping_offset()))
+                    .map(|prolog| prolog.address.relocate(mapping_offset))
             });
 
             let span = FrameSpan {

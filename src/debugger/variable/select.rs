@@ -69,13 +69,13 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     VariableSelector::Name(variable_name) => self
                         .debugger
                         .debugee
-                        .dwarf()
+                        .debug_info(ctx.location().pc)?
                         .find_variables(ctx.location(), variable_name),
                     VariableSelector::Any => {
                         let current_func = self
                             .debugger
                             .debugee
-                            .dwarf()
+                            .debug_info(ctx.location().pc)?
                             .find_function_by_pc(ctx.location().global_pc)
                             .ok_or_else(|| anyhow!("not in function"))?;
                         current_func.local_variables(ctx.location().global_pc)
@@ -105,13 +105,13 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     VariableSelector::Name(variable_name) => self
                         .debugger
                         .debugee
-                        .dwarf()
+                        .debug_info(ctx.location().pc)?
                         .find_variables(ctx.location(), variable_name),
                     VariableSelector::Any => {
                         let current_func = self
                             .debugger
                             .debugee
-                            .dwarf()
+                            .debug_info(ctx.location().pc)?
                             .find_function_by_pc(ctx.location().global_pc)
                             .ok_or_else(|| anyhow!("not in function"))?;
                         current_func.local_variables(ctx.location().global_pc)
@@ -143,7 +143,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
                 let current_function = self
                     .debugger
                     .debugee
-                    .dwarf()
+                    .debug_info(self.debugger.exploration_ctx().location().pc)?
                     .find_function_by_pc(self.debugger.exploration_ctx().location().global_pc)
                     .ok_or_else(|| anyhow!("not in function"))?;
                 let params = current_function.parameters();
@@ -181,7 +181,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
                 let current_function = self
                     .debugger
                     .debugee
-                    .dwarf()
+                    .debug_info(self.debugger.exploration_ctx().location().pc)?
                     .find_function_by_pc(self.debugger.exploration_ctx().location().global_pc)
                     .ok_or_else(|| anyhow!("not in function"))?;
                 let params = current_function.parameters();
