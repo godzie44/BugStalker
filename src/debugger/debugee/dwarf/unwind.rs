@@ -350,6 +350,10 @@ pub mod libunwind {
         registers: &mut DwarfRegisterMap,
         frame_num: u32,
     ) -> unwind::Result<()> {
+        if frame_num == 0 {
+            return Ok(());
+        }
+
         let state = PTraceState::new(pid.as_raw() as u32)?;
         let address_space = AddressSpace::new(Accessors::ptrace(), Byteorder::DEFAULT)?;
         let mut cursor = Cursor::remote(&address_space, &state)?;

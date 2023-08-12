@@ -297,7 +297,7 @@ impl DwarfRegisterMap {
     /// * `register`: target register.
     /// * `value`: new value.
     pub fn update(&mut self, register: gimli::Register, value: u64) {
-        self.0.insert(register.0 as usize, Some(value))
+        self.0[register.0 as usize] = Some(value);
     }
 }
 
