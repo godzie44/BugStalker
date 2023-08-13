@@ -76,6 +76,7 @@ impl RenderRepr for VariableIR {
                 // currently this line is unreachable cause dereference fn pointer is forbidden
                 &None
             }
+            VariableIR::CModifiedVariable(v) => &v.type_name,
         };
         r#type.as_deref().unwrap_or("unknown")
     }
@@ -198,6 +199,7 @@ impl RenderRepr for VariableIR {
                 // currently this line is unreachable cause dereference fn pointer is forbidden
                 return None;
             }
+            VariableIR::CModifiedVariable(v) => ValueLayout::Wrapped(v.value.as_ref()?),
         };
         Some(value_repr)
     }

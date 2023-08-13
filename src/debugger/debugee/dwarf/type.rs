@@ -1,7 +1,8 @@
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::unit::{
-    ArrayDie, BaseTypeDie, DieRef, DieVariant, EnumTypeDie, PointerType, StructTypeDie,
-    SubroutineDie, TypeMemberDie, UnionTypeDie,
+    ArrayDie, AtomicDie, BaseTypeDie, ConstTypeDie, DieRef, DieVariant, EnumTypeDie, PointerType,
+    RestrictDie, StructTypeDie, SubroutineDie, TypeDefDie, TypeMemberDie, UnionTypeDie,
+    VolatileDie,
 };
 use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::ExplorationContext;
@@ -190,6 +191,16 @@ pub struct ScalarType {
     pub encoding: Option<DwAte>,
 }
 
+/// List of type modifiers
+#[derive(Clone, Copy)]
+pub enum CModifier {
+    TypeDef,
+    Const,
+    Volatile,
+    Atomic,
+    Restrict,
+}
+
 #[derive(Clone)]
 pub enum TypeDeclaration {
     Scalar(ScalarType),
@@ -232,6 +243,12 @@ pub enum TypeDeclaration {
         name: Option<String>,
         return_type: Option<TypeIdentity>,
     },
+    ModifiedType {
+        modifier: CModifier,
+        namespaces: NamespaceHierarchy,
+        name: Option<String>,
+        inner: Option<TypeIdentity>,
+    },
 }
 
 /// Type representation. This is a graph of types where vertexes is a type declaration and edges
@@ -246,7 +263,7 @@ pub struct ComplexType {
 impl ComplexType {
     /// Returns name of some of type existed in a complex type.
     pub fn type_name(&self, typ: TypeIdentity) -> Option<String> {
-        match &self.types[&typ] {
+        match &self.types.get(&typ)? {
             TypeDeclaration::Scalar(s) => s.name.clone(),
             TypeDeclaration::Structure { name, .. } => name.clone(),
             TypeDeclaration::Array(arr) => Some(format!(
@@ -260,6 +277,7 @@ impl ComplexType {
             TypeDeclaration::Pointer { name, .. } => name.clone(),
             TypeDeclaration::Union { name, .. } => name.clone(),
             TypeDeclaration::Subroutine { name, .. } => name.clone(),
+            TypeDeclaration::ModifiedType { name, .. } => name.clone(),
         }
     }
 
@@ -269,7 +287,7 @@ impl ComplexType {
         eval_ctx: &EvaluationContext,
         typ: TypeIdentity,
     ) -> Option<u64> {
-        match &self.types[&typ] {
+        match &self.types.get(&typ)? {
             TypeDeclaration::Scalar(s) => s.byte_size,
             TypeDeclaration::Structure { byte_size, .. } => *byte_size,
             TypeDeclaration::Array(arr) => arr.size_in_bytes(eval_ctx, self),
@@ -278,6 +296,9 @@ impl ComplexType {
             TypeDeclaration::Pointer { .. } => Some(mem::size_of::<usize>() as u64),
             TypeDeclaration::Union { byte_size, .. } => *byte_size,
             TypeDeclaration::Subroutine { .. } => Some(mem::size_of::<usize>() as u64),
+            TypeDeclaration::ModifiedType { inner, .. } => {
+                inner.and_then(|inner_id| self.type_size_in_bytes(eval_ctx, inner_id))
+            }
         }
     }
 
@@ -358,6 +379,11 @@ impl<'a> Iterator for BfsIterator<'a> {
                 });
             }
             TypeDeclaration::Subroutine { .. } => {}
+            TypeDeclaration::ModifiedType { inner, .. } => {
+                if let Some(type_id) = inner {
+                    self.queue.push_front(*type_id);
+                }
+            }
         }
 
         Some(type_decl)
@@ -435,6 +461,36 @@ impl TypeParser {
                 die,
             })),
             DieVariant::Subroutine(die) => Some(self.parse_subroutine(ContextualDieRef {
+                context: ctx_die.context,
+                unit_idx: unit.idx(),
+                node: &entry.node,
+                die,
+            })),
+            DieVariant::TypeDef(die) => Some(self.parse_typedef(ContextualDieRef {
+                context: ctx_die.context,
+                unit_idx: unit.idx(),
+                node: &entry.node,
+                die,
+            })),
+            DieVariant::ConstType(die) => Some(self.parse_const_type(ContextualDieRef {
+                context: ctx_die.context,
+                unit_idx: unit.idx(),
+                node: &entry.node,
+                die,
+            })),
+            DieVariant::Atomic(die) => Some(self.parse_atomic(ContextualDieRef {
+                context: ctx_die.context,
+                unit_idx: unit.idx(),
+                node: &entry.node,
+                die,
+            })),
+            DieVariant::Volatile(die) => Some(self.parse_volatile(ContextualDieRef {
+                context: ctx_die.context,
+                unit_idx: unit.idx(),
+                node: &entry.node,
+                die,
+            })),
+            DieVariant::Restrict(die) => Some(self.parse_restrict(ContextualDieRef {
                 context: ctx_die.context,
                 unit_idx: unit.idx(),
                 node: &entry.node,
@@ -784,6 +840,34 @@ impl TypeParser {
             return_type: mb_ret_type_ref,
         }
     }
+}
+
+macro_rules! parse_modifier_fn {
+    ($fn_name: ident, $die: ty, $modifier: expr) => {
+        fn $fn_name(&mut self, ctx_die: ContextualDieRef<'_, $die>) -> TypeDeclaration {
+            let name = ctx_die.die.base_attributes.name.clone();
+            let mb_type_ref = ctx_die.die.type_ref;
+            if let Some(inner_type) = mb_type_ref {
+                self.parse_inner(ctx_die, inner_type);
+            }
+
+            TypeDeclaration::ModifiedType {
+                namespaces: ctx_die.namespaces(),
+                modifier: $modifier,
+                name,
+                inner: mb_type_ref,
+            }
+        }
+    };
+}
+
+// create parsers for type modifiers
+impl TypeParser {
+    parse_modifier_fn!(parse_typedef, TypeDefDie, CModifier::TypeDef);
+    parse_modifier_fn!(parse_const_type, ConstTypeDie, CModifier::Const);
+    parse_modifier_fn!(parse_atomic, AtomicDie, CModifier::Atomic);
+    parse_modifier_fn!(parse_volatile, VolatileDie, CModifier::Volatile);
+    parse_modifier_fn!(parse_restrict, RestrictDie, CModifier::Restrict);
 }
 
 /// A cache structure for types.

@@ -1,9 +1,9 @@
 use crate::debugger::debugee::dwarf::unit::{
-    ArrayDie, ArraySubrangeDie, BaseTypeDie, DieAttributes, DieRange, DieRef, DieVariant, Entry,
-    EnumTypeDie, EnumeratorDie, FunctionDie, InlineSubroutineDie, LexicalBlockDie, LineRow,
-    Namespace, Node, ParameterDie, PointerType, StructTypeDie, SubroutineDie,
-    TemplateTypeParameter, TypeMemberDie, UnionTypeDie, Unit, UnitLazyPart, UnitProperties,
-    VariableDie, Variant, VariantPart,
+    ArrayDie, ArraySubrangeDie, AtomicDie, BaseTypeDie, ConstTypeDie, DieAttributes, DieRange,
+    DieRef, DieVariant, Entry, EnumTypeDie, EnumeratorDie, FunctionDie, InlineSubroutineDie,
+    LexicalBlockDie, LineRow, Namespace, Node, ParameterDie, PointerType, RestrictDie,
+    StructTypeDie, SubroutineDie, TemplateTypeParameter, TypeDefDie, TypeMemberDie, UnionTypeDie,
+    Unit, UnitLazyPart, UnitProperties, VariableDie, Variant, VariantPart, VolatileDie,
 };
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::rust::Environment;
@@ -282,6 +282,26 @@ impl<'a> DwarfUnitParser<'a> {
                         type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
                     })
                 }
+                gimli::DW_TAG_typedef => DieVariant::TypeDef(TypeDefDie {
+                    base_attributes: base_attrs,
+                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
+                }),
+                gimli::DW_TAG_const_type => DieVariant::ConstType(ConstTypeDie {
+                    base_attributes: base_attrs,
+                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
+                }),
+                gimli::DW_TAG_atomic_type => DieVariant::Atomic(AtomicDie {
+                    base_attributes: base_attrs,
+                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
+                }),
+                gimli::DW_TAG_volatile_type => DieVariant::Volatile(VolatileDie {
+                    base_attributes: base_attrs,
+                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
+                }),
+                gimli::DW_TAG_restrict_type => DieVariant::Restrict(RestrictDie {
+                    base_attributes: base_attrs,
+                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
+                }),
                 gimli::DW_TAG_namespace => DieVariant::Namespace(Namespace {
                     base_attributes: base_attrs,
                 }),

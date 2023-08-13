@@ -244,6 +244,36 @@ pub struct InlineSubroutineDie {
 }
 
 #[derive(Debug, Clone)]
+pub struct TypeDefDie {
+    pub base_attributes: DieAttributes,
+    pub type_ref: Option<DieRef>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstTypeDie {
+    pub base_attributes: DieAttributes,
+    pub type_ref: Option<DieRef>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AtomicDie {
+    pub base_attributes: DieAttributes,
+    pub type_ref: Option<DieRef>,
+}
+
+#[derive(Debug, Clone)]
+pub struct VolatileDie {
+    pub base_attributes: DieAttributes,
+    pub type_ref: Option<DieRef>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RestrictDie {
+    pub base_attributes: DieAttributes,
+    pub type_ref: Option<DieRef>,
+}
+
+#[derive(Debug, Clone)]
 pub enum DieVariant {
     Function(FunctionDie),
     LexicalBlock(LexicalBlockDie),
@@ -265,6 +295,11 @@ pub enum DieVariant {
     Parameter(ParameterDie),
     Subroutine(SubroutineDie),
     InlineSubroutine(InlineSubroutineDie),
+    TypeDef(TypeDefDie),
+    ConstType(ConstTypeDie),
+    Atomic(AtomicDie),
+    Volatile(VolatileDie),
+    Restrict(RestrictDie),
 }
 
 #[derive(Debug, Clone)]

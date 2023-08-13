@@ -1,5 +1,5 @@
 use crate::debugger::debugee::dwarf::r#type::{
-    ArrayType, EvaluationContext, ScalarType, StructureMember, TypeIdentity,
+    ArrayType, CModifier, EvaluationContext, ScalarType, StructureMember, TypeIdentity,
 };
 use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef, NamespaceHierarchy};
 use crate::debugger::variable::render::RenderRepr;
@@ -279,6 +279,15 @@ pub struct SubroutineVariable {
     pub return_type_name: Option<String>,
 }
 
+/// Represent a variable with C modifiers (volatile, const, typedef, etc)
+#[derive(Clone)]
+pub struct CModifiedVariable {
+    pub identity: VariableIdentity,
+    pub type_name: Option<String>,
+    pub modifier: CModifier,
+    pub value: Option<Box<VariableIR>>,
+}
+
 /// Variable intermediate representation.
 #[derive(Clone)]
 pub enum VariableIR {
@@ -290,6 +299,7 @@ pub enum VariableIR {
     Pointer(PointerVariable),
     Subroutine(SubroutineVariable),
     Specialized(SpecializedVariableIR),
+    CModifiedVariable(CModifiedVariable),
 }
 
 impl Debug for VariableIR {
@@ -393,6 +403,7 @@ impl VariableIR {
                 SpecializedVariableIR::Arc { original, .. } => &original.identity,
             },
             VariableIR::Subroutine(s) => &s.identity,
+            VariableIR::CModifiedVariable(v) => &v.identity,
         }
     }
 
@@ -420,6 +431,7 @@ impl VariableIR {
                 SpecializedVariableIR::Arc { original, .. } => &mut original.identity,
             },
             VariableIR::Subroutine(s) => &mut s.identity,
+            VariableIR::CModifiedVariable(v) => &mut v.identity,
         }
     }
 
@@ -1007,6 +1019,16 @@ impl<'a> VariableParser<'a> {
                 };
                 VariableIR::Subroutine(fn_var)
             }
+            TypeDeclaration::ModifiedType {
+                inner, modifier, ..
+            } => VariableIR::CModifiedVariable(CModifiedVariable {
+                identity: identity.clone(),
+                type_name,
+                modifier: *modifier,
+                value: inner.map(|inner_type| {
+                    Box::new(self.parse_inner(eval_ctx, identity, value, inner_type))
+                }),
+            }),
         }
     }
 
