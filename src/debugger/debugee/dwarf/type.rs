@@ -1,4 +1,4 @@
-use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
+use crate::debugger::debugee::dwarf::eval::{AddressKind, ExpressionEvaluator};
 use crate::debugger::debugee::dwarf::unit::{
     ArrayDie, AtomicDie, BaseTypeDie, ConstTypeDie, DieRef, DieVariant, EnumTypeDie, PointerType,
     RestrictDie, StructTypeDie, SubroutineDie, TypeDefDie, TypeMemberDie, UnionTypeDie,
@@ -38,7 +38,7 @@ impl MemberLocationExpression {
                 eval_ctx.expl_ctx,
                 self.expr.clone(),
             )?
-            .into_scalar::<usize>()?)
+            .into_scalar::<usize>(AddressKind::Value)?)
     }
 }
 
@@ -92,7 +92,7 @@ impl ArrayBoundValueExpression {
         Ok(eval_ctx
             .evaluator
             .evaluate(eval_ctx.expl_ctx, self.expr.clone())?
-            .into_scalar::<i64>()?)
+            .into_scalar::<i64>(AddressKind::MemoryAddress)?)
     }
 }
 

@@ -8,6 +8,7 @@ pub mod unwind;
 pub use self::unwind::DwarfUnwinder;
 
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
+use crate::debugger::debugee::dwarf::eval::AddressKind;
 use crate::debugger::debugee::dwarf::location::Location as DwarfLocation;
 use crate::debugger::debugee::dwarf::r#type::ComplexType;
 use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
@@ -111,7 +112,7 @@ impl DebugInformation {
                 let evaluator = resolve_unit_call!(&self.inner, unit, evaluator, debugee);
                 let expr_result = evaluator.evaluate(ctx, expr.clone())?;
 
-                Ok((expr_result.into_scalar::<usize>()?).into())
+                Ok((expr_result.into_scalar::<usize>(AddressKind::Value)?).into())
             }
         }
     }
@@ -671,7 +672,9 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
             .ok_or_else(|| anyhow!("frame base attribute not an expression"))?;
 
         let evaluator = ctx_resolve_unit_call!(self, evaluator, debugee);
-        let result = evaluator.evaluate(ctx, expr)?.into_scalar::<usize>()?;
+        let result = evaluator
+            .evaluate(ctx, expr)?
+            .into_scalar::<usize>(AddressKind::Value)?;
         Ok(result.into())
     }
 
@@ -824,13 +827,14 @@ impl<'ctx, D: AsAllocatedValue> ContextualDieRef<'ctx, D> {
             .and_then(|expr| {
                 let evaluator = ctx_resolve_unit_call!(self, evaluator, debugee);
                 let eval_result = weak_error!(evaluator.evaluate(ctx, expr))?;
-                weak_error!(eval_result.into_raw_buffer(r#type.type_size_in_bytes(
+                let type_size = r#type.type_size_in_bytes(
                     &EvaluationContext {
                         evaluator: &evaluator,
                         expl_ctx: ctx,
                     },
-                    r#type.root
-                )? as usize))
+                    r#type.root,
+                )? as usize;
+                weak_error!(eval_result.into_raw_buffer(type_size, AddressKind::MemoryAddress))
             })
     }
 }

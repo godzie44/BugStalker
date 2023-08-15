@@ -336,7 +336,7 @@ impl<'a> ExpressionEvaluator<'a> {
                     let ctx_resolver = ExternalRequirementsResolver::default()
                         .with_entry_registers(ctx.pid_on_focus(), regs);
                     let eval_res = self.evaluate_with_resolver(ctx_resolver, ctx, expr)?;
-                    let u = eval_res.into_scalar::<u64>()?;
+                    let u = eval_res.into_scalar::<u64>(AddressKind::MemoryAddress)?;
                     result = eval.resume_with_entry_value(Value::Generic(u))?;
                 }
                 EvaluationResult::RequiresParameterRef(_) => {
@@ -364,13 +364,24 @@ pub struct CompletedResult<'a> {
     ctx: &'a ExplorationContext,
 }
 
+/// Determine how interpret [`Location::Address`] in piece location field,
+/// as value or as address in debugee memory.
+/// This information is context dependent (depending on what exactly is being calculated).
+///
+/// This code may be deleted in future, see https://github.com/gimli-rs/gimli/issues/675 and
+/// https://github.com/gimli-rs/gimli/pull/676
+pub enum AddressKind {
+    MemoryAddress,
+    Value,
+}
+
 impl<'a> CompletedResult<'a> {
-    pub fn into_scalar<T: Copy>(self) -> Result<T> {
-        let bytes = self.into_raw_buffer(mem::size_of::<T>())?;
+    pub fn into_scalar<T: Copy>(self, address_kind: AddressKind) -> Result<T> {
+        let bytes = self.into_raw_buffer(mem::size_of::<T>(), address_kind)?;
         Ok(scalar_from_bytes(&bytes))
     }
 
-    pub fn into_raw_buffer(self, byte_size: usize) -> Result<Bytes> {
+    pub fn into_raw_buffer(self, byte_size: usize, address_kind: AddressKind) -> Result<Bytes> {
         let mut buf = BytesMut::with_capacity(byte_size);
         self.inner.into_iter().try_for_each(|piece| -> Result<()> {
             let read_size = piece
@@ -384,28 +395,33 @@ impl<'a> CompletedResult<'a> {
                     buf.put(read_register(self.ctx, register, read_size, offset)?);
                 }
                 Location::Address { address } => {
-                    let memory = debugger::read_memory_by_pid(
-                        self.ctx.pid_on_focus(),
-                        address as usize,
-                        read_size,
-                    )
-                    .map_err(EvalError::Nix)?;
-                    buf.put(Bytes::from(memory));
+                    match address_kind {
+                        AddressKind::MemoryAddress => {
+                            let memory = debugger::read_memory_by_pid(
+                                self.ctx.pid_on_focus(),
+                                address as usize,
+                                read_size,
+                            )
+                            .map_err(EvalError::Nix)?;
+                            buf.put(Bytes::from(memory))
+                        }
+                        AddressKind::Value => {
+                            buf.put_slice(&address.to_ne_bytes());
+                        }
+                    };
                 }
                 Location::Value { value } => {
                     match value {
-                        Value::Generic(v) | Value::U64(v) => {
-                            buf.put_u64(v);
-                        }
-                        Value::I8(v) => buf.put_i8(v),
-                        Value::U8(v) => buf.put_u8(v),
-                        Value::I16(v) => buf.put_i16(v),
-                        Value::U16(v) => buf.put_u16(v),
-                        Value::I32(v) => buf.put_i32(v),
-                        Value::U32(v) => buf.put_u32(v),
-                        Value::I64(v) => buf.put_i64(v),
-                        Value::F32(v) => buf.put_f32(v),
-                        Value::F64(v) => buf.put_f64(v),
+                        Value::Generic(v) | Value::U64(v) => buf.put_slice(&v.to_ne_bytes()),
+                        Value::I8(v) => buf.put_slice(&v.to_ne_bytes()),
+                        Value::U8(v) => buf.put_slice(&v.to_ne_bytes()),
+                        Value::I16(v) => buf.put_slice(&v.to_ne_bytes()),
+                        Value::U16(v) => buf.put_slice(&v.to_ne_bytes()),
+                        Value::I32(v) => buf.put_slice(&v.to_ne_bytes()),
+                        Value::U32(v) => buf.put_slice(&v.to_ne_bytes()),
+                        Value::I64(v) => buf.put_slice(&v.to_ne_bytes()),
+                        Value::F32(v) => buf.put_slice(&v.to_ne_bytes()),
+                        Value::F64(v) => buf.put_slice(&v.to_ne_bytes()),
                     };
                 }
                 Location::Bytes { value, .. } => {

@@ -1,5 +1,5 @@
 use crate::debugger::address::RelocatedAddress;
-use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
+use crate::debugger::debugee::dwarf::eval::{AddressKind, ExpressionEvaluator};
 use crate::debugger::debugee::dwarf::EndianArcSlice;
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
@@ -95,7 +95,9 @@ impl<'a> UnwindContext<'a> {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
                         let expr_result = weak_error!(evaluator.evaluate(expl_ctx, expr.clone()))?;
-                        let addr = weak_error!(expr_result.into_scalar::<usize>())?;
+                        let addr = weak_error!(
+                            expr_result.into_scalar::<usize>(AddressKind::MemoryAddress)
+                        )?;
                         let bytes = weak_error!(debugger::read_memory_by_pid(
                             expl_ctx.pid_on_focus(),
                             addr,
@@ -109,7 +111,7 @@ impl<'a> UnwindContext<'a> {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
                         let expr_result = weak_error!(evaluator.evaluate(expl_ctx, expr.clone()))?;
-                        weak_error!(expr_result.into_scalar::<u64>())?
+                        weak_error!(expr_result.into_scalar::<u64>(AddressKind::MemoryAddress))?
                     }
                     RegisterRule::Architectural => return None,
                 };
