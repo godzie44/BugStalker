@@ -2,7 +2,6 @@ use crate::debugger::address::{Address, GlobalAddress};
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
 use crate::debugger::debugee::tracer::TraceContext;
-use crate::debugger::unwind::libunwind;
 use crate::debugger::{Debugger, ExplorationContext};
 use anyhow::anyhow;
 
@@ -137,7 +136,7 @@ impl Debugger {
     pub(super) fn step_out_frame(&mut self) -> anyhow::Result<()> {
         let ctx = self.exploration_ctx();
         let location = ctx.location();
-        if let Some(ret_addr) = libunwind::return_addr(location.pid)? {
+        if let Some(ret_addr) = self.debugee.return_addr(ctx.pid_on_focus())? {
             let brkpt_is_set = self.breakpoints.get_enabled(ret_addr).is_some();
             if brkpt_is_set {
                 self.continue_execution()?;
@@ -229,7 +228,7 @@ impl Debugger {
                     .map(|_| ())
             })?;
 
-        let return_addr = libunwind::return_addr(current_location.pid)?;
+        let return_addr = self.debugee.return_addr(current_location.pid)?;
         if let Some(ret_addr) = return_addr {
             if self.breakpoints.get_enabled(ret_addr).is_none() {
                 self.breakpoints

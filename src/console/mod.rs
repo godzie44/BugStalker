@@ -282,7 +282,7 @@ impl AppLoop {
                                 frame.ip.to_string().blue(),
                                 fn_name.to_string().green(),
                                 fn_ip.to_string().blue(),
-                                frame.ip.as_u64() - fn_ip.as_u64(),
+                                frame.ip.as_u64().saturating_sub(fn_ip.as_u64()),
                             );
                             if thread.focus_frame == Some(frame_num) {
                                 frame_info = frame_info.bold().to_string();

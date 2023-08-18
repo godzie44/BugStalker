@@ -20,8 +20,7 @@ pub use debugee::ThreadSnapshot;
 use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};
 use crate::debugger::debugee::dwarf::r#type::TypeCache;
-use crate::debugger::debugee::dwarf::unwind::libunwind;
-use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
+use crate::debugger::debugee::dwarf::unwind::Backtrace;
 use crate::debugger::debugee::dwarf::{DwarfUnwinder, Symbol};
 use crate::debugger::debugee::tracee::Tracee;
 use crate::debugger::debugee::tracer::{StopReason, TraceContext};
@@ -111,6 +110,7 @@ macro_rules! disable_when_not_stared {
 /// Exploration context. Contains current explored thread and program counter.
 /// May changed by user (by `thread` or `frame` command)
 /// or by debugger (at breakpoints, after steps, etc.).
+#[derive(Clone, Debug)]
 pub struct ExplorationContext {
     focus_location: Location,
     focus_frame: u32,
@@ -374,8 +374,8 @@ impl Debugger {
     /// * `num`: frame number in backtrace
     pub fn set_frame_into_focus(&mut self, num: u32) -> anyhow::Result<u32> {
         disable_when_not_stared!(self);
-        let pid = self.exploration_ctx().pid_on_focus();
-        let backtrace = libunwind::unwind(pid)?;
+        let ctx = self.exploration_ctx();
+        let backtrace = self.debugee.unwind(ctx.pid_on_focus())?;
         let frame = backtrace
             .get(num as usize)
             .ok_or(anyhow!("frame {num} not found"))?;
@@ -383,7 +383,7 @@ impl Debugger {
             Location {
                 pc: frame.ip,
                 global_pc: frame.ip.into_global(&self.debugee)?,
-                pid,
+                pid: ctx.pid_on_focus(),
             },
             num,
         );
@@ -451,7 +451,7 @@ impl Debugger {
     /// * `pid`: thread id
     pub fn backtrace(&self, pid: Pid) -> anyhow::Result<Backtrace> {
         disable_when_not_stared!(self);
-        Ok(libunwind::unwind(pid)?)
+        self.debugee.unwind(pid)
     }
 
     /// Read N bytes from debugee process.

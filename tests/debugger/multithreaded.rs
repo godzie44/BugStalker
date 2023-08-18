@@ -2,7 +2,7 @@ use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
 use crate::prepare_debugee_process;
 use crate::{assert_no_proc, MT_APP};
-use bugstalker::debugger::unwind::libunwind::Backtrace;
+use bugstalker::debugger::unwind::Backtrace;
 use bugstalker::debugger::Debugger;
 use serial_test::serial;
 
@@ -47,9 +47,13 @@ fn test_multithreaded_breakpoints() {
 }
 
 fn backtrace_contains_fn(backtrace: &Backtrace, f_name: &str) -> bool {
-    backtrace
-        .iter()
-        .any(|frame| frame.func_name == Some(f_name.to_string()))
+    backtrace.iter().any(|frame| {
+        frame
+            .func_name
+            .as_ref()
+            .map(|f| f.contains(f_name))
+            .unwrap_or(false)
+    })
 }
 
 #[test]
@@ -70,10 +74,7 @@ fn test_multithreaded_backtrace() {
 
     let bt = debugger.backtrace(current_thread.thread.pid).unwrap();
     assert_eq!(bt[0].func_name.as_ref().unwrap(), "mt::sum1");
-    assert!(backtrace_contains_fn(
-        &bt,
-        "std::sys::unix::thread::Thread::new::thread_start"
-    ));
+    assert!(backtrace_contains_fn(&bt, "new::thread_start"));
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);

@@ -6,7 +6,6 @@ use crate::debugger::debugee::dwarf::unit::{DieVariant, Unit};
 use crate::debugger::debugee::dwarf::{ContextualDieRef, DwarfUnwinder, EndianArcSlice};
 use crate::debugger::debugee::Debugee;
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
-use crate::debugger::unwind::libunwind;
 use crate::debugger::{debugee, ExplorationContext};
 use anyhow::anyhow;
 use bytes::{BufMut, Bytes, BytesMut};
@@ -123,7 +122,7 @@ impl<'a> RequirementsResolver<'a> {
             .ok_or_else(|| anyhow!("entry point pc not found"))?
             .into();
 
-        let backtrace = libunwind::unwind(ctx.pid_on_focus())?;
+        let backtrace = self.debugee.unwind(ctx.pid_on_focus())?;
         let entry_pc_rel =
             entry_pc.relocate(self.debugee.mapping_offset_for_pc(ctx.location().pc)?);
         backtrace
@@ -133,7 +132,7 @@ impl<'a> RequirementsResolver<'a> {
             .map(|(num, _)| -> anyhow::Result<DwarfRegisterMap> {
                 // try to use libunwind if frame determined
                 let mut registers = RegisterMap::current(ctx.pid_on_focus())?.into();
-                libunwind::restore_registers_at_frame(
+                self.debugee.restore_registers_at_frame(
                     ctx.pid_on_focus(),
                     &mut registers,
                     num as u32,
@@ -247,17 +246,20 @@ impl<'a> ExpressionEvaluator<'a> {
                     let value_type = self.value_type_from_offset(base_type);
 
                     // if there is registers dump for functions entry - use it
-                    let bytes = if let Some(regs) =
-                        resolver.entry_registers.remove(&ctx.pid_on_focus())
-                    {
-                        regs.value(register)?
-                    } else {
-                        let pid = ctx.pid_on_focus();
-                        let mut registers = DwarfRegisterMap::from(RegisterMap::current(pid)?);
-                        // try to use registers for in focus frame
-                        libunwind::restore_registers_at_frame(pid, &mut registers, ctx.frame())?;
-                        registers.value(register)?
-                    };
+                    let bytes =
+                        if let Some(regs) = resolver.entry_registers.remove(&ctx.pid_on_focus()) {
+                            regs.value(register)?
+                        } else {
+                            let pid = ctx.pid_on_focus();
+                            let mut registers = DwarfRegisterMap::from(RegisterMap::current(pid)?);
+                            // try to use registers for in focus frame
+                            self.resolver.debugee.restore_registers_at_frame(
+                                ctx.pid_on_focus(),
+                                &mut registers,
+                                ctx.frame(),
+                            )?;
+                            registers.value(register)?
+                        };
                     result = eval.resume_with_register(Value::from_u64(value_type, bytes)?)?;
                 }
                 EvaluationResult::RequiresFrameBase => {
@@ -392,7 +394,13 @@ impl<'a> CompletedResult<'a> {
 
             match piece.location {
                 Location::Register { register } => {
-                    buf.put(read_register(self.ctx, register, read_size, offset)?);
+                    buf.put(read_register(
+                        self.debugee,
+                        self.ctx,
+                        register,
+                        read_size,
+                        offset,
+                    )?);
                 }
                 Location::Address { address } => {
                     match address_kind {
@@ -466,6 +474,7 @@ impl<'a> CompletedResult<'a> {
 }
 
 fn read_register(
+    debugee: &Debugee,
     ctx: &ExplorationContext,
     reg: Register,
     size_in_bytes: usize,
@@ -474,7 +483,7 @@ fn read_register(
     let pid = ctx.pid_on_focus();
     let mut registers = DwarfRegisterMap::from(RegisterMap::current(pid)?);
     // try to use registers for in focus frame
-    libunwind::restore_registers_at_frame(pid, &mut registers, ctx.frame())?;
+    debugee.restore_registers_at_frame(ctx.pid_on_focus(), &mut registers, ctx.frame())?;
     let register_value = registers.value(reg)?;
     let bytes = (register_value >> offset).to_ne_bytes();
     let write_size = min(size_in_bytes, std::mem::size_of::<u64>());

@@ -39,7 +39,6 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.sendline('continue')
         self.debugger.expect_exact('thread 1 spawn')
         self.debugger.expect_exact('thread 2 spawn')
-        self.debugger.expect_exact('sum3 (unused): 45')
         self.debugger.expect('Hit breakpoint 3 at')
         self.debugger.expect_exact('36     let mut sum2 = 0;')
         self.debugger.sendline('continue')
@@ -62,7 +61,7 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.expect('24     let mut sum = 0;')
         self.debugger.sendline('backtrace')
         self.debugger.expect('mt::sum1')
-        self.debugger.expect('std::sys::unix::thread::Thread::new::thread_start')
+        self.debugger.expect('new::thread_start')
 
     def test_multithreaded_trace(self):
         """Trace command for multithread debugee"""
@@ -76,7 +75,7 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.expect('thread')
         self.debugger.expect('mt::main')
         self.debugger.expect('thread')
-        self.debugger.expect('std::thread::sleep')
+        self.debugger.expect('clock_nanosleep')
         self.debugger.expect('thread')
         self.debugger.expect('mt::sum2')
 

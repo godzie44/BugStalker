@@ -1,11 +1,12 @@
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
-use crate::debugger::debugee::dwarf::unwind::libunwind;
-use crate::debugger::debugee::dwarf::unwind::libunwind::Backtrace;
+use crate::debugger::debugee::dwarf::unwind;
+use crate::debugger::debugee::dwarf::unwind::Backtrace;
 use crate::debugger::debugee::dwarf::DebugInformation;
 use crate::debugger::debugee::registry::DwarfRegistry;
 use crate::debugger::debugee::rendezvous::Rendezvous;
 use crate::debugger::debugee::tracee::{Tracee, TraceeCtl};
 use crate::debugger::debugee::tracer::{StopReason, TraceContext, Tracer};
+use crate::debugger::register::DwarfRegisterMap;
 use crate::debugger::unwind::FrameSpan;
 use crate::debugger::ExplorationContext;
 use crate::{print_warns, weak_error};
@@ -241,7 +242,7 @@ impl Debugee {
 
         let base_addr = func.frame_base_addr(ctx, self)?;
         let cfa = dwarf.get_cfa(self, ctx)?;
-        let backtrace = libunwind::unwind(ctx.pid_on_focus())?;
+        let backtrace = self.unwind(ctx.pid_on_focus())?;
         let (bt_frame_num, frame) = backtrace
             .iter()
             .enumerate()
@@ -261,20 +262,29 @@ impl Debugee {
         let threads = self.tracee_ctl().snapshot();
         Ok(threads
             .into_iter()
-            .map(|tracee| {
-                let mb_bt = weak_error!(libunwind::unwind(tracee.pid));
+            .filter_map(|tracee| {
+                let _tracee_ctx;
+                let tracee_ctx = if tracee.pid == ctx.pid_on_focus() {
+                    ctx
+                } else {
+                    let location = weak_error!(tracee.location(self))?;
+                    _tracee_ctx = ExplorationContext::new(location, 0);
+                    &_tracee_ctx
+                };
+
+                let mb_bt = weak_error!(self.unwind(tracee_ctx.pid_on_focus()));
                 let frame_num = mb_bt.as_ref().and_then(|bt| {
                     bt.iter()
                         .enumerate()
                         .find_map(|(i, frame)| (frame.ip == ctx.location().pc).then_some(i))
                 });
 
-                ThreadSnapshot {
+                Some(ThreadSnapshot {
                     in_focus: tracee.pid == ctx.pid_on_focus(),
                     thread: tracee,
                     bt: mb_bt,
                     focus_frame: frame_num,
-                }
+                })
             })
             .collect())
     }
@@ -347,5 +357,41 @@ impl Debugee {
         self.dwarf_registry
             .find_mapping_offset_for_file(dwarf)
             .ok_or(anyhow!("determine mapping offset fail, unknown segment"))
+    }
+
+    /// Unwind debugee thread stack and return a backtrace.
+    ///
+    /// # Arguments
+    ///
+    /// * `pid`: thread for unwinding
+    pub fn unwind(&self, pid: Pid) -> anyhow::Result<Backtrace> {
+        unwind::unwind(self, pid)
+    }
+
+    /// Restore registers at chosen frame.
+    ///
+    /// # Arguments
+    ///
+    /// * `pid`: thread for unwinding
+    /// * `registers`: initial registers state at frame 0 (current frame), will be updated with new values
+    /// * `frame_num`: frame number for which registers is restored
+    #[allow(unused)]
+    pub fn restore_registers_at_frame(
+        &self,
+        pid: Pid,
+        registers: &mut DwarfRegisterMap,
+        frame_num: u32,
+    ) -> anyhow::Result<()> {
+        unwind::restore_registers_at_frame(self, pid, registers, frame_num)
+    }
+
+    /// Return return address for thread current program counter.
+    ///
+    /// # Arguments
+    ///
+    /// * `pid`: thread for unwinding
+    #[allow(unused)]
+    pub fn return_addr(&self, pid: Pid) -> anyhow::Result<Option<RelocatedAddress>> {
+        unwind::return_addr(self, pid)
     }
 }

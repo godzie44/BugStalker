@@ -51,6 +51,7 @@ serial_test = "1.0.0"
 
 [features]
 int_test = []
+no_libunwind = []
 
 [[bin]]
 name = "hello_world"

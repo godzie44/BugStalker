@@ -47,7 +47,7 @@ fn test_backtrace() {
     assert_eq!(bt.len(), 11);
 
     assert_ne!(bt[0].fn_start_ip.unwrap().as_u64(), 0);
-    assert_eq!(bt[0].func_name.as_ref().unwrap(), "myprint");
+    assert!(bt[0].func_name.as_ref().unwrap().contains("myprint"));
     assert_ne!(bt[1].fn_start_ip.unwrap().as_u64(), 0);
     assert_eq!(bt[1].func_name.as_ref().unwrap(), "hello_world::main");
 

@@ -77,6 +77,7 @@ impl From<gimli::Register> for Register {
 }
 
 /// x86_64 register values.
+#[derive(Debug)]
 pub struct RegisterMap {
     rax: u64,
     rbx: u64,
@@ -322,6 +323,7 @@ impl From<RegisterMap> for DwarfRegisterMap {
         dwarf_map.insert(13, Some(map.r13));
         dwarf_map.insert(14, Some(map.r14));
         dwarf_map.insert(15, Some(map.r15));
+        dwarf_map.insert(16, Some(map.rip));
         dwarf_map.insert(49, Some(map.eflags));
         dwarf_map.insert(50, Some(map.es));
         dwarf_map.insert(51, Some(map.cs));
