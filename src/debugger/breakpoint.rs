@@ -335,11 +335,15 @@ impl BreakpointRegistry {
     }
 
     /// Disable currently enabled breakpoints.
-    pub fn disable_all_breakpoints(&mut self, debugee: &Debugee) -> anyhow::Result<()> {
+    pub fn disable_all_breakpoints(
+        &mut self,
+        debugee: &Debugee,
+    ) -> anyhow::Result<Vec<anyhow::Error>> {
+        let mut errors = vec![];
         let mut breakpoints = std::mem::take(&mut self.breakpoints);
         for (_, brkpt) in breakpoints.drain() {
             if let Err(e) = brkpt.disable() {
-                log::warn!(target: "debugger", "broken breakpoint {}: {:#}", brkpt.number(), e);
+                errors.push(anyhow!("broken breakpoint {}: {:#}", brkpt.number(), e));
             }
 
             let addr = Address::Global(brkpt.addr.into_global(debugee)?);
@@ -353,8 +357,7 @@ impl BreakpointRegistry {
                 BrkptType::Temporary => {}
             }
         }
-
-        Ok(())
+        Ok(errors)
     }
 
     /// Update pid of all breakpoints.

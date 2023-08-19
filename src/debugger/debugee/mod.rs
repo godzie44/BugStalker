@@ -59,7 +59,7 @@ pub struct Location {
     pub pid: Pid,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 pub enum ExecutionStatus {
     Unload,
     InProgress,
@@ -69,7 +69,7 @@ pub enum ExecutionStatus {
 /// Debugee - represent static and runtime debugee information.
 pub struct Debugee {
     /// debugee running-status.
-    pub execution_status: ExecutionStatus,
+    execution_status: ExecutionStatus,
     /// Debugee tracer. Control debugee process.
     tracer: Tracer,
     /// path to debugee file.
@@ -117,8 +117,18 @@ impl Debugee {
         }
     }
 
-    pub fn in_progress(&self) -> bool {
+    pub fn execution_status(&self) -> ExecutionStatus {
+        self.execution_status
+    }
+
+    /// Return true if debugging process in progress
+    pub fn is_in_progress(&self) -> bool {
         self.execution_status == ExecutionStatus::InProgress
+    }
+
+    /// Return true if debugging process ends
+    pub fn is_exited(&self) -> bool {
+        self.execution_status == ExecutionStatus::Exited
     }
 
     /// Return rendezvous struct.
@@ -173,7 +183,7 @@ impl Debugee {
             }
             StopReason::DebugeeStart => {
                 self.execution_status = ExecutionStatus::InProgress;
-                print_warns!(self.dwarf_registry.update_mappings()?);
+                print_warns!(self.dwarf_registry.update_mappings(true)?);
             }
             StopReason::Breakpoint(tid, addr) => {
                 let at_entry_point = ctx
@@ -218,7 +228,7 @@ impl Debugee {
                         }
                     });
 
-                    print_warns!(self.dwarf_registry.update_mappings()?);
+                    print_warns!(self.dwarf_registry.update_mappings(false)?);
                 }
             }
             _ => {}

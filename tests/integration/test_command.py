@@ -347,6 +347,22 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.sendline('continue')
         self.debugger.expect('bye!')
 
+    def test_debugee_restart_at_end(self):
+        """Debugee process restarting after debugee completing"""
+        self.debugger.sendline('break hello_world.rs:9')
+        self.debugger.expect('New breakpoint')
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('Hello, world!')
+        self.debugger.expect_exact('Hit breakpoint 1')
+        self.debugger.sendline('continue')
+        self.debugger.expect_exact('bye!')
+        self.debugger.sendline('run')
+        self.debugger.expect('Restart program?')
+        self.debugger.sendline('y')
+        self.debugger.expect_exact('Hello, world!')
+        self.debugger.expect_exact('Hit breakpoint 2')
+        self.debugger.sendline('quit')
+
     @staticmethod
     def test_frame_switch():
         """Switch stack frame and assert argument values"""

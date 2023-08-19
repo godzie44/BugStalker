@@ -29,7 +29,7 @@ use crate::debugger::process::{Child, Installed};
 use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::variable::VariableIR;
-use crate::weak_error;
+use crate::{print_warns, weak_error};
 use anyhow::anyhow;
 use nix::libc::{c_void, uintptr_t};
 use nix::sys;
@@ -102,7 +102,7 @@ pub trait EventHook {
 macro_rules! disable_when_not_stared {
     ($this: expr) => {
         use anyhow::bail;
-        if $this.debugee.execution_status != ExecutionStatus::InProgress {
+        if !$this.debugee.is_in_progress() {
             bail!("The program is not being started.")
         }
     };
@@ -254,12 +254,14 @@ impl Debugger {
                 .trace_until_stop(TraceContext::new(&self.breakpoints.active_breakpoints()))?;
             match event {
                 StopReason::DebugeeExit(code) => {
+                    // ignore all possible errors on breakpoints disabling
+                    _ = self.breakpoints.disable_all_breakpoints(&self.debugee);
                     self.hooks.on_exit(code);
                     break;
                 }
                 StopReason::DebugeeStart => {
                     self.breakpoints.enable_all_breakpoints(&self.debugee)?;
-                    //self.expl_ctx_update_location()?;
+                    // no need to update expl context cause next stop been soon, on entry point
                 }
                 StopReason::NoSuchProcess(_) => {
                     break;
@@ -308,11 +310,19 @@ impl Debugger {
     ///
     /// **! change exploration context**
     pub fn restart_debugee(&mut self) -> anyhow::Result<()> {
-        if self.debugee.execution_status == ExecutionStatus::InProgress {
-            self.breakpoints.disable_all_breakpoints(&self.debugee)?;
+        match self.debugee.execution_status() {
+            ExecutionStatus::Unload => {
+                // all breakpoints already disabled by default
+            }
+            ExecutionStatus::InProgress => {
+                print_warns!(self.breakpoints.disable_all_breakpoints(&self.debugee)?);
+            }
+            ExecutionStatus::Exited => {
+                // all breakpoints already disabled by [`StopReason::DebugeeExit`] handler
+            }
         }
 
-        if self.debugee.execution_status != ExecutionStatus::Exited {
+        if !self.debugee.is_exited() {
             let proc_pid = self.debugee.tracee_ctl().proc_pid();
             signal::kill(proc_pid, SIGKILL)?;
             _ = self.debugee.tracer_mut().resume(TraceContext::new(&vec![]));
@@ -334,7 +344,7 @@ impl Debugger {
     /// Start debugee.
     /// Return when debugee stopped or ends.
     pub fn start_debugee(&mut self) -> anyhow::Result<()> {
-        if self.debugee.execution_status != ExecutionStatus::InProgress {
+        if !self.debugee.is_in_progress() {
             return self.continue_execution();
         }
         Ok(())
@@ -510,7 +520,7 @@ impl Debugger {
         &mut self,
         addr: RelocatedAddress,
     ) -> anyhow::Result<BreakpointView> {
-        if self.debugee.in_progress() {
+        if self.debugee.is_in_progress() {
             let dwarf = self.debugee.debug_info(addr);
             let global_addr = addr.into_global(&self.debugee)?;
 
@@ -566,7 +576,7 @@ impl Debugger {
         let dwarf = self.debugee.program_debug_info()?;
         let place = dwarf.get_function_place(name)?;
 
-        if self.debugee.in_progress() {
+        if self.debugee.is_in_progress() {
             let addr = place
                 .address
                 .relocate(self.debugee.mapping_offset_for_file(dwarf)?);
@@ -593,7 +603,7 @@ impl Debugger {
         // todo: currently you can set breakpoint only at addresses that belongs to executable object
         let dwarf = self.debugee.program_debug_info()?;
         let place = dwarf.get_function_place(name)?;
-        if self.debugee.in_progress() {
+        if self.debugee.is_in_progress() {
             self.breakpoints.remove_by_addr(Address::Relocated(
                 place
                     .address
@@ -623,7 +633,7 @@ impl Debugger {
             .ok_or(anyhow!("no source file/line"))?
             .to_owned();
 
-        if self.debugee.in_progress() {
+        if self.debugee.is_in_progress() {
             let addr = place
                 .address
                 .relocate(self.debugee.mapping_offset_for_file(dwarf)?);
@@ -655,7 +665,7 @@ impl Debugger {
             .find_place(fine_name, line)?
             .ok_or(anyhow!("no source file/line"))?;
 
-        if self.debugee.in_progress() {
+        if self.debugee.is_in_progress() {
             self.breakpoints.remove_by_addr(Address::Relocated(
                 place
                     .address
@@ -794,13 +804,14 @@ impl Debugger {
 
 impl Drop for Debugger {
     fn drop(&mut self) {
-        match self.debugee.execution_status {
+        match self.debugee.execution_status() {
             ExecutionStatus::Unload => {
                 signal::kill(self.debugee.tracee_ctl().proc_pid(), Signal::SIGKILL)
                     .expect("kill debugee");
                 waitpid(self.debugee.tracee_ctl().proc_pid(), None).expect("waiting child");
             }
             ExecutionStatus::InProgress => {
+                // ignore all possible errors on breakpoints disabling
                 _ = self.breakpoints.disable_all_breakpoints(&self.debugee);
 
                 let current_tids: Vec<Pid> = self

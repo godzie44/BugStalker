@@ -50,16 +50,31 @@ impl DwarfRegistry {
     }
 
     /// Update ranges with respect of VAS segments addresses.
+    /// Must be called after program is loaded into memory.
     ///
-    /// Must called after program is loaded into memory.
-    pub fn update_mappings(&mut self) -> anyhow::Result<Vec<Error>> {
+    /// # Arguments
+    ///
+    /// * `only_main`: if true - update mappings only for main executable file, false - update all
+    pub fn update_mappings(&mut self, only_main: bool) -> anyhow::Result<Vec<Error>> {
         let proc_maps: Vec<MapRange> = proc_maps::get_process_maps(self.pid.as_raw())?;
 
         let mut mappings = HashMap::with_capacity(self.files.len());
         let mut ranges = vec![];
         let mut errors = Vec::new();
 
-        self.files.iter().for_each(|(file, dwarf)| {
+        let (mut full_it, mut only_main_it);
+        let iter: &mut dyn Iterator<Item = (&PathBuf, &DebugInformation)> = if only_main {
+            only_main_it = self
+                .files
+                .iter()
+                .filter(|(file, _)| *file == &self.program_path);
+            &mut only_main_it
+        } else {
+            full_it = self.files.iter();
+            &mut full_it
+        };
+
+        iter.for_each(|(file, dwarf)| {
             let absolute_debugee_path_buf =
                 file.canonicalize().expect("canonicalize path must exists");
             let absolute_debugee_path = absolute_debugee_path_buf.as_path();
