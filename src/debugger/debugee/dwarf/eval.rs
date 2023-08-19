@@ -65,7 +65,7 @@ impl<'a> RequirementsResolver<'a> {
                 let func = self
                     .debugee
                     .debug_info(ctx.location().pc)?
-                    .find_function_by_pc(loc.global_pc)
+                    .find_function_by_pc(loc.global_pc)?
                     .ok_or_else(|| anyhow!("current function not found"))?;
                 let base_addr = func.frame_base_addr(ctx, self.debugee)?;
                 Ok(*e.insert(base_addr))
@@ -110,7 +110,7 @@ impl<'a> RequirementsResolver<'a> {
         let current_fn = self
             .debugee
             .debug_info(ctx.location().pc)?
-            .find_function_by_pc(current_loc.global_pc)
+            .find_function_by_pc(current_loc.global_pc)?
             .ok_or_else(|| anyhow!("not in function"))?;
         let entry_pc: GlobalAddress = current_fn
             .die
@@ -443,7 +443,7 @@ impl<'a> CompletedResult<'a> {
                     })?;
                     if let DieVariant::Variable(ref variable) = &entry.die {
                         let ctx_die = ContextualDieRef {
-                            context: dwarf,
+                            debug_info: dwarf,
                             unit_idx: unit.idx(),
                             node: &entry.node,
                             die: variable,

@@ -1,7 +1,6 @@
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::debugee::dwarf::{DebugInformation, EndianArcSlice};
 use anyhow::{anyhow, Error};
-use gimli::Range;
 use nix::unistd::Pid;
 use proc_maps::MapRange;
 use std::cmp::Ordering;
@@ -66,30 +65,39 @@ impl DwarfRegistry {
             let absolute_debugee_path = absolute_debugee_path_buf.as_path();
             let maps = proc_maps
                 .iter()
-                .filter(|map| map.filename() == Some(absolute_debugee_path));
+                .filter(|map| map.filename() == Some(absolute_debugee_path))
+                .collect::<Vec<_>>();
 
-            let lowest_map = maps
+            if maps.is_empty() {
+                errors.push(anyhow!("mapping not found for {file:?}"));
+                return;
+            }
+
+            let lower_sect = maps
+                .iter()
                 .min_by(|map1, map2| map1.start().cmp(&map2.start()))
-                .ok_or_else(|| anyhow!("mapping not found for {file:?}"));
-            let lowest_map = match lowest_map {
-                Ok(m) => m,
-                Err(e) => {
-                    errors.push(e);
-                    return;
-                }
-            };
+                .expect("at least one mapping must exists");
+            let higher_sect = maps
+                .iter()
+                .max_by(|map1, map2| map1.start().cmp(&map2.start()))
+                .expect("at least one mapping must exists");
 
-            let mapping = lowest_map.start();
-            let range = dwarf.range().unwrap_or(Range { begin: 0, end: 0 });
+            let mapping = lower_sect.start();
+            let range = dwarf.range();
 
-            mappings.insert(file.clone(), mapping);
-            ranges.push((
-                file.clone(),
-                TextRange {
+            let range = match range {
+                None => TextRange {
+                    from: RelocatedAddress::from(lower_sect.start()),
+                    to: RelocatedAddress::from(higher_sect.start() + higher_sect.size()),
+                },
+                Some(range) => TextRange {
                     from: RelocatedAddress::from(range.begin as usize + mapping),
                     to: RelocatedAddress::from(range.end as usize + mapping),
                 },
-            ));
+            };
+
+            mappings.insert(file.clone(), mapping);
+            ranges.push((file.clone(), range));
         });
 
         self.mappings = mappings;

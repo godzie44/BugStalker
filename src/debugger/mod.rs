@@ -29,6 +29,7 @@ use crate::debugger::process::{Child, Installed};
 use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::variable::VariableIR;
+use crate::weak_error;
 use anyhow::anyhow;
 use nix::libc::{c_void, uintptr_t};
 use nix::sys;
@@ -277,12 +278,12 @@ impl Debugger {
                                 let dwarf = self
                                     .debugee
                                     .debug_info(self.exploration_ctx().location().pc)?;
-                                self.hooks.on_breakpoint(
-                                    current_pc,
-                                    bp.number(),
-                                    dwarf.find_place_from_pc(pc),
-                                    dwarf.find_function_by_pc(pc).map(|f| f.die),
-                                )?;
+                                let place = weak_error!(dwarf.find_place_from_pc(pc)).flatten();
+                                let func = weak_error!(dwarf.find_function_by_pc(pc))
+                                    .flatten()
+                                    .map(|f| f.die);
+                                self.hooks
+                                    .on_breakpoint(current_pc, bp.number(), place, func)?;
                                 break;
                             }
                             BrkptType::Temporary => {
@@ -390,22 +391,27 @@ impl Debugger {
         Ok(num)
     }
 
+    /// Execute `on_step` callback with current exploration context
+    fn execute_on_step_hook(&self) -> anyhow::Result<()> {
+        let ctx = self.exploration_ctx();
+        let pc = ctx.location().pc;
+        let global_pc = ctx.location().global_pc;
+        let dwarf = self.debugee.debug_info(pc)?;
+        let place = weak_error!(dwarf.find_place_from_pc(global_pc)).flatten();
+        let func = weak_error!(dwarf.find_function_by_pc(global_pc))
+            .flatten()
+            .map(|f| f.die);
+        self.hooks.on_step(pc, place, func)
+    }
+
     /// Do single step (until debugee reaches a different source line).
     ///
     /// **! change exploration context**
     pub fn step_into(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
         self.expl_ctx_restore_frame()?;
-
-        let ctx = self.step_in()?;
-        let pc = ctx.location().pc;
-        let global_pc = ctx.location().global_pc;
-        let dwarf = self.debugee.debug_info(pc)?;
-        self.hooks.on_step(
-            pc,
-            dwarf.find_place_from_pc(global_pc),
-            dwarf.find_function_by_pc(global_pc).map(|f| f.die),
-        )
+        self.step_in()?;
+        self.execute_on_step_hook()
     }
 
     /// Move in focus thread to next instruction.
@@ -415,15 +421,8 @@ impl Debugger {
         disable_when_not_stared!(self);
         self.expl_ctx_restore_frame()?;
 
-        let ctx = self.single_step_instruction()?;
-        let pc = ctx.location().pc;
-        let global_pc = ctx.location().global_pc;
-        let dwarf = self.debugee.debug_info(pc)?;
-        self.hooks.on_step(
-            pc,
-            dwarf.find_place_from_pc(global_pc),
-            dwarf.find_function_by_pc(global_pc).map(|f| f.die),
-        )
+        self.single_step_instruction()?;
+        self.execute_on_step_hook()
     }
 
     /// Return list of currently running debugee threads.
@@ -491,15 +490,7 @@ impl Debugger {
         disable_when_not_stared!(self);
         self.expl_ctx_restore_frame()?;
         self.step_out_frame()?;
-        let new_location = self.exploration_ctx().location();
-        let dwarf = self.debugee.debug_info(new_location.pc)?;
-        self.hooks.on_step(
-            new_location.pc,
-            dwarf.find_place_from_pc(new_location.global_pc),
-            dwarf
-                .find_function_by_pc(new_location.global_pc)
-                .map(|f| f.die),
-        )
+        self.execute_on_step_hook()
     }
 
     /// Do debugee step (over subroutine calls to).
@@ -507,15 +498,7 @@ impl Debugger {
         disable_when_not_stared!(self);
         self.expl_ctx_restore_frame()?;
         self.step_over_any()?;
-        let new_location = self.exploration_ctx().location();
-        let dwarf = self.debugee.debug_info(new_location.pc)?;
-        self.hooks.on_step(
-            new_location.pc,
-            dwarf.find_place_from_pc(new_location.global_pc),
-            dwarf
-                .find_function_by_pc(new_location.global_pc)
-                .map(|f| f.die),
-        )
+        self.execute_on_step_hook()
     }
 
     /// Create and enable breakpoint at debugee address space
@@ -535,7 +518,7 @@ impl Debugger {
                 .ok()
                 .map(|dwarf| {
                     dwarf
-                        .find_place_from_pc(global_addr)
+                        .find_place_from_pc(global_addr)?
                         .map(|p| p.to_owned())
                         .ok_or(anyhow!("unknown address"))
                 })
@@ -636,7 +619,7 @@ impl Debugger {
         // todo: currently you can set breakpoint only at addresses that belongs to executable object
         let dwarf = self.debugee.program_debug_info()?;
         let place = dwarf
-            .find_place(fine_name, line)
+            .find_place(fine_name, line)?
             .ok_or(anyhow!("no source file/line"))?
             .to_owned();
 
@@ -669,7 +652,7 @@ impl Debugger {
         // todo: currently you can set breakpoint only at addresses that belongs to executable object
         let dwarf = self.debugee.program_debug_info()?;
         let place = dwarf
-            .find_place(fine_name, line)
+            .find_place(fine_name, line)?
             .ok_or(anyhow!("no source file/line"))?;
 
         if self.debugee.in_progress() {
@@ -804,7 +787,8 @@ impl Debugger {
         self.debugee
             .debug_info_all()
             .into_iter()
-            .flat_map(|dwarf| dwarf.known_files())
+            .filter_map(|dwarf| dwarf.known_files().ok())
+            .flatten()
     }
 }
 

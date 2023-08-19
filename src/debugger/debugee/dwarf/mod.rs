@@ -51,7 +51,7 @@ pub struct DebugInformation<R: gimli::Reader = EndianArcSlice> {
     inner: Dwarf<R>,
     eh_frame: EhFrame<R>,
     bases: BaseAddresses,
-    units: Vec<Unit>,
+    units: Option<Vec<Unit>>,
     symbol_table: Option<SymbolTab>,
 }
 
@@ -83,13 +83,55 @@ impl Clone for DebugInformation {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum DebugInformationError {
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+    #[error("not enough debug information to complete the request")]
+    IncompleteInformation,
+}
+
+type Result<T> = std::result::Result<T, DebugInformationError>;
+
+/// Using this macro means a promise that debug information exists in context of usage.
+#[macro_export]
+macro_rules! debug_info_exists {
+    ($expr: expr) => {
+        $expr.expect("unreachable: debug information must exists")
+    };
+}
+
 impl DebugInformation {
+    /// Return path to executable file with (possible) debug information.
+    /// In case of executable contains debug information in separate file this file may not have
+    /// a debug information but contains a link to it.
     pub fn pathname(&self) -> &Path {
         self.file.as_path()
     }
 
+    /// The location lists in the .debug_loc and .debug_loclists sections.
     pub fn locations(&self) -> &LocationLists<EndianArcSlice> {
         &self.inner.locations
+    }
+
+    /// Return all dwarf units or error if no debug information found.
+    fn get_units(&self) -> Result<&[Unit]> {
+        self.units
+            .as_deref()
+            .ok_or(DebugInformationError::IncompleteInformation)
+    }
+
+    /// Return unit by its index.
+    ///
+    /// # Arguments
+    ///
+    /// * `idx`: unit index
+    ///
+    /// # Panics
+    ///
+    /// Panic if unit not found.
+    pub fn unit_ensure(&self, idx: usize) -> &Unit {
+        &debug_info_exists!(self.get_units())[idx]
     }
 
     fn evaluate_cfa(
@@ -106,8 +148,7 @@ impl DebugInformation {
                 Ok(RelocatedAddress::from(ra as usize).offset(*offset as isize))
             }
             CfaRule::Expression(expr) => {
-                let unit = self
-                    .find_unit_by_pc(ctx.location().global_pc)
+                let unit = debug_info_exists!(self.find_unit_by_pc(ctx.location().global_pc))
                     .ok_or_else(|| anyhow!("undefined unit"))?;
                 let evaluator = resolve_unit_call!(&self.inner, unit, evaluator, debugee);
                 let expr_result = evaluator.evaluate(ctx, expr.clone())?;
@@ -142,12 +183,19 @@ impl DebugInformation {
     }
 
     /// Return a list of all known files.
-    pub fn known_files(&self) -> impl Iterator<Item = &PathBuf> {
-        self.units.iter().flat_map(|unit| unit.files())
+    pub fn known_files(&self) -> Result<impl Iterator<Item = &PathBuf>> {
+        Ok(self.get_units()?.iter().flat_map(|unit| unit.files()))
     }
 
-    fn find_unit_by_pc(&self, pc: GlobalAddress) -> Option<&Unit> {
-        self.units.iter().find(|&unit| {
+    /// Searches for a unit by occurrences of PC in its range.
+    ///
+    /// # Arguments
+    ///
+    /// * `pc`: program counter value
+    ///
+    /// returns: `None` if unit not found, error if no debug information found
+    fn find_unit_by_pc(&self, pc: GlobalAddress) -> Result<Option<&Unit>> {
+        Ok(self.get_units()?.iter().find(|&unit| {
             match unit
                 .ranges()
                 .binary_search_by_key(&(pc.into()), |r| r.begin)
@@ -158,19 +206,22 @@ impl DebugInformation {
                     .rev()
                     .any(|range| pc.in_range(range)),
             }
-        })
+        }))
     }
 
     /// Returns best matched place by program counter global address.
-    pub fn find_place_from_pc(&self, pc: GlobalAddress) -> Option<unit::PlaceDescriptor> {
-        let unit = self.find_unit_by_pc(pc)?;
-        unit.find_place_by_pc(pc)
+    pub fn find_place_from_pc(&self, pc: GlobalAddress) -> Result<Option<unit::PlaceDescriptor>> {
+        let mb_unit = self.find_unit_by_pc(pc)?;
+        Ok(mb_unit.and_then(|u| u.find_place_by_pc(pc)))
     }
 
     /// Returns place with line address equals to program counter global address.
-    pub fn find_exact_place_from_pc(&self, pc: GlobalAddress) -> Option<unit::PlaceDescriptor> {
-        let unit = self.find_unit_by_pc(pc)?;
-        unit.find_exact_place_by_pc(pc)
+    pub fn find_exact_place_from_pc(
+        &self,
+        pc: GlobalAddress,
+    ) -> Result<Option<unit::PlaceDescriptor>> {
+        let mb_unit = self.find_unit_by_pc(pc)?;
+        Ok(mb_unit.and_then(|u| u.find_exact_place_by_pc(pc)))
     }
 
     /// Return a function inside which the given instruction is located.
@@ -178,35 +229,40 @@ impl DebugInformation {
     /// # Arguments
     ///
     /// * `pc`: instruction global address.
-    pub fn find_function_by_pc(&self, pc: GlobalAddress) -> Option<ContextualDieRef<FunctionDie>> {
-        let unit = self.find_unit_by_pc(pc)?;
-        let pc = u64::from(pc);
-        let die_ranges = resolve_unit_call!(self.dwarf(), unit, die_ranges);
-        let find_pos = match die_ranges.binary_search_by_key(&pc, |dr| dr.range.begin) {
-            Ok(pos) => {
-                let mut idx = pos + 1;
-                while idx < die_ranges.len() && die_ranges[idx].range.begin == pc {
-                    idx += 1;
+    pub fn find_function_by_pc(
+        &self,
+        pc: GlobalAddress,
+    ) -> Result<Option<ContextualDieRef<FunctionDie>>> {
+        let mb_unit = self.find_unit_by_pc(pc)?;
+        Ok(mb_unit.and_then(|unit| {
+            let pc = u64::from(pc);
+            let die_ranges = resolve_unit_call!(self.dwarf(), unit, die_ranges);
+            let find_pos = match die_ranges.binary_search_by_key(&pc, |dr| dr.range.begin) {
+                Ok(pos) => {
+                    let mut idx = pos + 1;
+                    while idx < die_ranges.len() && die_ranges[idx].range.begin == pc {
+                        idx += 1;
+                    }
+                    idx
                 }
-                idx
-            }
-            Err(pos) => pos,
-        };
-
-        die_ranges[..find_pos].iter().rev().find_map(|dr| {
-            let entry = resolve_unit_call!(&self.inner, unit, entry, dr.die_idx);
-            if let DieVariant::Function(ref func) = entry.die {
-                if dr.range.begin <= pc && pc < dr.range.end {
-                    return Some(ContextualDieRef {
-                        context: self,
-                        node: &entry.node,
-                        unit_idx: unit.idx(),
-                        die: func,
-                    });
-                }
+                Err(pos) => pos,
             };
-            None
-        })
+
+            die_ranges[..find_pos].iter().rev().find_map(|dr| {
+                let entry = resolve_unit_call!(&self.inner, unit, entry, dr.die_idx);
+                if let DieVariant::Function(ref func) = entry.die {
+                    if dr.range.begin <= pc && pc < dr.range.end {
+                        return Some(ContextualDieRef {
+                            debug_info: self,
+                            node: &entry.node,
+                            unit_idx: unit.idx(),
+                            die: func,
+                        });
+                    }
+                };
+                None
+            })
+        }))
     }
 
     /// Return a function by its name.
@@ -214,14 +270,17 @@ impl DebugInformation {
     /// # Arguments
     ///
     /// * `needle`: function name.
-    pub fn find_function_by_name(&self, needle: &str) -> Option<ContextualDieRef<FunctionDie>> {
-        self.units.iter().find_map(|unit| {
+    pub fn find_function_by_name(
+        &self,
+        needle: &str,
+    ) -> Result<Option<ContextualDieRef<FunctionDie>>> {
+        Ok(self.get_units()?.iter().find_map(|unit| {
             let mut entry_it = resolve_unit_call!(self.dwarf(), unit, entries_it);
             entry_it.find_map(|entry| {
                 if let DieVariant::Function(func) = &entry.die {
                     if func.base_attributes.name.as_deref() == Some(needle) {
                         return Some(ContextualDieRef {
-                            context: self,
+                            debug_info: self,
                             unit_idx: unit.idx(),
                             node: &entry.node,
                             die: func,
@@ -230,18 +289,19 @@ impl DebugInformation {
                 }
                 None
             })
-        })
+        }))
     }
 
-    pub fn find_place(&self, file: &str, line: u64) -> Option<unit::PlaceDescriptor<'_>> {
-        self.units
+    pub fn find_place(&self, file: &str, line: u64) -> Result<Option<unit::PlaceDescriptor<'_>>> {
+        Ok(self
+            .get_units()?
             .iter()
-            .find_map(|unit| unit.find_stmt_line(file, line))
+            .find_map(|unit| unit.find_stmt_line(file, line)))
     }
 
-    pub fn get_function_place(&self, fn_name: &str) -> anyhow::Result<PlaceDescriptorOwned> {
+    pub fn get_function_place(&self, fn_name: &str) -> Result<PlaceDescriptorOwned> {
         let func = self
-            .find_function_by_name(fn_name)
+            .find_function_by_name(fn_name)?
             .ok_or_else(|| anyhow!("function not found"))?;
         Ok(func.prolog_end_place()?.to_owned())
     }
@@ -271,12 +331,11 @@ impl DebugInformation {
                 entry.map(|e| (e, default_unit))
             }
             DieRef::Global(offset) => {
-                let unit = match self
-                    .units
-                    .binary_search_by_key(&Some(offset), |u| u.offset())
-                {
+                let mb_unit = debug_info_exists!(self.get_units())
+                    .binary_search_by_key(&Some(offset), |u| u.offset());
+                let unit = match mb_unit {
                     Ok(_) | Err(0) => return None,
-                    Err(pos) => &self.units[pos - 1],
+                    Err(pos) => self.unit_ensure(pos - 1),
                 };
                 let offset = UnitOffset(offset.0 - unit.offset().unwrap_or(DebugInfoOffset(0)).0);
                 let entry = resolve_unit_call!(&self.inner, unit, find_entry, offset);
@@ -289,16 +348,18 @@ impl DebugInformation {
         &self,
         location: Location,
         name: &str,
-    ) -> Vec<ContextualDieRef<'_, VariableDie>> {
+    ) -> Result<Vec<ContextualDieRef<'_, VariableDie>>> {
+        let units = self.get_units()?;
+
         let mut found = vec![];
-        for unit in &self.units {
+        for unit in units {
             let mb_var_locations = resolve_unit_call!(self.dwarf(), unit, locate_var_die, name);
             if let Some(vars) = mb_var_locations {
                 vars.iter().for_each(|(_, entry_idx)| {
                     let entry = resolve_unit_call!(&self.inner, unit, entry, *entry_idx);
                     if let DieVariant::Variable(ref var) = entry.die {
                         let variable = ContextualDieRef {
-                            context: self,
+                            debug_info: self,
                             unit_idx: unit.idx(),
                             node: &entry.node,
                             die: var,
@@ -316,7 +377,7 @@ impl DebugInformation {
         // for rust we expect that tls variable represents in dwarf like
         // variable with name "__KEY" and namespace like [.., variable_name, __getit]
         let tls_ns_part = &[name, "__getit"];
-        for unit in &self.units {
+        for unit in units {
             let mb_var_locations = resolve_unit_call!(self.dwarf(), unit, locate_var_die, "__KEY");
             if let Some(vars) = mb_var_locations {
                 vars.iter().for_each(|(namespaces, entry_idx)| {
@@ -324,7 +385,7 @@ impl DebugInformation {
                         let entry = resolve_unit_call!(&self.inner, unit, entry, *entry_idx);
                         if let DieVariant::Variable(ref var) = entry.die {
                             found.push(ContextualDieRef {
-                                context: self,
+                                debug_info: self,
                                 unit_idx: unit.idx(),
                                 node: &entry.node,
                                 die: var,
@@ -335,7 +396,7 @@ impl DebugInformation {
             }
         }
 
-        found
+        Ok(found)
     }
 
     pub fn dwarf(&self) -> &Dwarf<EndianArcSlice> {
@@ -344,15 +405,15 @@ impl DebugInformation {
 
     /// Return the maximum and minimum address from the collection of unit ranges.
     pub fn range(&self) -> Option<Range> {
+        let units = self.get_units().ok()?;
+
         // ranges already sorted by begin addr
-        let begin = self
-            .units
+        let begin = units
             .iter()
             .filter_map(|u| u.ranges().first().map(|r| r.begin))
             .min()?;
 
-        let end = self
-            .units
+        let end = units
             .iter()
             .map(|u| {
                 u.ranges().iter().fold(
@@ -367,9 +428,9 @@ impl DebugInformation {
 }
 
 #[derive(Default)]
-pub struct DebugeeContextBuilder;
+pub struct DebugInformationBuilder;
 
-impl DebugeeContextBuilder {
+impl DebugInformationBuilder {
     fn load_section<'a: 'b, 'b, OBJ, Endian>(
         id: gimli::SectionId,
         file: &'a OBJ,
@@ -447,11 +508,7 @@ impl DebugeeContextBuilder {
         Ok(None)
     }
 
-    pub fn build(
-        &self,
-        obj_path: &Path,
-        file: &object::File,
-    ) -> anyhow::Result<Option<DebugInformation>> {
+    pub fn build(&self, obj_path: &Path, file: &object::File) -> anyhow::Result<DebugInformation> {
         let endian = if file.is_little_endian() {
             RunTimeEndian::Little
         } else {
@@ -501,10 +558,19 @@ impl DebugeeContextBuilder {
 
         let parser = DwarfUnitParser::new(&dwarf);
         let headers = dwarf.units().collect::<Vec<_>>()?;
+
         if headers.is_empty() {
             // no units means no debug info
             info!(target: "dwarf-loader", "no debug information for {obj_path:?}");
-            return Ok(None);
+
+            return Ok(DebugInformation {
+                file: obj_path.to_path_buf(),
+                inner: dwarf,
+                eh_frame,
+                bases,
+                units: None,
+                symbol_table,
+            });
         }
 
         let mut units = headers
@@ -518,14 +584,14 @@ impl DebugeeContextBuilder {
         units.sort_unstable_by_key(|u| u.offset());
         units.iter_mut().enumerate().for_each(|(i, u)| u.set_idx(i));
 
-        Ok(Some(DebugInformation {
+        Ok(DebugInformation {
             file: obj_path.to_path_buf(),
             inner: dwarf,
             eh_frame,
             bases,
-            units,
+            units: Some(units),
             symbol_table,
-        }))
+        })
     }
 }
 
@@ -610,7 +676,7 @@ impl NamespaceHierarchy {
 }
 
 pub struct ContextualDieRef<'a, T> {
-    pub context: &'a DebugInformation,
+    pub debug_info: &'a DebugInformation,
     pub unit_idx: usize,
     pub node: &'a Node,
     pub die: &'a T,
@@ -619,14 +685,14 @@ pub struct ContextualDieRef<'a, T> {
 #[macro_export]
 macro_rules! ctx_resolve_unit_call {
     ($self: ident, $fn_name: tt, $($arg: expr),*) => {{
-        $crate::resolve_unit_call!($self.context.dwarf(), $self.unit(), $fn_name, $($arg),*)
+        $crate::resolve_unit_call!($self.debug_info.dwarf(), $self.unit(), $fn_name, $($arg),*)
     }};
 }
 
 impl<'a, T> Clone for ContextualDieRef<'a, T> {
     fn clone(&self) -> Self {
         Self {
-            context: self.context,
+            debug_info: self.debug_info,
             unit_idx: self.unit_idx,
             node: self.node,
             die: self.die,
@@ -643,7 +709,7 @@ impl<'a, T> ContextualDieRef<'a, T> {
     }
 
     pub fn unit(&self) -> &'a Unit {
-        &self.context.units[self.unit_idx]
+        self.debug_info.unit_ensure(self.unit_idx)
     }
 }
 
@@ -668,7 +734,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
             .ok_or_else(|| anyhow!("no frame base attr"))?;
 
         let expr = DwarfLocation(attr)
-            .try_as_expression(self.context, self.unit(), ctx.location().global_pc)
+            .try_as_expression(self.debug_info, self.unit(), ctx.location().global_pc)
             .ok_or_else(|| anyhow!("frame base attribute not an expression"))?;
 
         let evaluator = ctx_resolve_unit_call!(self, evaluator, debugee);
@@ -688,7 +754,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
             let entry = ctx_resolve_unit_call!(self, entry, idx);
             if let DieVariant::Variable(ref var) = entry.die {
                 let var_ref = ContextualDieRef {
-                    context: self.context,
+                    debug_info: self.debug_info,
                     unit_idx: self.unit_idx,
                     node: &entry.node,
                     die: var,
@@ -710,7 +776,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
             let entry = ctx_resolve_unit_call!(self, entry, idx);
             if let DieVariant::Parameter(ref var) = entry.die {
                 result.push(ContextualDieRef {
-                    context: self.context,
+                    debug_info: self.debug_info,
                     unit_idx: self.unit_idx,
                     node: &entry.node,
                     die: var,
@@ -730,9 +796,11 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
             .min_by(|r1, r2| r1.begin.cmp(&r2.begin))
             .ok_or(anyhow!("function ranges not found"))?
             .begin;
-        self.context
-            .find_place_from_pc(GlobalAddress::from(low_pc))
-            .ok_or_else(|| anyhow!("invalid function entry"))
+
+        debug_info_exists!(self
+            .debug_info
+            .find_place_from_pc(GlobalAddress::from(low_pc)))
+        .ok_or_else(|| anyhow!("invalid function entry"))
     }
 
     pub fn prolog_end_place(&self) -> anyhow::Result<unit::PlaceDescriptor> {
@@ -796,7 +864,7 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
             let entry = ctx_resolve_unit_call!(self, entry, p);
             if let DieVariant::Function(ref func) = entry.die {
                 return Some(ContextualDieRef {
-                    context: self.context,
+                    debug_info: self.debug_info,
                     unit_idx: self.unit_idx,
                     node: &entry.node,
                     die: func,
@@ -823,7 +891,7 @@ impl<'ctx, D: AsAllocatedValue> ContextualDieRef<'ctx, D> {
         r#type: &ComplexType,
     ) -> Option<Bytes> {
         self.die
-            .location_expr(self.context, self.unit(), ctx.location().global_pc)
+            .location_expr(self.debug_info, self.unit(), ctx.location().global_pc)
             .and_then(|expr| {
                 let evaluator = ctx_resolve_unit_call!(self, evaluator, debugee);
                 let eval_result = weak_error!(evaluator.evaluate(ctx, expr))?;

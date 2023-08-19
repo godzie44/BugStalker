@@ -84,10 +84,8 @@ pub struct Debugee {
 
 impl Debugee {
     pub fn new_non_running(path: &Path, proc: Pid, object: &object::File) -> anyhow::Result<Self> {
-        let dwarf_builder = dwarf::DebugeeContextBuilder::default();
-        let dwarf = dwarf_builder.build(path, object)?.ok_or(anyhow!(
-            "no debug information for executable object {path:?}"
-        ))?;
+        let dwarf_builder = dwarf::DebugInformationBuilder::default();
+        let dwarf = dwarf_builder.build(path, object)?;
         let registry = DwarfRegistry::new(proc, path.to_path_buf(), dwarf);
 
         Ok(Self {
@@ -162,9 +160,9 @@ impl Debugee {
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
         let object = object::File::parse(&*mmap)?;
 
-        let dwarf_builder = dwarf::DebugeeContextBuilder::default();
+        let dwarf_builder = dwarf::DebugInformationBuilder::default();
         let dwarf = dwarf_builder.build(PathBuf::from(dep_file).as_path(), &object)?;
-        Ok(dwarf)
+        Ok(Some(dwarf))
     }
 
     pub fn trace_until_stop(&mut self, ctx: TraceContext) -> anyhow::Result<StopReason> {
@@ -237,7 +235,7 @@ impl Debugee {
     pub fn frame_info(&self, ctx: &ExplorationContext) -> anyhow::Result<FrameInfo> {
         let dwarf = self.debug_info(ctx.location().pc)?;
         let func = dwarf
-            .find_function_by_pc(ctx.location().global_pc)
+            .find_function_by_pc(ctx.location().global_pc)?
             .ok_or_else(|| anyhow!("current function not found"))?;
 
         let base_addr = func.frame_base_addr(ctx, self)?;

@@ -206,7 +206,7 @@ impl UninitBreakpoint {
 
                 Some(
                     dwarf
-                        .find_place_from_pc(global_addr)
+                        .find_place_from_pc(global_addr)?
                         .ok_or(anyhow!("unknown place for address: {}", self.addr))?
                         .to_owned(),
                 )

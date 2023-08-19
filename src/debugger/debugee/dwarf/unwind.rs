@@ -123,7 +123,7 @@ impl<'a> UnwindContext<'a> {
         let mut lazy_evaluator = None;
         let evaluator_init_fn = || -> anyhow::Result<ExpressionEvaluator> {
             let unit = dwarf
-                .find_unit_by_pc(expl_ctx.location().global_pc)
+                .find_unit_by_pc(expl_ctx.location().global_pc)?
                 .ok_or_else(|| anyhow!("undefined unit"))?;
 
             let evaluator = resolve_unit_call!(&dwarf.inner, unit, evaluator, debugee);
@@ -255,7 +255,7 @@ impl<'a> DwarfUnwinder<'a> {
         let function = self
             .debugee
             .debug_info(ctx.location().pc)?
-            .find_function_by_pc(ctx.location().global_pc);
+            .find_function_by_pc(ctx.location().global_pc)?;
         let mapping_offset = self.debugee.mapping_offset_for_pc(ctx.location().pc)?;
         let fn_start_at = function.and_then(|func| {
             func.prolog_start_place()
@@ -291,7 +291,7 @@ impl<'a> DwarfUnwinder<'a> {
             let function = self
                 .debugee
                 .debug_info(next_location.pc)?
-                .find_function_by_pc(next_location.global_pc);
+                .find_function_by_pc(next_location.global_pc)?;
             let mapping_offset = self.debugee.mapping_offset_for_pc(next_location.pc)?;
             let fn_start_at = function.and_then(|func| {
                 func.prolog_start_place()

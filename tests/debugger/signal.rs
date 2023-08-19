@@ -19,7 +19,7 @@ fn test_signal_stop_single_thread() {
     debugger.set_breakpoint_at_line("signals.rs", 12).unwrap();
 
     thread::spawn(move || {
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_secs(4));
         signal::kill(debugee_pid, SIGUSR1).unwrap();
     });
 
@@ -46,7 +46,7 @@ fn test_signal_stop_multi_thread() {
     debugger.set_breakpoint_at_line("signals.rs", 42).unwrap();
 
     thread::spawn(move || {
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_secs(4));
         signal::kill(debugee_pid, SIGUSR1).unwrap();
     });
 
@@ -71,7 +71,7 @@ fn test_signal_stop_multi_thread_multiple_signal() {
     debugger.set_breakpoint_at_line("signals.rs", 62).unwrap();
 
     thread::spawn(move || {
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_secs(4));
         signal::kill(debugee_pid, SIGUSR1).unwrap();
         signal::kill(debugee_pid, SIGUSR2).unwrap();
     });

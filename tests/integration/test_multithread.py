@@ -125,10 +125,16 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.sendline('thread current')
         self.debugger.expect_exact('#2 thread id')
 
-        # try to step in new in focus thread
-        self.debugger.sendline('step')
-        self.debugger.sendline('step')
-        self.debugger.expect_exact('/sys/unix/thread.rs')
+        # try to step in new in focus thread, if there is no debug info for shared libs
+        # in system (libc in this case) we must do a single step, if debug info exists
+        # two steps is needed
+        try:
+            self.debugger.sendline('step')
+            self.debugger.expect_exact('/sys/unix/thread.rs')
+        except pexpect.ExceptionPexpect:
+            self.debugger.sendline('step')
+            self.debugger.expect_exact('/sys/unix/thread.rs')
+
         self.debugger.sendline('step')
         self.debugger.sendline('step')
         self.debugger.expect_exact('24     let mut sum = 0;')

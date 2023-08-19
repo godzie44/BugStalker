@@ -454,7 +454,7 @@ impl Unit {
         self.properties.encoding
     }
 
-    /// Return unit range lowest pc.
+    /// Return unit range lowest PC.
     pub fn low_pc(&self) -> u64 {
         self.properties.low_pc
     }

@@ -18,9 +18,11 @@ impl Debugger {
                 let ctx = debugger.single_step_instruction()?;
 
                 let mut location = ctx.location();
+                // determine current function, if no debug information for function - step until function found
                 let func = loop {
                     let dwarf = debugger.debugee.debug_info(location.pc)?;
-                    if let Some(func) = dwarf.find_function_by_pc(location.global_pc) {
+                    // step's stop only if there is a debug information for PC and current function can be determined
+                    if let Ok(Some(func)) = dwarf.find_function_by_pc(location.global_pc) {
                         break func;
                     }
                     let ctx = debugger.single_step_instruction()?;
@@ -28,7 +30,7 @@ impl Debugger {
                 };
 
                 let prolog = func.prolog()?;
-                // if pc in prolog range - step until function body is reached
+                // if PC in prolog range - step until function body is reached
                 while debugger
                     .exploration_ctx()
                     .location()
@@ -42,7 +44,7 @@ impl Debugger {
                 if let Some(place) = debugger
                     .debugee
                     .debug_info(location.pc)?
-                    .find_exact_place_from_pc(location.global_pc)
+                    .find_exact_place_from_pc(location.global_pc)?
                 {
                     return Ok(place.to_owned());
                 }
@@ -53,7 +55,7 @@ impl Debugger {
 
         let start_place = loop {
             let dwarf = &self.debugee.debug_info(location.pc)?;
-            if let Some(place) = dwarf.find_place_from_pc(location.global_pc) {
+            if let Ok(Some(place)) = dwarf.find_place_from_pc(location.global_pc) {
                 break place;
             }
             let ctx = self.single_step_instruction()?;
@@ -158,9 +160,11 @@ impl Debugger {
         let ctx = self.exploration_ctx();
         let mut current_location = ctx.location();
 
+        // determine current function, if no debug information for function - step until function found
         let func = loop {
             let dwarf = &self.debugee.debug_info(current_location.pc)?;
-            if let Some(func) = dwarf.find_function_by_pc(current_location.global_pc) {
+            // step's stop only if there is a debug information for PC and current function can be determined
+            if let Ok(Some(func)) = dwarf.find_function_by_pc(current_location.global_pc) {
                 break func;
             }
             let ctx = self.single_step_instruction()?;
@@ -172,7 +176,7 @@ impl Debugger {
         let inline_ranges = func.inline_ranges();
 
         let current_place = dwarf
-            .find_place_from_pc(current_location.global_pc)
+            .find_place_from_pc(current_location.global_pc)?
             .ok_or_else(|| anyhow!("current line not found"))?;
 
         let mut step_over_breakpoints = vec![];
@@ -251,7 +255,7 @@ impl Debugger {
             let place = self
                 .debugee
                 .debug_info(new_location.pc)?
-                .find_place_from_pc(new_location.global_pc)
+                .find_place_from_pc(new_location.global_pc)?
                 .ok_or_else(|| anyhow!("unknown function range"))?;
 
             if place.address != new_location.global_pc {
