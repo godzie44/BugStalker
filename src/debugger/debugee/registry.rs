@@ -5,7 +5,7 @@ use nix::unistd::Pid;
 use proc_maps::MapRange;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 struct TextRange {
@@ -130,14 +130,18 @@ impl DwarfRegistry {
     /// * `dwarf`: parsed dwarf information
     pub fn add(
         &mut self,
-        file: &str,
+        file: impl Into<PathBuf>,
         dwarf: DebugInformation<EndianArcSlice>,
     ) -> anyhow::Result<()> {
-        let path = PathBuf::from(file);
+        let path = file.into();
         // validate path
         path.canonicalize()?;
-        self.files.insert(file.into(), dwarf);
+        self.files.insert(path, dwarf);
         Ok(())
+    }
+
+    pub fn contains(&self, path: impl AsRef<Path>) -> bool {
+        self.files.contains_key(path.as_ref())
     }
 
     /// Return all known debug information. Debug info about main executable object

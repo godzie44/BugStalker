@@ -9,10 +9,11 @@ use crate::debugger::debugee::tracer::{StopReason, TraceContext, Tracer};
 use crate::debugger::register::DwarfRegisterMap;
 use crate::debugger::unwind::FrameSpan;
 use crate::debugger::ExplorationContext;
-use crate::{print_warns, weak_error};
+use crate::{muted_error, print_warns, weak_error};
 use anyhow::anyhow;
 use log::{info, warn};
 use nix::unistd::Pid;
+use nix::NixPath;
 use object::{Object, ObjectSection};
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -20,6 +21,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub mod dwarf;
+mod ldd;
 mod registry;
 mod rendezvous;
 pub mod tracee;
@@ -86,7 +88,14 @@ impl Debugee {
     pub fn new_non_running(path: &Path, proc: Pid, object: &object::File) -> anyhow::Result<Self> {
         let dwarf_builder = dwarf::DebugInformationBuilder::default();
         let dwarf = dwarf_builder.build(path, object)?;
-        let registry = DwarfRegistry::new(proc, path.to_path_buf(), dwarf);
+        let mut registry = DwarfRegistry::new(proc, path.to_path_buf(), dwarf);
+
+        // its ok if parse ldd output fail - shared libs will be parsed later - at rendezvous point
+        let deps = muted_error!(
+            ldd::find_dependencies(path),
+            "unsuccessful attempt to use ldd"
+        );
+        parse_dependencies_into_registry(&mut registry, deps.unwrap_or_default().into_iter());
 
         Ok(Self {
             execution_status: ExecutionStatus::Unload,
@@ -158,23 +167,6 @@ impl Debugee {
         }
     }
 
-    /// Parse dwarf information from new dependency.
-    fn parse_dependency(dep_file: &str) -> anyhow::Result<Option<DebugInformation>> {
-        // empty string represent a program executable that must already parsed
-        // libvdso should also be skipped
-        if dep_file.is_empty() || dep_file.contains("vdso") {
-            return Ok(None);
-        }
-
-        let file = fs::File::open(dep_file)?;
-        let mmap = unsafe { memmap2::Mmap::map(&file)? };
-        let object = object::File::parse(&*mmap)?;
-
-        let dwarf_builder = dwarf::DebugInformationBuilder::default();
-        let dwarf = dwarf_builder.build(PathBuf::from(dep_file).as_path(), &object)?;
-        Ok(Some(dwarf))
-    }
-
     pub fn trace_until_stop(&mut self, ctx: TraceContext) -> anyhow::Result<StopReason> {
         let event = self.tracer.resume(ctx)?;
         match event {
@@ -206,27 +198,15 @@ impl Debugee {
                         .expect("rendezvous must exists")
                         .link_maps()?;
 
-                    let dep_names: Vec<_> = lmaps.into_iter().map(|lm| lm.name).collect();
-
-                    let dwarfs: Vec<_> = dep_names
-                        .into_par_iter()
-                        .filter_map(|dep| {
-                            let parse_result = Self::parse_dependency(&dep);
-                            match parse_result {
-                                Ok(mb_dep) => mb_dep.map(|dwarf| (dep, dwarf)),
-                                Err(e) => {
-                                    warn!(target: "debugger", "broken dependency {}: {:#}", dep, e);
-                                    None
-                                }
-                            }
-                        })
+                    let dep_names: Vec<_> = lmaps
+                        .into_iter()
+                        .map(|lm| lm.name)
+                        .filter(|dep| !self.dwarf_registry.contains(dep))
                         .collect();
-
-                    dwarfs.into_iter().for_each(|(dep_name, dwarf)| {
-                        if let Err(e) = self.dwarf_registry.add(&dep_name, dwarf) {
-                            warn!(target: "debugger", "broken dependency {}: {:#}", dep_name, e);
-                        }
-                    });
+                    parse_dependencies_into_registry(
+                        &mut self.dwarf_registry,
+                        dep_names.into_iter(),
+                    );
 
                     print_warns!(self.dwarf_registry.update_mappings(false)?);
                 }
@@ -402,4 +382,51 @@ impl Debugee {
     pub fn return_addr(&self, pid: Pid) -> anyhow::Result<Option<RelocatedAddress>> {
         unwind::return_addr(self, pid)
     }
+}
+
+/// Parse dwarf information from new dependency.
+fn parse_dependency(dep_file: impl Into<PathBuf>) -> anyhow::Result<Option<DebugInformation>> {
+    let dep_file = dep_file.into();
+
+    // empty string represent a program executable that must already parsed
+    // libvdso should also be skipped
+    if dep_file.is_empty() || dep_file.to_string_lossy().contains("vdso") {
+        return Ok(None);
+    }
+
+    let file = fs::File::open(&dep_file)?;
+    let mmap = unsafe { memmap2::Mmap::map(&file)? };
+    let object = object::File::parse(&*mmap)?;
+
+    let dwarf_builder = dwarf::DebugInformationBuilder::default();
+    let dwarf = dwarf_builder.build(dep_file.as_path(), &object)?;
+    Ok(Some(dwarf))
+}
+
+/// Parse list of dependencies and add result into debug information registry.
+fn parse_dependencies_into_registry(
+    registry: &mut DwarfRegistry,
+    deps: impl Iterator<Item = impl Into<PathBuf>>,
+) {
+    let dwarfs: Vec<_> = deps
+        .map(|dep| dep.into())
+        .collect::<Vec<_>>()
+        .into_par_iter()
+        .filter_map(|dep| {
+            let parse_result = parse_dependency(&dep);
+            match parse_result {
+                Ok(mb_dep) => mb_dep.map(|dwarf| (dep, dwarf)),
+                Err(e) => {
+                    warn!(target: "debugger", "broken dependency {:?}: {:#}", dep, e);
+                    None
+                }
+            }
+        })
+        .collect();
+
+    dwarfs.into_iter().for_each(|(dep_name, dwarf)| {
+        if let Err(e) = registry.add(&dep_name, dwarf) {
+            warn!(target: "debugger", "broken dependency {:?}: {:#}", dep_name, e);
+        }
+    });
 }

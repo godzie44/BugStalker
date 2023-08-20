@@ -31,7 +31,7 @@ class HintsTestCase(unittest.TestCase):
 
     def test_break_command_hints(self):
         """Test files autocompletion for `break` command"""
-        self.debugger.send("b var\t")
+        self.debugger.send("b vars.r\t")
         self.debugger.expect_exact('b vars.rs:')
         self.debugger.send("\n")
 

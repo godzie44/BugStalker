@@ -1,14 +1,44 @@
+#[macro_export]
+macro_rules! _error {
+    ($log_fn: path, $res: expr) => {
+        match $res {
+            Ok(value) => Some(value),
+            Err(e) => {
+                $log_fn!(target: "debugger", "{:#}", e);
+                None
+            }
+        }
+    };
+    ($log_fn: path, $res: expr, $msg: tt) => {
+        match $res {
+            Ok(value) => Some(value),
+            Err(e) => {
+                $log_fn!(target: "debugger", concat!($msg, " {:#}"), e);
+                None
+            }
+        }
+    };
+}
+
 /// Transforms `Result` into `Option` and logs an error if it occurs.
 #[macro_export]
 macro_rules! weak_error {
     ($res: expr) => {
-        match $res {
-            Ok(value) => Some(value),
-            Err(e) => {
-                log::warn!(target: "debugger", "{:#}", e);
-                None
-            }
-        }
+        $crate::_error!(log::warn, $res)
+    };
+    ($res: expr, $msg: tt) => {
+        $crate::_error!(log::warn, $res, $msg)
+    };
+}
+
+/// Transforms `Result` into `Option` and put error into debug logs if it occurs.
+#[macro_export]
+macro_rules! muted_error {
+    ($res: expr) => {
+        $crate::_error!(log::debug, $res)
+    };
+    ($res: expr, $msg: tt) => {
+        $crate::_error!(log::debug, $res, $msg)
     };
 }
 
