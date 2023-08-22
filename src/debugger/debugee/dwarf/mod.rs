@@ -1,4 +1,5 @@
 pub mod eval;
+mod loader;
 mod location;
 mod symbol;
 pub mod r#type;
@@ -431,22 +432,6 @@ impl DebugInformation {
 pub struct DebugInformationBuilder;
 
 impl DebugInformationBuilder {
-    fn load_section<'a: 'b, 'b, OBJ, Endian>(
-        id: gimli::SectionId,
-        file: &'a OBJ,
-        endian: Endian,
-    ) -> anyhow::Result<gimli::EndianArcSlice<Endian>>
-    where
-        OBJ: Object<'a, 'b>,
-        Endian: gimli::Endianity,
-    {
-        let data = file
-            .section_by_name(id.name())
-            .and_then(|section| section.uncompressed_data().ok())
-            .unwrap_or(Cow::Borrowed(&[]));
-        Ok(gimli::EndianArcSlice::new(Arc::from(&*data), endian))
-    }
-
     // todo configure this path
     const DEBUG_FILES_DIR: &'static str = "/usr/lib/debug";
 
@@ -515,7 +500,13 @@ impl DebugInformationBuilder {
             RunTimeEndian::Big
         };
 
-        let eh_frame = EhFrame::load(|id| Self::load_section(id, file, endian))?;
+        let eh_frame = EhFrame::load(|id| -> gimli::Result<EndianArcSlice> {
+            let data = file
+                .section_by_name(id.name())
+                .and_then(|section| section.uncompressed_data().ok())
+                .unwrap_or(Cow::Borrowed(&[]));
+            Ok(gimli::EndianArcSlice::new(Arc::from(&*data), endian))
+        })?;
         let section_addr = |name: &str| -> Option<u64> {
             file.sections().find_map(|section| {
                 if section.name().ok()? == name {
@@ -553,7 +544,7 @@ impl DebugInformationBuilder {
                 file
             };
 
-        let dwarf = Dwarf::load(|id| Self::load_section(id, debug_info_file, endian))?;
+        let dwarf = loader::load_par(debug_info_file, endian)?;
         let symbol_table = SymbolTab::new(debug_info_file);
 
         let parser = DwarfUnitParser::new(&dwarf);
