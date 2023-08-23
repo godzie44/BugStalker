@@ -18,6 +18,7 @@ symbol <name>                               -- print symbol kind and address
 mem, memory read|write <addr>               -- read or write into debugged program memory
 reg, register read|write|dump <addr>        -- read, write, or view debugged program registers
 thread dump|current|switch <number>         -- show list of threads or current (in focus) thread or set thread in focus
+sharedlib info                              -- show list of shared libraries
 h, help |<command>                          -- show help
 q, quit                                     -- exit the BugStalker 
 "#;
@@ -185,6 +186,14 @@ thread current - prints thread that has focus
 thread switch <number> - set thread <number> to focus
 ";
 
+pub const HELP_SHARED_LIB: &str = "\
+\x1b[32;1msharedlib\x1b[0m
+Show shared libraries information.
+
+Available subcomands:
+sharedlib info - print list of loaded shared libraries and their mapping addresses
+";
+
 pub const HELP_QUIT: &str = "\
 \x1b[32;1mq, quit\x1b[0m
 Exit the BugStalker, kill debugee before it.
@@ -209,6 +218,7 @@ pub fn help_for_command(command: Option<&str>) -> &str {
         Some(command::MEMORY_COMMAND) | Some(command::MEMORY_COMMAND_SHORT) => HELP_MEMORY,
         Some(command::REGISTER_COMMAND) | Some(command::REGISTER_COMMAND_SHORT) => HELP_REGISTER,
         Some(command::THREAD_COMMAND) => HELP_THREAD,
+        Some(command::SHARED_LIB_COMMAND) => HELP_SHARED_LIB,
         Some("q") | Some("quit") => HELP_QUIT,
         _ => "unknown command",
     }

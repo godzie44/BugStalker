@@ -24,7 +24,7 @@ use crate::debugger::debugee::dwarf::unwind::Backtrace;
 use crate::debugger::debugee::dwarf::{DwarfUnwinder, Symbol};
 use crate::debugger::debugee::tracee::Tracee;
 use crate::debugger::debugee::tracer::{StopReason, TraceContext};
-use crate::debugger::debugee::{Debugee, ExecutionStatus, FrameInfo, Location};
+use crate::debugger::debugee::{Debugee, ExecutionStatus, FrameInfo, Location, RegionInfo};
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::variable::select::{Expression, VariableSelector};
@@ -799,6 +799,11 @@ impl Debugger {
             .into_iter()
             .filter_map(|dwarf| dwarf.known_files().ok())
             .flatten()
+    }
+
+    /// Return a list of shared libraries.
+    pub fn shared_libs(&self) -> Vec<RegionInfo> {
+        self.debugee.dump_mapped_regions()
     }
 }
 

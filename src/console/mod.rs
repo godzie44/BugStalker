@@ -6,8 +6,8 @@ use crate::console::print::ExternalPrinter;
 use crate::console::variable::render_variable_ir;
 use crate::debugger;
 use crate::debugger::command::{
-    Arguments, Backtrace, Break, BreakpointHandlingResult, Command, Frame, FrameResult, Run, StepI,
-    StepInto, StepOut, StepOver, Symbol, ThreadCommand, ThreadResult, Variables,
+    Arguments, Backtrace, Break, BreakpointHandlingResult, Command, Frame, FrameResult, Run,
+    SharedLib, StepI, StepInto, StepOut, StepOver, Symbol, ThreadCommand, ThreadResult, Variables,
 };
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::render::RenderRepr;
@@ -446,6 +446,17 @@ impl AppLoop {
                     ThreadResult::BroughtIntoFocus(thread) => self
                         .printer
                         .print(format!("Thread #{} brought into focus", thread.number)),
+                }
+            }
+            Command::SharedLib => {
+                let cmd = SharedLib::new(&self.debugger);
+                for lib in cmd.handle() {
+                    let range = str_or_unknown!(lib
+                        .range
+                        .map(|range| format!("{} - {}", range.from, range.to)))
+                    .blue();
+
+                    self.printer.print(format!("{} {:?}", range, lib.path))
                 }
             }
         }

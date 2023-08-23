@@ -7,10 +7,17 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug)]
-struct TextRange {
-    from: RelocatedAddress,
-    to: RelocatedAddress,
+/// Memory region range.
+#[derive(Debug, Clone)]
+pub struct RegionRange {
+    pub from: RelocatedAddress,
+    pub to: RelocatedAddress,
+}
+
+/// Information about loaded in VAS region.
+pub struct RegionInfo {
+    pub path: PathBuf,
+    pub range: Option<RegionRange>,
 }
 
 /// Registry contains debug information about main executable object and loaded shared libraries.
@@ -22,7 +29,7 @@ pub struct DwarfRegistry {
     /// debug information map
     files: HashMap<PathBuf, DebugInformation>,
     /// ordered .text section address ranges, calculates by dwarf units ranges
-    ranges: Vec<(PathBuf, TextRange)>,
+    ranges: Vec<(PathBuf, RegionRange)>,
     /// regions map addresses, each region is a shared lib or debugee program
     mappings: HashMap<PathBuf, usize>,
 }
@@ -101,11 +108,11 @@ impl DwarfRegistry {
             let range = dwarf.range();
 
             let range = match range {
-                None => TextRange {
+                None => RegionRange {
                     from: RelocatedAddress::from(lower_sect.start()),
                     to: RelocatedAddress::from(higher_sect.start() + higher_sect.size()),
                 },
-                Some(range) => TextRange {
+                Some(range) => RegionRange {
                     from: RelocatedAddress::from(range.begin as usize + mapping),
                     to: RelocatedAddress::from(range.end as usize + mapping),
                 },
@@ -157,7 +164,7 @@ impl DwarfRegistry {
         dwarfs
     }
 
-    fn find_range(&self, addr: RelocatedAddress) -> Option<&(PathBuf, TextRange)> {
+    fn find_range(&self, addr: RelocatedAddress) -> Option<&(PathBuf, RegionRange)> {
         self.ranges
             .binary_search_by(|(_, range)| {
                 if addr >= range.from && addr <= range.to {
@@ -221,5 +228,28 @@ impl DwarfRegistry {
             ranges: vec![],
             mappings: HashMap::default(),
         }
+    }
+
+    /// Return a ordered list of mapped regions (main executable region at first place).
+    pub fn dump(&self) -> Vec<RegionInfo> {
+        let mut regions: Vec<_> = self
+            .files
+            .keys()
+            .map(|path| {
+                let file_range = self.ranges.iter().find(|(p, _)| path == p);
+                RegionInfo {
+                    path: path.clone(),
+                    range: file_range.map(|(_, range)| range.clone()),
+                }
+            })
+            .collect();
+
+        regions.sort_unstable_by(|i1, i2| {
+            if i1.path == self.program_path {
+                return Ordering::Less;
+            };
+            i1.path.cmp(&i2.path)
+        });
+        regions
     }
 }

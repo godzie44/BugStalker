@@ -26,6 +26,7 @@ mod registry;
 mod rendezvous;
 pub mod tracee;
 pub mod tracer;
+pub use registry::RegionInfo;
 
 /// Stack frame information.
 #[derive(Debug, Default, Clone)]
@@ -381,6 +382,11 @@ impl Debugee {
     #[allow(unused)]
     pub fn return_addr(&self, pid: Pid) -> anyhow::Result<Option<RelocatedAddress>> {
         unwind::return_addr(self, pid)
+    }
+
+    /// Return a ordered list of mapped regions (main executable region at first place).
+    pub fn dump_mapped_regions(&self) -> Vec<RegionInfo> {
+        self.dwarf_registry.dump()
     }
 }
 

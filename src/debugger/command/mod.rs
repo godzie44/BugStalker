@@ -7,6 +7,7 @@ mod frame;
 mod memory;
 mod register;
 mod run;
+mod sharedlib;
 mod step_instruction;
 mod step_into;
 mod step_out;
@@ -28,6 +29,7 @@ pub use r#break::HandlingResult as BreakpointHandlingResult;
 pub use r#continue::Continue;
 pub use register::Register;
 pub use run::Run;
+pub use sharedlib::SharedLib;
 pub use step_instruction::StepI;
 pub use step_into::StepInto;
 pub use step_out::StepOut;
@@ -83,6 +85,7 @@ pub const MEMORY_COMMAND_SHORT: &str = "mem";
 pub const REGISTER_COMMAND: &str = "register";
 pub const REGISTER_COMMAND_SHORT: &str = "reg";
 pub const THREAD_COMMAND: &str = "thread";
+pub const SHARED_LIB_COMMAND: &str = "sharedlib";
 pub const HELP_COMMAND: &str = "help";
 pub const HELP_COMMAND_SHORT: &str = "h";
 
@@ -138,6 +141,7 @@ pub enum Command {
     Memory(memory::Command),
     Register(register::Command),
     Thread(thread::Command),
+    SharedLib,
     Help {
         command: Option<String>,
         reason: Option<String>,
@@ -427,6 +431,13 @@ impl Command {
             )(input)
         }
 
+        fn shared_lib_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
+            preceded(
+                pair(tag(SHARED_LIB_COMMAND), multispace1),
+                map(tag("info"), |_| Command::SharedLib),
+            )(input)
+        }
+
         alt((
             command(VAR_COMMAND, print_var_parser),
             command(ARG_COMMAND, print_argument_parser),
@@ -444,6 +455,7 @@ impl Command {
             command(REGISTER_COMMAND, register_parser),
             command(HELP_COMMAND, help_parser),
             command(THREAD_COMMAND, thread_parser),
+            command(SHARED_LIB_COMMAND, shared_lib_parser),
             cut(map(not_line_ending, |_| Command::Help {
                 command: None,
                 reason: Some("undefined command".to_string()),
@@ -736,6 +748,12 @@ mod test {
                         result.unwrap(),
                         Command::Thread(thread::Command::Switch(1))
                     ));
+                },
+            },
+            TestCase {
+                inputs: vec!["sharedlib info", " sharedlib     info  "],
+                command_matcher: |result| {
+                    assert!(matches!(result.unwrap(), Command::SharedLib));
                 },
             },
         ];
