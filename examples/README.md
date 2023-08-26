@@ -9,3 +9,7 @@ Example application from [Rocket](https://github.com/SergioBenitez/Rocket) web f
 ### Todos
 
 Example application from [axum](https://github.com/tokio-rs/axum) web framework.
+
+### Shlib
+
+Example of shared library with C interface and a consumer of this lib.

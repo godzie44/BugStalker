@@ -1,5 +1,7 @@
 [workspace]
 members = [
   "pastebin",
-  "todos"
+  "todos",
+  "shlib/calc_lib",
+  "shlib/calc_bin",
 ]

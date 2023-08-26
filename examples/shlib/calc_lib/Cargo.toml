@@ -1,0 +1,10 @@
+[package]
+name = "calc_lib"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+
+[lib]
+crate-type = ["cdylib"]

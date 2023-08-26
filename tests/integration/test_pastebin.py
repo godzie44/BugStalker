@@ -13,7 +13,7 @@ def make_http_request(event):
 
 
 class PastebinTestCase(unittest.TestCase):
-    """Test debugger on application from rocket framework examples"""
+    """Test a debugger on application from rocket framework examples"""
 
     def setUp(self):
         debugger = pexpect.spawn(
