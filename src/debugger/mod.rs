@@ -20,8 +20,9 @@ pub use debugee::ThreadSnapshot;
 use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};
 use crate::debugger::debugee::dwarf::r#type::TypeCache;
+use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
 use crate::debugger::debugee::dwarf::unwind::Backtrace;
-use crate::debugger::debugee::dwarf::{DwarfUnwinder, Symbol};
+use crate::debugger::debugee::dwarf::{DebugInformation, DwarfUnwinder, Symbol};
 use crate::debugger::debugee::tracee::Tracee;
 use crate::debugger::debugee::tracer::{StopReason, TraceContext};
 use crate::debugger::debugee::{Debugee, ExecutionStatus, FrameInfo, Location, RegionInfo};
@@ -186,6 +187,7 @@ impl Debugger {
         let entry_point = GlobalAddress::from(object.entry());
         let mut breakpoints = BreakpointRegistry::default();
         breakpoints.add_uninit(UninitBreakpoint::new_entry_point(
+            None::<PathBuf>,
             Address::Global(entry_point),
             process.pid(),
         ));
@@ -260,7 +262,7 @@ impl Debugger {
                     break;
                 }
                 StopReason::DebugeeStart => {
-                    self.breakpoints.enable_all_breakpoints(&self.debugee)?;
+                    self.breakpoints.enable_entry_breakpoint(&self.debugee)?;
                     // no need to update expl context cause next stop been soon, on entry point
                 }
                 StopReason::NoSuchProcess(_) => {
@@ -272,6 +274,9 @@ impl Debugger {
                     if let Some(bp) = self.breakpoints.get_enabled(current_pc) {
                         match bp.r#type() {
                             BrkptType::EntryPoint => {
+                                print_warns!(self
+                                    .breakpoints
+                                    .enable_all_breakpoints(&self.debugee)?);
                                 self.step_over_breakpoint()?;
                                 continue;
                             }
@@ -521,23 +526,23 @@ impl Debugger {
         addr: RelocatedAddress,
     ) -> anyhow::Result<BreakpointView> {
         if self.debugee.is_in_progress() {
-            let dwarf = self.debugee.debug_info(addr);
+            let dwarf = self.debugee.debug_info(addr)?;
             let global_addr = addr.into_global(&self.debugee)?;
 
             let place = dwarf
-                .ok()
-                .map(|dwarf| {
-                    dwarf
-                        .find_place_from_pc(global_addr)?
-                        .map(|p| p.to_owned())
-                        .ok_or(anyhow!("unknown address"))
-                })
-                .transpose()?;
+                .find_place_from_pc(global_addr)?
+                .map(|p| p.to_owned())
+                .ok_or(anyhow!("unknown address"))?;
 
-            self.breakpoints
-                .add_and_enable(Breakpoint::new(addr, self.process.pid(), place))
+            self.breakpoints.add_and_enable(Breakpoint::new(
+                dwarf.pathname(),
+                addr,
+                self.process.pid(),
+                Some(place),
+            ))
         } else {
             Ok(self.breakpoints.add_uninit(UninitBreakpoint::new(
+                None::<PathBuf>,
                 Address::Relocated(addr),
                 self.process.pid(),
                 None,
@@ -566,24 +571,45 @@ impl Debugger {
         self.breakpoints.remove_by_addr(Address::Relocated(addr))
     }
 
+    fn find_function(
+        &self,
+        name: &str,
+    ) -> anyhow::Result<(&DebugInformation, PlaceDescriptorOwned)> {
+        let dwarfs = self.debugee.debug_info_all();
+        let mut target_dwarf = dwarfs[0];
+        let mut place = target_dwarf.get_function_place(name);
+        for &next_dwarf in dwarfs[1..].iter() {
+            if place.is_ok() {
+                break;
+            }
+            target_dwarf = next_dwarf;
+            place = target_dwarf.get_function_place(name);
+        }
+        let place = place?;
+        Ok((target_dwarf, place))
+    }
+
     /// Create and enable breakpoint at debugee address space on the following function start.
     ///
     /// # Arguments
     ///
     /// * `name`: function name where debugee must be stopped
     pub fn set_breakpoint_at_fn(&mut self, name: &str) -> anyhow::Result<BreakpointView> {
-        // todo: currently you can set breakpoint only at functions that belongs to executable object
-        let dwarf = self.debugee.program_debug_info()?;
-        let place = dwarf.get_function_place(name)?;
+        let (target_dwarf, place) = self.find_function(name)?;
 
         if self.debugee.is_in_progress() {
             let addr = place
                 .address
-                .relocate(self.debugee.mapping_offset_for_file(dwarf)?);
-            self.breakpoints
-                .add_and_enable(Breakpoint::new(addr, self.process.pid(), Some(place)))
+                .relocate(self.debugee.mapping_offset_for_file(target_dwarf)?);
+            self.breakpoints.add_and_enable(Breakpoint::new(
+                target_dwarf.pathname(),
+                addr,
+                self.process.pid(),
+                Some(place),
+            ))
         } else {
             Ok(self.breakpoints.add_uninit(UninitBreakpoint::new(
+                Some(target_dwarf.pathname()),
                 Address::Global(place.address),
                 self.process.pid(),
                 Some(place),
@@ -600,19 +626,37 @@ impl Debugger {
         &mut self,
         name: &str,
     ) -> anyhow::Result<Option<BreakpointView>> {
-        // todo: currently you can set breakpoint only at addresses that belongs to executable object
-        let dwarf = self.debugee.program_debug_info()?;
-        let place = dwarf.get_function_place(name)?;
+        let (target_dwarf, place) = self.find_function(name)?;
+
         if self.debugee.is_in_progress() {
             self.breakpoints.remove_by_addr(Address::Relocated(
                 place
                     .address
-                    .relocate(self.debugee.mapping_offset_for_file(dwarf)?),
+                    .relocate(self.debugee.mapping_offset_for_file(target_dwarf)?),
             ))
         } else {
             self.breakpoints
                 .remove_by_addr(Address::Global(place.address))
         }
+    }
+
+    fn find_line(
+        &self,
+        fine_name: &str,
+        line: u64,
+    ) -> anyhow::Result<(&DebugInformation, PlaceDescriptorOwned)> {
+        let dwarfs = self.debugee.debug_info_all();
+        let mut target_dwarf = dwarfs[0];
+        let mut place = target_dwarf.find_place(fine_name, line);
+        for &next_dwarf in dwarfs[1..].iter() {
+            if matches!(place, Ok(Some(_))) {
+                break;
+            }
+            target_dwarf = next_dwarf;
+            place = target_dwarf.find_place(fine_name, line);
+        }
+        let place = place?.ok_or(anyhow!("no source file/line"))?.to_owned();
+        Ok((target_dwarf, place))
     }
 
     /// Create and enable breakpoint at the following file and line number.
@@ -626,21 +670,21 @@ impl Debugger {
         fine_name: &str,
         line: u64,
     ) -> anyhow::Result<BreakpointView> {
-        // todo: currently you can set breakpoint only at addresses that belongs to executable object
-        let dwarf = self.debugee.program_debug_info()?;
-        let place = dwarf
-            .find_place(fine_name, line)?
-            .ok_or(anyhow!("no source file/line"))?
-            .to_owned();
+        let (target_dwarf, place) = self.find_line(fine_name, line)?;
 
         if self.debugee.is_in_progress() {
             let addr = place
                 .address
-                .relocate(self.debugee.mapping_offset_for_file(dwarf)?);
-            self.breakpoints
-                .add_and_enable(Breakpoint::new(addr, self.process.pid(), Some(place)))
+                .relocate(self.debugee.mapping_offset_for_file(target_dwarf)?);
+            self.breakpoints.add_and_enable(Breakpoint::new(
+                target_dwarf.pathname(),
+                addr,
+                self.process.pid(),
+                Some(place),
+            ))
         } else {
             Ok(self.breakpoints.add_uninit(UninitBreakpoint::new(
+                Some(target_dwarf.pathname()),
                 Address::Global(place.address),
                 self.process.pid(),
                 Some(place),
@@ -659,17 +703,13 @@ impl Debugger {
         fine_name: &str,
         line: u64,
     ) -> anyhow::Result<Option<BreakpointView>> {
-        // todo: currently you can set breakpoint only at addresses that belongs to executable object
-        let dwarf = self.debugee.program_debug_info()?;
-        let place = dwarf
-            .find_place(fine_name, line)?
-            .ok_or(anyhow!("no source file/line"))?;
+        let (target_dwarf, place) = self.find_line(fine_name, line)?;
 
         if self.debugee.is_in_progress() {
             self.breakpoints.remove_by_addr(Address::Relocated(
                 place
                     .address
-                    .relocate(self.debugee.mapping_offset_for_file(dwarf)?),
+                    .relocate(self.debugee.mapping_offset_for_file(target_dwarf)?),
             ))
         } else {
             self.breakpoints

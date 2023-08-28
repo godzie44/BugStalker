@@ -152,14 +152,16 @@ impl DwarfRegistry {
     }
 
     /// Return all known debug information. Debug info about main executable object
-    /// is located at the zero index.
+    /// is located at the zero index, other information ordered from less compilation
+    /// unit count to greatest.
     pub fn all_dwarf(&self) -> Vec<&DebugInformation> {
         let mut dwarfs: Vec<_> = self.files.values().collect();
         dwarfs.sort_unstable_by(|d1, d2| {
             if d1.pathname() == self.program_path {
                 return Ordering::Less;
             };
-            d1.pathname().cmp(&d2.file)
+
+            d1.unit_count().cmp(&d2.unit_count())
         });
         dwarfs
     }
@@ -186,6 +188,15 @@ impl DwarfRegistry {
     /// * `addr`: memory address that determine .text section.
     pub fn find_by_addr(&self, addr: RelocatedAddress) -> Option<&DebugInformation> {
         let (path, _) = self.find_range(addr)?;
+        self.files.get(path)
+    }
+
+    /// Return debug information extracted from file.
+    ///
+    /// # Arguments
+    ///
+    /// * `path`: already parsed file contains debug information.
+    pub fn find_by_file(&self, path: &Path) -> Option<&DebugInformation> {
         self.files.get(path)
     }
 

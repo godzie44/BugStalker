@@ -49,4 +49,20 @@ class SharedLibTestCase(unittest.TestCase):
         self.debugger.expect(r'main\.rs.*:8')
         self.debugger.expect_exact('8     println!("1 + 2 = {sum_1_2}")')
 
+    def test_lib_fn_breakpoint(self):
+        """Set breakpoint at shared library function"""
+        self.debugger.sendline('break add')
+        self.debugger.expect('New breakpoint 1')
 
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('Hit breakpoint 1')
+        self.debugger.expect_exact('3     a + b')
+
+    def test_lib_line_breakpoint(self):
+        """Set breakpoint at line in shared library source code"""
+        self.debugger.sendline('b lib.rs:8')
+        self.debugger.expect('New breakpoint 1')
+
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('Hit breakpoint 1')
+        self.debugger.expect_exact('8     a - b')

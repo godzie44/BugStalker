@@ -8,6 +8,7 @@ use nix::unistd::Pid;
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -34,6 +35,7 @@ pub struct Breakpoint {
     saved_data: Cell<u8>,
     enabled: Cell<bool>,
     r#type: BrkptType,
+    debug_info_file: PathBuf,
 }
 
 impl Breakpoint {
@@ -51,6 +53,7 @@ impl Breakpoint {
         number: u32,
         place: Option<PlaceDescriptorOwned>,
         r#type: BrkptType,
+        debug_info_file: PathBuf,
     ) -> Self {
         Self {
             addr,
@@ -60,25 +63,54 @@ impl Breakpoint {
             enabled: Default::default(),
             saved_data: Default::default(),
             r#type,
+            debug_info_file,
         }
     }
 
-    pub fn new(addr: RelocatedAddress, pid: Pid, place: Option<PlaceDescriptorOwned>) -> Self {
+    pub fn new(
+        debug_info_file: impl Into<PathBuf>,
+        addr: RelocatedAddress,
+        pid: Pid,
+        place: Option<PlaceDescriptorOwned>,
+    ) -> Self {
         Self::new_inner(
             addr,
             pid,
             GLOBAL_BP_COUNTER.fetch_add(1, Ordering::Relaxed),
             place,
             BrkptType::UserDefined,
+            debug_info_file.into(),
         )
     }
 
-    pub fn new_entry_point(addr: RelocatedAddress, pid: Pid) -> Self {
-        Self::new_inner(addr, pid, 0, None, BrkptType::EntryPoint)
+    pub fn new_entry_point(
+        debug_info_file: impl Into<PathBuf>,
+        addr: RelocatedAddress,
+        pid: Pid,
+    ) -> Self {
+        Self::new_inner(
+            addr,
+            pid,
+            0,
+            None,
+            BrkptType::EntryPoint,
+            debug_info_file.into(),
+        )
     }
 
-    pub fn new_temporary(addr: RelocatedAddress, pid: Pid) -> Self {
-        Self::new_inner(addr, pid, 0, None, BrkptType::Temporary)
+    pub fn new_temporary(
+        debug_info_file: impl Into<PathBuf>,
+        addr: RelocatedAddress,
+        pid: Pid,
+    ) -> Self {
+        Self::new_inner(
+            addr,
+            pid,
+            0,
+            None,
+            BrkptType::Temporary,
+            debug_info_file.into(),
+        )
     }
 
     pub fn number(&self) -> u32 {
@@ -147,6 +179,7 @@ pub struct UninitBreakpoint {
     number: u32,
     place: Option<PlaceDescriptorOwned>,
     r#type: BrkptType,
+    debug_info_file: Option<PathBuf>,
 }
 
 impl UninitBreakpoint {
@@ -156,6 +189,7 @@ impl UninitBreakpoint {
         number: u32,
         place: Option<PlaceDescriptorOwned>,
         r#type: BrkptType,
+        debug_info_file: Option<PathBuf>,
     ) -> Self {
         Self {
             addr,
@@ -163,47 +197,70 @@ impl UninitBreakpoint {
             number,
             place,
             r#type,
+            debug_info_file,
         }
     }
 
-    pub fn new(addr: Address, pid: Pid, place: Option<PlaceDescriptorOwned>) -> Self {
+    pub fn new(
+        debug_info_file: Option<impl Into<PathBuf>>,
+        addr: Address,
+        pid: Pid,
+        place: Option<PlaceDescriptorOwned>,
+    ) -> Self {
         Self::new_inner(
             addr,
             pid,
             GLOBAL_BP_COUNTER.fetch_add(1, Ordering::Relaxed),
             place,
             BrkptType::UserDefined,
+            debug_info_file.map(|path| path.into()),
         )
     }
 
-    pub fn new_entry_point(addr: Address, pid: Pid) -> Self {
-        Self::new_inner(addr, pid, 0, None, BrkptType::EntryPoint)
+    pub fn new_entry_point(
+        debug_info_file: Option<impl Into<PathBuf>>,
+        addr: Address,
+        pid: Pid,
+    ) -> Self {
+        Self::new_inner(
+            addr,
+            pid,
+            0,
+            None,
+            BrkptType::EntryPoint,
+            debug_info_file.map(|path| path.into()),
+        )
     }
 
-    /// Return breakpoint create from template.
+    /// Return a breakpoint created from template.
     ///
     /// # Panics
     ///
-    /// Method will panic if calling with unload debugee.
+    /// Method will panic if calling with unloaded debugee.
     pub fn try_into_brkpt(self, debugee: &Debugee) -> anyhow::Result<Breakpoint> {
         debug_assert!(
             self.r#type == BrkptType::EntryPoint || self.r#type == BrkptType::UserDefined
         );
 
-        // todo only brkpts at executable object supported
-        let dwarf = debugee.program_debug_info()?;
-        let global_addr = match self.addr {
-            Address::Relocated(addr) => addr.into_global(debugee)?,
-            Address::Global(addr) => addr,
+        let (global_addr, rel_addr) = match self.addr {
+            Address::Relocated(addr) => (addr.into_global(debugee)?, Some(addr)),
+            Address::Global(addr) => (addr, None),
         };
+
+        let dwarf = match self.debug_info_file {
+            None if self.r#type == BrkptType::EntryPoint => Some(debugee.program_debug_info()?),
+            None => rel_addr.map(|addr| debugee.debug_info(addr)).transpose()?,
+            Some(path) => Some(debugee.debug_info_from_file(&path)?),
+        }
+        .ok_or(anyhow!(
+            "debug information not found for breakpoint {}",
+            self.number
+        ))?;
 
         let place = if self.r#type == BrkptType::UserDefined {
             if self.place.is_some() {
                 self.place
             } else {
-                // todo: currently you can set breakpoint only at addresses that belongs to executable object
-                let dwarf = debugee.program_debug_info()?;
-
                 Some(
                     dwarf
                         .find_place_from_pc(global_addr)?
@@ -221,6 +278,7 @@ impl UninitBreakpoint {
             self.number,
             place,
             self.r#type,
+            dwarf.pathname().into(),
         ))
     }
 }
@@ -322,15 +380,43 @@ impl BreakpointRegistry {
     }
 
     /// Enable currently disabled breakpoints.
-    pub fn enable_all_breakpoints(&mut self, debugee: &Debugee) -> anyhow::Result<()> {
+    pub fn enable_all_breakpoints(
+        &mut self,
+        debugee: &Debugee,
+    ) -> anyhow::Result<Vec<anyhow::Error>> {
+        let mut errors = vec![];
         let mut disabled_breakpoints = std::mem::take(&mut self.disabled_breakpoints);
         for (_, uninit_brkpt) in disabled_breakpoints.drain() {
-            let brkpt = uninit_brkpt.try_into_brkpt(debugee)?;
-            let number = brkpt.number();
+            let number = uninit_brkpt.number;
+
+            let brkpt = match uninit_brkpt.try_into_brkpt(debugee) {
+                Ok(b) => b,
+                Err(e) => {
+                    errors.push(e.context(format!("broken breakpoint {number}")));
+                    continue;
+                }
+            };
+
             if let Err(e) = self.add_and_enable(brkpt) {
-                log::warn!(target: "debugger", "broken breakpoint {}: {:#}", number, e);
+                errors.push(e.context(format!("broken breakpoint {number}")));
             }
         }
+        Ok(errors)
+    }
+
+    /// Enable entry point breakpoint if it disabled.
+    pub fn enable_entry_breakpoint(&mut self, debugee: &Debugee) -> anyhow::Result<()> {
+        let Some((&key, _)) = self.disabled_breakpoints.iter().find(|(_, brkpt)| {
+            brkpt.r#type == BrkptType::EntryPoint
+        }) else {
+            return Ok(())
+        };
+
+        let uninit_entry_point_brkpt = self.disabled_breakpoints.remove(&key).unwrap();
+
+        let brkpt = uninit_entry_point_brkpt.try_into_brkpt(debugee)?;
+        self.add_and_enable(brkpt)?;
+
         Ok(())
     }
 
@@ -349,10 +435,19 @@ impl BreakpointRegistry {
             let addr = Address::Global(brkpt.addr.into_global(debugee)?);
             match brkpt.r#type {
                 BrkptType::EntryPoint => {
-                    self.add_uninit(UninitBreakpoint::new_entry_point(addr, brkpt.pid));
+                    self.add_uninit(UninitBreakpoint::new_entry_point(
+                        Some(brkpt.debug_info_file),
+                        addr,
+                        brkpt.pid,
+                    ));
                 }
                 BrkptType::UserDefined => {
-                    self.add_uninit(UninitBreakpoint::new(addr, brkpt.pid, brkpt.place));
+                    self.add_uninit(UninitBreakpoint::new(
+                        Some(brkpt.debug_info_file),
+                        addr,
+                        brkpt.pid,
+                        brkpt.place,
+                    ));
                 }
                 BrkptType::Temporary => {}
             }

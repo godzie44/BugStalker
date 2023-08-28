@@ -138,12 +138,15 @@ impl Debugger {
     pub(super) fn step_out_frame(&mut self) -> anyhow::Result<()> {
         let ctx = self.exploration_ctx();
         let location = ctx.location();
+        let debug_info = self.debugee.debug_info(location.pc)?;
+
         if let Some(ret_addr) = self.debugee.return_addr(ctx.pid_on_focus())? {
             let brkpt_is_set = self.breakpoints.get_enabled(ret_addr).is_some();
             if brkpt_is_set {
                 self.continue_execution()?;
             } else {
-                let brkpt = Breakpoint::new_temporary(ret_addr, location.pid);
+                let brkpt =
+                    Breakpoint::new_temporary(debug_info.pathname(), ret_addr, location.pid);
                 self.breakpoints.add_and_enable(brkpt)?;
                 self.continue_execution()?;
                 self.remove_breakpoint(Address::Relocated(ret_addr))?;
@@ -228,15 +231,22 @@ impl Debugger {
             .into_iter()
             .try_for_each(|load_addr| {
                 self.breakpoints
-                    .add_and_enable(Breakpoint::new_temporary(load_addr, current_location.pid))
+                    .add_and_enable(Breakpoint::new_temporary(
+                        dwarf.pathname(),
+                        load_addr,
+                        current_location.pid,
+                    ))
                     .map(|_| ())
             })?;
 
         let return_addr = self.debugee.return_addr(current_location.pid)?;
         if let Some(ret_addr) = return_addr {
             if self.breakpoints.get_enabled(ret_addr).is_none() {
-                self.breakpoints
-                    .add_and_enable(Breakpoint::new_temporary(ret_addr, current_location.pid))?;
+                self.breakpoints.add_and_enable(Breakpoint::new_temporary(
+                    dwarf.pathname(),
+                    ret_addr,
+                    current_location.pid,
+                ))?;
                 to_delete.push(ret_addr);
             }
         }

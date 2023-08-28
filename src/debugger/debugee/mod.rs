@@ -312,6 +312,14 @@ impl Debugee {
             .ok_or(anyhow!("no debugee information for current location"))
     }
 
+    /// Return debug information about program determined by file which from it been parsed.
+    #[inline(always)]
+    pub fn debug_info_from_file(&self, path: &Path) -> anyhow::Result<&DebugInformation> {
+        self.dwarf_registry
+            .find_by_file(path)
+            .ok_or(anyhow!("no debugee information for file"))
+    }
+
     /// Get main executable object debug information.
     #[inline(always)]
     pub fn program_debug_info(&self) -> anyhow::Result<&DebugInformation> {
@@ -321,6 +329,7 @@ impl Debugee {
     }
 
     /// Return all known debug information. Debug info about main executable is located at the zero index.
+    /// Other information ordered from less compilation unit count to greatest.
     #[inline(always)]
     pub fn debug_info_all(&self) -> Vec<&DebugInformation> {
         self.dwarf_registry.all_dwarf()
@@ -345,7 +354,7 @@ impl Debugee {
     pub fn mapping_offset_for_file(&self, dwarf: &DebugInformation) -> anyhow::Result<usize> {
         self.dwarf_registry
             .find_mapping_offset_for_file(dwarf)
-            .ok_or(anyhow!("determine mapping offset fail, unknown segment"))
+            .ok_or(anyhow!("determine mapping offset fail: unknown segment"))
     }
 
     /// Unwind debugee thread stack and return a backtrace.

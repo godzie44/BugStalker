@@ -48,7 +48,7 @@ use walkdir::WalkDir;
 pub type EndianArcSlice = gimli::EndianArcSlice<gimli::RunTimeEndian>;
 
 pub struct DebugInformation<R: gimli::Reader = EndianArcSlice> {
-    pub file: PathBuf,
+    file: PathBuf,
     inner: Dwarf<R>,
     eh_frame: EhFrame<R>,
     bases: BaseAddresses,
@@ -133,6 +133,15 @@ impl DebugInformation {
     /// Panic if unit not found.
     pub fn unit_ensure(&self, idx: usize) -> &Unit {
         &debug_info_exists!(self.get_units())[idx]
+    }
+
+    /// Return unit count. Return 0 if no debug information exists.
+    #[inline(always)]
+    pub fn unit_count(&self) -> usize {
+        self.units
+            .as_ref()
+            .map(|units| units.len())
+            .unwrap_or_default()
     }
 
     fn evaluate_cfa(
