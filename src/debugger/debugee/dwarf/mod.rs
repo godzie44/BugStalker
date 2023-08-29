@@ -771,8 +771,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
 
     pub fn parameters(&self) -> Vec<ContextualDieRef<'_, ParameterDie>> {
         let mut result = vec![];
-        let mut queue = VecDeque::from(self.node.children.clone());
-        while let Some(idx) = queue.pop_front() {
+        for &idx in &self.node.children {
             let entry = ctx_resolve_unit_call!(self, entry, idx);
             if let DieVariant::Parameter(ref var) = entry.die {
                 result.push(ContextualDieRef {
@@ -782,7 +781,6 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
                     die: var,
                 })
             }
-            entry.node.children.iter().for_each(|i| queue.push_back(*i));
         }
         result
     }

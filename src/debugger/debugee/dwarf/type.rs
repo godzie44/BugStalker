@@ -13,6 +13,7 @@ use log::warn;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem;
+use strum_macros::Display;
 use uuid::Uuid;
 
 /// Type identifier.
@@ -192,7 +193,8 @@ pub struct ScalarType {
 }
 
 /// List of type modifiers
-#[derive(Clone, Copy)]
+#[derive(Display, Clone, Copy)]
+#[strum(serialize_all = "snake_case")]
 pub enum CModifier {
     TypeDef,
     Const,
@@ -277,7 +279,18 @@ impl ComplexType {
             TypeDeclaration::Pointer { name, .. } => name.clone(),
             TypeDeclaration::Union { name, .. } => name.clone(),
             TypeDeclaration::Subroutine { name, .. } => name.clone(),
-            TypeDeclaration::ModifiedType { name, .. } => name.clone(),
+            TypeDeclaration::ModifiedType {
+                modifier,
+                name,
+                inner,
+                ..
+            } => match name {
+                None => inner.and_then(|inner_id| {
+                    self.type_name(inner_id)
+                        .map(|name| format!("{modifier} {name}"))
+                }),
+                Some(n) => Some(n.clone()),
+            },
         }
     }
 
