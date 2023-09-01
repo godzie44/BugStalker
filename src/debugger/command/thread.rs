@@ -3,7 +3,7 @@ use crate::debugger::{command, Debugger, ThreadSnapshot};
 
 #[derive(Debug)]
 pub enum Command {
-    Dump,
+    Info,
     Current,
     Switch(u32),
 }
@@ -24,7 +24,7 @@ impl<'a> Thread<'a> {
 
     pub fn handle(&mut self, cmd: Command) -> command::HandleResult<Result> {
         match cmd {
-            Command::Dump => {
+            Command::Info => {
                 let state = self.dbg.thread_state()?;
                 Ok(Result::List(state))
             }

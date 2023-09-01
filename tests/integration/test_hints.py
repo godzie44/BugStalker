@@ -65,4 +65,23 @@ class HintsTestCase(unittest.TestCase):
         self.debugger.expect_exact('vec')
         self.debugger.expect_exact('box_arr')
 
+    def test_sub_command_hints(self):
+        """Test subcommands autocompletion"""
+        self.debugger.send("thread cu\t")
+        self.debugger.expect_exact('thread current')
+        self.debugger.send("\n")
 
+        self.debugger.send("thread \t\t")
+        self.debugger.expect_exact('info')
+        self.debugger.expect_exact('switch')
+        self.debugger.expect_exact('current')
+        self.debugger.send("\n")
+
+        self.debugger.send("frame i\t")
+        self.debugger.expect_exact('frame info')
+        self.debugger.send("\n")
+
+        self.debugger.send("frame \t\t")
+        self.debugger.expect_exact('info')
+        self.debugger.expect_exact('switch')
+        self.debugger.send("\n")

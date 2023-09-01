@@ -2,6 +2,7 @@ use super::debugger::command::Continue;
 use crate::console::editor::{create_editor, CommandCompleter, RLHelper};
 use crate::console::help::*;
 use crate::console::hook::TerminalHook;
+use crate::console::print::style::{AddressView, FilePathView, FunctionNameView, KeywordView};
 use crate::console::print::ExternalPrinter;
 use crate::console::variable::render_variable_ir;
 use crate::debugger;
@@ -39,13 +40,6 @@ const WELCOME_TEXT: &str = r#"
 BugStalker greets
 "#;
 const PROMT: &str = "(bs) ";
-const UNKNOWN_PLACEHOLDER: &str = "???";
-
-macro_rules! str_or_unknown {
-    ($e: expr) => {
-        $e.unwrap_or_else(|| UNKNOWN_PLACEHOLDER.to_string())
-    };
-}
 
 type BSEditor = Editor<RLHelper, MemHistory>;
 
@@ -243,46 +237,53 @@ impl AppLoop {
                 .handle(print_var_command)?
                 .into_iter()
                 .for_each(|var| {
-                    self.printer
-                        .print(format!("{} = {}", var.name(), render_variable_ir(&var, 0)));
+                    self.printer.print(format!(
+                        "{} = {}",
+                        KeywordView::from(var.name()),
+                        render_variable_ir(&var, 0)
+                    ));
                 }),
             Command::PrintArguments(print_arg_command) => Arguments::new(&self.debugger)
                 .handle(print_arg_command)?
                 .into_iter()
                 .for_each(|arg| {
-                    self.printer
-                        .print(format!("{} = {}", arg.name(), render_variable_ir(&arg, 0)));
+                    self.printer.print(format!(
+                        "{} = {}",
+                        KeywordView::from(arg.name()),
+                        render_variable_ir(&arg, 0)
+                    ));
                 }),
             Command::PrintBacktrace(cmd) => {
                 let bt = Backtrace::new(&self.debugger).handle(cmd)?;
                 bt.into_iter().for_each(|thread| {
+                    let ip = thread
+                        .bt
+                        .as_ref()
+                        .and_then(|bt| bt.get(0).map(|f| f.ip.to_string()));
+
                     self.printer.print(format!(
                         "thread #{}, {} - {}",
                         thread.thread.number,
                         thread.thread.pid,
-                        str_or_unknown!(thread
-                            .bt
-                            .as_ref()
-                            .and_then(|bt| bt.get(0).map(|f| f.ip.to_string())))
-                        .blue()
+                        AddressView::from(ip),
                     ));
 
                     if let Some(bt) = thread.bt {
                         for (frame_num, frame) in bt.into_iter().enumerate() {
-                            let fn_name = str_or_unknown!(frame.func_name.clone());
+                            let fn_name = frame.func_name.clone().unwrap_or_default();
 
                             let user_bt_end = fn_name == "main"
                                 || fn_name.contains("::main")
                                 || fn_name.contains("::thread_start");
 
-                            let fn_ip = frame.fn_start_ip.unwrap_or_default();
+                            let fn_ip_or_zero = frame.fn_start_ip.unwrap_or_default();
 
                             let mut frame_info = format!(
                                 "#{frame_num} {} - {} ({} + {:#X})",
-                                frame.ip.to_string().blue(),
-                                fn_name.to_string().green(),
-                                fn_ip.to_string().blue(),
-                                frame.ip.as_u64().saturating_sub(fn_ip.as_u64()),
+                                AddressView::from(frame.ip),
+                                FunctionNameView::from(frame.func_name),
+                                AddressView::from(frame.fn_start_ip),
+                                frame.ip.as_u64().saturating_sub(fn_ip_or_zero.as_u64()),
                             );
                             if thread.focus_frame == Some(frame_num) {
                                 frame_info = frame_info.bold().to_string();
@@ -307,18 +308,11 @@ impl AppLoop {
                         self.printer.print(format!(
                             "frame #{} ({})",
                             frame.num,
-                            frame
-                                .frame
-                                .func_name
-                                .as_deref()
-                                .unwrap_or("unknown")
-                                .green()
+                            FunctionNameView::from(frame.frame.func_name),
                         ));
-                        let cfa = frame.cfa.to_string().blue();
+                        let cfa = AddressView::from(frame.cfa);
                         self.printer.print(format!("cfa: {cfa}"));
-                        let ret_addr = frame.return_addr.map_or(String::from("unknown"), |addr| {
-                            addr.to_string().blue().to_string()
-                        });
+                        let ret_addr = AddressView::from(frame.return_addr);
                         self.printer.print(format!("return address: {ret_addr}"));
                     }
                     FrameResult::BroughtIntoFocus(num) => {
@@ -361,15 +355,15 @@ impl AppLoop {
                         self.printer.print(format!(
                             "{action} {} at {}",
                             bp.number,
-                            bp.addr.to_string().blue()
+                            AddressView::from(bp.addr),
                         ));
                     }
                     Some(place) => {
                         self.printer.print(format!(
                             "{action} {} at {}: {}:{} ",
                             bp.number,
-                            place.address.to_string().blue(),
-                            place.file.to_str().unwrap_or_default().green(),
+                            AddressView::from(place.address),
+                            FilePathView::from(place.file.to_string_lossy()),
                             place.line_number,
                         ));
                     }
@@ -414,7 +408,9 @@ impl AppLoop {
                 for symbol in symbols {
                     self.printer.print(format!(
                         "{} - {:?} {}",
-                        symbol.name, symbol.kind, symbol.addr
+                        symbol.name,
+                        symbol.kind,
+                        AddressView::from(symbol.addr)
                     ));
                 }
             }
@@ -425,15 +421,15 @@ impl AppLoop {
                         list.sort_by(|t1, t2| t1.thread.number.cmp(&t2.thread.number));
                         for thread in list {
                             let current_frame = thread.bt.and_then(|mut bt| bt.drain(..).next());
-                            let ip =
-                                str_or_unknown!(current_frame.as_ref().map(|f| f.ip.to_string()))
-                                    .blue();
-                            let func =
-                                str_or_unknown!(current_frame.and_then(|f| f.func_name)).green();
+                            let ip = current_frame.as_ref().map(|f| f.ip.to_string());
+                            let func = current_frame.and_then(|f| f.func_name);
 
                             let view = format!(
                                 "#{} thread id: {}, {} in {}",
-                                thread.thread.number, thread.thread.pid, ip, func
+                                thread.thread.number,
+                                thread.thread.pid,
+                                AddressView::from(ip),
+                                FunctionNameView::from(func),
                             );
 
                             if thread.in_focus {
@@ -451,12 +447,15 @@ impl AppLoop {
             Command::SharedLib => {
                 let cmd = SharedLib::new(&self.debugger);
                 for lib in cmd.handle() {
-                    let range = str_or_unknown!(lib
+                    let mb_range = lib
                         .range
-                        .map(|range| format!("{} - {}", range.from, range.to)))
-                    .blue();
+                        .map(|range| format!("{} - {}", range.from, range.to));
 
-                    self.printer.print(format!("{} {:?}", range, lib.path))
+                    self.printer.print(format!(
+                        "{} {}",
+                        AddressView::from(mb_range),
+                        FilePathView::from(lib.path.to_string_lossy())
+                    ))
                 }
             }
         }

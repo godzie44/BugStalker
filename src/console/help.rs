@@ -16,8 +16,8 @@ next, stepover                              -- step program, stepping over subro
 b, break <addr>|<file:line>|<function>      -- manage breakpoints
 symbol <name>                               -- print symbol kind and address
 mem, memory read|write <addr>               -- read or write into debugged program memory
-reg, register read|write|dump <addr>        -- read, write, or view debugged program registers
-thread dump|current|switch <number>         -- show list of threads or current (in focus) thread or set thread in focus
+reg, register read|write|info <addr>        -- read, write, or view debugged program registers
+thread info|current|switch <number>         -- show list of threads or current (in focus) thread or set thread in focus
 sharedlib info                              -- show list of shared libraries
 h, help |<command>                          -- show help
 q, quit                                     -- exit the BugStalker 
@@ -141,7 +141,7 @@ Manage breakpoints.
 Available subcomands:
 break <location> - set breakpoint to location
 break remove <location> - deactivate and delete selected breakpoint.
-break dump - show all breakpoints.
+break info - show all breakpoints.
 
 Posible location format:
 - at instruction. Example: break 0x55555555BD30
@@ -173,7 +173,7 @@ Read, write, or view debugged program registers (x86_64 registers support).
 Available subcomands:
 register read <reg_name> - print value of register by name (x86_64 register name in lowercase)
 register write <reg_name> <value> - set new value to register by name
-register dump - print list of registers with it values
+register info - print list of registers with it values
 ";
 
 pub const HELP_THREAD: &str = "\
@@ -181,7 +181,7 @@ pub const HELP_THREAD: &str = "\
 Show threads information or set thread to focus.
 
 Available subcomands:
-thread dump - print list of thread information
+thread info - print list of thread information
 thread current - prints thread that has focus
 thread switch <number> - set thread <number> to focus
 ";

@@ -1,17 +1,21 @@
 use crate::debugger::command::{
     ARG_ALL_KEY, ARG_COMMAND, BACKTRACE_COMMAND, BACKTRACE_COMMAND_SHORT, BREAK_COMMAND,
-    BREAK_COMMAND_SHORT, CONTINUE_COMMAND, CONTINUE_COMMAND_SHORT, FRAME_COMMAND, HELP_COMMAND,
-    HELP_COMMAND_SHORT, MEMORY_COMMAND, MEMORY_COMMAND_SHORT, REGISTER_COMMAND,
-    REGISTER_COMMAND_SHORT, RUN_COMMAND, RUN_COMMAND_SHORT, SHARED_LIB_COMMAND,
+    BREAK_COMMAND_SHORT, CONTINUE_COMMAND, CONTINUE_COMMAND_SHORT, FRAME_COMMAND,
+    FRAME_COMMAND_INFO_SUBCOMMAND, FRAME_COMMAND_SWITCH_SUBCOMMAND, HELP_COMMAND,
+    HELP_COMMAND_SHORT, MEMORY_COMMAND, MEMORY_COMMAND_READ_SUBCOMMAND, MEMORY_COMMAND_SHORT,
+    MEMORY_COMMAND_WRITE_SUBCOMMAND, REGISTER_COMMAND, REGISTER_COMMAND_INFO_SUBCOMMAND,
+    REGISTER_COMMAND_READ_SUBCOMMAND, REGISTER_COMMAND_SHORT, REGISTER_COMMAND_WRITE_SUBCOMMAND,
+    RUN_COMMAND, RUN_COMMAND_SHORT, SHARED_LIB_COMMAND, SHARED_LIB_COMMAND_INFO_SUBCOMMAND,
     STEP_INSTRUCTION_COMMAND, STEP_INTO_COMMAND, STEP_INTO_COMMAND_SHORT, STEP_OUT_COMMAND,
     STEP_OUT_COMMAND_SHORT, STEP_OVER_COMMAND, STEP_OVER_COMMAND_SHORT, SYMBOL_COMMAND,
-    THREAD_COMMAND, VAR_COMMAND, VAR_LOCAL_KEY,
+    THREAD_COMMAND, THREAD_COMMAND_CURRENT_SUBCOMMAND, THREAD_COMMAND_INFO_SUBCOMMAND,
+    THREAD_COMMAND_SWITCH_SUBCOMMAND, VAR_COMMAND, VAR_LOCAL_KEY,
 };
 use crossterm::style::{Color, Stylize};
 use nom::branch::alt;
-use nom::character::complete::{multispace1, not_line_ending};
-use nom::combinator::map;
-use nom::sequence::preceded;
+use nom::character::complete::{alpha1, multispace1, not_line_ending};
+use nom::combinator::{map, opt};
+use nom::sequence::{preceded, separated_pair};
 use nom_supreme::error::ErrorTree;
 use nom_supreme::final_parser::Location;
 use nom_supreme::tag::complete::tag;
@@ -25,16 +29,18 @@ use rustyline::{Changeset, CompletionType, Config, Context, Editor};
 use rustyline_derive::{Helper, Hinter, Validator};
 use std::borrow::Cow;
 use std::borrow::Cow::{Borrowed, Owned};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use trie_rs::{Trie, TrieBuilder};
 
-struct CommandView {
+struct CommandHint {
     short: Option<String>,
     long: String,
+    subcommands: Vec<String>,
 }
 
-impl CommandView {
+impl CommandHint {
     fn long(&self) -> String {
         self.long.clone()
     }
@@ -56,26 +62,29 @@ impl CommandView {
     }
 }
 
-impl From<&str> for CommandView {
+impl From<&str> for CommandHint {
     fn from(value: &str) -> Self {
-        CommandView {
+        CommandHint {
             short: None,
             long: value.to_string(),
+            subcommands: vec![],
         }
     }
 }
 
-impl From<(&str, &str)> for CommandView {
+impl From<(&str, &str)> for CommandHint {
     fn from((short, long): (&str, &str)) -> Self {
-        CommandView {
+        CommandHint {
             short: Some(short.to_string()),
             long: long.to_string(),
+            subcommands: vec![],
         }
     }
 }
 
 pub struct CommandCompleter {
-    commands: Vec<CommandView>,
+    commands: Vec<CommandHint>,
+    subcommand_hints: HashMap<String, Vec<String>>,
     file_hints: Trie<u8>,
     var_hints: Trie<u8>,
     vars: Vec<String>,
@@ -84,9 +93,22 @@ pub struct CommandCompleter {
 }
 
 impl CommandCompleter {
-    fn new(commands: impl IntoIterator<Item = CommandView>) -> Self {
+    fn new(commands: impl IntoIterator<Item = CommandHint>) -> Self {
+        let commands: Vec<CommandHint> = commands.into_iter().collect();
+        let subcommand_hints = commands
+            .iter()
+            .flat_map(|cmd| {
+                let mut hints = vec![(cmd.long.clone(), cmd.subcommands.clone())];
+                if let Some(ref short) = cmd.short {
+                    hints.push((short.clone(), cmd.subcommands.clone()));
+                }
+                hints
+            })
+            .collect::<HashMap<String, Vec<String>>>();
+
         Self {
-            commands: commands.into_iter().collect(),
+            commands,
+            subcommand_hints,
             file_hints: TrieBuilder::new().build(),
             var_hints: TrieBuilder::new().build(),
             arg_hints: TrieBuilder::new().build(),
@@ -129,29 +151,36 @@ impl CommandCompleter {
     }
 }
 
-enum CompletableCommand {
-    Breakpoint(String),
-    PrintVariables(String),
-    PrintArguments(String),
+enum CompletableCommand<'a> {
+    Breakpoint(&'a str),
+    PrintVariables(&'a str),
+    PrintArguments(&'a str),
+    Unrecognized(&'a str, Option<&'a str>),
 }
 
-impl CompletableCommand {
-    fn recognize(line: &str) -> anyhow::Result<CompletableCommand> {
+impl<'a> CompletableCommand<'a> {
+    fn recognize(line: &'a str) -> anyhow::Result<CompletableCommand> {
         let bp_parser = map(
             preceded(
                 alt((tag(BREAK_COMMAND), tag(BREAK_COMMAND_SHORT))),
                 preceded(multispace1, not_line_ending),
             ),
-            |s: &str| CompletableCommand::Breakpoint(s.to_string()),
+            CompletableCommand::Breakpoint,
         );
 
         let var_parser = map(
             preceded(tag(VAR_COMMAND), preceded(multispace1, not_line_ending)),
-            |s: &str| CompletableCommand::PrintVariables(s.to_string()),
+            CompletableCommand::PrintVariables,
         );
+
         let arg_parser = map(
             preceded(tag(ARG_COMMAND), preceded(multispace1, not_line_ending)),
-            |s: &str| CompletableCommand::PrintArguments(s.to_string()),
+            CompletableCommand::PrintArguments,
+        );
+
+        let other_parser = map(
+            separated_pair(alpha1, multispace1, opt(alpha1)),
+            |(s1, s2)| CompletableCommand::Unrecognized(s1, s2),
         );
 
         Ok(nom_supreme::final_parser::final_parser::<
@@ -159,7 +188,12 @@ impl CompletableCommand {
             _,
             ErrorTree<&str>,
             ErrorTree<Location>,
-        >(alt((bp_parser, var_parser, arg_parser)))(line)?)
+        >(alt((
+            bp_parser,
+            var_parser,
+            arg_parser,
+            other_parser,
+        )))(line)?)
     }
 }
 
@@ -192,38 +226,55 @@ impl Completer for CommandCompleter {
                     return Ok((0, vec![]));
                 }
 
-                let variants = self.file_hints.predictive_search(&maybe_file);
+                let variants = self.file_hints.predictive_search(maybe_file);
                 if !variants.is_empty() {
                     let variants_iter = variants.iter().map(|var| {
                         std::str::from_utf8(var.as_slice()).expect("invalid utf-8 string")
                     });
-                    return Ok(pairs_from_variants(variants_iter, line, &maybe_file, ":"));
+                    return Ok(pairs_from_variants(variants_iter, line, maybe_file, ":"));
                 }
             }
             Ok(CompletableCommand::PrintVariables(maybe_var)) => {
                 if maybe_var.trim().is_empty() {
-                    return Ok(pairs_from_variants(self.vars.iter(), line, &maybe_var, ""));
+                    return Ok(pairs_from_variants(self.vars.iter(), line, maybe_var, ""));
                 }
 
-                let variants = self.var_hints.predictive_search(&maybe_var);
+                let variants = self.var_hints.predictive_search(maybe_var);
                 if !variants.is_empty() {
                     let variants_iter = variants.iter().map(|var| {
                         std::str::from_utf8(var.as_slice()).expect("invalid utf-8 string")
                     });
-                    return Ok(pairs_from_variants(variants_iter, line, &maybe_var, ""));
+                    return Ok(pairs_from_variants(variants_iter, line, maybe_var, ""));
                 }
             }
             Ok(CompletableCommand::PrintArguments(maybe_arg)) => {
                 if maybe_arg.trim().is_empty() {
-                    return Ok(pairs_from_variants(self.args.iter(), line, &maybe_arg, ""));
+                    return Ok(pairs_from_variants(self.args.iter(), line, maybe_arg, ""));
                 }
 
-                let variants = self.arg_hints.predictive_search(&maybe_arg);
+                let variants = self.arg_hints.predictive_search(maybe_arg);
                 if !variants.is_empty() {
                     let variants_iter = variants.iter().map(|var| {
                         std::str::from_utf8(var.as_slice()).expect("invalid utf-8 string")
                     });
-                    return Ok(pairs_from_variants(variants_iter, line, &maybe_arg, ""));
+                    return Ok(pairs_from_variants(variants_iter, line, maybe_arg, ""));
+                }
+            }
+            Ok(CompletableCommand::Unrecognized(cmd, mb_subcmd_part)) => {
+                if let Some(subcommands) = self.subcommand_hints.get(cmd) {
+                    let pos = cmd.len() + 1;
+                    let subcmd_part = mb_subcmd_part.unwrap_or_default();
+                    let subcommands = subcommands
+                        .iter()
+                        .filter_map(|subcmd| {
+                            subcmd.starts_with(subcmd_part).then(|| Pair {
+                                display: subcmd.to_string(),
+                                replacement: subcmd.to_string(),
+                            })
+                        })
+                        .collect();
+
+                    return Ok((pos, subcommands));
                 }
             }
             _ => {}
@@ -310,7 +361,14 @@ pub fn create_editor(promt: &str) -> anyhow::Result<Editor<RLHelper, MemHistory>
         VAR_COMMAND.into(),
         ARG_COMMAND.into(),
         (CONTINUE_COMMAND_SHORT, CONTINUE_COMMAND).into(),
-        FRAME_COMMAND.into(),
+        CommandHint {
+            short: None,
+            long: FRAME_COMMAND.to_string(),
+            subcommands: vec![
+                FRAME_COMMAND_INFO_SUBCOMMAND.to_string(),
+                FRAME_COMMAND_SWITCH_SUBCOMMAND.to_string(),
+            ],
+        },
         (RUN_COMMAND_SHORT, RUN_COMMAND).into(),
         STEP_INSTRUCTION_COMMAND.into(),
         (STEP_INTO_COMMAND_SHORT, STEP_INTO_COMMAND).into(),
@@ -319,11 +377,38 @@ pub fn create_editor(promt: &str) -> anyhow::Result<Editor<RLHelper, MemHistory>
         SYMBOL_COMMAND.into(),
         (BREAK_COMMAND_SHORT, BREAK_COMMAND).into(),
         (BACKTRACE_COMMAND_SHORT, BACKTRACE_COMMAND).into(),
-        (MEMORY_COMMAND_SHORT, MEMORY_COMMAND).into(),
-        (REGISTER_COMMAND_SHORT, REGISTER_COMMAND).into(),
+        CommandHint {
+            short: Some(MEMORY_COMMAND_SHORT.to_string()),
+            long: MEMORY_COMMAND.to_string(),
+            subcommands: vec![
+                MEMORY_COMMAND_READ_SUBCOMMAND.to_string(),
+                MEMORY_COMMAND_WRITE_SUBCOMMAND.to_string(),
+            ],
+        },
+        CommandHint {
+            short: Some(REGISTER_COMMAND_SHORT.to_string()),
+            long: REGISTER_COMMAND.to_string(),
+            subcommands: vec![
+                REGISTER_COMMAND_READ_SUBCOMMAND.to_string(),
+                REGISTER_COMMAND_WRITE_SUBCOMMAND.to_string(),
+                REGISTER_COMMAND_INFO_SUBCOMMAND.to_string(),
+            ],
+        },
         (HELP_COMMAND_SHORT, HELP_COMMAND).into(),
-        (THREAD_COMMAND).into(),
-        (SHARED_LIB_COMMAND).into(),
+        CommandHint {
+            short: None,
+            long: THREAD_COMMAND.to_string(),
+            subcommands: vec![
+                THREAD_COMMAND_INFO_SUBCOMMAND.to_string(),
+                THREAD_COMMAND_SWITCH_SUBCOMMAND.to_string(),
+                THREAD_COMMAND_CURRENT_SUBCOMMAND.to_string(),
+            ],
+        },
+        CommandHint {
+            short: None,
+            long: SHARED_LIB_COMMAND.to_string(),
+            subcommands: vec![SHARED_LIB_COMMAND_INFO_SUBCOMMAND.to_string()],
+        },
         ("q", "quit").into(),
     ];
 

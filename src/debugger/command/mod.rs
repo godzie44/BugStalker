@@ -68,6 +68,8 @@ pub const CONTINUE_COMMAND: &str = "continue";
 pub const CONTINUE_COMMAND_SHORT: &str = "c";
 pub const FRAME_COMMAND: &str = "frame";
 pub const FRAME_COMMAND_SHORT: &str = "f";
+pub const FRAME_COMMAND_INFO_SUBCOMMAND: &str = "info";
+pub const FRAME_COMMAND_SWITCH_SUBCOMMAND: &str = "switch";
 pub const RUN_COMMAND: &str = "run";
 pub const RUN_COMMAND_SHORT: &str = "r";
 pub const STEP_INSTRUCTION_COMMAND: &str = "stepi";
@@ -82,10 +84,19 @@ pub const BREAK_COMMAND: &str = "break";
 pub const BREAK_COMMAND_SHORT: &str = "b";
 pub const MEMORY_COMMAND: &str = "memory";
 pub const MEMORY_COMMAND_SHORT: &str = "mem";
+pub const MEMORY_COMMAND_READ_SUBCOMMAND: &str = "read";
+pub const MEMORY_COMMAND_WRITE_SUBCOMMAND: &str = "write";
 pub const REGISTER_COMMAND: &str = "register";
 pub const REGISTER_COMMAND_SHORT: &str = "reg";
+pub const REGISTER_COMMAND_READ_SUBCOMMAND: &str = "read";
+pub const REGISTER_COMMAND_WRITE_SUBCOMMAND: &str = "write";
+pub const REGISTER_COMMAND_INFO_SUBCOMMAND: &str = "info";
 pub const THREAD_COMMAND: &str = "thread";
+pub const THREAD_COMMAND_INFO_SUBCOMMAND: &str = "info";
+pub const THREAD_COMMAND_SWITCH_SUBCOMMAND: &str = "switch";
+pub const THREAD_COMMAND_CURRENT_SUBCOMMAND: &str = "current";
 pub const SHARED_LIB_COMMAND: &str = "sharedlib";
+pub const SHARED_LIB_COMMAND_INFO_SUBCOMMAND: &str = "info";
 pub const HELP_COMMAND: &str = "help";
 pub const HELP_COMMAND_SHORT: &str = "h";
 
@@ -315,8 +326,8 @@ impl Command {
                             Command::Breakpoint(BreakpointCommand::Remove(brkpt))
                         }),
                     ),
-                    map(tag("dump"), |_| {
-                        Command::Breakpoint(BreakpointCommand::Dump)
+                    map(tag("info"), |_| {
+                        Command::Breakpoint(BreakpointCommand::Info)
                     }),
                     map(breakpoint_arg_parser(), |brkpt| {
                         Command::Breakpoint(BreakpointCommand::Add(brkpt))
@@ -333,7 +344,10 @@ impl Command {
                 )),
                 cut(alt((
                     map_res(
-                        preceded(tag("read"), preceded(multispace1, hexadecimal)),
+                        preceded(
+                            tag(MEMORY_COMMAND_READ_SUBCOMMAND),
+                            preceded(multispace1, hexadecimal),
+                        ),
                         |hex| -> Result<Command, ParseIntError> {
                             let addr = usize::from_str_radix(hex, 16)?;
                             Ok(Command::Memory(memory::Command::Read(addr)))
@@ -341,7 +355,7 @@ impl Command {
                     ),
                     map_res(
                         preceded(
-                            tag("write"),
+                            tag(MEMORY_COMMAND_WRITE_SUBCOMMAND),
                             preceded(
                                 multispace1,
                                 separated_pair(hexadecimal, multispace1, hexadecimal),
@@ -365,18 +379,25 @@ impl Command {
                     pair(tag(REGISTER_COMMAND), multispace1),
                 )),
                 cut(alt((
-                    map(preceded(tag("dump"), cut(not(alphanumeric1))), |_| {
-                        Command::Register(register::Command::Dump)
-                    }),
                     map(
-                        preceded(tag("read"), preceded(multispace1, alphanumeric1)),
+                        preceded(
+                            tag(REGISTER_COMMAND_INFO_SUBCOMMAND),
+                            cut(not(alphanumeric1)),
+                        ),
+                        |_| Command::Register(register::Command::Info),
+                    ),
+                    map(
+                        preceded(
+                            tag(REGISTER_COMMAND_READ_SUBCOMMAND),
+                            preceded(multispace1, alphanumeric1),
+                        ),
                         |reg_name: &str| {
                             Command::Register(register::Command::Read(reg_name.to_string()))
                         },
                     ),
                     map_res(
                         preceded(
-                            tag("write"),
+                            tag(REGISTER_COMMAND_WRITE_SUBCOMMAND),
                             preceded(
                                 multispace1,
                                 separated_pair(alphanumeric1, multispace1, hexadecimal),
@@ -397,12 +418,17 @@ impl Command {
             preceded(
                 pair(tag(THREAD_COMMAND), multispace1),
                 alt((
-                    map(tag("dump"), |_| Command::Thread(thread::Command::Dump)),
-                    map(tag("current"), |_| {
+                    map(tag(THREAD_COMMAND_INFO_SUBCOMMAND), |_| {
+                        Command::Thread(thread::Command::Info)
+                    }),
+                    map(tag(THREAD_COMMAND_CURRENT_SUBCOMMAND), |_| {
                         Command::Thread(thread::Command::Current)
                     }),
                     map_res(
-                        preceded(pair(tag("switch"), multispace1), digit1),
+                        preceded(
+                            pair(tag(THREAD_COMMAND_SWITCH_SUBCOMMAND), multispace1),
+                            digit1,
+                        ),
                         |num: &str| -> Result<Command, <u32 as FromStr>::Err> {
                             let num: u32 = num.parse::<u32>()?;
                             Ok(Command::Thread(thread::Command::Switch(num)))
@@ -419,7 +445,9 @@ impl Command {
                     pair(tag(FRAME_COMMAND), multispace1),
                 )),
                 alt((
-                    map(tag("info"), |_| Command::Frame(frame::Command::Info)),
+                    map(tag(FRAME_COMMAND_INFO_SUBCOMMAND), |_| {
+                        Command::Frame(frame::Command::Info)
+                    }),
                     map_res(
                         preceded(pair(tag("switch"), multispace1), digit1),
                         |num: &str| -> Result<Command, <u32 as FromStr>::Err> {
@@ -434,7 +462,9 @@ impl Command {
         fn shared_lib_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             preceded(
                 pair(tag(SHARED_LIB_COMMAND), multispace1),
-                map(tag("info"), |_| Command::SharedLib),
+                map(tag(SHARED_LIB_COMMAND_INFO_SUBCOMMAND), |_| {
+                    Command::SharedLib
+                }),
             )(input)
         }
 
@@ -658,11 +688,11 @@ mod test {
                 },
             },
             TestCase {
-                inputs: vec!["b dump", "break dump ", "   break   dump   "],
+                inputs: vec!["b info", "break info ", "   break   info   "],
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Dump)
+                        Command::Breakpoint(r#break::Command::Info)
                     ));
                 },
             },
@@ -693,11 +723,11 @@ mod test {
                 },
             },
             TestCase {
-                inputs: vec!["reg dump", "register dump", "   reg  dump "],
+                inputs: vec!["reg info", "register info", "   reg  info "],
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Register(register::Command::Dump)
+                        Command::Register(register::Command::Info)
                     ));
                 },
             },
@@ -724,11 +754,11 @@ mod test {
                 },
             },
             TestCase {
-                inputs: vec!["thread dump", "thread    dump  "],
+                inputs: vec!["thread info", "thread    info  "],
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Thread(thread::Command::Dump)
+                        Command::Thread(thread::Command::Info)
                     ));
                 },
             },

@@ -1,9 +1,9 @@
+use crate::console::print::style::{AddressView, FilePathView, FunctionNameView};
 use crate::console::print::ExternalPrinter;
 use crate::console::view::FileView;
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::PlaceDescriptor;
 use crate::debugger::{EventHook, FunctionDie};
-use crossterm::style::Stylize;
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use std::cell::RefCell;
@@ -40,11 +40,11 @@ impl EventHook for TerminalHook {
         mb_place: Option<PlaceDescriptor>,
         mb_func: Option<&FunctionDie>,
     ) -> anyhow::Result<()> {
-        let msg = format!("Hit breakpoint {num} at {}:", format!("{pc}").blue());
+        let msg = format!("Hit breakpoint {num} at {}:", AddressView::from(pc));
         if let Some(place) = mb_place {
             self.printer.print(format!(
                 "{msg} {}:{}",
-                place.file.as_os_str().to_string_lossy().green(),
+                FilePathView::from(place.file.to_string_lossy()),
                 place.line_number
             ));
             self.printer.print(self.file_view.render_source(&place, 0)?);
@@ -67,18 +67,17 @@ impl EventHook for TerminalHook {
             if self.context.borrow().prev_func.as_ref() != mb_func {
                 self.context.borrow_mut().prev_func = mb_func.cloned();
 
-                let func_name = mb_func
-                    .map(|f| {
-                        f.namespace
-                            .join("::")
-                            .add("::")
-                            .add(f.base_attributes.name.as_deref().unwrap_or_default())
-                    })
-                    .unwrap_or_default();
+                let func_name = mb_func.map(|f| {
+                    f.namespace
+                        .join("::")
+                        .add("::")
+                        .add(f.base_attributes.name.as_deref().unwrap_or_default())
+                });
 
                 self.printer.print(format!(
-                    "{func_name} at {}:{}",
-                    place.file.as_os_str().to_string_lossy().green(),
+                    "{} at {}:{}",
+                    FunctionNameView::from(func_name),
+                    FilePathView::from(place.file.to_string_lossy()),
                     place.line_number,
                 ));
             }

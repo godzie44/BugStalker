@@ -14,9 +14,9 @@ class SharedLibTestCase(unittest.TestCase):
         """View information about loaded shared libraries"""
         self.debugger.sendline('sharedlib info')
         # assert that main executable showing
-        self.debugger.expect(r'\?\?\?.*\.\/examples\/target\/debug\/calc_bin')
+        self.debugger.expect_exact('??? ./examples/target/debug/calc_bin')
         # assert that shared lib showing
-        self.debugger.expect(r'\?\?\?.*\.\/examples\/target\/debug\/libcalc_lib\.so')
+        self.debugger.expect_exact('??? ./examples/target/debug/libcalc_lib.so')
 
         self.debugger.sendline('break main.rs:7')
         self.debugger.expect('New breakpoint')
@@ -39,20 +39,20 @@ class SharedLibTestCase(unittest.TestCase):
         self.debugger.expect_exact('let sum_1_2 = unsafe { add(1, 2) }')
 
         self.debugger.sendline('step')
-        self.debugger.expect(r'lib\.rs.*:3')
+        self.debugger.expect_exact('lib.rs:3')
         self.debugger.expect_exact('3     a + b')
 
         self.debugger.sendline('step')
         self.debugger.expect_exact('4 }')
 
         self.debugger.sendline('step')
-        self.debugger.expect(r'main\.rs.*:8')
+        self.debugger.expect_exact(r'main.rs:8')
         self.debugger.expect_exact('8     println!("1 + 2 = {sum_1_2}")')
 
     def test_lib_fn_breakpoint(self):
         """Set breakpoint at shared library function"""
         self.debugger.sendline('break add')
-        self.debugger.expect('New breakpoint 1')
+        self.debugger.expect_exact('New breakpoint 1')
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('Hit breakpoint 1')

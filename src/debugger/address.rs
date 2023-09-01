@@ -64,7 +64,7 @@ impl From<RelocatedAddress> for u64 {
 
 impl Display for RelocatedAddress {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("{:#016X}", self.0))
+        f.write_fmt(format_args!("{:#016X}", self.0))
     }
 }
 
@@ -97,7 +97,7 @@ impl From<u64> for GlobalAddress {
 
 impl Display for GlobalAddress {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("{:#016X}", self.0))
+        f.write_fmt(format_args!("{:#016X}", self.0))
     }
 }
 

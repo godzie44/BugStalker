@@ -5,7 +5,7 @@ use register::Register as Reg;
 
 #[derive(Debug)]
 pub enum Command {
-    Dump,
+    Info,
     Read(String),
     Write(String, u64),
 }
@@ -28,7 +28,7 @@ impl<'a> Register<'a> {
 
     pub fn handle(self, cmd: &Command) -> command::HandleResult<Response> {
         match cmd {
-            Command::Dump => {
+            Command::Info => {
                 let registers_to_dump = &[
                     Reg::Rax,
                     Reg::Rbx,

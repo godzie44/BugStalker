@@ -1,3 +1,5 @@
+use crate::console::print::style::AddressView;
+use crate::debugger::address::RelocatedAddress;
 use crate::debugger::variable::render::{RenderRepr, ValueLayout};
 use crate::debugger::variable::VariableIR;
 
@@ -11,7 +13,11 @@ pub fn render_variable_ir(view: &VariableIR, depth: usize) -> String {
                 _ => format!("{}({})", view.r#type(), rendered_value),
             },
             ValueLayout::Referential { addr } => {
-                format!("{} [{addr:p}]", view.r#type())
+                format!(
+                    "{} [{}]",
+                    view.r#type(),
+                    AddressView::from(RelocatedAddress::from(addr as usize))
+                )
             }
             ValueLayout::Wrapped(val) => {
                 format!("{}::{}", view.r#type(), render_variable_ir(val, depth))

@@ -290,7 +290,7 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.sendline('continue')
         self.debugger.expect('bye!')
 
-    def test_breakpoint_dump(self):
+    def test_breakpoint_info(self):
         """View breakpoints list"""
         self.debugger.sendline('break hello_world.rs:9')
         self.debugger.expect('New breakpoint')
@@ -301,7 +301,7 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.sendline('break hello_world.rs:7')
         self.debugger.expect('New breakpoint')
 
-        self.debugger.sendline('break dump')
+        self.debugger.sendline('break info')
         self.debugger.expect(r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9')
         self.debugger.expect(r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:15')
         self.debugger.expect(r'- Breakpoint 3 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:5')
@@ -309,7 +309,7 @@ class CommandTestCase(unittest.TestCase):
 
         self.debugger.sendline('run')
 
-        self.debugger.sendline('break dump')
+        self.debugger.sendline('break info')
         self.debugger.expect(r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9')
         self.debugger.expect(r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:15')
         self.debugger.expect(r'- Breakpoint 3 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:5')
@@ -318,7 +318,7 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.sendline('break remove main')
         self.debugger.expect('Remove breakpoint')
 
-        self.debugger.sendline('break dump')
+        self.debugger.sendline('break info')
         self.debugger.expect(r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9')
         self.debugger.expect(r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:15')
         self.debugger.expect(r'- Breakpoint 4 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:7')

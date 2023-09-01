@@ -179,19 +179,19 @@ class VariablesTestCase(unittest.TestCase):
 
         self.debugger.sendline('var locals')
         self.debugger.expect_exact('a = i32(2)')
-        self.debugger.expect(r'ref_a = &i32 \[0x[0-9a-f]{12}\]')
-        self.debugger.expect(r'ptr_a = \*const i32 \[0x[0-9a-f]{12}\]')
-        self.debugger.expect(r'ptr_ptr_a = \*const \*const i32 \[0x[0-9a-f]{'
-                             r'12}\]')
+        self.debugger.expect(r'ref_a = &i32 \[0x[0-9A-F]{14}\]')
+        self.debugger.expect(r'ptr_a = \*const i32 \[0x[0-9A-F]{14}\]')
+        self.debugger.expect(r'ptr_ptr_a = \*const \*const i32 \[0x[0-9A-F]{'
+                             r'14}\]')
 
         self.debugger.expect_exact('b = i32(2)')
-        self.debugger.expect(r'mut_ref_b = &mut i32 \[0x[0-9a-f]{12}\]')
+        self.debugger.expect(r'mut_ref_b = &mut i32 \[0x[0-9A-F]{14}\]')
 
         self.debugger.expect_exact('c = i32(2)')
-        self.debugger.expect(r'mut_ptr_c = \*mut i32 \[0x[0-9a-f]{12}\]')
+        self.debugger.expect(r'mut_ptr_c = \*mut i32 \[0x[0-9A-F]{14}\]')
 
         self.debugger.expect(r'box_d = alloc::boxed::Box<i32, '
-                             r'alloc::alloc::Global> \[0x[0-9a-f]{12}\]')
+                             r'alloc::alloc::Global> \[0x[0-9A-F]{14}\]')
 
         self.debugger.expect_exact('f = Foo {')
         self.debugger.expect_exact('bar: i32(1)')
@@ -199,11 +199,11 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('0: i32(1)')
         self.debugger.expect_exact('1: i32(2)')
         self.debugger.expect_exact('}')
-        self.debugger.expect(r'foo: &i32 \[0x[0-9a-f]{12}\]')
+        self.debugger.expect(r'foo: &i32 \[0x[0-9A-F]{14}\]')
         self.debugger.expect_exact('}')
 
-        self.debugger.expect(r'ref_f = &vars::references::Foo \[0x[0-9a-f]{'
-                             r'12}\]')
+        self.debugger.expect(r'ref_f = &vars::references::Foo \[0x[0-9A-F]{'
+                             r'14}\]')
 
     def test_deref_pointers(self):
         """Reading deref rust references and pointers"""
@@ -218,7 +218,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('var *ptr_a')
         self.debugger.expect_exact('*ptr_a = i32(2)')
         self.debugger.sendline('var *ptr_ptr_a')
-        self.debugger.expect(r'\*ptr_ptr_a = \*const i32 \[0x[0-9a-f]{12}\]')
+        self.debugger.expect(r'\*ptr_ptr_a = \*const i32 \[0x[0-9A-F]{14}\]')
         self.debugger.sendline('var **ptr_ptr_a')
         self.debugger.expect_exact('**ptr_ptr_a = i32(2)')
         self.debugger.sendline('var *mut_ref_b')
@@ -234,7 +234,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('0: i32(1)')
         self.debugger.expect_exact('1: i32(2)')
         self.debugger.expect_exact('}')
-        self.debugger.expect(r'foo: &i32 \[0x[0-9a-f]{12}\]')
+        self.debugger.expect(r'foo: &i32 \[0x[0-9A-F]{14}\]')
         self.debugger.expect_exact('}')
 
     def test_read_type_alias(self):
@@ -302,8 +302,8 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('cap: usize(2)')
         self.debugger.expect_exact('}')
 
-        self.debugger.expect(r'slice1 = &\[i32; 3\] \[0x[0-9a-f]{12}\]')
-        self.debugger.expect(r'slice2 = &\[&\[i32; 3\]; 2\] \[0x[0-9a-f]{12}\]')
+        self.debugger.expect(r'slice1 = &\[i32; 3\] \[0x[0-9A-F]{14}\]')
+        self.debugger.expect(r'slice2 = &\[&\[i32; 3\]; 2\] \[0x[0-9A-F]{14}\]')
 
         self.debugger.sendline('var *slice1')
         self.debugger.expect_exact('*slice1 = [i32]')
@@ -314,8 +314,8 @@ class VariablesTestCase(unittest.TestCase):
 
         self.debugger.sendline('var *slice2')
         self.debugger.expect_exact('*slice2 = [&[i32; 3]] {')
-        self.debugger.expect(r'0: &\[i32; 3\] \[0x[0-9a-f]{12}\]')
-        self.debugger.expect(r'1: &\[i32; 3\] \[0x[0-9a-f]{12}\]')
+        self.debugger.expect(r'0: &\[i32; 3\] \[0x[0-9A-F]{14}\]')
+        self.debugger.expect(r'1: &\[i32; 3\] \[0x[0-9A-F]{14}\]')
         self.debugger.expect_exact('}')
 
         self.debugger.sendline('var *(*slice2)[0]')
@@ -544,7 +544,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('arg by_val')
         self.debugger.expect_exact('by_val = i32(1)')
         self.debugger.sendline('arg by_ref')
-        self.debugger.expect(r'by_ref = &i32 \[0x[0-9a-f]{12}\]')
+        self.debugger.expect(r'by_ref = &i32 \[0x[0-9A-F]{14}\]')
         self.debugger.sendline('arg vec')
         self.debugger.expect_exact('vec = Vec<u8, alloc::alloc::Global> {')
         self.debugger.sendline('arg box_arr')

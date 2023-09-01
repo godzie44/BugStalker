@@ -92,14 +92,14 @@ class MultithreadTestCase(unittest.TestCase):
         self.assertFalse(self.debugger.isalive())
 
     def test_thread_info(self):
-        """Thread dump/current command for multithread debugee"""
+        """Thread info/current command for multithread debugee"""
         self.debugger.sendline('break mt.rs:40')
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('Hit breakpoint 1 at')
 
-        self.debugger.sendline('thread dump')
+        self.debugger.sendline('thread info')
         self.debugger.expect_exact('#1 thread id')
         self.debugger.expect_exact('#2 thread id')
         self.debugger.expect_exact('#3 thread id')
