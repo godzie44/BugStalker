@@ -1,22 +1,56 @@
 use crate::debugger::address::{Address, GlobalAddress};
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
-use crate::debugger::debugee::tracer::TraceContext;
+use crate::debugger::debugee::tracer::{StopReason, TraceContext};
 use crate::debugger::{Debugger, ExplorationContext};
 use anyhow::anyhow;
+use nix::sys::signal::Signal;
+
+/// Result of a step, if [`SignalInterrupt`] then step process interrupted by a signal and user must know it.
+/// If `quiet` set to `true` than no hooks must occurred.
+pub(super) enum StepResult {
+    Done,
+    SignalInterrupt { signal: Signal, quiet: bool },
+}
+
+impl StepResult {
+    fn signal_interrupt_quiet(signal: Signal) -> Self {
+        Self::SignalInterrupt {
+            signal,
+            quiet: true,
+        }
+    }
+
+    fn signal_interrupt(signal: Signal) -> Self {
+        Self::SignalInterrupt {
+            signal,
+            quiet: false,
+        }
+    }
+}
 
 impl Debugger {
     /// Do single step (until debugee reaches a different source line).
+    /// Returns [`StepResult::SignalInterrupt`] if the step is interrupted by a signal
+    /// or [`StepResult::Done`] if step done.
     ///
     /// **! change exploration context**
-    pub(super) fn step_in(&mut self) -> anyhow::Result<&ExplorationContext> {
+    pub(super) fn step_in(&mut self) -> anyhow::Result<StepResult> {
+        enum PlaceOrSignal {
+            Place(PlaceDescriptorOwned),
+            Signal(Signal),
+        }
+
         // make instruction step but ignoring functions prolog
         // initial function must exists (do instruction steps until it's not)
-        fn long_step(debugger: &mut Debugger) -> anyhow::Result<PlaceDescriptorOwned> {
+        // returns stop place or signal if step is undone
+        fn step_over_prolog(debugger: &mut Debugger) -> anyhow::Result<PlaceOrSignal> {
             loop {
                 // initial step
-                let ctx = debugger.single_step_instruction()?;
-
+                if let Some(StopReason::SignalStop(_, sign)) = debugger.single_step_instruction()? {
+                    return Ok(PlaceOrSignal::Signal(sign));
+                }
+                let ctx = debugger.exploration_ctx();
                 let mut location = ctx.location();
                 // determine current function, if no debug information for function - step until function found
                 let func = loop {
@@ -25,7 +59,13 @@ impl Debugger {
                     if let Ok(Some(func)) = dwarf.find_function_by_pc(location.global_pc) {
                         break func;
                     }
-                    let ctx = debugger.single_step_instruction()?;
+                    if let Some(StopReason::SignalStop(_, sign)) =
+                        debugger.single_step_instruction()?
+                    {
+                        return Ok(PlaceOrSignal::Signal(sign));
+                    }
+
+                    let ctx = debugger.exploration_ctx();
                     location = ctx.location();
                 };
 
@@ -37,7 +77,11 @@ impl Debugger {
                     .global_pc
                     .in_range(&prolog)
                 {
-                    debugger.single_step_instruction()?;
+                    if let Some(StopReason::SignalStop(_, sign)) =
+                        debugger.single_step_instruction()?
+                    {
+                        return Ok(PlaceOrSignal::Signal(sign));
+                    }
                 }
 
                 let location = debugger.exploration_ctx().location();
@@ -46,7 +90,7 @@ impl Debugger {
                     .debug_info(location.pc)?
                     .find_exact_place_from_pc(location.global_pc)?
                 {
-                    return Ok(place.to_owned());
+                    return Ok(PlaceOrSignal::Place(place.to_owned()));
                 }
             }
         }
@@ -58,8 +102,10 @@ impl Debugger {
             if let Ok(Some(place)) = dwarf.find_place_from_pc(location.global_pc) {
                 break place;
             }
-            let ctx = self.single_step_instruction()?;
-            location = ctx.location();
+            if let Some(StopReason::SignalStop(_, sign)) = self.single_step_instruction()? {
+                return Ok(StepResult::signal_interrupt(sign));
+            }
+            location = self.exploration_ctx().location();
         };
 
         let sp_file = start_place.file.to_path_buf();
@@ -70,7 +116,10 @@ impl Debugger {
             .get_cfa(&self.debugee, &ExplorationContext::new(location, 0))?;
 
         loop {
-            let next_place = long_step(self)?;
+            let next_place = match step_over_prolog(self)? {
+                PlaceOrSignal::Place(place) => place,
+                PlaceOrSignal::Signal(signal) => return Ok(StepResult::signal_interrupt(signal)),
+            };
             if !next_place.is_stmt {
                 continue;
             }
@@ -89,29 +138,34 @@ impl Debugger {
             }
         }
 
-        self.expl_ctx_update_location()
+        self.expl_ctx_update_location()?;
+        Ok(StepResult::Done)
     }
 
     /// Move debugee to next instruction, step over breakpoint if needed.
+    /// May return a [`StopReason::SignalStop`] if the step didn't happen cause signal.
     ///
     /// **! change exploration context**
-    pub(super) fn single_step_instruction(&mut self) -> anyhow::Result<&ExplorationContext> {
+    pub(super) fn single_step_instruction(&mut self) -> anyhow::Result<Option<StopReason>> {
         let loc = self.exploration_ctx().location();
-        if self.breakpoints.get_enabled(loc.pc).is_some() {
-            Ok(self.step_over_breakpoint()?)
+        let mb_signal = if self.breakpoints.get_enabled(loc.pc).is_some() {
+            self.step_over_breakpoint()?
         } else {
-            self.debugee.tracer_mut().single_step(
+            let mb_signal = self.debugee.tracer_mut().single_step(
                 TraceContext::new(&self.breakpoints.active_breakpoints()),
                 loc.pid,
             )?;
-            self.expl_ctx_update_location()
-        }
+            self.expl_ctx_update_location()?;
+            mb_signal
+        };
+        Ok(mb_signal)
     }
 
     /// If current on focus thread is stopped at a breakpoint, then it takes a step through this point.
+    /// May return a [`StopReason::SignalStop`] if the step didn't happen cause signal.
     ///
     /// **! change exploration context**
-    pub(super) fn step_over_breakpoint(&mut self) -> anyhow::Result<&ExplorationContext> {
+    pub(super) fn step_over_breakpoint(&mut self) -> anyhow::Result<Option<StopReason>> {
         // cannot use debugee::Location mapping offset may be not init yet
         let tracee = self
             .debugee
@@ -121,15 +175,16 @@ impl Debugger {
         if let Some(brkpt) = mb_brkpt {
             if brkpt.is_enabled() {
                 brkpt.disable()?;
-                self.debugee.tracer_mut().single_step(
+                let mb_signal = self.debugee.tracer_mut().single_step(
                     TraceContext::new(&self.breakpoints.active_breakpoints()),
                     tracee_pid,
                 )?;
                 brkpt.enable()?;
-                return self.expl_ctx_update_location();
+                self.expl_ctx_update_location()?;
+                return Ok(mb_signal);
             }
         }
-        Ok(self.exploration_ctx())
+        Ok(None)
     }
 
     /// Move to higher stack frame.
@@ -156,10 +211,12 @@ impl Debugger {
         Ok(())
     }
 
-    /// Do debugee step (over subroutine calls to).
+    /// Do debugee step (over subroutine calls too).
+    /// Returns [`StepResult::SignalInterrupt`] if the step is interrupted by a signal
+    /// or [`StepResult::Done`] if step done.
     ///
     /// **! change exploration context**
-    pub(super) fn step_over_any(&mut self) -> anyhow::Result<()> {
+    pub(super) fn step_over_any(&mut self) -> anyhow::Result<StepResult> {
         let ctx = self.exploration_ctx();
         let mut current_location = ctx.location();
 
@@ -170,8 +227,10 @@ impl Debugger {
             if let Ok(Some(func)) = dwarf.find_function_by_pc(current_location.global_pc) {
                 break func;
             }
-            let ctx = self.single_step_instruction()?;
-            current_location = ctx.location();
+            if let Some(StopReason::SignalStop(_, signal)) = self.single_step_instruction()? {
+                return Ok(StepResult::signal_interrupt(signal));
+            }
+            current_location = self.exploration_ctx().location();
         };
 
         let prolog = func.prolog()?;
@@ -251,11 +310,16 @@ impl Debugger {
             }
         }
 
-        self.continue_execution()?;
+        let stop_reason = self.continue_execution()?;
 
         to_delete
             .into_iter()
             .try_for_each(|addr| self.remove_breakpoint(Address::Relocated(addr)).map(|_| ()))?;
+
+        if let StopReason::SignalStop(_, signal) = stop_reason {
+            // on signal hook already called at [`Self::continue_execution`]
+            return Ok(StepResult::signal_interrupt_quiet(signal));
+        }
 
         // if a step is taken outside and new location pc not equals to place pc
         // then we then we stopped at the place of the previous function call, and got into an assignment operation or similar
@@ -269,11 +333,13 @@ impl Debugger {
                 .ok_or_else(|| anyhow!("unknown function range"))?;
 
             if place.address != new_location.global_pc {
-                self.step_in()?;
+                if let StepResult::SignalInterrupt { signal, .. } = self.step_in()? {
+                    return Ok(StepResult::signal_interrupt(signal));
+                }
             }
         }
 
         self.expl_ctx_update_location()?;
-        Ok(())
+        Ok(StepResult::Done)
     }
 }

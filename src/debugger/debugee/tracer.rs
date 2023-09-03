@@ -230,7 +230,7 @@ impl Tracer {
 
     /// Handle tracee event fired by `wait` syscall.
     /// After this function ends tracee_ctl must be in consistent state.
-    /// If debugee process stop detected - returns stop reason.
+    /// If debugee process stop detected - returns a stop reason.
     ///
     /// # Arguments
     ///
@@ -333,10 +333,9 @@ impl Tracer {
                                 } else {
                                     let mut unusual_brkpt = (*brkpt).clone();
                                     unusual_brkpt.pid = pid;
-                                    let tracee = self.tracee_ctl.tracee_ensure(pid);
                                     if unusual_brkpt.is_enabled() {
                                         unusual_brkpt.disable()?;
-                                        self.single_step(ctx, tracee.pid)?;
+                                        while self.single_step(ctx, pid)?.is_some() {}
                                         unusual_brkpt.enable()?;
                                     }
                                     self.tracee_ctl
@@ -376,32 +375,47 @@ impl Tracer {
     }
 
     /// Execute next instruction, then stop with `TRAP_TRACE`.
-    pub fn single_step(&mut self, ctx: TraceContext, pid: Pid) -> anyhow::Result<()> {
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx`: trace context
+    /// * `pid`: tracee pid
+    ///
+    /// returns: a [`None`] if instruction step done successfully. A [`StopReason::SignalStop`] returned
+    /// if step interrupt cause tracee in a signal-stop. Error returned otherwise.
+    pub fn single_step(
+        &mut self,
+        ctx: TraceContext,
+        pid: Pid,
+    ) -> anyhow::Result<Option<StopReason>> {
         sys::ptrace::step(pid, None)?;
 
-        loop {
-            let _status = self.tracee_ctl.tracee_ensure(pid).wait_one()?;
+        let reason = loop {
+            let status = self.tracee_ctl.tracee_ensure(pid).wait_one()?;
             let info = sys::ptrace::getsiginfo(pid)?;
 
-            let in_trap =
-                matches!(WaitStatus::Stopped, _status) && info.si_code == code::TRAP_TRACE;
+            // check that debugee step into expected trap (breakpoints ignored and are also considered as a trap)
+            let in_trap = matches!(status, WaitStatus::Stopped(_, Signal::SIGTRAP))
+                && (info.si_code == code::TRAP_TRACE
+                    || info.si_code == code::TRAP_BRKPT
+                    || info.si_code == code::SI_KERNEL);
             if in_trap {
-                break;
+                break None;
             }
 
             let is_interrupt = matches!(
-                WaitStatus::PtraceEvent(pid, SIGSTOP, libc::PTRACE_EVENT_STOP),
-                _status
+                status,
+                WaitStatus::PtraceEvent(p, SIGSTOP, libc::PTRACE_EVENT_STOP) if pid == p,
             );
             if is_interrupt {
-                break;
+                break None;
             }
 
-            let stop = { self.apply_new_status(ctx, _status)? };
+            let stop = self.apply_new_status(ctx, status)?;
             match stop {
                 None => {}
                 Some(StopReason::Breakpoint(_, _)) => {
-                    break;
+                    unreachable!("breakpoints must be ignore");
                 }
                 Some(StopReason::DebugeeExit(code)) => {
                     bail!("debugee process exit with {code}")
@@ -411,14 +425,14 @@ impl Tracer {
                 }
                 Some(StopReason::SignalStop(_, _)) => {
                     // tracee in signal-stop
-                    break;
+                    break stop;
                 }
                 Some(StopReason::NoSuchProcess(_)) => {
                     // expect that tracee will be removed later
-                    break;
+                    break None;
                 }
             }
-        }
-        Ok(())
+        };
+        Ok(reason)
     }
 }

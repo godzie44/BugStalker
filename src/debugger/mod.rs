@@ -28,6 +28,7 @@ use crate::debugger::debugee::tracer::{StopReason, TraceContext};
 use crate::debugger::debugee::{Debugee, ExecutionStatus, FrameInfo, Location, RegionInfo};
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
+use crate::debugger::step::StepResult;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::variable::VariableIR;
 use crate::{print_warns, weak_error};
@@ -247,10 +248,13 @@ impl Debugger {
     /// Return if breakpoint is reached or signal occurred or debugee exit.
     ///
     /// **! change exploration context**
-    fn continue_execution(&mut self) -> anyhow::Result<()> {
-        self.step_over_breakpoint()?;
+    fn continue_execution(&mut self) -> anyhow::Result<StopReason> {
+        if let Some(StopReason::SignalStop(pid, sign)) = self.step_over_breakpoint()? {
+            self.hooks.on_signal(sign);
+            return Ok(StopReason::SignalStop(pid, sign));
+        }
 
-        loop {
+        let stop_reason = loop {
             let event = self
                 .debugee
                 .trace_until_stop(TraceContext::new(&self.breakpoints.active_breakpoints()))?;
@@ -259,14 +263,14 @@ impl Debugger {
                     // ignore all possible errors on breakpoints disabling
                     _ = self.breakpoints.disable_all_breakpoints(&self.debugee);
                     self.hooks.on_exit(code);
-                    break;
+                    break event;
                 }
                 StopReason::DebugeeStart => {
                     self.breakpoints.enable_entry_breakpoint(&self.debugee)?;
                     // no need to update expl context cause next stop been soon, on entry point
                 }
                 StopReason::NoSuchProcess(_) => {
-                    break;
+                    break event;
                 }
                 StopReason::Breakpoint(pid, current_pc) => {
                     self.expl_ctx_switch_thread(pid)?;
@@ -277,7 +281,8 @@ impl Debugger {
                                 print_warns!(self
                                     .breakpoints
                                     .enable_all_breakpoints(&self.debugee)?);
-                                self.step_over_breakpoint()?;
+                                // ignore possible signals
+                                while self.step_over_breakpoint()?.is_some() {}
                                 continue;
                             }
                             BrkptType::UserDefined => {
@@ -291,23 +296,27 @@ impl Debugger {
                                     .map(|f| f.die);
                                 self.hooks
                                     .on_breakpoint(current_pc, bp.number(), place, func)?;
-                                break;
+                                break event;
                             }
                             BrkptType::Temporary => {
-                                break;
+                                break event;
                             }
                         }
                     }
                 }
                 StopReason::SignalStop(pid, sign) => {
+                    if !self.debugee.is_in_progress() {
+                        continue;
+                    }
+
                     self.expl_ctx_switch_thread(pid)?;
                     self.hooks.on_signal(sign);
-                    break;
+                    break event;
                 }
             }
-        }
+        };
 
-        Ok(())
+        Ok(stop_reason)
     }
 
     /// Restart debugee by recreating debugee process, save all user defined breakpoints.
@@ -343,14 +352,15 @@ impl Debugger {
 
         self.hooks.on_process_install(self.process.pid());
         self.expl_context = ExplorationContext::new_non_running(self.process.pid());
-        self.continue_execution()
+        self.continue_execution()?;
+        Ok(())
     }
 
     /// Start debugee.
     /// Return when debugee stopped or ends.
     pub fn start_debugee(&mut self) -> anyhow::Result<()> {
         if !self.debugee.is_in_progress() {
-            return self.continue_execution();
+            self.continue_execution()?;
         }
         Ok(())
     }
@@ -358,7 +368,8 @@ impl Debugger {
     /// Continue debugee execution.
     pub fn continue_debugee(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
-        self.continue_execution()
+        self.continue_execution()?;
+        Ok(())
     }
 
     /// Return list of symbols matching regular expression.
@@ -425,8 +436,16 @@ impl Debugger {
     pub fn step_into(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
         self.expl_ctx_restore_frame()?;
-        self.step_in()?;
-        self.execute_on_step_hook()
+
+        match self.step_in()? {
+            StepResult::Done => self.execute_on_step_hook(),
+            StepResult::SignalInterrupt { signal, quiet } => {
+                if !quiet {
+                    self.hooks.on_signal(signal);
+                }
+                Ok(())
+            }
+        }
     }
 
     /// Move in focus thread to next instruction.
@@ -436,7 +455,11 @@ impl Debugger {
         disable_when_not_stared!(self);
         self.expl_ctx_restore_frame()?;
 
-        self.single_step_instruction()?;
+        if let Some(StopReason::SignalStop(_, sign)) = self.single_step_instruction()? {
+            self.hooks.on_signal(sign);
+            return Ok(());
+        }
+
         self.execute_on_step_hook()
     }
 
@@ -512,8 +535,15 @@ impl Debugger {
     pub fn step_over(&mut self) -> anyhow::Result<()> {
         disable_when_not_stared!(self);
         self.expl_ctx_restore_frame()?;
-        self.step_over_any()?;
-        self.execute_on_step_hook()
+        match self.step_over_any()? {
+            StepResult::Done => self.execute_on_step_hook(),
+            StepResult::SignalInterrupt { signal, quiet } => {
+                if !quiet {
+                    self.hooks.on_signal(signal);
+                }
+                Ok(())
+            }
+        }
     }
 
     /// Create and enable breakpoint at debugee address space

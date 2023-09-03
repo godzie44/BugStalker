@@ -1,4 +1,4 @@
-use crate::console::print::style::{AddressView, FilePathView, FunctionNameView};
+use crate::console::print::style::{AddressView, FilePathView, FunctionNameView, KeywordView};
 use crate::console::print::ExternalPrinter;
 use crate::console::view::FileView;
 use crate::debugger::address::RelocatedAddress;
@@ -91,13 +91,17 @@ impl EventHook for TerminalHook {
     }
 
     fn on_signal(&self, signal: Signal) {
-        self.printer
-            .print(format!("Receive signal {signal}, debugee stopped"));
+        self.printer.print(format!(
+            "Signal {} received, debugee stopped",
+            KeywordView::from(signal)
+        ));
     }
 
     fn on_exit(&self, code: i32) {
-        self.printer
-            .print(format!("Program exit with code: {code}"));
+        self.printer.print(format!(
+            "Program exit with code: {}",
+            KeywordView::from(code)
+        ));
     }
 
     fn on_process_install(&self, pid: Pid) {
