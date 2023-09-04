@@ -212,6 +212,9 @@ impl Debugee {
                     print_warns!(self.dwarf_registry.update_mappings(false)?);
                 }
             }
+            StopReason::NoSuchProcess(_) => {
+                self.execution_status = ExecutionStatus::Exited;
+            }
             _ => {}
         }
 

@@ -32,7 +32,7 @@ use crate::debugger::step::StepResult;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::variable::VariableIR;
 use crate::{print_warns, weak_error};
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use nix::libc::{c_void, uintptr_t};
 use nix::sys;
 use nix::sys::signal;
@@ -270,7 +270,7 @@ impl Debugger {
                     // no need to update expl context cause next stop been soon, on entry point
                 }
                 StopReason::NoSuchProcess(_) => {
-                    break event;
+                    bail!("The program is not being started.");
                 }
                 StopReason::Breakpoint(pid, current_pc) => {
                     self.expl_ctx_switch_thread(pid)?;

@@ -73,7 +73,13 @@ impl Tracer {
             }
 
             debug!(target: "tracer", "resume debugee execution, wait for updates");
-            let status = waitpid(Pid::from_raw(-1), None)?;
+            let status = match waitpid(Pid::from_raw(-1), None) {
+                Ok(status) => status,
+                Err(Errno::ECHILD) => {
+                    return Ok(StopReason::NoSuchProcess(self.tracee_ctl.proc_pid()))
+                }
+                Err(e) => return Err(e.into()),
+            };
 
             debug!(target: "tracer", "received new thread status: {status:?}");
             if let Some(stop) = self.apply_new_status(ctx, status)? {
