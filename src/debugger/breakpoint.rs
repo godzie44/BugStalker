@@ -19,6 +19,9 @@ pub enum BrkptType {
     UserDefined,
     /// Auxiliary breakpoints, using, for example, in step-over implementation
     Temporary,
+    /// Breakpoint at linker internal function that will always be called when the linker
+    /// begins to map in a library or unmap it, and again when the mapping change is complete.
+    LinkerMapFn,
 }
 
 static GLOBAL_BP_COUNTER: AtomicU32 = AtomicU32::new(1);
@@ -113,6 +116,17 @@ impl Breakpoint {
         )
     }
 
+    pub fn new_linker_map(addr: RelocatedAddress, pid: Pid) -> Self {
+        Self::new_inner(
+            addr,
+            pid,
+            0,
+            None,
+            BrkptType::LinkerMapFn,
+            PathBuf::default(),
+        )
+    }
+
     pub fn number(&self) -> u32 {
         self.number
     }
@@ -125,7 +139,7 @@ impl Breakpoint {
     pub fn place(&self) -> Option<&PlaceDescriptorOwned> {
         match self.r#type {
             BrkptType::UserDefined => self.place.as_ref(),
-            BrkptType::EntryPoint | BrkptType::Temporary => {
+            BrkptType::EntryPoint | BrkptType::Temporary | BrkptType::LinkerMapFn => {
                 panic!("only user defined breakpoint has a place attribute")
             }
         }
@@ -449,7 +463,7 @@ impl BreakpointRegistry {
                         brkpt.place,
                     ));
                 }
-                BrkptType::Temporary => {}
+                BrkptType::Temporary | BrkptType::LinkerMapFn => {}
             }
         }
         Ok(errors)

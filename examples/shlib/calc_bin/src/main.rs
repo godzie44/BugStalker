@@ -5,8 +5,18 @@ extern "C" {
 
 pub fn main() {
     let sum_1_2 = unsafe { add(1, 2) };
-    println!("1 + 2 = {sum_1_2}");
-
     let sub_2_1 = unsafe { sub(2, 1) };
-    println!("2 - 1 = {sub_2_1}");
+
+    let print_lib =
+        unsafe { libloading::Library::new("./examples/target/debug/libprinter_lib.so").unwrap() };
+
+    let print_sum_fn: libloading::Symbol<unsafe extern "C" fn(u32)> =
+        unsafe { print_lib.get(b"print_sum").unwrap() };
+    let print_sub_fn: libloading::Symbol<unsafe extern "C" fn(u32)> =
+        unsafe { print_lib.get(b"print_sub").unwrap() };
+
+    unsafe {
+        print_sum_fn(sum_1_2);
+        print_sub_fn(sub_2_1);
+    }
 }

@@ -26,6 +26,7 @@ mod registry;
 mod rendezvous;
 pub mod tracee;
 pub mod tracer;
+use crate::debugger::breakpoint::BrkptType;
 pub use registry::RegionInfo;
 
 /// Stack frame information.
@@ -96,7 +97,7 @@ impl Debugee {
             ldd::find_dependencies(path),
             "unsuccessful attempt to use ldd"
         );
-        parse_dependencies_into_registry(&mut registry, deps.unwrap_or_default().into_iter());
+        parse_dependencies_into_registry(&mut registry, deps.unwrap_or_default().into_iter(), true);
 
         Ok(Self {
             execution_status: ExecutionStatus::Unload,
@@ -179,37 +180,24 @@ impl Debugee {
                 print_warns!(self.dwarf_registry.update_mappings(true)?);
             }
             StopReason::Breakpoint(tid, addr) => {
-                let at_entry_point = ctx
-                    .breakpoints
-                    .iter()
-                    .find(|bp| bp.addr == addr)
-                    .map(|bp| bp.is_entry_point());
-                let main_dwarf = self.program_debug_info()?;
-                if at_entry_point == Some(true) {
-                    self.rendezvous = Some(Rendezvous::new(
-                        tid,
-                        self.mapping_offset_for_file(main_dwarf)?,
-                        &self.object_sections,
-                    )?);
-                    self.init_libthread_db();
+                let mb_brkpt = ctx.breakpoints.iter().find(|bp| bp.addr == addr);
+                let mb_type = mb_brkpt.map(|brkpt| brkpt.r#type());
 
-                    let lmaps = self
-                        .rendezvous
-                        .as_ref()
-                        .expect("rendezvous must exists")
-                        .link_maps()?;
-
-                    let dep_names: Vec<_> = lmaps
-                        .into_iter()
-                        .map(|lm| lm.name)
-                        .filter(|dep| !self.dwarf_registry.contains(dep))
-                        .collect();
-                    parse_dependencies_into_registry(
-                        &mut self.dwarf_registry,
-                        dep_names.into_iter(),
-                    );
-
-                    print_warns!(self.dwarf_registry.update_mappings(false)?);
+                match mb_type {
+                    Some(BrkptType::EntryPoint) => {
+                        let main_dwarf = self.program_debug_info()?;
+                        self.rendezvous = Some(Rendezvous::new(
+                            tid,
+                            self.mapping_offset_for_file(main_dwarf)?,
+                            &self.object_sections,
+                        )?);
+                        self.init_libthread_db();
+                        self.update_debug_info_registry(true)?;
+                    }
+                    Some(BrkptType::LinkerMapFn) => {
+                        self.update_debug_info_registry(false)?;
+                    }
+                    _ => {}
                 }
             }
             StopReason::NoSuchProcess(_) => {
@@ -219,6 +207,34 @@ impl Debugee {
         }
 
         Ok(event)
+    }
+
+    /// Update all debug information known by debugger. Fetch libraries from rendezvous structures.
+    ///
+    /// # Arguments
+    ///
+    /// * `quite`: true for enable logging of library names
+    fn update_debug_info_registry(&mut self, quite: bool) -> anyhow::Result<()> {
+        let lmaps = self.rendezvous().link_maps()?;
+        let current_deps = lmaps
+            .into_iter()
+            .map(|lm| PathBuf::from(&lm.name))
+            .collect();
+
+        let reload_plan = self.dwarf_registry.reload_plan(current_deps);
+
+        for lib_to_del in reload_plan.to_del {
+            self.dwarf_registry.remove(lib_to_del);
+        }
+
+        parse_dependencies_into_registry(
+            &mut self.dwarf_registry,
+            reload_plan.to_add.into_iter(),
+            quite,
+        );
+
+        print_warns!(self.dwarf_registry.update_mappings(false)?);
+        Ok(())
     }
 
     #[inline(always)]
@@ -425,6 +441,7 @@ fn parse_dependency(dep_file: impl Into<PathBuf>) -> anyhow::Result<Option<Debug
 fn parse_dependencies_into_registry(
     registry: &mut DwarfRegistry,
     deps: impl Iterator<Item = impl Into<PathBuf>>,
+    quiet: bool,
 ) {
     let dwarfs: Vec<_> = deps
         .map(|dep| dep.into())
@@ -433,7 +450,13 @@ fn parse_dependencies_into_registry(
         .filter_map(|dep| {
             let parse_result = parse_dependency(&dep);
             match parse_result {
-                Ok(mb_dep) => mb_dep.map(|dwarf| (dep, dwarf)),
+                Ok(mb_dep) => mb_dep.map(|dwarf| {
+                    if !quiet {
+                        info!(target: "dwarf-loader", "load shared library {dep:?}");
+                    }
+
+                    (dep, dwarf)
+                }),
                 Err(e) => {
                     warn!(target: "debugger", "broken dependency {:?}: {:#}", dep, e);
                     None

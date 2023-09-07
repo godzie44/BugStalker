@@ -20,6 +20,12 @@ pub struct RegionInfo {
     pub range: Option<RegionRange>,
 }
 
+/// Difference between two registry states (typically between current and needle)
+pub struct ReloadPlan {
+    pub to_del: Vec<PathBuf>,
+    pub to_add: Vec<PathBuf>,
+}
+
 /// Registry contains debug information about main executable object and loaded shared libraries.
 pub struct DwarfRegistry {
     /// process pid
@@ -147,8 +153,43 @@ impl DwarfRegistry {
         Ok(())
     }
 
-    pub fn contains(&self, path: impl AsRef<Path>) -> bool {
-        self.files.contains_key(path.as_ref())
+    pub fn remove(&mut self, path: impl AsRef<Path>) {
+        let path = path.as_ref();
+        self.files.remove(path);
+        self.mappings.remove(path);
+        self.ranges.retain_mut(|(lib_path, _)| lib_path != path);
+    }
+
+    /// Calculate a difference between two list of paths - already parsed libs list (from this registry)
+    /// and target list of libraries in argument. This difference using for create a
+    /// [`ReloadPlan`] - an indication to the caller which library can be deleted from registry and which
+    /// need to be parsed and add to the registry. After this plan is executed registry will contains
+    /// libraries from `target` list.
+    ///
+    /// # Arguments
+    ///
+    /// * `target`: list of shared libraries paths
+    ///
+    /// returns: [`ReloadPlan`] - must executed at caller side
+    pub fn reload_plan(&self, target: Vec<PathBuf>) -> ReloadPlan {
+        let current_libs: Vec<_> = self.files.keys().cloned().collect();
+
+        let mut to_del = vec![];
+        for current_lib in current_libs {
+            // program executable cannot be deleted or reloaded
+            if !target.contains(&current_lib) && current_lib != self.program_path {
+                to_del.push(current_lib);
+            }
+        }
+
+        let mut to_add = vec![];
+        for target_lib in target {
+            if !self.files.contains_key(&target_lib) {
+                to_add.push(target_lib);
+            }
+        }
+
+        ReloadPlan { to_del, to_add }
     }
 
     /// Return all known debug information. Debug info about main executable object

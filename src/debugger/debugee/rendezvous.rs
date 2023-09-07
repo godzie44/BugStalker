@@ -15,11 +15,11 @@ pub struct LinkMap {
 #[derive(Debug, thiserror::Error)]
 pub enum RendezvousError {
     #[error(".dynamic section not found")]
-    DynamicSectNotFound(),
+    DynamicSectNotFound,
     #[error("read from remote process: {0}")]
     RemoteReadError(#[from] nix::Error),
     #[error("rendezvous not found")]
-    NotFound(),
+    NotFound,
 }
 
 /// Rendezvous structure maintained by dynamic linker.
@@ -38,7 +38,7 @@ impl Rendezvous {
         let dyn_sect_addr = sections
             .get(".dynamic")
             .cloned()
-            .ok_or(RendezvousError::DynamicSectNotFound())? as usize;
+            .ok_or(RendezvousError::DynamicSectNotFound)? as usize;
 
         let dyn_sect_addr = dyn_sect_addr + mapping_offset;
         let mut addr = dyn_sect_addr;
@@ -58,7 +58,7 @@ impl Rendezvous {
             val = ffi::read_val::<usize>(proc_pid, &mut addr)?;
         }
 
-        Err(RendezvousError::NotFound())
+        Err(RendezvousError::NotFound)
     }
 
     pub fn link_map_main(&self) -> RelocatedAddress {
@@ -83,6 +83,13 @@ impl Rendezvous {
 
         Ok(result)
     }
+
+    /// Return an address of a function internal to the run-time linker,
+    /// that will always be called when the linker begins to map in a
+    /// library or unmap it, and again when the mapping change is complete.
+    pub fn r_brk(&self) -> RelocatedAddress {
+        RelocatedAddress::from(self.inner.r_brk)
+    }
 }
 
 mod ffi {
@@ -99,8 +106,16 @@ mod ffi {
     #[repr(C)]
     #[derive(Clone, Copy, Debug)]
     pub(super) struct r_debug {
+        /// Version number for this protocol.
         pub(super) r_version: i32,
+        /// Head of the chain of loaded objects.
         pub(super) link_map: *const libc::c_void,
+        /// This is the address of a function internal to the run-time linker,
+        /// that will always be called when the linker begins to map in a
+        /// library or unmap it, and again when the mapping change is complete.
+        /// The debugger can set a breakpoint at this address if it wants to
+        /// notice shared object mapping changes.
+        pub(super) r_brk: usize,
     }
 
     #[derive(Debug, Clone, Copy)]

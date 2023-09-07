@@ -47,7 +47,7 @@ class SharedLibTestCase(unittest.TestCase):
 
         self.debugger.sendline('step')
         self.debugger.expect_exact(r'main.rs:8')
-        self.debugger.expect_exact('8     println!("1 + 2 = {sum_1_2}")')
+        self.debugger.expect_exact('8     let sub_2_1 = unsafe { sub(2, 1) };')
 
     def test_lib_fn_breakpoint(self):
         """Set breakpoint at shared library function"""
@@ -66,3 +66,43 @@ class SharedLibTestCase(unittest.TestCase):
         self.debugger.sendline('run')
         self.debugger.expect_exact('Hit breakpoint 1')
         self.debugger.expect_exact('8     a - b')
+
+    def test_dynamic_load_lib_info(self):
+        """View information about shared libraries loaded dynamically"""
+        self.debugger.sendline('b main.rs:8')
+        self.debugger.expect('New breakpoint 1')
+        self.debugger.sendline('b main.rs:14')
+        self.debugger.expect('New breakpoint 2')
+
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('Hit breakpoint 1')
+
+        self.debugger.sendline('sharedlib info')
+
+        try:
+            self.debugger.expect_exact('./examples/target/debug/libprinter_lib.so')
+        except pexpect.ExceptionPexpect:
+            self.debugger.sendline('continue')
+        else:
+            raise pexpect.ExceptionPexpect("lib is not loading at this point")
+
+        self.debugger.expect_exact('Hit breakpoint 2')
+        self.debugger.sendline('sharedlib info')
+        self.debugger.expect_exact('./examples/target/debug/libprinter_lib.so')
+
+    def test_dynamic_load_lib_step(self):
+        """Do steps into dynamically loaded shared library code"""
+        self.debugger.sendline('break main.rs:19')
+        self.debugger.expect('New breakpoint')
+
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('Hit breakpoint 1')
+        self.debugger.expect_exact('19         print_sum_fn(sum_1_2);')
+
+        self.debugger.sendline('step')
+        self.debugger.sendline('step')
+        self.debugger.sendline('step')
+        self.debugger.sendline('step')
+        self.debugger.sendline('step')
+        self.debugger.expect_exact('printer_lib/src/lib.rs:3')
+        self.debugger.expect_exact('3     println!("sum is {num}")')

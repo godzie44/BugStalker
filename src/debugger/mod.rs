@@ -281,6 +281,19 @@ impl Debugger {
                                 print_warns!(self
                                     .breakpoints
                                     .enable_all_breakpoints(&self.debugee)?);
+
+                                // rendezvous already available at this point
+                                let brk = self.debugee.rendezvous().r_brk();
+                                self.breakpoints.add_and_enable(Breakpoint::new_linker_map(
+                                    brk,
+                                    self.process.pid(),
+                                ))?;
+
+                                // ignore possible signals
+                                while self.step_over_breakpoint()?.is_some() {}
+                                continue;
+                            }
+                            BrkptType::LinkerMapFn => {
                                 // ignore possible signals
                                 while self.step_over_breakpoint()?.is_some() {}
                                 continue;
