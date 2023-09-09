@@ -1,7 +1,7 @@
 use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
-use crate::prepare_debugee_process;
 use crate::{assert_no_proc, HW_APP};
+use crate::{prepare_debugee_process, CALC_APP};
 use bugstalker::debugger::Debugger;
 use serial_test::serial;
 
@@ -77,6 +77,37 @@ fn test_brkpt_on_function() {
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_brkpt_on_function_name_collision() {
+    let process = prepare_debugee_process(CALC_APP, &[]);
+    let info = DebugeeRunInfo::default();
+    let mut debugger = Debugger::new(process, TestHooks::new(info)).unwrap();
+
+    // assert that two breakpoints is set
+    assert_eq!(debugger.set_breakpoint_at_fn("sum2").unwrap().len(), 2);
+    // assert that two breakpoints is removed
+    assert_eq!(debugger.remove_breakpoint_at_fn("sum2").unwrap().len(), 2);
+
+    // assert that two breakpoints is set
+    assert_eq!(debugger.set_breakpoint_at_fn("sum3").unwrap().len(), 2);
+    // assert that two breakpoints is removed
+    assert_eq!(debugger.remove_breakpoint_at_fn("sum3").unwrap().len(), 2);
+
+    // set breakpoint to function in concrete module
+    assert_eq!(
+        debugger.set_breakpoint_at_fn("float::sum3").unwrap().len(),
+        1
+    );
+    assert_eq!(
+        debugger
+            .remove_breakpoint_at_fn("float::sum3")
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]

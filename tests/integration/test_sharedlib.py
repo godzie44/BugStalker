@@ -36,7 +36,7 @@ class SharedLibTestCase(unittest.TestCase):
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('Hit breakpoint 1')
-        self.debugger.expect_exact('let sum_1_2 = unsafe { add(1, 2) }')
+        self.debugger.expect_exact('let sum_1_2 = unsafe { calc_add(1, 2) }')
 
         self.debugger.sendline('step')
         self.debugger.expect_exact('lib.rs:3')
@@ -47,11 +47,11 @@ class SharedLibTestCase(unittest.TestCase):
 
         self.debugger.sendline('step')
         self.debugger.expect_exact(r'main.rs:8')
-        self.debugger.expect_exact('8     let sub_2_1 = unsafe { sub(2, 1) };')
+        self.debugger.expect_exact('8     let sub_2_1 = unsafe { calc_sub(2, 1) };')
 
     def test_lib_fn_breakpoint(self):
         """Set breakpoint at shared library function"""
-        self.debugger.sendline('break add')
+        self.debugger.sendline('break calc_add')
         self.debugger.expect_exact('New breakpoint 1')
 
         self.debugger.sendline('run')

@@ -20,8 +20,8 @@ pub struct Break<'a> {
 }
 
 pub enum HandlingResult<'a> {
-    New(BreakpointView<'a>),
-    Removed(Option<BreakpointView<'a>>),
+    New(Vec<BreakpointView<'a>>),
+    Removed(Vec<BreakpointView<'a>>),
     Dump(Vec<BreakpointView<'a>>),
 }
 
@@ -34,19 +34,33 @@ impl<'a> Break<'a> {
         let result = match cmd {
             Command::Add(brkpt) => {
                 let res = match brkpt {
-                    Breakpoint::Address(addr) => self.dbg.set_breakpoint_at_addr(addr.into()),
-                    Breakpoint::Line(file, line) => self.dbg.set_breakpoint_at_line(&file, line),
-                    Breakpoint::Function(func_name) => self.dbg.set_breakpoint_at_fn(&func_name),
+                    Breakpoint::Address(addr) => {
+                        vec![self.dbg.set_breakpoint_at_addr(addr.into())?]
+                    }
+                    Breakpoint::Line(file, line) => {
+                        vec![self.dbg.set_breakpoint_at_line(&file, line)?]
+                    }
+                    Breakpoint::Function(func_name) => self.dbg.set_breakpoint_at_fn(&func_name)?,
                 };
-                HandlingResult::New(res?)
+                HandlingResult::New(res)
             }
             Command::Remove(brkpt) => {
                 let res = match brkpt {
-                    Breakpoint::Address(addr) => self.dbg.remove_breakpoint_at_addr(addr.into()),
-                    Breakpoint::Line(file, line) => self.dbg.remove_breakpoint_at_line(&file, line),
-                    Breakpoint::Function(func_name) => self.dbg.remove_breakpoint_at_fn(&func_name),
+                    Breakpoint::Address(addr) => self
+                        .dbg
+                        .remove_breakpoint_at_addr(addr.into())?
+                        .map(|brkpt| vec![brkpt])
+                        .unwrap_or_default(),
+                    Breakpoint::Line(file, line) => self
+                        .dbg
+                        .remove_breakpoint_at_line(&file, line)?
+                        .map(|brkpt| vec![brkpt])
+                        .unwrap_or_default(),
+                    Breakpoint::Function(func_name) => {
+                        self.dbg.remove_breakpoint_at_fn(&func_name)?
+                    }
                 };
-                HandlingResult::Removed(res?)
+                HandlingResult::Removed(res)
             }
             Command::Info => HandlingResult::Dump(self.dbg.breakpoints_snapshot()),
         };

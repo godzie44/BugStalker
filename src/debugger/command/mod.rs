@@ -113,7 +113,7 @@ fn hexadecimal(input: &str) -> IResult<&str, &str, ErrorTree<&str>> {
 pub fn rust_identifier(input: &str) -> IResult<&str, &str, ErrorTree<&str>> {
     recognize(pair(
         alt((alpha1, tag("_"))),
-        many0_count(alt((alphanumeric1, tag("_")))),
+        many0_count(alt((alphanumeric1, tag("_"), tag("::")))),
     ))(input)
 }
 
@@ -635,6 +635,15 @@ mod test {
                 },
             },
             TestCase {
+                inputs: vec!["b ns1::some_func", "break ns1::ns2::some_func"],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Breakpoint(r#break::Command::Add(Breakpoint::Function(f))) if f == "ns1::some_func" || f == "ns1::ns2::some_func"
+                    ));
+                },
+            },
+            TestCase {
                 inputs: vec!["b file:123", "break file:123", "   break file:123   "],
                 command_matcher: |result| {
                     assert!(matches!(
@@ -662,6 +671,19 @@ mod test {
                     assert!(matches!(
                         result.unwrap(),
                         Command::Breakpoint(r#break::Command::Remove(Breakpoint::Function(f))) if f == "some_func"
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec![
+                    "b r ns1::some_func",
+                    "break r ns1::some_func",
+                    "   break r  ns1::some_func   ",
+                ],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Breakpoint(r#break::Command::Remove(Breakpoint::Function(f))) if f == "ns1::some_func"
                     ));
                 },
             },

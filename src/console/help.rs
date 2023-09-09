@@ -140,12 +140,16 @@ Manage breakpoints.
 
 Available subcomands:
 break <location> - set breakpoint to location
-break remove <location> - deactivate and delete selected breakpoint.
-break info - show all breakpoints.
+break remove <location> - deactivate and delete selected breakpoint
+break info - show all breakpoints
 
 Posible location format:
 - at instruction. Example: break 0x55555555BD30
-- at function start. Example: break main
+- at function start. A function can be defined by its full name (with namespace) 
+or by function name (in case of possible collisions, breakpoints will be set in 
+all matching functions). Examples: 
+    * break fn1 
+    * break module1::fn1
 - at code line. Example: break hello_world.rs:15
 ";
 

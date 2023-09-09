@@ -5,6 +5,7 @@ mod symbol;
 pub mod r#type;
 pub mod unit;
 pub mod unwind;
+mod utils;
 
 pub use self::unwind::DwarfUnwinder;
 
@@ -43,6 +44,7 @@ use std::ops::{Add, Deref};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 pub use symbol::Symbol;
+use unit::PlaceDescriptor;
 use walkdir::WalkDir;
 
 pub type EndianArcSlice = gimli::EndianArcSlice<gimli::RunTimeEndian>;
@@ -88,7 +90,7 @@ impl Clone for DebugInformation {
 pub enum DebugInformationError {
     #[error(transparent)]
     Other(#[from] anyhow::Error),
-    #[error("not enough debug information to complete the request")]
+    #[error("Not enough debug information to complete the request")]
     IncompleteInformation,
 }
 
@@ -120,6 +122,11 @@ impl DebugInformation {
         self.units
             .as_deref()
             .ok_or(DebugInformationError::IncompleteInformation)
+    }
+
+    /// Return false if file dont contains a debug information.
+    pub fn has_debug_info(&self) -> bool {
+        self.units.is_some()
     }
 
     /// Return unit by its index.
@@ -220,16 +227,13 @@ impl DebugInformation {
     }
 
     /// Returns best matched place by program counter global address.
-    pub fn find_place_from_pc(&self, pc: GlobalAddress) -> Result<Option<unit::PlaceDescriptor>> {
+    pub fn find_place_from_pc(&self, pc: GlobalAddress) -> Result<Option<PlaceDescriptor>> {
         let mb_unit = self.find_unit_by_pc(pc)?;
         Ok(mb_unit.and_then(|u| u.find_place_by_pc(pc)))
     }
 
     /// Returns place with line address equals to program counter global address.
-    pub fn find_exact_place_from_pc(
-        &self,
-        pc: GlobalAddress,
-    ) -> Result<Option<unit::PlaceDescriptor>> {
+    pub fn find_exact_place_from_pc(&self, pc: GlobalAddress) -> Result<Option<PlaceDescriptor>> {
         let mb_unit = self.find_unit_by_pc(pc)?;
         Ok(mb_unit.and_then(|u| u.find_exact_place_by_pc(pc)))
     }
@@ -275,45 +279,55 @@ impl DebugInformation {
         }))
     }
 
-    /// Return a function by its name.
+    /// Return a functions relevant to template.
     ///
     /// # Arguments
     ///
-    /// * `needle`: function name.
-    pub fn find_function_by_name(
-        &self,
-        needle: &str,
-    ) -> Result<Option<ContextualDieRef<FunctionDie>>> {
-        Ok(self.get_units()?.iter().find_map(|unit| {
-            let mut entry_it = resolve_unit_call!(self.dwarf(), unit, entries_it);
-            entry_it.find_map(|entry| {
-                if let DieVariant::Function(func) = &entry.die {
-                    if func.base_attributes.name.as_deref() == Some(needle) {
-                        return Some(ContextualDieRef {
+    /// * `template`: search template (full function path or part of this path).
+    pub fn search_functions(&self, template: &str) -> Result<Vec<ContextualDieRef<FunctionDie>>> {
+        Ok(self
+            .get_units()?
+            .iter()
+            .flat_map(|unit| {
+                let entries = resolve_unit_call!(self.dwarf(), unit, search_functions, template);
+                entries
+                    .iter()
+                    .map(|entry| {
+                        let DieVariant::Function(func) = &entry.die else {
+                        unreachable!()
+                    };
+                        ContextualDieRef {
                             debug_info: self,
                             unit_idx: unit.idx(),
                             node: &entry.node,
                             die: func,
-                        });
-                    }
-                }
-                None
+                        }
+                    })
+                    .collect::<Vec<_>>()
             })
-        }))
+            .collect())
     }
 
-    pub fn find_place(&self, file: &str, line: u64) -> Result<Option<unit::PlaceDescriptor<'_>>> {
+    pub fn find_place(&self, file: &str, line: u64) -> Result<Option<PlaceDescriptor<'_>>> {
         Ok(self
             .get_units()?
             .iter()
             .find_map(|unit| unit.find_stmt_line(file, line)))
     }
 
-    pub fn get_function_place(&self, fn_name: &str) -> Result<PlaceDescriptorOwned> {
-        let func = self
-            .find_function_by_name(fn_name)?
-            .ok_or_else(|| anyhow!("function not found"))?;
-        Ok(func.prolog_end_place()?.to_owned())
+    /// Search all places for functions that relevant to template.
+    ///
+    /// # Arguments
+    ///
+    /// * `template`: search template (full function path or part of this path).
+    pub fn search_places_for_fn_tpl(&self, template: &str) -> Result<Vec<PlaceDescriptorOwned>> {
+        Ok(self
+            .search_functions(template)?
+            .into_iter()
+            .filter_map(|fn_die| {
+                weak_error!(fn_die.prolog_end_place()).map(|place| place.to_owned())
+            })
+            .collect())
     }
 
     pub fn find_symbols(&self, regex: &Regex) -> Vec<&Symbol> {
@@ -785,7 +799,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         result
     }
 
-    pub fn prolog_start_place(&self) -> anyhow::Result<unit::PlaceDescriptor> {
+    pub fn prolog_start_place(&self) -> anyhow::Result<PlaceDescriptor> {
         let low_pc = self
             .die
             .base_attributes
@@ -801,7 +815,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         .ok_or_else(|| anyhow!("invalid function entry"))
     }
 
-    pub fn prolog_end_place(&self) -> anyhow::Result<unit::PlaceDescriptor> {
+    pub fn prolog_end_place(&self) -> anyhow::Result<PlaceDescriptor> {
         let mut place = self.prolog_start_place()?;
         while !place.prolog_end {
             match place.next() {

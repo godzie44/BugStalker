@@ -29,3 +29,16 @@ fn print(v: i64, description: &str) {
 
     println!("{output}")
 }
+
+pub mod float {
+    #[no_mangle]
+    pub fn sum2(a: f64, b: f64) -> f64 {
+        a + b
+    }
+
+    #[no_mangle]
+    pub fn sum3(a: f64, b: f64, c: f64) -> f64 {
+        let ab = sum2(a, b);
+        sum2(ab, c)
+    }
+}

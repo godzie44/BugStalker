@@ -370,6 +370,10 @@ impl BreakpointRegistry {
         self.breakpoints.get(&addr)
     }
 
+    pub fn get_disabled(&self, addr: Address) -> Option<&UninitBreakpoint> {
+        self.disabled_breakpoints.get(&addr)
+    }
+
     /// Add uninit breakpoint, this means that breakpoint will be created later.
     pub fn add_uninit(&mut self, brkpt: UninitBreakpoint) -> BreakpointView {
         let addr = brkpt.addr;
@@ -378,7 +382,10 @@ impl BreakpointRegistry {
     }
 
     /// Remove breakpoint or uninit breakpoint from registry.
-    pub fn remove_by_addr(&mut self, addr: Address) -> anyhow::Result<Option<BreakpointView>> {
+    pub fn remove_by_addr(
+        &mut self,
+        addr: Address,
+    ) -> anyhow::Result<Option<BreakpointView<'static>>> {
         if let Some(brkpt) = self.disabled_breakpoints.remove(&addr) {
             return Ok(Some(brkpt.into()));
         }

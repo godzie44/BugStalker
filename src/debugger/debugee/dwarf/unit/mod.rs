@@ -4,6 +4,7 @@ pub use parser::DwarfUnitParser;
 
 use crate::debugger::address::GlobalAddress;
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
+use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::debugee::Debugee;
 use gimli::{
@@ -360,8 +361,10 @@ struct UnitLazyPart {
     die_ranges: Vec<DieRange>,
     // index for variable die position: variable name -> [namespaces : die position in unit]
     variable_index: HashMap<String, Vec<(NamespaceHierarchy, usize)>>,
-    // index for variables: offset in unit -> position in unit entries
+    // index for variables: offset in unit -> position in unit `entries`
     die_offsets_index: HashMap<UnitOffset, usize>,
+    // index for function entries: function -> die position in unit `entries`
+    function_index: PathSearchIndex<usize>,
 }
 
 /// Some of compilation unit methods may return UnitResult in order to show
@@ -544,7 +547,6 @@ impl Unit {
             .iter()
             .enumerate()
             .find(|(_, file_path)| file_path.ends_with(file))?;
-
         for (pos, line_row) in self.lines.iter().enumerate() {
             if line_row.line == line && line_row.file_index == found.0 as u64 {
                 return self.find_place(pos);
@@ -560,6 +562,27 @@ impl Unit {
         match self.lazy_part.get() {
             None => UnitResult::Reload,
             Some(additional) => UnitResult::Ok(&additional.entries),
+        }
+    }
+
+    /// Return all function entries suitable for template.
+    ///
+    /// # Arguments
+    ///
+    /// * `template`: function search template, contains a function name and full or partial namespace.
+    /// For example: "ns1::ns2::fn1" or "ns2::fn1"
+    pub fn search_functions(&self, template: &str) -> UnitResult<Vec<&Entry>> {
+        match self.lazy_part.get() {
+            None => UnitResult::Reload,
+            Some(additional) => {
+                let entry_indexes = additional.function_index.get(template);
+                UnitResult::Ok(
+                    entry_indexes
+                        .iter()
+                        .map(|&&idx| &additional.entries[idx])
+                        .collect(),
+                )
+            }
         }
     }
 

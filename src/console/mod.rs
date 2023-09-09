@@ -370,15 +370,16 @@ impl AppLoop {
                 };
 
                 match Break::new(&mut self.debugger).handle(bp_cmd)? {
-                    BreakpointHandlingResult::New(bp) => {
-                        print_bp("New breakpoint", &bp);
+                    BreakpointHandlingResult::New(brkpts) => {
+                        brkpts
+                            .iter()
+                            .for_each(|brkpt| print_bp("New breakpoint", brkpt));
                     }
-                    BreakpointHandlingResult::Removed(mb_bp) => match mb_bp {
-                        None => self.printer.print("Breakpoint not found"),
-                        Some(ref bp) => {
-                            print_bp("Remove breakpoint", bp);
-                        }
-                    },
+                    BreakpointHandlingResult::Removed(brkpts) => {
+                        brkpts
+                            .iter()
+                            .for_each(|brkpt| print_bp("Remove breakpoint", brkpt));
+                    }
                     BreakpointHandlingResult::Dump(brkpts) => brkpts
                         .iter()
                         .for_each(|brkpt| print_bp("- Breakpoint", brkpt)),

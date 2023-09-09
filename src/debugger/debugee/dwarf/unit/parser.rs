@@ -5,6 +5,7 @@ use crate::debugger::debugee::dwarf::unit::{
     StructTypeDie, SubroutineDie, TemplateTypeParameter, TypeDefDie, TypeMemberDie, UnionTypeDie,
     Unit, UnitLazyPart, UnitProperties, VariableDie, Variant, VariantPart, VolatileDie,
 };
+use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::rust::Environment;
 use fallible_iterator::FallibleIterator;
@@ -80,6 +81,7 @@ impl<'a> DwarfUnitParser<'a> {
         let mut die_ranges: Vec<DieRange> = vec![];
         let mut variable_index: HashMap<String, Vec<(NamespaceHierarchy, usize)>> = HashMap::new();
         let mut die_offsets_index: HashMap<UnitOffset, usize> = HashMap::new();
+        let mut function_index = PathSearchIndex::new("::");
 
         let mut cursor = unit.entries();
         while let Some((delta_depth, die)) = cursor.next_dfs()? {
@@ -145,6 +147,14 @@ impl<'a> DwarfUnitParser<'a> {
                         },
                         &entries,
                     );
+
+                    if let Some(ref fn_name) = base_attrs.name {
+                        // function without range are useless for this index
+                        if !base_attrs.ranges.is_empty() {
+                            function_index.insert_w_head(&fn_ns, fn_name, current_idx);
+                        }
+                    }
+
                     DieVariant::Function(FunctionDie {
                         namespace: fn_ns,
                         base_attributes: base_attrs,
@@ -318,6 +328,7 @@ impl<'a> DwarfUnitParser<'a> {
             die_ranges,
             variable_index,
             die_offsets_index,
+            function_index,
         })
     }
 }

@@ -1,11 +1,11 @@
 extern "C" {
-    pub fn add(a: u32, b: u32) -> u32;
-    pub fn sub(a: u32, b: u32) -> u32;
+    pub fn calc_add(a: u32, b: u32) -> u32;
+    pub fn calc_sub(a: u32, b: u32) -> u32;
 }
 
 pub fn main() {
-    let sum_1_2 = unsafe { add(1, 2) };
-    let sub_2_1 = unsafe { sub(2, 1) };
+    let sum_1_2 = unsafe { calc_add(1, 2) };
+    let sub_2_1 = unsafe { calc_sub(2, 1) };
 
     let print_lib =
         unsafe { libloading::Library::new("./examples/target/debug/libprinter_lib.so").unwrap() };
