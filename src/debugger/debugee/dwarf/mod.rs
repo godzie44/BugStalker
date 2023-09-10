@@ -22,27 +22,25 @@ use crate::debugger::debugee::dwarf::unit::{
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::ExplorationContext;
-use crate::{resolve_unit_call, weak_error};
+use crate::{muted_error, resolve_unit_call, weak_error};
 use anyhow::{anyhow, bail};
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;
 use gimli::{
-    Attribute, BaseAddresses, CfaRule, DebugAddr, DebugInfoOffset, Dwarf, EhFrame, Expression,
-    LocationLists, Range, RunTimeEndian, Section, UnitOffset, UnwindContext, UnwindSection,
-    UnwindTableRow,
+    Attribute, BaseAddresses, CfaRule, DebugAddr, DebugInfoOffset, DebugPubNames, Dwarf, EhFrame,
+    Expression, LocationLists, Range, Reader, RunTimeEndian, Section, UnitOffset, UnwindContext,
+    UnwindSection, UnwindTableRow,
 };
 use log::{debug, info};
 use memmap2::Mmap;
 use object::{Object, ObjectSection};
 use rayon::prelude::*;
 use regex::Regex;
-use std::borrow::Cow;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::ops::{Add, Deref};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 pub use symbol::Symbol;
 use unit::PlaceDescriptor;
 use walkdir::WalkDir;
@@ -56,6 +54,7 @@ pub struct DebugInformation<R: gimli::Reader = EndianArcSlice> {
     bases: BaseAddresses,
     units: Option<Vec<Unit>>,
     symbol_table: Option<SymbolTab>,
+    pub_names: Option<HashSet<String>>,
 }
 
 impl Clone for DebugInformation {
@@ -82,6 +81,7 @@ impl Clone for DebugInformation {
             bases: self.bases.clone(),
             units: self.units.clone(),
             symbol_table: self.symbol_table.clone(),
+            pub_names: self.pub_names.clone(),
         }
     }
 }
@@ -149,6 +149,23 @@ impl DebugInformation {
             .as_ref()
             .map(|units| units.len())
             .unwrap_or_default()
+    }
+
+    /// Return `Some(true)` if .debug_pubnames section contains needle,
+    /// `Some(false)` if not contains and `None` if no .debug_pubnames section in
+    /// debug information file.
+    ///
+    /// This function is useful, for example, to determine the presence of a function in a file. The
+    /// result is false positive, means that if result is `Some(false)` than function not exists, but
+    /// it may exists or not exists if result is `None` (we need analyze die's for determine).
+    ///
+    /// # Arguments
+    ///
+    /// * `needle`: object or function name.
+    pub fn in_pub_names(&self, needle: &str) -> Option<bool> {
+        self.pub_names
+            .as_ref()
+            .map(|pub_names| pub_names.contains(needle))
     }
 
     fn evaluate_cfa(
@@ -524,11 +541,7 @@ impl DebugInformationBuilder {
         };
 
         let eh_frame = EhFrame::load(|id| -> gimli::Result<EndianArcSlice> {
-            let data = file
-                .section_by_name(id.name())
-                .and_then(|section| section.uncompressed_data().ok())
-                .unwrap_or(Cow::Borrowed(&[]));
-            Ok(gimli::EndianArcSlice::new(Arc::from(&*data), endian))
+            loader::load_section(id, file, endian)
         })?;
         let section_addr = |name: &str| -> Option<u64> {
             file.sections().find_map(|section| {
@@ -570,6 +583,16 @@ impl DebugInformationBuilder {
         let dwarf = loader::load_par(debug_info_file, endian)?;
         let symbol_table = SymbolTab::new(debug_info_file);
 
+        let mb_pub_names_sect = muted_error!(DebugPubNames::load(|id| {
+            loader::load_section(id, debug_info_file, endian)
+        }));
+        let pub_names = mb_pub_names_sect.and_then(|pub_names_sect| {
+            muted_error!(pub_names_sect
+                .items()
+                .map(|pub_name| pub_name.name().to_string_lossy().map(|s| s.to_string()))
+                .collect::<HashSet<_>>())
+        });
+
         let parser = DwarfUnitParser::new(&dwarf);
         let headers = dwarf.units().collect::<Vec<_>>()?;
 
@@ -584,6 +607,7 @@ impl DebugInformationBuilder {
                 bases,
                 units: None,
                 symbol_table,
+                pub_names,
             });
         }
 
@@ -605,6 +629,7 @@ impl DebugInformationBuilder {
             bases,
             units: Some(units),
             symbol_table,
+            pub_names,
         })
     }
 }

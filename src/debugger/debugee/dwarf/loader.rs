@@ -1,4 +1,3 @@
-use crate::debugger::debugee::dwarf;
 use crate::debugger::debugee::dwarf::EndianArcSlice;
 use gimli::{
     AbbreviationsCache, DebugAbbrev, DebugAddr, DebugAranges, DebugInfo, DebugLine, DebugLineStr,
@@ -29,11 +28,11 @@ struct Sections {
     debug_rnglists: Option<DebugRngLists<EndianArcSlice>>,
 }
 
-fn load_section(
+pub fn load_section(
     id: SectionId,
     file: &File,
     endian: RunTimeEndian,
-) -> anyhow::Result<EndianArcSlice> {
+) -> gimli::Result<EndianArcSlice> {
     let data = file
         .section_by_name(id.name())
         .and_then(|section| section.uncompressed_data().ok())
@@ -44,7 +43,7 @@ fn load_section(
 /// Create a function that load section and put in [`Sections`] struct in right place.
 macro_rules! make_sect_loader {
     ($file: expr, $endian: expr, $field: tt) => {{
-        move |dest: Arc<Mutex<Option<Sections>>>| -> dwarf::Result<()> {
+        move |dest: Arc<Mutex<Option<Sections>>>| -> gimli::Result<()> {
             let sect = Section::load(|id| load_section(id, $file, $endian))?;
             let mut lock = dest.lock().expect("unexpected: panic in another lock");
             let sections = lock.as_mut().expect("unexpected: sections must exists");
@@ -61,7 +60,7 @@ macro_rules! make_sect_loader {
 ///
 /// * `file`: object file with debug information
 /// * `endian`: file endian
-pub fn load_par(file: &File, endian: RunTimeEndian) -> dwarf::Result<Dwarf<EndianArcSlice>> {
+pub fn load_par(file: &File, endian: RunTimeEndian) -> gimli::Result<Dwarf<EndianArcSlice>> {
     let load_debug_abbrev = make_sect_loader!(file, endian, debug_abbrev);
     let load_debug_addr = make_sect_loader!(file, endian, debug_addr);
     let load_debug_aranges = make_sect_loader!(file, endian, debug_aranges);
@@ -77,7 +76,7 @@ pub fn load_par(file: &File, endian: RunTimeEndian) -> dwarf::Result<Dwarf<Endia
     let load_debug_rnglists = make_sect_loader!(file, endian, debug_rnglists);
 
     type SectLoaders<'a> =
-        Vec<Box<dyn FnOnce(Arc<Mutex<Option<Sections>>>) -> dwarf::Result<()> + Send + Sync + 'a>>;
+        Vec<Box<dyn FnOnce(Arc<Mutex<Option<Sections>>>) -> gimli::Result<()> + Send + Sync + 'a>>;
 
     let loaders: SectLoaders = vec![
         Box::new(load_debug_abbrev),

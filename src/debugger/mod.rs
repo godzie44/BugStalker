@@ -622,7 +622,10 @@ impl Debugger {
 
         dwarfs
             .iter()
-            .filter(|dwarf| dwarf.has_debug_info())
+            .filter(|dwarf| {
+                let fn_name = tpl.split("::").last().expect("at least one exists");
+                dwarf.has_debug_info() && dwarf.in_pub_names(fn_name) != Some(false)
+            })
             .map(|&dwarf| {
                 let places = dwarf.search_places_for_fn_tpl(tpl)?;
                 Ok((dwarf, places))
