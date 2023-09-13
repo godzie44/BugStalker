@@ -14,7 +14,7 @@ use bugstalker::debugger::register::{Register, RegisterMap};
 use bugstalker::debugger::{rust, Debugger};
 use serial_test::serial;
 use std::io::{BufRead, BufReader};
-use std::{mem, thread};
+use std::thread;
 
 pub fn prepare_debugee_process(prog: &str, args: &[&'static str]) -> Child<Installed> {
     let (reader, writer) = os_pipe::pipe().unwrap();
@@ -42,6 +42,7 @@ const MT_APP: &str = "./target/debug/mt";
 const VARS_APP: &str = "./target/debug/vars";
 const RECURSION_APP: &str = "./target/debug/recursion";
 const SIGNALS_APP: &str = "./target/debug/signals";
+const SHARED_LIB_APP: &str = "./examples/target/debug/calc_bin";
 
 #[test]
 #[serial]
@@ -54,7 +55,7 @@ fn test_debugger_graceful_shutdown() {
         .set_breakpoint_at_line("hello_world.rs", 5)
         .unwrap();
     debugger.start_debugee().unwrap();
-    mem::drop(debugger);
+    drop(debugger);
 
     assert_no_proc!(pid);
 }
@@ -68,7 +69,7 @@ fn test_debugger_graceful_shutdown_multithread() {
     let mut debugger = Debugger::new(process, TestHooks::default()).unwrap();
     debugger.set_breakpoint_at_line("mt.rs", 31).unwrap();
     debugger.start_debugee().unwrap();
-    mem::drop(debugger);
+    drop(debugger);
 
     assert_no_proc!(pid);
 }
@@ -101,7 +102,7 @@ fn test_frame_cfa() {
     // expect that cfa equals stack pointer from callee function.
     assert_eq!(sp, u64::from(frame_info.cfa));
 
-    mem::drop(debugger);
+    drop(debugger);
     assert_no_proc!(debugee_pid);
 }
 
@@ -130,6 +131,6 @@ fn test_registers() {
         registers.value(gimli::Register(16)).unwrap()
     );
 
-    mem::drop(debugger);
+    drop(debugger);
     assert_no_proc!(debugee_pid);
 }

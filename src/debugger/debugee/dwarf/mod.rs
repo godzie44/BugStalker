@@ -19,6 +19,7 @@ use crate::debugger::debugee::dwarf::unit::{
     DieRef, DieVariant, DwarfUnitParser, Entry, FunctionDie, Node, ParameterDie,
     PlaceDescriptorOwned, Unit, VariableDie,
 };
+use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::ExplorationContext;
@@ -38,9 +39,9 @@ use object::{Object, ObjectSection};
 use rayon::prelude::*;
 use regex::Regex;
 use std::collections::{HashSet, VecDeque};
-use std::fs;
 use std::ops::{Add, Deref};
 use std::path::{Path, PathBuf};
+use std::{fs, path};
 pub use symbol::Symbol;
 use unit::PlaceDescriptor;
 use walkdir::WalkDir;
@@ -55,6 +56,9 @@ pub struct DebugInformation<R: gimli::Reader = EndianArcSlice> {
     units: Option<Vec<Unit>>,
     symbol_table: Option<SymbolTab>,
     pub_names: Option<HashSet<String>>,
+    /// Index for fast search files by full path or part of file path. Contains unit index and
+    /// indexes of lines in [`Unit::lines`] vector that belongs to a file, indexes ordered by line number.
+    files_index: PathSearchIndex<(usize, Vec<usize>)>,
 }
 
 impl Clone for DebugInformation {
@@ -82,6 +86,7 @@ impl Clone for DebugInformation {
             units: self.units.clone(),
             symbol_table: self.symbol_table.clone(),
             pub_names: self.pub_names.clone(),
+            files_index: self.files_index.clone(),
         }
     }
 }
@@ -325,11 +330,40 @@ impl DebugInformation {
             .collect())
     }
 
-    pub fn find_place(&self, file: &str, line: u64) -> Result<Option<PlaceDescriptor<'_>>> {
-        Ok(self
-            .get_units()?
-            .iter()
-            .find_map(|unit| unit.find_stmt_line(file, line)))
+    /// Return closest [`PlaceDescriptor`] for given file and line.
+    /// Closest means that returns descriptor for target line or, if no descriptor for target line,
+    /// place for next line after target.
+    ///
+    /// # Arguments
+    ///
+    /// * `file`: file name template (full path or part of a file path)
+    /// * `line`: line number
+    pub fn find_closest_place(
+        &self,
+        file_tpl: &str,
+        line: u64,
+    ) -> Result<Vec<PlaceDescriptor<'_>>> {
+        let files = self.files_index.get(file_tpl);
+
+        let mut result = vec![];
+        for (unit_idx, file_lines) in files {
+            let unit = self.unit_ensure(*unit_idx);
+            for line_idx in file_lines {
+                let line_row = unit.line(*line_idx);
+                if line_row.line < line {
+                    continue;
+                }
+                if line_row.line > line + 1 {
+                    break;
+                }
+
+                if let Some(place) = unit.find_place_by_idx(*line_idx) {
+                    result.push(place);
+                    break;
+                }
+            }
+        }
+        Ok(result)
     }
 
     /// Search all places for functions that relevant to template.
@@ -608,6 +642,7 @@ impl DebugInformationBuilder {
                 units: None,
                 symbol_table,
                 pub_names,
+                files_index: PathSearchIndex::new(""),
             });
         }
 
@@ -622,6 +657,14 @@ impl DebugInformationBuilder {
         units.sort_unstable_by_key(|u| u.offset());
         units.iter_mut().enumerate().for_each(|(i, u)| u.set_idx(i));
 
+        let mut files_index = PathSearchIndex::new(path::MAIN_SEPARATOR_STR);
+        units.iter().for_each(|unit| {
+            unit.file_path_with_lines_pairs()
+                .for_each(|(file_path, lines)| {
+                    files_index.insert(file_path, (unit.idx(), lines));
+                });
+        });
+
         Ok(DebugInformation {
             file: obj_path.to_path_buf(),
             inner: dwarf,
@@ -630,6 +673,7 @@ impl DebugInformationBuilder {
             units: Some(units),
             symbol_table,
             pub_names,
+            files_index,
         })
     }
 }

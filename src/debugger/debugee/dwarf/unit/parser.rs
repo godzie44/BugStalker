@@ -151,7 +151,7 @@ impl<'a> DwarfUnitParser<'a> {
                     if let Some(ref fn_name) = base_attrs.name {
                         // function without range are useless for this index
                         if !base_attrs.ranges.is_empty() {
-                            function_index.insert_w_head(&fn_ns, fn_name, current_idx);
+                            function_index.insert_w_head(fn_ns.iter(), fn_name, current_idx);
                         }
                     }
 
@@ -373,7 +373,7 @@ where
     let header = rows.header();
     match header.file(0) {
         Some(file) => files.push(render_file_path(unit, file, header, dwarf)?),
-        None => files.push(PathBuf::from("")),
+        None => files.push(PathBuf::default()),
     }
     let mut index = 1;
     while let Some(file) = header.file(index) {

@@ -15,19 +15,20 @@ use once_cell::sync::OnceCell;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use std::path;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 /// A row in the line number program's resulting matrix.
 #[derive(PartialEq, Debug, Clone)]
-struct LineRow {
-    address: u64,
-    file_index: u64,
-    line: u64,
-    column: u64,
-    is_stmt: bool,
-    prolog_end: bool,
-    epilog_begin: bool,
+pub(super) struct LineRow {
+    pub(super) address: u64,
+    pub(super) file_index: u64,
+    pub(super) line: u64,
+    pub(super) column: u64,
+    pub(super) is_stmt: bool,
+    pub(super) prolog_end: bool,
+    pub(super) epilog_begin: bool,
 }
 
 /// An address range of debug information entry,
@@ -76,7 +77,7 @@ impl<'a> Debug for PlaceDescriptor<'a> {
 
 impl<'a> PlaceDescriptor<'a> {
     pub fn next(&self) -> Option<PlaceDescriptor<'a>> {
-        self.unit.find_place(self.pos_in_unit + 1)
+        self.unit.find_place_by_idx(self.pos_in_unit + 1)
     }
 
     pub fn line_eq(&self, other: &PlaceDescriptor) -> bool {
@@ -489,13 +490,13 @@ impl Unit {
     }
 
     /// Return [`PlaceDescriptor`] by index for lines vector in unit.
-    fn find_place(&self, line_pos: usize) -> Option<PlaceDescriptor> {
+    pub(super) fn find_place_by_idx(&self, line_pos: usize) -> Option<PlaceDescriptor> {
         let line = self.lines.get(line_pos)?;
         Some(PlaceDescriptor {
             file: self
                 .files
                 .get(line.file_index as usize)
-                .expect("parse error"),
+                .expect("unreachable: file must exists"),
             address: line.address.into(),
             line_number: line.line,
             column_number: line.column,
@@ -505,6 +506,10 @@ impl Unit {
             epilog_begin: line.epilog_begin,
             unit: self,
         })
+    }
+
+    pub(super) fn line(&self, index: usize) -> &LineRow {
+        &self.lines[index]
     }
 
     /// Return nearest [`PlaceDescriptor`] for given program counter.
@@ -519,7 +524,7 @@ impl Unit {
             Err(p) => p - 1,
         };
 
-        self.find_place(pos)
+        self.find_place_by_idx(pos)
     }
 
     /// Return place with address equals to given program counter.
@@ -530,30 +535,9 @@ impl Unit {
     pub fn find_exact_place_by_pc(&self, pc: GlobalAddress) -> Option<PlaceDescriptor> {
         let pc = u64::from(pc);
         match self.lines.binary_search_by_key(&pc, |line| line.address) {
-            Ok(p) => self.find_place(p),
+            Ok(p) => self.find_place_by_idx(p),
             Err(_) => None,
         }
-    }
-
-    /// Return [`PlaceDescriptor`] for given file and line.
-    ///
-    /// # Arguments
-    ///
-    /// * `file`: file name
-    /// * `line`: line number
-    pub fn find_stmt_line(&self, file: &str, line: u64) -> Option<PlaceDescriptor<'_>> {
-        let found = self
-            .files
-            .iter()
-            .enumerate()
-            .find(|(_, file_path)| file_path.ends_with(file))?;
-        for (pos, line_row) in self.lines.iter().enumerate() {
-            if line_row.line == line && line_row.file_index == found.0 as u64 {
-                return self.find_place(pos);
-            }
-        }
-
-        None
     }
 
     /// Return list on debug entries.
@@ -662,5 +646,39 @@ impl Unit {
     /// Return all files related to this unit.
     pub fn files(&self) -> &[PathBuf] {
         &self.files
+    }
+
+    /// Return pairs (file path, indexes of file lines in unit.lines list). This useful for
+    /// create searching indexes.
+    pub(super) fn file_path_with_lines_pairs(
+        &self,
+    ) -> impl Iterator<Item = (impl IntoIterator<Item = impl ToString + '_>, Vec<usize>)> {
+        let mut grouped_by_file_lines = HashMap::new();
+        for (line_idx, line) in self.lines.iter().enumerate() {
+            let file_idx = line.file_index as usize;
+            let entry = grouped_by_file_lines.entry(file_idx).or_insert(vec![]);
+            entry.push(line_idx)
+        }
+
+        self.files
+            .iter()
+            .enumerate()
+            .filter_map(move |(idx, file)| {
+                let mut file_lines = grouped_by_file_lines.get(&idx).cloned().unwrap_or_default();
+                // files without lines not interests
+                if file_lines.is_empty() {
+                    return None;
+                }
+
+                file_lines.sort_unstable_by_key(|line| self.lines[*line].line);
+
+                Some((
+                    file.iter().filter_map(|s| {
+                        let s = s.to_string_lossy();
+                        (s != path::MAIN_SEPARATOR_STR).then_some(s)
+                    }),
+                    file_lines,
+                ))
+            })
     }
 }

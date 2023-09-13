@@ -37,9 +37,7 @@ impl<'a> Break<'a> {
                     Breakpoint::Address(addr) => {
                         vec![self.dbg.set_breakpoint_at_addr(addr.into())?]
                     }
-                    Breakpoint::Line(file, line) => {
-                        vec![self.dbg.set_breakpoint_at_line(&file, line)?]
-                    }
+                    Breakpoint::Line(file, line) => self.dbg.set_breakpoint_at_line(&file, line)?,
                     Breakpoint::Function(func_name) => self.dbg.set_breakpoint_at_fn(&func_name)?,
                 };
                 HandlingResult::New(res)
@@ -51,11 +49,9 @@ impl<'a> Break<'a> {
                         .remove_breakpoint_at_addr(addr.into())?
                         .map(|brkpt| vec![brkpt])
                         .unwrap_or_default(),
-                    Breakpoint::Line(file, line) => self
-                        .dbg
-                        .remove_breakpoint_at_line(&file, line)?
-                        .map(|brkpt| vec![brkpt])
-                        .unwrap_or_default(),
+                    Breakpoint::Line(file, line) => {
+                        self.dbg.remove_breakpoint_at_line(&file, line)?
+                    }
                     Breakpoint::Function(func_name) => {
                         self.dbg.remove_breakpoint_at_fn(&func_name)?
                     }

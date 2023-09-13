@@ -32,7 +32,7 @@ pub struct PathSearchIndex<T> {
     index: PathIndexInner<T>,
 }
 
-impl<T: Copy> PathSearchIndex<T> {
+impl<T> PathSearchIndex<T> {
     /// Create a new path index.
     ///
     /// # Arguments
@@ -54,28 +54,34 @@ impl<T: Copy> PathSearchIndex<T> {
     ///
     /// # Arguments
     ///
-    /// * `path`: a list of path parts
+    /// * `path`: an iterator over path parts
     /// * `value`: a value associated with path
     #[allow(unused)]
-    pub fn insert(&mut self, path: &[impl ToString], value: T) {
+    pub fn insert(&mut self, path: impl IntoIterator<Item = impl ToString>, value: T) {
+        let path: Vec<_> = path.into_iter().map(|p| p.to_string()).collect();
         let Some(head) = path.last() else {
             return;
         };
 
-        self.insert_w_head(&path[..path.len() - 1], head.to_string(), value)
+        self.insert_w_head(path[..path.len() - 1].iter(), head.to_string(), value)
     }
 
     /// Insert a new index value.
     ///
     /// # Arguments
     ///
-    /// * `path`: a list of path parts exclude last part
+    /// * `path`: an iterator over path parts exclude last part
     /// * `head`: a last path part
     /// * `value`: a value associated with path
-    pub fn insert_w_head(&mut self, path: &[impl ToString], head: impl ToString, value: T) {
+    pub fn insert_w_head(
+        &mut self,
+        path: impl IntoIterator<Item = impl ToString>,
+        head: impl ToString,
+        value: T,
+    ) {
         let index = &mut self.index;
 
-        let path: Vec<_> = path.iter().map(|p| p.to_string()).collect();
+        let path: Vec<_> = path.into_iter().map(|p| p.to_string()).collect();
         let head = head.to_string();
 
         let tail = path;
@@ -127,29 +133,29 @@ mod test {
     use super::*;
 
     fn fill_index(index: &mut PathSearchIndex<i32>) {
-        index.insert(&["ns1", "ns2", "fn1"], 10);
-        index.insert(&["ns3", "ns2", "fn1"], 11);
-        index.insert(&["ns1", "fn2"], 2);
-        index.insert(&["ns1", "ns2", "fn3"], 3);
-        index.insert(&["fn4"], 4);
-        index.insert(&["fn5"], 5);
-        index.insert(&["ns3", "ns2", "fn3"], 6);
-        index.insert(&["ns3", "ns2", "fn6"], 7);
-        index.insert(&["ns3", "ns2", "fn7"], 8);
-        index.insert(&["ns3", "ns2", "fn8"], 9);
+        index.insert(["ns1", "ns2", "fn1"], 10);
+        index.insert(["ns3", "ns2", "fn1"], 11);
+        index.insert(["ns1", "fn2"], 2);
+        index.insert(["ns1", "ns2", "fn3"], 3);
+        index.insert(["fn4"], 4);
+        index.insert(["fn5"], 5);
+        index.insert(["ns3", "ns2", "fn3"], 6);
+        index.insert(["ns3", "ns2", "fn6"], 7);
+        index.insert(["ns3", "ns2", "fn7"], 8);
+        index.insert(["ns3", "ns2", "fn8"], 9);
     }
 
     fn fill_index_with_head(index: &mut PathSearchIndex<i32>) {
-        index.insert_w_head(&["ns1", "ns2"], "fn1", 10);
-        index.insert_w_head(&["ns3", "ns2"], "fn1", 11);
-        index.insert_w_head(&["ns1"], "fn2", 2);
-        index.insert_w_head(&["ns1", "ns2"], "fn3", 3);
+        index.insert_w_head(["ns1", "ns2"], "fn1", 10);
+        index.insert_w_head(["ns3", "ns2"], "fn1", 11);
+        index.insert_w_head(["ns1"], "fn2", 2);
+        index.insert_w_head(["ns1", "ns2"], "fn3", 3);
         index.insert_w_head(&Vec::<&str>::new(), "fn4", 4);
         index.insert_w_head(&Vec::<&str>::new(), "fn5", 5);
-        index.insert_w_head(&["ns3", "ns2"], "fn3", 6);
-        index.insert_w_head(&["ns3", "ns2"], "fn6", 7);
-        index.insert_w_head(&["ns3", "ns2"], "fn7", 8);
-        index.insert_w_head(&["ns3", "ns2"], "fn8", 9);
+        index.insert_w_head(["ns3", "ns2"], "fn3", 6);
+        index.insert_w_head(["ns3", "ns2"], "fn6", 7);
+        index.insert_w_head(["ns3", "ns2"], "fn7", 8);
+        index.insert_w_head(["ns3", "ns2"], "fn8", 9);
     }
 
     #[test]

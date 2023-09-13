@@ -1,6 +1,6 @@
 use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
-use crate::{assert_no_proc, HW_APP};
+use crate::{assert_no_proc, HW_APP, SHARED_LIB_APP};
 use crate::{prepare_debugee_process, CALC_APP};
 use bugstalker::debugger::Debugger;
 use serial_test::serial;
@@ -108,6 +108,34 @@ fn test_brkpt_on_function_name_collision() {
             .len(),
         1
     );
+}
+
+#[test]
+#[serial]
+fn test_brkpt_on_line_collision() {
+    let process = prepare_debugee_process(SHARED_LIB_APP, &[]);
+    let info = DebugeeRunInfo::default();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    debugger.set_breakpoint_at_line("main.rs", 14).unwrap();
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(14));
+
+    // assert that two breakpoints is set at two lib.rs from two shared libraries
+    let brkpts = debugger.set_breakpoint_at_line("lib.rs", 3).unwrap();
+    assert_eq!(brkpts.len(), 2);
+    // assert that two breakpoints is removed
+    let brkpts = debugger.remove_breakpoint_at_line("lib.rs", 3).unwrap();
+    assert_eq!(brkpts.len(), 2);
+
+    // set breakpoint to function in concrete file
+    let brkpts = debugger
+        .set_breakpoint_at_line("printer_lib/src/lib.rs", 3)
+        .unwrap();
+    assert_eq!(brkpts.len(), 1);
+    let brkpts = debugger
+        .remove_breakpoint_at_line("printer_lib/src/lib.rs", 3)
+        .unwrap();
+    assert_eq!(brkpts.len(), 1);
 }
 
 #[test]
