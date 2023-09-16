@@ -99,7 +99,7 @@ pub enum DebugInformationError {
     IncompleteInformation,
 }
 
-type Result<T> = std::result::Result<T, DebugInformationError>;
+pub type Result<T> = std::result::Result<T, DebugInformationError>;
 
 /// Using this macro means a promise that debug information exists in context of usage.
 #[macro_export]

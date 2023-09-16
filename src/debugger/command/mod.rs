@@ -1,6 +1,6 @@
 mod arguments;
 mod backtrace;
-mod r#break;
+pub mod r#break;
 mod r#continue;
 pub mod expression;
 mod frame;
@@ -22,10 +22,7 @@ pub use backtrace::Command as BacktraceCommand;
 pub use frame::Frame;
 pub use frame::Result as FrameResult;
 pub use memory::Memory;
-pub use r#break::Break;
-pub use r#break::Breakpoint;
-pub use r#break::Command as BreakpointCommand;
-pub use r#break::HandlingResult as BreakpointHandlingResult;
+use r#break::Breakpoint;
 pub use r#continue::Continue;
 pub use register::Register;
 pub use run::Run;
@@ -55,6 +52,7 @@ use nom::{IResult, Parser};
 use nom_supreme::error::ErrorTree;
 use nom_supreme::final_parser::Location;
 use nom_supreme::tag::complete::tag;
+use r#break::Command as BreakpointCommand;
 use std::num::ParseIntError;
 use std::str::FromStr;
 

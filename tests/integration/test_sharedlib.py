@@ -106,3 +106,13 @@ class SharedLibTestCase(unittest.TestCase):
         self.debugger.sendline('step')
         self.debugger.expect_exact('printer_lib/src/lib.rs:3')
         self.debugger.expect_exact('3     println!("sum is {num}")')
+
+    def test_deferred_breakpoint(self):
+        """Set breakpoint into dynamically loaded shared lib"""
+        self.debugger.sendline('break print_sum')
+        self.debugger.expect('Add deferred breakpoint for future shared library load')
+        self.debugger.sendline('y')
+
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('Hit breakpoint 1')
+        self.debugger.expect_exact('3     println!("sum is {num}")')

@@ -1,5 +1,7 @@
-use crate::debugger::command::{Breakpoint, BreakpointCommand, Command};
-use crate::debugger::{command, Debugger};
+use crate::debugger::command::r#break::Command as BreakpointCommand;
+use crate::debugger::command::r#break::{Break, Breakpoint};
+use crate::debugger::command::Command;
+use crate::debugger::Debugger;
 use crate::fire;
 use crate::tui::window::message::{ActionMessage, Exchanger};
 use crate::tui::window::specialized::PersistentList;
@@ -106,7 +108,7 @@ impl TuiComponent for Breakpoints {
                 let dbg = &mut (*self.debugger).borrow_mut();
                 let command = Command::parse(&input)?;
                 if let Command::Breakpoint(BreakpointCommand::Add(brkpt)) = command {
-                    command::Break::new(dbg).handle(BreakpointCommand::Add(brkpt.clone()))?;
+                    Break::new(dbg).handle(&BreakpointCommand::Add(brkpt.clone()))?;
                     self.breakpoints.borrow_mut().items().push(brkpt);
                 }
             }

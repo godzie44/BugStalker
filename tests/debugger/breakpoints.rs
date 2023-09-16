@@ -188,3 +188,16 @@ fn test_set_breakpoint_idempotence() {
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
+
+#[test]
+#[serial]
+fn test_deferred_breakpoint() {
+    let process = prepare_debugee_process(SHARED_LIB_APP, &[]);
+    let info = DebugeeRunInfo::default();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    assert!(debugger.set_breakpoint_at_fn("print_sum").is_err());
+    debugger.add_deferred_at_function("print_sum");
+    debugger.start_debugee().unwrap();
+
+    assert_eq!(info.line.take(), Some(3));
+}

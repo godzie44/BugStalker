@@ -6,9 +6,10 @@ use crate::console::print::style::{AddressView, FilePathView, FunctionNameView, 
 use crate::console::print::ExternalPrinter;
 use crate::console::variable::render_variable_ir;
 use crate::debugger;
+use crate::debugger::command::r#break::{Break, HandlingResult};
 use crate::debugger::command::{
-    Arguments, Backtrace, Break, BreakpointHandlingResult, Command, Frame, FrameResult, Run,
-    SharedLib, StepI, StepInto, StepOut, StepOver, Symbol, ThreadCommand, ThreadResult, Variables,
+    r#break, Arguments, Backtrace, Command, Frame, FrameResult, Run, SharedLib, StepI, StepInto,
+    StepOut, StepOver, Symbol, ThreadCommand, ThreadResult, Variables,
 };
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::render::RenderRepr;
@@ -19,6 +20,7 @@ use crossterm::style::Stylize;
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use os_pipe::PipeReader;
+use r#break::Command as BreakpointCommand;
 use rustyline::error::ReadlineError;
 use rustyline::history::MemHistory;
 use rustyline::Editor;
@@ -204,7 +206,7 @@ struct AppLoop {
 }
 
 impl AppLoop {
-    fn yes(&mut self, question: &str) -> anyhow::Result<bool> {
+    fn yes(&self, question: &str) -> anyhow::Result<bool> {
         self.printer.print(question);
 
         let act = self.control_rx.recv()?;
@@ -349,7 +351,7 @@ impl AppLoop {
                 StepOver::new(&mut self.debugger).handle()?;
                 _ = self.update_completer_variables();
             }
-            Command::Breakpoint(bp_cmd) => {
+            Command::Breakpoint(mut brkpt_cmd) => {
                 let print_bp = |action: &str, bp: &debugger::BreakpointView| match &bp.place {
                     None => {
                         self.printer.print(format!(
@@ -369,20 +371,41 @@ impl AppLoop {
                     }
                 };
 
-                match Break::new(&mut self.debugger).handle(bp_cmd)? {
-                    BreakpointHandlingResult::New(brkpts) => {
-                        brkpts
+                loop {
+                    match Break::new(&mut self.debugger).handle(&brkpt_cmd) {
+                        Ok(r#break::HandlingResult::New(brkpts)) => {
+                            brkpts
+                                .iter()
+                                .for_each(|brkpt| print_bp("New breakpoint", brkpt));
+                        }
+                        Ok(r#break::HandlingResult::Removed(brkpts)) => {
+                            brkpts
+                                .iter()
+                                .for_each(|brkpt| print_bp("Remove breakpoint", brkpt));
+                        }
+                        Ok(r#break::HandlingResult::Dump(brkpts)) => brkpts
                             .iter()
-                            .for_each(|brkpt| print_bp("New breakpoint", brkpt));
+                            .for_each(|brkpt| print_bp("- Breakpoint", brkpt)),
+                        Err(r#break::BreakpointError::SetError(
+                            r#break::SetBreakpointError::PlaceNotFound(_),
+                        )) => {
+                            if self.yes(
+                                "Add deferred breakpoint for future shared library load? (y or n)",
+                            )? {
+                                brkpt_cmd = BreakpointCommand::AddDeferred(
+                                    brkpt_cmd
+                                        .breakpoint()
+                                        .expect("unreachable: deferred breakpoint must based on exists breakpoint"),
+                                );
+                                continue;
+                            }
+                        }
+                        Err(e) => return Err(e.into()),
+                        Ok(HandlingResult::AddDeferred) => {
+                            self.printer.print("Add deferred endpoint")
+                        }
                     }
-                    BreakpointHandlingResult::Removed(brkpts) => {
-                        brkpts
-                            .iter()
-                            .for_each(|brkpt| print_bp("Remove breakpoint", brkpt));
-                    }
-                    BreakpointHandlingResult::Dump(brkpts) => brkpts
-                        .iter()
-                        .for_each(|brkpt| print_bp("- Breakpoint", brkpt)),
+                    break;
                 }
             }
             Command::Memory(mem_cmd) => {

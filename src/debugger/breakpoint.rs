@@ -1,6 +1,8 @@
 use crate::debugger::address::{Address, RelocatedAddress};
 use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
-use crate::debugger::debugee::Debugee;
+use crate::debugger::debugee::dwarf::DebugInformation;
+use crate::debugger::debugee::{dwarf, Debugee};
+use crate::debugger::Debugger;
 use anyhow::anyhow;
 use nix::libc::c_void;
 use nix::sys;
@@ -8,8 +10,386 @@ use nix::unistd::Pid;
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::mem;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
+
+enum BrkptsToAddRequest {
+    Init(Vec<Breakpoint>),
+    Uninit(Vec<UninitBreakpoint>),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SetBreakpointError {
+    #[error("{0}")]
+    PlaceNotFound(String),
+    #[error(transparent)]
+    DebugInfoError(#[from] dwarf::DebugInformationError),
+    #[error(transparent)]
+    SettingError(#[from] anyhow::Error),
+}
+
+pub type SetResult<T> = Result<T, SetBreakpointError>;
+
+impl Debugger {
+    /// Create and enable breakpoint at debugee address space
+    ///
+    /// # Arguments
+    ///
+    /// * `addr`: address where debugee must be stopped
+    ///
+    /// # Errors
+    ///
+    /// Return [`SetBreakpointError::PlaceNotFound`] if no place found for address,
+    /// return [`SetBreakpointError::DebugInfoError`] if errors occurs while fetching debug information.
+    pub fn set_breakpoint_at_addr(&mut self, addr: RelocatedAddress) -> SetResult<BreakpointView> {
+        if self.debugee.is_in_progress() {
+            let dwarf = self.debugee.debug_info(addr)?;
+            let global_addr = addr.into_global(&self.debugee)?;
+
+            let place = dwarf
+                .find_place_from_pc(global_addr)?
+                .map(|p| p.to_owned())
+                .ok_or(SetBreakpointError::PlaceNotFound(
+                    "Unknown address".to_string(),
+                ))?;
+
+            Ok(self.breakpoints.add_and_enable(Breakpoint::new(
+                dwarf.pathname(),
+                addr,
+                self.process.pid(),
+                Some(place),
+            ))?)
+        } else {
+            Ok(self.breakpoints.add_uninit(UninitBreakpoint::new(
+                None::<PathBuf>,
+                Address::Relocated(addr),
+                self.process.pid(),
+                None,
+            )))
+        }
+    }
+
+    /// Disable and remove breakpoint by its address.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr`: breakpoint address
+    pub(super) fn remove_breakpoint(
+        &mut self,
+        addr: Address,
+    ) -> anyhow::Result<Option<BreakpointView>> {
+        self.breakpoints.remove_by_addr(addr)
+    }
+
+    /// Disable and remove breakpoint by its address.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr`: breakpoint address
+    pub fn remove_breakpoint_at_addr(
+        &mut self,
+        addr: RelocatedAddress,
+    ) -> anyhow::Result<Option<BreakpointView>> {
+        self.breakpoints.remove_by_addr(Address::Relocated(addr))
+    }
+
+    fn create_breakpoint_at_places(
+        &self,
+        places: Vec<(&DebugInformation, Vec<PlaceDescriptorOwned>)>,
+    ) -> dwarf::Result<BrkptsToAddRequest> {
+        let brkpts_to_add = if self.debugee.is_in_progress() {
+            let mut to_add = Vec::new();
+            for (dwarf, places) in places {
+                for place in places {
+                    let addr = place
+                        .address
+                        .relocate(self.debugee.mapping_offset_for_file(dwarf)?);
+                    to_add.push(Breakpoint::new(
+                        dwarf.pathname(),
+                        addr,
+                        self.process.pid(),
+                        Some(place),
+                    ));
+                }
+            }
+            BrkptsToAddRequest::Init(to_add)
+        } else {
+            let mut to_add = Vec::new();
+            for (dwarf, places) in places {
+                for place in places {
+                    to_add.push(UninitBreakpoint::new(
+                        Some(dwarf.pathname()),
+                        Address::Global(place.address),
+                        self.process.pid(),
+                        Some(place),
+                    ));
+                }
+            }
+            BrkptsToAddRequest::Uninit(to_add)
+        };
+        Ok(brkpts_to_add)
+    }
+
+    fn add_breakpoints(
+        &mut self,
+        brkpts_to_add: BrkptsToAddRequest,
+    ) -> SetResult<Vec<BreakpointView>> {
+        let result: Vec<_> = match brkpts_to_add {
+            BrkptsToAddRequest::Init(init_brkpts) => {
+                let mut result_addrs = Vec::with_capacity(init_brkpts.len());
+                for brkpt in init_brkpts {
+                    let addr = brkpt.addr;
+                    self.breakpoints.add_and_enable(brkpt)?;
+                    result_addrs.push(addr);
+                }
+                result_addrs
+                    .iter()
+                    .map(|addr| {
+                        BreakpointView::from(
+                            self.breakpoints
+                                .get_enabled(*addr)
+                                .expect("breakpoint must exists"),
+                        )
+                    })
+                    .collect()
+            }
+            BrkptsToAddRequest::Uninit(uninit_brkpts) => {
+                let mut result_addrs = Vec::with_capacity(uninit_brkpts.len());
+                for brkpt in uninit_brkpts {
+                    let addr = self.breakpoints.add_uninit(brkpt).addr;
+                    result_addrs.push(addr);
+                }
+                result_addrs
+                    .iter()
+                    .map(|addr| {
+                        BreakpointView::from(
+                            self.breakpoints
+                                .get_disabled(*addr)
+                                .expect("breakpoint must exists"),
+                        )
+                    })
+                    .collect()
+            }
+        };
+
+        Ok(result)
+    }
+
+    fn addresses_for_breakpoints_at_places(
+        &self,
+        places: &[(&DebugInformation, Vec<PlaceDescriptorOwned>)],
+    ) -> dwarf::Result<impl Iterator<Item = Address>> {
+        let mut init_addresses_to_remove: Vec<Address> = vec![];
+        if self.debugee.is_in_progress() {
+            for (dwarf, places) in places.iter() {
+                for place in places {
+                    let addr = place
+                        .address
+                        .relocate(self.debugee.mapping_offset_for_file(dwarf)?);
+                    init_addresses_to_remove.push(Address::Relocated(addr));
+                }
+            }
+        };
+
+        let uninit_addresses_to_remove: Vec<_> = places
+            .iter()
+            .flat_map(|(_, places)| places.iter().map(|place| Address::Global(place.address)))
+            .collect();
+
+        Ok(init_addresses_to_remove
+            .into_iter()
+            .chain(uninit_addresses_to_remove.into_iter()))
+    }
+
+    fn remove_breakpoints_at_addresses(
+        &mut self,
+        addresses: impl Iterator<Item = Address>,
+    ) -> anyhow::Result<Vec<BreakpointView>> {
+        let mut result = vec![];
+        for to_rem in addresses {
+            if let Some(view) = self.breakpoints.remove_by_addr(to_rem)? {
+                result.push(view)
+            }
+        }
+        Ok(result)
+    }
+
+    fn search_functions(
+        &self,
+        tpl: &str,
+    ) -> dwarf::Result<Vec<(&DebugInformation, Vec<PlaceDescriptorOwned>)>> {
+        let dwarfs = self.debugee.debug_info_all();
+
+        dwarfs
+            .iter()
+            .filter(|dwarf| {
+                let fn_name = tpl.split("::").last().expect("at least one exists");
+                dwarf.has_debug_info() && dwarf.in_pub_names(fn_name) != Some(false)
+            })
+            .map(|&dwarf| {
+                let places = dwarf.search_places_for_fn_tpl(tpl)?;
+                Ok((dwarf, places))
+            })
+            .collect()
+    }
+
+    /// Create and enable breakpoint at debugee address space on the following function start.
+    ///
+    /// # Arguments
+    ///
+    /// * `template`: template for searchin functions where debugee must be stopped
+    ///
+    /// # Errors
+    ///
+    /// Return [`SetBreakpointError::PlaceNotFound`] if function not found,
+    /// return [`SetBreakpointError::DebugInfoError`] if errors occurs while fetching debug information.
+    pub fn set_breakpoint_at_fn(&mut self, template: &str) -> SetResult<Vec<BreakpointView>> {
+        let places = self.search_functions(template)?;
+        if places.iter().all(|(_, places)| places.is_empty()) {
+            return Err(SetBreakpointError::PlaceNotFound(format!(
+                "Function \"{template}\" not found"
+            )));
+        }
+
+        let brkpts = self.create_breakpoint_at_places(places)?;
+        self.add_breakpoints(brkpts)
+    }
+
+    /// Disable and remove breakpoint from function start.
+    ///
+    /// # Arguments
+    ///
+    /// * `template`: template for searchin functions where breakpoints must be deleted
+    pub fn remove_breakpoint_at_fn(
+        &mut self,
+        template: &str,
+    ) -> anyhow::Result<Vec<BreakpointView>> {
+        let places = self.search_functions(template)?;
+        let addresses = self.addresses_for_breakpoints_at_places(&places)?;
+        self.remove_breakpoints_at_addresses(addresses)
+    }
+
+    fn search_lines(
+        &self,
+        fine_tpl: &str,
+        line: u64,
+    ) -> anyhow::Result<Vec<(&DebugInformation, Vec<PlaceDescriptorOwned>)>> {
+        let dwarfs = self.debugee.debug_info_all();
+
+        dwarfs
+            .iter()
+            .filter(|dwarf| dwarf.has_debug_info())
+            .map(|&dwarf| {
+                let places = dwarf
+                    .find_closest_place(fine_tpl, line)?
+                    .into_iter()
+                    .map(|place| place.to_owned())
+                    .collect();
+                Ok((dwarf, places))
+            })
+            .collect()
+    }
+
+    /// Create and enable breakpoint at the following file and line number.
+    ///
+    /// # Arguments
+    ///
+    /// * `fine_name`: file name (ex: "main.rs")
+    /// * `line`: line number
+    ///
+    /// # Errors
+    ///
+    /// Return [`SetBreakpointError::PlaceNotFound`] if line or file not exists,
+    /// return [`SetBreakpointError::DebugInfoError`] if errors occurs while fetching debug information.
+    pub fn set_breakpoint_at_line(
+        &mut self,
+        fine_path_tpl: &str,
+        line: u64,
+    ) -> SetResult<Vec<BreakpointView>> {
+        let places = self.search_lines(fine_path_tpl, line)?;
+        if places.iter().all(|(_, places)| places.is_empty()) {
+            return Err(SetBreakpointError::PlaceNotFound(format!(
+                "No place found for \"{fine_path_tpl}:{line}\""
+            )));
+        }
+
+        let brkpts = self.create_breakpoint_at_places(places)?;
+        self.add_breakpoints(brkpts)
+    }
+
+    /// Disable and remove breakpoint at the following file and line number.
+    ///
+    /// # Arguments
+    ///
+    /// * `fine_name`: file name (ex: "main.rs")
+    /// * `line`: line number
+    pub fn remove_breakpoint_at_line(
+        &mut self,
+        fine_name_tpl: &str,
+        line: u64,
+    ) -> anyhow::Result<Vec<BreakpointView>> {
+        let places = self.search_lines(fine_name_tpl, line)?;
+        let addresses = self.addresses_for_breakpoints_at_places(&places)?;
+        self.remove_breakpoints_at_addresses(addresses)
+    }
+
+    /// Return list of breakpoints.
+    pub fn breakpoints_snapshot(&self) -> Vec<BreakpointView> {
+        self.breakpoints.snapshot()
+    }
+
+    /// Add new deferred breakpoint by address in debugee address space.
+    pub fn add_deferred_at_addr(&mut self, addr: RelocatedAddress) {
+        self.breakpoints
+            .deferred_breakpoints
+            .push(DeferredBreakpoint::at_address(addr));
+    }
+
+    /// Add new deferred breakpoint by function name.
+    pub fn add_deferred_at_function(&mut self, function: &str) {
+        self.breakpoints
+            .deferred_breakpoints
+            .push(DeferredBreakpoint::at_function(function));
+    }
+
+    /// Add new deferred breakpoint by file and line.
+    pub fn add_deferred_at_line(&mut self, file: &str, line: u64) {
+        self.breakpoints
+            .deferred_breakpoints
+            .push(DeferredBreakpoint::at_line(file, line));
+    }
+
+    /// Refresh deferred breakpoints. Trying to set breakpoint, if success - remove
+    /// breakpoint from deferred list.
+    pub fn refresh_deferred(&mut self) -> Vec<SetBreakpointError> {
+        let mut errors = vec![];
+
+        let mut deferred_brkpts = mem::take(&mut self.breakpoints.deferred_breakpoints);
+        deferred_brkpts.retain(|brkpt| {
+            let mb_error = match &brkpt {
+                DeferredBreakpoint::Address(addr) => self.set_breakpoint_at_addr(*addr).err(),
+                DeferredBreakpoint::Line(file, line) => {
+                    self.set_breakpoint_at_line(file, *line).err()
+                }
+                DeferredBreakpoint::Function(function) => self.set_breakpoint_at_fn(function).err(),
+            };
+
+            let retain_brkpt = match mb_error {
+                None => false,
+                Some(SetBreakpointError::PlaceNotFound(_)) => true,
+                Some(err) => {
+                    errors.push(err);
+                    true
+                }
+            };
+            retain_brkpt
+        });
+        self.breakpoints.deferred_breakpoints = deferred_brkpts;
+
+        errors
+    }
+}
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum BrkptType {
@@ -343,6 +723,27 @@ impl<'a> From<&'a UninitBreakpoint> for BreakpointView<'a> {
     }
 }
 
+/// User breakpoint deferred until shared library with target place will be loaded.
+pub enum DeferredBreakpoint {
+    Address(RelocatedAddress),
+    Line(String, u64),
+    Function(String),
+}
+
+impl DeferredBreakpoint {
+    pub fn at_address(addr: RelocatedAddress) -> DeferredBreakpoint {
+        DeferredBreakpoint::Address(addr)
+    }
+
+    pub fn at_line(file: &str, line: u64) -> DeferredBreakpoint {
+        DeferredBreakpoint::Line(file.to_string(), line)
+    }
+
+    pub fn at_function(function: &str) -> DeferredBreakpoint {
+        DeferredBreakpoint::Function(function.to_string())
+    }
+}
+
 /// Container for application breakpoints.
 /// Supports active breakpoints and uninit breakpoints.
 #[derive(Default)]
@@ -351,6 +752,8 @@ pub struct BreakpointRegistry {
     breakpoints: HashMap<RelocatedAddress, Breakpoint>,
     /// Non-active breakpoint list.
     disabled_breakpoints: HashMap<Address, UninitBreakpoint>,
+    /// List of deferred breakpoints, refresh all time when shared library loading.
+    deferred_breakpoints: Vec<DeferredBreakpoint>,
 }
 
 impl BreakpointRegistry {
