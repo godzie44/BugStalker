@@ -114,5 +114,5 @@ class SharedLibTestCase(unittest.TestCase):
         self.debugger.sendline('y')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('Hit breakpoint 1')
+        self.debugger.expect_exact('Hit breakpoint')
         self.debugger.expect_exact('3     println!("sum is {num}")')

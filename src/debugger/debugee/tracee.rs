@@ -65,6 +65,11 @@ impl Tracee {
         Ok(status)
     }
 
+    /// Move the stopped tracee process forward by a single instruction step.
+    pub fn step(&self, sig: Option<Signal>) -> nix::Result<()> {
+        sys::ptrace::step(self.pid, sig)
+    }
+
     fn update_status(&mut self, status: TraceeStatus) {
         debug!(
             target: "tracer",

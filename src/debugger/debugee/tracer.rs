@@ -12,6 +12,18 @@ use nix::unistd::Pid;
 use nix::{libc, sys};
 use std::collections::VecDeque;
 
+/// List of signals that dont interrupt debugging process and send
+/// to debugee directly on fire.
+static QUIET_SIGNALS: [Signal; 6] = [
+    Signal::SIGALRM,
+    Signal::SIGURG,
+    Signal::SIGCHLD,
+    Signal::SIGIO,
+    Signal::SIGVTALRM,
+    Signal::SIGPROF,
+    //Signal::SIGWINCH,
+];
+
 #[derive(Debug)]
 pub enum StopReason {
     /// Whole debugee process exited with code
@@ -83,6 +95,14 @@ impl Tracer {
 
             debug!(target: "tracer", "received new thread status: {status:?}");
             if let Some(stop) = self.apply_new_status(ctx, status)? {
+                // if stop fired by quiet signal - go to next iteration, this will inject signal at
+                // tracee process and resume it
+                if let StopReason::SignalStop(_, signal) = stop {
+                    if QUIET_SIGNALS.contains(&signal) {
+                        continue;
+                    }
+                }
+
                 debug!(target: "tracer", "debugee stopped, reason: {stop:?}");
                 return Ok(stop);
             }
@@ -211,7 +231,6 @@ impl Tracer {
                         break;
                     }
 
-                    // todo check still alive ?
                     wait = tracee.wait_one()?;
                 }
 
@@ -359,14 +378,23 @@ impl Tracer {
 
                             Ok(Some(StopReason::Breakpoint(pid, current_pc)))
                         }
-                        code => bail!("unexpected SIGTRAP code {code}"),
+                        code => {
+                            debug!(
+                                target: "tracer",
+                                "unexpected SIGTRAP code {code}",
+                            );
+                            Ok(None)
+                        }
                     },
                     _ => {
                         self.signal_queue.push_back((pid, signal));
                         self.tracee_ctl
                             .tracee_ensure_mut(pid)
                             .set_stop(StopType::SignalStop(signal));
-                        self.group_stop_interrupt(ctx, pid)?;
+
+                        if !QUIET_SIGNALS.contains(&signal) {
+                            self.group_stop_interrupt(ctx, pid)?;
+                        }
 
                         Ok(Some(StopReason::SignalStop(pid, signal)))
                     }
@@ -394,10 +422,13 @@ impl Tracer {
         ctx: TraceContext,
         pid: Pid,
     ) -> anyhow::Result<Option<StopReason>> {
-        sys::ptrace::step(pid, None)?;
+        let tracee = self.tracee_ctl.tracee_ensure(pid);
+        let initial_pc = tracee.pc()?;
+        tracee.step(None)?;
 
         let reason = loop {
-            let status = self.tracee_ctl.tracee_ensure(pid).wait_one()?;
+            let tracee = self.tracee_ctl.tracee_ensure_mut(pid);
+            let status = tracee.wait_one()?;
             let info = sys::ptrace::getsiginfo(pid)?;
 
             // check that debugee step into expected trap (breakpoints ignored and are also considered as a trap)
@@ -406,7 +437,30 @@ impl Tracer {
                     || info.si_code == code::TRAP_BRKPT
                     || info.si_code == code::SI_KERNEL);
             if in_trap {
+                // check that we are not on original pc value
+                if tracee.pc()? == initial_pc {
+                    tracee.step(None)?;
+                    continue;
+                }
+
                 break None;
+            }
+
+            let in_trap =
+                matches!(status, WaitStatus::Stopped(_, Signal::SIGTRAP)) && (info.si_code == 5);
+            if in_trap {
+                // if in syscall step to syscall end
+                sys::ptrace::syscall(tracee.pid, None)?;
+                let syscall_status = tracee.wait_one()?;
+                debug_assert!(matches!(
+                    syscall_status,
+                    WaitStatus::Stopped(_, Signal::SIGTRAP)
+                ));
+
+                // then do step again
+                tracee.step(None)?;
+
+                continue;
             }
 
             let is_interrupt = matches!(
@@ -429,7 +483,12 @@ impl Tracer {
                 Some(StopReason::DebugeeStart) => {
                     unreachable!("stop at debugee entry point twice")
                 }
-                Some(StopReason::SignalStop(_, _)) => {
+                Some(StopReason::SignalStop(_, signal)) => {
+                    if QUIET_SIGNALS.contains(&signal) {
+                        self.tracee_ctl.tracee_ensure(pid).step(Some(signal))?;
+                        continue;
+                    }
+
                     // tracee in signal-stop
                     break stop;
                 }
