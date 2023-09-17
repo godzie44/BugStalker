@@ -375,15 +375,14 @@ impl Debugger {
                 DeferredBreakpoint::Function(function) => self.set_breakpoint_at_fn(function).err(),
             };
 
-            let retain_brkpt = match mb_error {
+            match mb_error {
                 None => false,
                 Some(SetBreakpointError::PlaceNotFound(_)) => true,
                 Some(err) => {
                     errors.push(err);
                     true
                 }
-            };
-            retain_brkpt
+            }
         });
         self.breakpoints.deferred_breakpoints = deferred_brkpts;
 

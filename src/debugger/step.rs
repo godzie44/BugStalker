@@ -3,7 +3,7 @@ use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
 use crate::debugger::debugee::tracer::{StopReason, TraceContext};
 use crate::debugger::{Debugger, ExplorationContext};
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use nix::sys::signal::Signal;
 
 /// Result of a step, if [`SignalInterrupt`] then step process interrupted by a signal and user must know it.
@@ -331,12 +331,15 @@ impl Debugger {
                 .debug_info(new_location.pc)?
                 .find_place_from_pc(new_location.global_pc)?
                 .ok_or_else(|| anyhow!("unknown function range"))?;
-
             if place.address != new_location.global_pc {
                 if let StepResult::SignalInterrupt { signal, .. } = self.step_in()? {
                     return Ok(StepResult::signal_interrupt(signal));
                 }
             }
+        }
+
+        if self.debugee.is_exited() {
+            bail!("debugee exited while step execution");
         }
 
         self.expl_ctx_update_location()?;

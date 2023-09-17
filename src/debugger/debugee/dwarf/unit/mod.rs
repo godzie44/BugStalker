@@ -521,7 +521,7 @@ impl Unit {
         let pc = u64::from(pc);
         let pos = match self.lines.binary_search_by_key(&pc, |line| line.address) {
             Ok(p) => p,
-            Err(p) => p - 1,
+            Err(p) => p.saturating_sub(1),
         };
 
         self.find_place_by_idx(pos)

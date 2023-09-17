@@ -62,7 +62,7 @@ impl<'a> Break<'a> {
                         vec![self.dbg.set_breakpoint_at_addr((*addr).into())?]
                     }
                     Breakpoint::Line(file, line) => self.dbg.set_breakpoint_at_line(file, *line)?,
-                    Breakpoint::Function(func_name) => self.dbg.set_breakpoint_at_fn(&func_name)?,
+                    Breakpoint::Function(func_name) => self.dbg.set_breakpoint_at_fn(func_name)?,
                 };
                 HandlingResult::New(res)
             }
