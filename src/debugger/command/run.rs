@@ -1,5 +1,4 @@
 use crate::debugger::{command, Debugger};
-use anyhow::Context;
 
 pub struct Run<'a> {
     dbg: &'a mut Debugger,
@@ -13,12 +12,13 @@ impl<'a> Run<'a> {
     /// Run a debugee program.
     /// Return when debugee stopped or ends.
     pub fn start(&mut self) -> command::HandleResult<()> {
-        Ok(self.dbg.start_debugee().context("start error")?)
+        Ok(self.dbg.start_debugee()?)
     }
 
     /// Restart debugee process with saving all user defined breakpoints.
     /// Return when new debugee stopped or ends.
     pub fn restart(&mut self) -> command::HandleResult<()> {
-        Ok(self.dbg.restart_debugee().context("restart error")?)
+        self.dbg.restart_debugee()?;
+        Ok(())
     }
 }

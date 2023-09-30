@@ -42,7 +42,7 @@ impl GroupReflection {
     }
 
     /// Load group of control bytes from debugee process.
-    fn load(pid: Pid, ptr: *const u8) -> nix::Result<Self> {
+    fn load(pid: Pid, ptr: *const u8) -> Result<Self, nix::Error> {
         let mut data: [u8; 16] = Default::default();
         data.copy_from_slice(&debugger::read_memory_by_pid(
             pid,
@@ -118,7 +118,7 @@ impl HashmapReflection {
         self.bucket_mask + 1
     }
 
-    pub(super) fn iter(&self, pid: Pid) -> nix::Result<BucketIterator> {
+    pub(super) fn iter(&self, pid: Pid) -> Result<BucketIterator, nix::Error> {
         unsafe {
             let ctrl = self.crtl;
 

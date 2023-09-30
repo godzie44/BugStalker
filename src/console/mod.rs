@@ -2,14 +2,16 @@ use super::debugger::command::Continue;
 use crate::console::editor::{create_editor, CommandCompleter, RLHelper};
 use crate::console::help::*;
 use crate::console::hook::TerminalHook;
-use crate::console::print::style::{AddressView, FilePathView, FunctionNameView, KeywordView};
+use crate::console::print::style::{
+    AddressView, ErrorView, FilePathView, FunctionNameView, KeywordView,
+};
 use crate::console::print::ExternalPrinter;
 use crate::console::variable::render_variable_ir;
 use crate::debugger;
 use crate::debugger::command::r#break::{Break, HandlingResult};
 use crate::debugger::command::{
-    r#break, Arguments, Backtrace, Command, Frame, FrameResult, Run, SharedLib, StepI, StepInto,
-    StepOut, StepOver, Symbol, ThreadCommand, ThreadResult, Variables,
+    r#break, Arguments, Backtrace, Command, Frame, FrameResult, HandlingError, Run, SharedLib,
+    StepI, StepInto, StepOut, StepOver, Symbol, ThreadCommand, ThreadResult, Variables,
 };
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::render::RenderRepr;
@@ -17,6 +19,7 @@ use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::{command, Debugger};
 use command::{Memory, Register};
 use crossterm::style::Stylize;
+use debugger::Error;
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use os_pipe::PipeReader;
@@ -25,6 +28,7 @@ use rustyline::error::ReadlineError;
 use rustyline::history::MemHistory;
 use rustyline::Editor;
 use std::io::{BufRead, BufReader};
+use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{mpsc, Arc, Mutex};
@@ -206,16 +210,19 @@ struct AppLoop {
 }
 
 impl AppLoop {
-    fn yes(&self, question: &str) -> anyhow::Result<bool> {
+    fn yes(&self, question: &str) -> bool {
         self.printer.print(question);
 
-        let act = self.control_rx.recv()?;
+        let act = self
+            .control_rx
+            .recv()
+            .expect("unexpected sender disconnect");
         match act {
             Control::Cmd(cmd) => {
                 let cmd = cmd.to_lowercase();
-                Ok(cmd == "y" || cmd == "yes")
+                cmd == "y" || cmd == "yes"
             }
-            Control::Terminate => Ok(false),
+            Control::Terminate => false,
         }
     }
 
@@ -233,7 +240,7 @@ impl AppLoop {
         Ok(())
     }
 
-    fn handle_command(&mut self, cmd: &str) -> anyhow::Result<()> {
+    fn handle_command(&mut self, cmd: &str) -> Result<(), HandlingError> {
         match Command::parse(cmd)? {
             Command::PrintVariables(print_var_command) => Variables::new(&self.debugger)
                 .handle(print_var_command)?
@@ -326,7 +333,7 @@ impl AppLoop {
                 static ALREADY_RUN: AtomicBool = AtomicBool::new(false);
 
                 if ALREADY_RUN.load(Ordering::Acquire) {
-                    if self.yes("Restart program? (y or n)")? {
+                    if self.yes("Restart program? (y or n)") {
                         Run::new(&mut self.debugger).restart()?
                     }
                 } else {
@@ -386,17 +393,15 @@ impl AppLoop {
                         Ok(r#break::HandlingResult::Dump(brkpts)) => brkpts
                             .iter()
                             .for_each(|brkpt| print_bp("- Breakpoint", brkpt)),
-                        Err(r#break::BreakpointError::SetError(
-                            r#break::SetBreakpointError::PlaceNotFound(_),
-                        )) => {
+                        Err(Error::NoSuitablePlace) => {
                             if self.yes(
                                 "Add deferred breakpoint for future shared library load? (y or n)",
-                            )? {
+                            ) {
                                 brkpt_cmd = BreakpointCommand::AddDeferred(
-                                    brkpt_cmd
-                                        .breakpoint()
-                                        .expect("unreachable: deferred breakpoint must based on exists breakpoint"),
-                                );
+                                        brkpt_cmd
+                                            .breakpoint()
+                                            .expect("unreachable: deferred breakpoint must based on exists breakpoint"),
+                                    );
                                 continue;
                             }
                         }
@@ -497,7 +502,21 @@ impl AppLoop {
                 Control::Cmd(command) => {
                     thread::sleep(Duration::from_millis(1));
                     if let Err(e) = self.handle_command(&command) {
-                        self.printer.print(format!("error: {:#}", e));
+                        match e {
+                            HandlingError::Parser(_) => {
+                                self.printer.print(ErrorView::from(e));
+                            }
+                            HandlingError::Debugger(ref err) if err.is_fatal() => {
+                                self.printer.print(ErrorView::from("shutdown debugger"));
+                                self.printer
+                                    .print(ErrorView::from(format!("fatal debugger error: {e:#}")));
+                                exit(0);
+                            }
+                            HandlingError::Debugger(_) => {
+                                self.printer
+                                    .print(ErrorView::from(format!("debugger error: {e:#}")));
+                            }
+                        }
                     }
                 }
                 Control::Terminate => {

@@ -36,6 +36,7 @@ pub use thread::Result as ThreadResult;
 pub use thread::Thread as ThreadCommand;
 pub use variables::Variables;
 
+use crate::debugger::error::Error;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use anyhow::anyhow;
 use nix::libc::uintptr_t;
@@ -162,7 +163,7 @@ pub enum HandlingError {
     #[error("malformed command (try `help command`):\n{0}")]
     Parser(anyhow::Error),
     #[error(transparent)]
-    Debugger(#[from] anyhow::Error),
+    Debugger(#[from] Error),
 }
 
 pub type HandleResult<T> = Result<T, HandlingError>;
@@ -486,7 +487,7 @@ impl Command {
             command(SHARED_LIB_COMMAND, shared_lib_parser),
             cut(map(not_line_ending, |_| Command::Help {
                 command: None,
-                reason: Some("undefined command".to_string()),
+                reason: Some("unknown command".to_string()),
             })),
         ))(input)
     }

@@ -21,10 +21,13 @@ use crate::debugger::debugee::dwarf::unit::{
 };
 use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::{Debugee, Location};
+use crate::debugger::error::Error;
+use crate::debugger::error::Error::{
+    DebugIDFormat, FBANotAnExpression, FunctionNotFound, NoFBA, NoFunctionRanges, UnitNotFound,
+};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::ExplorationContext;
 use crate::{muted_error, resolve_unit_call, weak_error};
-use anyhow::{anyhow, bail};
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;
@@ -91,16 +94,6 @@ impl Clone for DebugInformation {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum DebugInformationError {
-    #[error(transparent)]
-    Other(#[from] anyhow::Error),
-    #[error("Not enough debug information to complete the request")]
-    IncompleteInformation,
-}
-
-pub type Result<T> = std::result::Result<T, DebugInformationError>;
-
 /// Using this macro means a promise that debug information exists in context of usage.
 #[macro_export]
 macro_rules! debug_info_exists {
@@ -123,10 +116,10 @@ impl DebugInformation {
     }
 
     /// Return all dwarf units or error if no debug information found.
-    fn get_units(&self) -> Result<&[Unit]> {
+    fn get_units(&self) -> Result<&[Unit], Error> {
         self.units
             .as_deref()
-            .ok_or(DebugInformationError::IncompleteInformation)
+            .ok_or(Error::NoDebugInformation("file"))
     }
 
     /// Return false if file dont contains a debug information.
@@ -179,7 +172,7 @@ impl DebugInformation {
         registers: &DwarfRegisterMap,
         utr: &UnwindTableRow<EndianArcSlice>,
         ctx: &ExplorationContext,
-    ) -> anyhow::Result<RelocatedAddress> {
+    ) -> Result<RelocatedAddress, Error> {
         let rule = utr.cfa();
         match rule {
             RegisterAndOffset { register, offset } => {
@@ -188,7 +181,7 @@ impl DebugInformation {
             }
             CfaRule::Expression(expr) => {
                 let unit = debug_info_exists!(self.find_unit_by_pc(ctx.location().global_pc))
-                    .ok_or_else(|| anyhow!("undefined unit"))?;
+                    .ok_or(UnitNotFound(ctx.location().global_pc))?;
                 let evaluator = resolve_unit_call!(&self.inner, unit, evaluator, debugee);
                 let expr_result = evaluator.evaluate(ctx, expr.clone())?;
 
@@ -201,7 +194,7 @@ impl DebugInformation {
         &self,
         debugee: &Debugee,
         expl_ctx: &ExplorationContext,
-    ) -> anyhow::Result<RelocatedAddress> {
+    ) -> Result<RelocatedAddress, Error> {
         let mut ctx = Box::new(UnwindContext::new());
         let row = self.eh_frame.unwind_info_for_address(
             &self.bases,
@@ -222,7 +215,7 @@ impl DebugInformation {
     }
 
     /// Return a list of all known files.
-    pub fn known_files(&self) -> Result<impl Iterator<Item = &PathBuf>> {
+    pub fn known_files(&self) -> Result<impl Iterator<Item = &PathBuf>, Error> {
         Ok(self.get_units()?.iter().flat_map(|unit| unit.files()))
     }
 
@@ -233,7 +226,7 @@ impl DebugInformation {
     /// * `pc`: program counter value
     ///
     /// returns: `None` if unit not found, error if no debug information found
-    fn find_unit_by_pc(&self, pc: GlobalAddress) -> Result<Option<&Unit>> {
+    fn find_unit_by_pc(&self, pc: GlobalAddress) -> Result<Option<&Unit>, Error> {
         Ok(self.get_units()?.iter().find(|&unit| {
             match unit
                 .ranges()
@@ -249,13 +242,16 @@ impl DebugInformation {
     }
 
     /// Returns best matched place by program counter global address.
-    pub fn find_place_from_pc(&self, pc: GlobalAddress) -> Result<Option<PlaceDescriptor>> {
+    pub fn find_place_from_pc(&self, pc: GlobalAddress) -> Result<Option<PlaceDescriptor>, Error> {
         let mb_unit = self.find_unit_by_pc(pc)?;
         Ok(mb_unit.and_then(|u| u.find_place_by_pc(pc)))
     }
 
     /// Returns place with line address equals to program counter global address.
-    pub fn find_exact_place_from_pc(&self, pc: GlobalAddress) -> Result<Option<PlaceDescriptor>> {
+    pub fn find_exact_place_from_pc(
+        &self,
+        pc: GlobalAddress,
+    ) -> Result<Option<PlaceDescriptor>, Error> {
         let mb_unit = self.find_unit_by_pc(pc)?;
         Ok(mb_unit.and_then(|u| u.find_exact_place_by_pc(pc)))
     }
@@ -268,7 +264,7 @@ impl DebugInformation {
     pub fn find_function_by_pc(
         &self,
         pc: GlobalAddress,
-    ) -> Result<Option<ContextualDieRef<FunctionDie>>> {
+    ) -> Result<Option<ContextualDieRef<FunctionDie>>, Error> {
         let mb_unit = self.find_unit_by_pc(pc)?;
         Ok(mb_unit.and_then(|unit| {
             let pc = u64::from(pc);
@@ -306,7 +302,10 @@ impl DebugInformation {
     /// # Arguments
     ///
     /// * `template`: search template (full function path or part of this path).
-    pub fn search_functions(&self, template: &str) -> Result<Vec<ContextualDieRef<FunctionDie>>> {
+    pub fn search_functions(
+        &self,
+        template: &str,
+    ) -> Result<Vec<ContextualDieRef<FunctionDie>>, Error> {
         Ok(self
             .get_units()?
             .iter()
@@ -342,7 +341,7 @@ impl DebugInformation {
         &self,
         file_tpl: &str,
         line: u64,
-    ) -> Result<Vec<PlaceDescriptor<'_>>> {
+    ) -> Result<Vec<PlaceDescriptor<'_>>, Error> {
         let files = self.files_index.get(file_tpl);
 
         let mut result = vec![];
@@ -371,7 +370,10 @@ impl DebugInformation {
     /// # Arguments
     ///
     /// * `template`: search template (full function path or part of this path).
-    pub fn search_places_for_fn_tpl(&self, template: &str) -> Result<Vec<PlaceDescriptorOwned>> {
+    pub fn search_places_for_fn_tpl(
+        &self,
+        template: &str,
+    ) -> Result<Vec<PlaceDescriptorOwned>, Error> {
         Ok(self
             .search_functions(template)?
             .into_iter()
@@ -423,7 +425,7 @@ impl DebugInformation {
         &self,
         location: Location,
         name: &str,
-    ) -> Result<Vec<ContextualDieRef<'_, VariableDie>>> {
+    ) -> Result<Vec<ContextualDieRef<'_, VariableDie>>, Error> {
         let units = self.get_units()?;
 
         let mut found = vec![];
@@ -512,7 +514,7 @@ impl DebugInformationBuilder {
     fn get_dwarf_from_separate_debug_file<'a, 'b, OBJ>(
         &self,
         obj_file: &'a OBJ,
-    ) -> anyhow::Result<Option<(PathBuf, Mmap)>>
+    ) -> Result<Option<(PathBuf, Mmap)>, Error>
     where
         'a: 'b,
         OBJ: Object<'a, 'b>,
@@ -524,7 +526,7 @@ impl DebugInformationBuilder {
             // skip 16 byte header
             let note = &data[16..];
             if note.len() < 2 {
-                bail!("invalid debug-id note format")
+                return Err(DebugIDFormat);
             }
 
             let dir = format!("{:x}", note[0]);
@@ -567,14 +569,14 @@ impl DebugInformationBuilder {
         Ok(None)
     }
 
-    pub fn build(&self, obj_path: &Path, file: &object::File) -> anyhow::Result<DebugInformation> {
+    pub fn build(&self, obj_path: &Path, file: &object::File) -> Result<DebugInformation, Error> {
         let endian = if file.is_little_endian() {
             RunTimeEndian::Little
         } else {
             RunTimeEndian::Big
         };
 
-        let eh_frame = EhFrame::load(|id| -> gimli::Result<EndianArcSlice> {
+        let eh_frame = EhFrame::load(|id| -> Result<EndianArcSlice, Error> {
             loader::load_section(id, file, endian)
         })?;
         let section_addr = |name: &str| -> Option<u64> {
@@ -809,16 +811,12 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         &self,
         ctx: &ExplorationContext,
         debugee: &Debugee,
-    ) -> anyhow::Result<RelocatedAddress> {
-        let attr = self
-            .die
-            .fb_addr
-            .as_ref()
-            .ok_or_else(|| anyhow!("no frame base attr"))?;
+    ) -> Result<RelocatedAddress, Error> {
+        let attr = self.die.fb_addr.as_ref().ok_or(NoFBA)?;
 
         let expr = DwarfLocation(attr)
             .try_as_expression(self.debug_info, self.unit(), ctx.location().global_pc)
-            .ok_or_else(|| anyhow!("frame base attribute not an expression"))?;
+            .ok_or(FBANotAnExpression)?;
 
         let evaluator = ctx_resolve_unit_call!(self, evaluator, debugee);
         let result = evaluator
@@ -868,23 +866,23 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         result
     }
 
-    pub fn prolog_start_place(&self) -> anyhow::Result<PlaceDescriptor> {
+    pub fn prolog_start_place(&self) -> Result<PlaceDescriptor, Error> {
         let low_pc = self
             .die
             .base_attributes
             .ranges
             .iter()
             .min_by(|r1, r2| r1.begin.cmp(&r2.begin))
-            .ok_or(anyhow!("function ranges not found"))?
+            .ok_or_else(|| NoFunctionRanges(self.full_name()))?
             .begin;
 
-        debug_info_exists!(self
-            .debug_info
-            .find_place_from_pc(GlobalAddress::from(low_pc)))
-        .ok_or_else(|| anyhow!("invalid function entry"))
+        let fn_addr = GlobalAddress::from(low_pc);
+
+        debug_info_exists!(self.debug_info.find_place_from_pc(fn_addr))
+            .ok_or(FunctionNotFound(fn_addr))
     }
 
-    pub fn prolog_end_place(&self) -> anyhow::Result<PlaceDescriptor> {
+    pub fn prolog_end_place(&self) -> Result<PlaceDescriptor, Error> {
         let mut place = self.prolog_start_place()?;
         while !place.prolog_end {
             match place.next() {
@@ -896,7 +894,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         Ok(place)
     }
 
-    pub fn prolog(&self) -> anyhow::Result<Range> {
+    pub fn prolog(&self) -> Result<Range, Error> {
         let start = self.prolog_start_place()?;
         let end = self.prolog_end_place()?;
         Ok(Range {

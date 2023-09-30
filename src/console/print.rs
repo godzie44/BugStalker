@@ -26,8 +26,8 @@ impl ExternalPrinter {
         Ok(Self { printer: None })
     }
 
-    pub fn print(&self, msg: impl Into<String>) {
-        let msg = msg.into();
+    pub fn print(&self, msg: impl ToString) {
+        let msg = msg.to_string();
         match &self.printer {
             None => {
                 println!("{msg}")
@@ -105,4 +105,5 @@ pub mod style {
     view_struct!(FilePathView, Color::Green);
     view_struct!(FunctionNameView, Color::Yellow);
     view_struct!(KeywordView, Color::Magenta);
+    view_struct!(ErrorView, Color::Red);
 }

@@ -1,10 +1,11 @@
 use crate::debugger::debugee::dwarf;
 use crate::debugger::debugee::dwarf::r#type::ComplexType;
 use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef};
-use crate::debugger::variable::VariableIR;
+use crate::debugger::error::Error;
+use crate::debugger::error::Error::FunctionNotFound;
+use crate::debugger::variable::{AssumeError, ParsingError, VariableIR};
 use crate::debugger::{variable, Debugger};
 use crate::{ctx_resolve_unit_call, weak_error};
-use anyhow::anyhow;
 use std::collections::hash_map::Entry;
 
 #[derive(Debug, PartialEq)]
@@ -14,7 +15,8 @@ pub enum VariableSelector {
 }
 
 /// List of operations for select variables and their properties.
-/// Expression can be parsed from an input string like "*(*variable1.field2)[1]" (see debugger::command module)
+/// Expression can be parsed from an input string like `*(*variable1.field2)[1]` (see debugger::command module)
+///
 /// Supported operations are: dereference, get element by index, get field by name, make slice from pointer.
 #[derive(Debug, PartialEq)]
 pub enum Expression {
@@ -43,25 +45,21 @@ macro_rules! type_from_cache {
                     Entry::Vacant(v) => $variable.r#type().map(|t| &*v.insert(t)),
                 },
             )
-            .ok_or(anyhow!(
-                "unknown type for variable {name}",
-                name = $variable.die.name().unwrap_or_default()
-            ))
+            .ok_or_else(|| ParsingError::Assume(AssumeError::NoType("variable")))
     };
 }
 
 impl<'a> SelectExpressionEvaluator<'a> {
-    pub fn new(debugger: &'a Debugger, expression: Expression) -> anyhow::Result<Self> {
-        Ok(Self {
+    pub fn new(debugger: &'a Debugger, expression: Expression) -> Self {
+        Self {
             debugger,
-            //  expl_context: debugger.exploration_ctx(),
             expression,
-        })
+        }
     }
 
     /// Evaluate only variable names.
     /// Only filter expression supported.
-    pub fn evaluate_names(&self) -> anyhow::Result<Vec<String>> {
+    pub fn evaluate_names(&self) -> Result<Vec<String>, Error> {
         let ctx = self.debugger.exploration_ctx();
         match &self.expression {
             Expression::Variable(selector) => {
@@ -77,7 +75,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
                             .debugee
                             .debug_info(ctx.location().pc)?
                             .find_function_by_pc(ctx.location().global_pc)?
-                            .ok_or_else(|| anyhow!("not in function"))?;
+                            .ok_or(FunctionNotFound(ctx.location().global_pc))?;
                         current_func.local_variables(ctx.location().global_pc)
                     }
                 };
@@ -86,16 +84,16 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     .filter_map(|die| die.die.name().map(ToOwned::to_owned))
                     .collect())
             }
-            _ => panic!("unsupported"),
+            _ => unreachable!("unexpected expression variant"),
         }
     }
 
     /// Evaluate select expression and returns list of matched variables.
-    pub fn evaluate(&self) -> anyhow::Result<Vec<VariableIR>> {
+    pub fn evaluate(&self) -> Result<Vec<VariableIR>, Error> {
         self.evaluate_inner(&self.expression)
     }
 
-    fn evaluate_inner(&self, expression: &Expression) -> anyhow::Result<Vec<VariableIR>> {
+    fn evaluate_inner(&self, expression: &Expression) -> Result<Vec<VariableIR>, Error> {
         let ctx = self.debugger.exploration_ctx();
         // evaluate variable one by one in `evaluate_single_variable` method
         // here just filter variables
@@ -113,7 +111,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
                             .debugee
                             .debug_info(ctx.location().pc)?
                             .find_function_by_pc(ctx.location().global_pc)?
-                            .ok_or_else(|| anyhow!("not in function"))?;
+                            .ok_or(FunctionNotFound(ctx.location().global_pc))?;
                         current_func.local_variables(ctx.location().global_pc)
                     }
                 };
@@ -137,15 +135,16 @@ impl<'a> SelectExpressionEvaluator<'a> {
     }
 
     /// Same as [`SelectExpressionEvaluator::evaluate_names`] but for function arguments.
-    pub fn evaluate_on_arguments_names(&self) -> anyhow::Result<Vec<String>> {
+    pub fn evaluate_on_arguments_names(&self) -> Result<Vec<String>, Error> {
         match &self.expression {
             Expression::Variable(selector) => {
+                let expl_ctx_loc = self.debugger.exploration_ctx().location();
                 let current_function = self
                     .debugger
                     .debugee
-                    .debug_info(self.debugger.exploration_ctx().location().pc)?
-                    .find_function_by_pc(self.debugger.exploration_ctx().location().global_pc)?
-                    .ok_or_else(|| anyhow!("not in function"))?;
+                    .debug_info(expl_ctx_loc.pc)?
+                    .find_function_by_pc(expl_ctx_loc.global_pc)?
+                    .ok_or(FunctionNotFound(expl_ctx_loc.global_pc))?;
                 let params = current_function.parameters();
 
                 let params = match selector {
@@ -163,27 +162,28 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     .filter_map(|die| die.die.name().map(ToOwned::to_owned))
                     .collect())
             }
-            _ => panic!("unsupported"),
+            _ => unreachable!("unexpected expression variant"),
         }
     }
 
     /// Same as [`SelectExpressionEvaluator::evaluate`] but for function arguments.
-    pub fn evaluate_on_arguments(&self) -> anyhow::Result<Vec<VariableIR>> {
+    pub fn evaluate_on_arguments(&self) -> Result<Vec<VariableIR>, Error> {
         self.evaluate_on_arguments_inner(&self.expression)
     }
 
     fn evaluate_on_arguments_inner(
         &self,
         expression: &Expression,
-    ) -> anyhow::Result<Vec<VariableIR>> {
+    ) -> Result<Vec<VariableIR>, Error> {
         match expression {
             Expression::Variable(selector) => {
+                let expl_ctx_loc = self.debugger.exploration_ctx().location();
                 let current_function = self
                     .debugger
                     .debugee
-                    .debug_info(self.debugger.exploration_ctx().location().pc)?
-                    .find_function_by_pc(self.debugger.exploration_ctx().location().global_pc)?
-                    .ok_or_else(|| anyhow!("not in function"))?;
+                    .debug_info(expl_ctx_loc.pc)?
+                    .find_function_by_pc(expl_ctx_loc.global_pc)?
+                    .ok_or(FunctionNotFound(expl_ctx_loc.global_pc))?;
                 let params = current_function.parameters();
 
                 let params = match selector {

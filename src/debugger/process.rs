@@ -1,3 +1,5 @@
+use crate::debugger::error::Error;
+use crate::debugger::error::Error::{Ptrace, Waitpid};
 use nix::sys;
 use nix::sys::personality::Persona;
 use nix::sys::ptrace::Options;
@@ -68,7 +70,7 @@ impl Child<Installed> {
 impl<S: State> Child<S> {
     /// Instantiate process by `fork()` system call with caller as a parent process.
     /// After installation child process stopped by `SIGSTOP` signal.
-    pub fn install(&self) -> anyhow::Result<Child<Installed>> {
+    pub fn install(&self) -> Result<Child<Installed>, Error> {
         let mut debugee_cmd = Command::new(&self.program);
         let debugee_cmd = debugee_cmd
             .args(&self.args)
@@ -84,13 +86,14 @@ impl<S: State> Child<S> {
 
         match unsafe { fork().expect("fork() error") } {
             ForkResult::Parent { child: pid } => {
-                waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WSTOPPED))?;
+                waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WSTOPPED)).map_err(Waitpid)?;
                 sys::ptrace::seize(
                     pid,
                     Options::PTRACE_O_TRACECLONE
                         .union(Options::PTRACE_O_TRACEEXEC)
                         .union(Options::PTRACE_O_TRACEEXIT),
-                )?;
+                )
+                .map_err(Ptrace)?;
 
                 Ok(Child {
                     stdout: self.stdout.try_clone()?,

@@ -1,3 +1,4 @@
+use crate::debugger::error::Error;
 use std::path::{Path, PathBuf};
 
 /// Parse output of `ldd` for finding shared object dependencies.
@@ -5,7 +6,7 @@ use std::path::{Path, PathBuf};
 /// # Arguments
 ///
 /// * `file`: path to program
-pub fn find_dependencies(file: &Path) -> anyhow::Result<Vec<PathBuf>> {
+pub fn find_dependencies(file: &Path) -> Result<Vec<PathBuf>, Error> {
     let mut cmd = std::process::Command::new("ldd");
     let output = cmd.arg(file.to_string_lossy().as_ref()).output()?;
     let output = std::str::from_utf8(&output.stdout)?;

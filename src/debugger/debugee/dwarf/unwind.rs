@@ -2,11 +2,14 @@ use crate::debugger::address::RelocatedAddress;
 use crate::debugger::debugee::dwarf::eval::{AddressKind, ExpressionEvaluator};
 use crate::debugger::debugee::dwarf::EndianArcSlice;
 use crate::debugger::debugee::{Debugee, Location};
+use crate::debugger::error::Error;
+use crate::debugger::error::Error::{
+    TypeBinaryRepr, UnitNotFound, UnwindNoContext, UnwindTooDeepFrame,
+};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::utils::TryGetOrInsert;
 use crate::debugger::ExplorationContext;
 use crate::{debugger, resolve_unit_call, weak_error};
-use anyhow::anyhow;
 use gimli::{EhFrame, FrameDescriptionEntry, RegisterRule, UnwindSection};
 use nix::unistd::Pid;
 use std::mem;
@@ -28,14 +31,14 @@ pub type Backtrace = Vec<FrameSpan>;
 /// * `debugee`: debugee instance
 /// * `pid`: thread for unwinding
 #[allow(unused)]
-pub fn unwind(debugee: &Debugee, pid: Pid) -> anyhow::Result<Backtrace> {
+pub fn unwind(debugee: &Debugee, pid: Pid) -> Result<Backtrace, Error> {
     #[cfg(feature = "no_libunwind")]
     {
         let unwinder = DwarfUnwinder::new(debugee);
         unwinder.unwind(pid)
     }
     #[cfg(not(feature = "no_libunwind"))]
-    Ok(libunwind::unwind(pid)?)
+    libunwind::unwind(pid)
 }
 
 /// Restore registers at chosen frame.
@@ -52,16 +55,14 @@ pub fn restore_registers_at_frame(
     pid: Pid,
     registers: &mut DwarfRegisterMap,
     frame_num: u32,
-) -> anyhow::Result<()> {
+) -> Result<(), Error> {
     #[cfg(feature = "no_libunwind")]
     {
         let unwinder = DwarfUnwinder::new(debugee);
         unwinder.restore_registers_at_frame(pid, registers, frame_num)
     }
     #[cfg(not(feature = "no_libunwind"))]
-    Ok(libunwind::restore_registers_at_frame(
-        pid, registers, frame_num,
-    )?)
+    libunwind::restore_registers_at_frame(pid, registers, frame_num)
 }
 
 /// Return return address for thread current program counter.
@@ -71,14 +72,14 @@ pub fn restore_registers_at_frame(
 /// * `debugee`: debugee instance
 /// * `pid`: thread for unwinding
 #[allow(unused)]
-pub fn return_addr(debugee: &Debugee, pid: Pid) -> anyhow::Result<Option<RelocatedAddress>> {
+pub fn return_addr(debugee: &Debugee, pid: Pid) -> Result<Option<RelocatedAddress>, Error> {
     #[cfg(feature = "no_libunwind")]
     {
         let unwinder = DwarfUnwinder::new(debugee);
         unwinder.return_address(pid)
     }
     #[cfg(not(feature = "no_libunwind"))]
-    Ok(libunwind::return_addr(pid)?)
+    libunwind::return_addr(pid)
 }
 
 /// UnwindContext contains information for unwinding single frame.  
@@ -95,7 +96,7 @@ impl<'a> UnwindContext<'a> {
         debugee: &'a Debugee,
         registers: DwarfRegisterMap,
         expl_ctx: &ExplorationContext,
-    ) -> anyhow::Result<Option<Self>> {
+    ) -> Result<Option<Self>, Error> {
         let dwarf = &debugee.debug_info(expl_ctx.location().pc)?;
         let mut next_registers = registers.clone();
         let registers_snap = registers;
@@ -121,10 +122,10 @@ impl<'a> UnwindContext<'a> {
         let cfa = dwarf.evaluate_cfa(debugee, &registers_snap, row, expl_ctx)?;
 
         let mut lazy_evaluator = None;
-        let evaluator_init_fn = || -> anyhow::Result<ExpressionEvaluator> {
+        let evaluator_init_fn = || -> Result<ExpressionEvaluator, Error> {
             let unit = dwarf
                 .find_unit_by_pc(expl_ctx.location().global_pc)?
-                .ok_or_else(|| anyhow!("undefined unit"))?;
+                .ok_or(UnitNotFound(expl_ctx.location().global_pc))?;
 
             let evaluator = resolve_unit_call!(&dwarf.inner, unit, evaluator, debugee);
             Ok(evaluator)
@@ -147,9 +148,9 @@ impl<'a> UnwindContext<'a> {
                             addr.into(),
                             mem::size_of::<u64>()
                         ))?;
-                        u64::from_ne_bytes(weak_error!(bytes
-                            .try_into()
-                            .map_err(|e| anyhow!("{e:?}")))?)
+                        u64::from_ne_bytes(weak_error!(bytes.try_into().map_err(
+                            |data: Vec<u8>| TypeBinaryRepr("u64", data.into_boxed_slice())
+                        ))?)
                     }
                     RegisterRule::ValOffset(offset) => cfa.offset(*offset as isize).into(),
                     RegisterRule::Register(reg) => weak_error!(registers_snap.value(*reg))?,
@@ -165,9 +166,9 @@ impl<'a> UnwindContext<'a> {
                             addr,
                             mem::size_of::<u64>()
                         ))?;
-                        u64::from_ne_bytes(weak_error!(bytes
-                            .try_into()
-                            .map_err(|e| anyhow!("{e:?}")))?)
+                        u64::from_ne_bytes(weak_error!(bytes.try_into().map_err(
+                            |data: Vec<u8>| TypeBinaryRepr("u64", data.into_boxed_slice())
+                        ))?)
                     }
                     RegisterRule::ValExpression(expr) => {
                         let evaluator =
@@ -194,7 +195,7 @@ impl<'a> UnwindContext<'a> {
     pub fn next(
         previous_ctx: UnwindContext<'a>,
         ctx: &ExplorationContext,
-    ) -> anyhow::Result<Option<Self>> {
+    ) -> Result<Option<Self>, Error> {
         let mut next_frame_registers: DwarfRegisterMap = previous_ctx.registers;
         next_frame_registers.update(gimli::Register(7), previous_ctx.cfa.into());
         UnwindContext::new(previous_ctx.debugee, next_frame_registers, ctx)
@@ -235,7 +236,7 @@ impl<'a> DwarfUnwinder<'a> {
     /// # Arguments
     ///
     /// * pid: thread for unwinding
-    pub fn unwind(&self, pid: Pid) -> anyhow::Result<Vec<FrameSpan>> {
+    pub fn unwind(&self, pid: Pid) -> Result<Vec<FrameSpan>, Error> {
         let frame_0_location = self
             .debugee
             .tracee_ctl()
@@ -256,12 +257,15 @@ impl<'a> DwarfUnwinder<'a> {
             .debugee
             .debug_info(ctx.location().pc)?
             .find_function_by_pc(ctx.location().global_pc)?;
-        let mapping_offset = self.debugee.mapping_offset_for_pc(ctx.location().pc)?;
-        let fn_start_at = function.and_then(|func| {
-            func.prolog_start_place()
-                .ok()
-                .map(|prolog| prolog.address.relocate(mapping_offset))
-        });
+        let fn_start_at = function
+            .and_then(|func| {
+                func.prolog_start_place().ok().map(|prolog| {
+                    prolog
+                        .address
+                        .relocate_to_segment_by_pc(self.debugee, ctx.location().pc)
+                })
+            })
+            .transpose()?;
 
         let mut bt = vec![FrameSpan {
             func_name: function.and_then(|func| func.full_name()),
@@ -292,12 +296,15 @@ impl<'a> DwarfUnwinder<'a> {
                 .debugee
                 .debug_info(next_location.pc)?
                 .find_function_by_pc(next_location.global_pc)?;
-            let mapping_offset = self.debugee.mapping_offset_for_pc(next_location.pc)?;
-            let fn_start_at = function.and_then(|func| {
-                func.prolog_start_place()
-                    .ok()
-                    .map(|prolog| prolog.address.relocate(mapping_offset))
-            });
+            let fn_start_at = function
+                .and_then(|func| {
+                    func.prolog_start_place().ok().map(|prolog| {
+                        prolog
+                            .address
+                            .relocate_to_segment_by_pc(self.debugee, next_location.pc)
+                    })
+                })
+                .transpose()?;
 
             let span = FrameSpan {
                 func_name: function.and_then(|func| func.full_name()),
@@ -315,7 +322,7 @@ impl<'a> DwarfUnwinder<'a> {
         pid: Pid,
         registers: &mut DwarfRegisterMap,
         frame_num: u32,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         let frame_0_location = self
             .debugee
             .tracee_ctl()
@@ -332,12 +339,10 @@ impl<'a> DwarfUnwinder<'a> {
             DwarfRegisterMap::from(RegisterMap::current(ctx.pid_on_focus())?),
             &ctx,
         )?
-        .ok_or(anyhow!("no unwind context"))?;
+        .ok_or(UnwindNoContext)?;
 
         for _ in 0..frame_num {
-            let ret_addr = unwind_ctx
-                .return_address()
-                .ok_or(anyhow!("too deep frame number"))?;
+            let ret_addr = unwind_ctx.return_address().ok_or(UnwindTooDeepFrame)?;
 
             ctx = ExplorationContext::new(
                 Location {
@@ -348,8 +353,7 @@ impl<'a> DwarfUnwinder<'a> {
                 ctx.focus_frame + 1,
             );
 
-            unwind_ctx =
-                UnwindContext::next(unwind_ctx, &ctx)?.ok_or(anyhow!("no unwind context"))?;
+            unwind_ctx = UnwindContext::next(unwind_ctx, &ctx)?.ok_or(UnwindNoContext)?;
         }
 
         if let Ok(ip) = unwind_ctx.registers().value(gimli::Register(16)) {
@@ -367,7 +371,7 @@ impl<'a> DwarfUnwinder<'a> {
     /// # Arguments
     ///
     /// * `pid`: pid of stopped thread.
-    pub fn return_address(&self, pid: Pid) -> anyhow::Result<Option<RelocatedAddress>> {
+    pub fn return_address(&self, pid: Pid) -> Result<Option<RelocatedAddress>, Error> {
         let frame_0_location = self
             .debugee
             .tracee_ctl()
@@ -392,7 +396,7 @@ impl<'a> DwarfUnwinder<'a> {
     /// # Arguments
     ///
     /// * `location`: some debugee thread position.
-    pub fn context_for(&self, ctx: &ExplorationContext) -> anyhow::Result<Option<UnwindContext>> {
+    pub fn context_for(&self, ctx: &ExplorationContext) -> Result<Option<UnwindContext>, Error> {
         UnwindContext::new(
             self.debugee,
             DwarfRegisterMap::from(RegisterMap::current(ctx.pid_on_focus())?),
@@ -405,6 +409,7 @@ impl<'a> DwarfUnwinder<'a> {
 mod libunwind {
     use super::FrameSpan;
     use crate::debugger::address::RelocatedAddress;
+    use crate::debugger::error::Error;
     use crate::debugger::register::DwarfRegisterMap;
     use crate::debugger::unwind::Backtrace;
     use nix::unistd::Pid;
@@ -415,7 +420,7 @@ mod libunwind {
     /// # Arguments
     ///
     /// * `pid`: thread for unwinding.
-    pub(super) fn unwind(pid: Pid) -> unwind::Result<Backtrace> {
+    pub(super) fn unwind(pid: Pid) -> Result<Backtrace, Error> {
         let state = PTraceState::new(pid.as_raw() as u32)?;
         let address_space = AddressSpace::new(Accessors::ptrace(), Byteorder::DEFAULT)?;
         let mut cursor = Cursor::remote(&address_space, &state)?;
@@ -455,7 +460,7 @@ mod libunwind {
     /// # Arguments
     ///
     /// * `pid`: pid of stopped thread.
-    pub(super) fn return_addr(pid: Pid) -> unwind::Result<Option<RelocatedAddress>> {
+    pub(super) fn return_addr(pid: Pid) -> Result<Option<RelocatedAddress>, Error> {
         let state = PTraceState::new(pid.as_raw() as u32)?;
         let address_space = AddressSpace::new(Accessors::ptrace(), Byteorder::DEFAULT)?;
         let mut cursor = Cursor::remote(&address_space, &state)?;
@@ -471,7 +476,7 @@ mod libunwind {
         pid: Pid,
         registers: &mut DwarfRegisterMap,
         frame_num: u32,
-    ) -> unwind::Result<()> {
+    ) -> Result<(), Error> {
         if frame_num == 0 {
             return Ok(());
         }

@@ -5,17 +5,21 @@ use crate::debugger::debugee::dwarf::r#type::{EvaluationContext, TypeIdentity};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::specialization::btree::BTreeReflection;
 use crate::debugger::variable::specialization::hashbrown::HashmapReflection;
+use crate::debugger::variable::AssumeError::{
+    TypeParameterNotFound, TypeParameterTypeNotFound, UnexpectedType,
+};
+use crate::debugger::variable::ParsingError::Assume;
 use crate::debugger::variable::{
-    ArrayVariable, AssumeError, PointerVariable, ScalarVariable, StructVariable, SupportedScalar,
-    VariableIR, VariableIdentity, VariableParser,
+    ArrayVariable, AssumeError, ParsingError, PointerVariable, ScalarVariable, StructVariable,
+    SupportedScalar, VariableIR, VariableIdentity, VariableParser,
 };
 use crate::{debugger, weak_error};
 use anyhow::Context;
-use anyhow::{anyhow, bail};
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use itertools::Itertools;
 use std::collections::HashMap;
+use AssumeError::{FieldNotFound, IncompleteInterp, UnknownSize};
 
 /// During program execution, the debugger may encounter uninitialized variables.
 /// For example look at this code:
@@ -169,7 +173,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         eval_ctx: &EvaluationContext,
         ir: VariableIR,
-    ) -> anyhow::Result<StrVariable> {
+    ) -> Result<StrVariable, ParsingError> {
         let len = ir.assume_field_as_scalar_number("length")?;
         let len = guard_len(len);
 
@@ -184,7 +188,7 @@ impl<'a> VariableParserExtension<'a> {
 
         Ok(StrVariable {
             identity: ir.identity().clone(),
-            value: String::from_utf8(data.to_vec())?,
+            value: String::from_utf8(data.to_vec()).map_err(AssumeError::from)?,
         })
     }
 
@@ -196,7 +200,7 @@ impl<'a> VariableParserExtension<'a> {
         SpecializedVariableIR::String {
             string: weak_error!(self
                 .parse_string_inner(eval_ctx, VariableIR::Struct(structure.clone()))
-                .context("string interpretation")),
+                .context("String interpretation")),
             original: structure,
         }
     }
@@ -205,7 +209,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         eval_ctx: &EvaluationContext,
         ir: VariableIR,
-    ) -> anyhow::Result<StringVariable> {
+    ) -> Result<StringVariable, ParsingError> {
         let len = ir.assume_field_as_scalar_number("len")?;
         let len = guard_len(len);
 
@@ -219,7 +223,7 @@ impl<'a> VariableParserExtension<'a> {
 
         Ok(StringVariable {
             identity: ir.identity().clone(),
-            value: String::from_utf8(data)?,
+            value: String::from_utf8(data).map_err(AssumeError::from)?,
         })
     }
 
@@ -232,7 +236,7 @@ impl<'a> VariableParserExtension<'a> {
         SpecializedVariableIR::Vector {
             vec: weak_error!(self
                 .parse_vector_inner(eval_ctx, VariableIR::Struct(structure.clone()), type_params)
-                .context("vec interpretation")),
+                .context("Vec<T> interpretation")),
             original: structure,
         }
     }
@@ -242,11 +246,11 @@ impl<'a> VariableParserExtension<'a> {
         eval_ctx: &EvaluationContext,
         ir: VariableIR,
         type_params: &HashMap<String, Option<TypeIdentity>>,
-    ) -> anyhow::Result<VecVariable> {
+    ) -> Result<VecVariable, ParsingError> {
         let inner_type = type_params
             .get("T")
-            .ok_or_else(|| anyhow!("template parameter `T`"))?
-            .ok_or_else(|| anyhow!("unreachable: template param die without type"))?;
+            .ok_or(TypeParameterNotFound("T"))?
+            .ok_or(TypeParameterTypeNotFound("T"))?;
         let len = ir.assume_field_as_scalar_number("len")?;
         let len = guard_len(len);
 
@@ -255,11 +259,12 @@ impl<'a> VariableParserExtension<'a> {
 
         let data_ptr = ir.assume_field_as_pointer("pointer")?;
 
-        let el_type_size = self
-            .parser
-            .r#type
+        let el_type = self.parser.r#type;
+        let el_type_size = el_type
             .type_size_in_bytes(eval_ctx, inner_type)
-            .ok_or_else(|| anyhow!("unknown element size"))?;
+            .ok_or(UnknownSize(
+                el_type.type_name(inner_type).unwrap_or_default(),
+            ))?;
 
         let data = debugger::read_memory_by_pid(
             eval_ctx.expl_ctx.pid_on_focus(),
@@ -323,7 +328,7 @@ impl<'a> VariableParserExtension<'a> {
         SpecializedVariableIR::Tls {
             tls_var: weak_error!(self
                 .parse_tls_inner(VariableIR::Struct(structure.clone()), type_params)
-                .context("tls interpretation")),
+                .context("TLS variable interpretation")),
             original: structure,
         }
     }
@@ -332,7 +337,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         ir: VariableIR,
         type_params: &HashMap<String, Option<TypeIdentity>>,
-    ) -> anyhow::Result<TlsVariable> {
+    ) -> Result<TlsVariable, ParsingError> {
         // we assume that tls variable name represent in dwarf
         // as namespace flowed before "__getit" namespace
         let namespace = &ir.identity().namespace;
@@ -343,17 +348,15 @@ impl<'a> VariableParserExtension<'a> {
 
         let inner_type = type_params
             .get("T")
-            .ok_or_else(|| anyhow!("template parameter `T`"))?
-            .ok_or_else(|| anyhow!("unreachable: template param die without type"))?;
+            .ok_or(TypeParameterNotFound("T"))?
+            .ok_or(TypeParameterTypeNotFound("T"))?;
 
         let inner = ir
             .bfs_iterator()
             .find(|child| child.name() == "inner")
-            .ok_or(AssumeError::FieldNotFound("inner"))?;
+            .ok_or(FieldNotFound("inner"))?;
         let inner_option = inner.assume_field_as_rust_enum("value")?;
-        let inner_value = inner_option
-            .value
-            .ok_or(AssumeError::IncompleteInterp(""))?;
+        let inner_value = inner_option.value.ok_or(IncompleteInterp("value"))?;
 
         // we assume that dwarf representation of tls variable contains ::Option
         if let VariableIR::Struct(opt_variant) = inner_value.as_ref() {
@@ -364,7 +367,7 @@ impl<'a> VariableParserExtension<'a> {
                     inner_value
                         .bfs_iterator()
                         .find(|child| child.name() == "0")
-                        .ok_or(AssumeError::FieldNotFound("__0"))?
+                        .ok_or(FieldNotFound("__0"))?
                         .clone(),
                 ))
             };
@@ -376,9 +379,9 @@ impl<'a> VariableParserExtension<'a> {
             });
         }
 
-        bail!(AssumeError::IncompleteInterp(
-            "expect tls inner value is option"
-        ))
+        Err(ParsingError::Assume(IncompleteInterp(
+            "expect TLS inner value as option",
+        )))
     }
 
     pub fn parse_hashmap(
@@ -389,16 +392,16 @@ impl<'a> VariableParserExtension<'a> {
         SpecializedVariableIR::HashMap {
             map: weak_error!(self
                 .parse_hashmap_inner(eval_ctx, VariableIR::Struct(structure.clone()))
-                .context("hashmap interpretation")),
+                .context("HashMap<K, V> interpretation")),
             original: structure,
         }
     }
 
-    pub fn parse_hashmap_inner(
+    fn parse_hashmap_inner(
         &self,
         eval_ctx: &EvaluationContext,
         ir: VariableIR,
-    ) -> anyhow::Result<HashMapVariable> {
+    ) -> Result<HashMapVariable, ParsingError> {
         let ctrl = ir.assume_field_as_pointer("pointer")?;
         let bucket_mask = ir.assume_field_as_scalar_number("bucket_mask")?;
 
@@ -406,20 +409,20 @@ impl<'a> VariableParserExtension<'a> {
         let kv_type = table
             .type_params
             .get("T")
-            .ok_or_else(|| anyhow!("hashmap bucket type not found"))?
-            .ok_or_else(|| anyhow!("unknown hashmap bucket type"))?;
-        let kv_size = self
-            .parser
-            .r#type
+            .ok_or(TypeParameterNotFound("T"))?
+            .ok_or(TypeParameterTypeNotFound("T"))?;
+
+        let r#type = self.parser.r#type;
+        let kv_size = r#type
             .type_size_in_bytes(eval_ctx, kv_type)
-            .ok_or_else(|| anyhow!("unknown hashmap bucket size"))?;
+            .ok_or(UnknownSize(r#type.type_name(kv_type).unwrap_or_default()))?;
 
         let reflection =
             HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
 
         let iterator = reflection.iter(eval_ctx.expl_ctx.pid_on_focus())?;
         let kv_items = iterator
-            .map_err(anyhow::Error::from)
+            .map_err(ParsingError::from)
             .filter_map(|bucket| {
                 let data = bucket.read(eval_ctx.expl_ctx.pid_on_focus());
                 let tuple = self.parser.parse_inner(
@@ -437,7 +440,7 @@ impl<'a> VariableParserExtension<'a> {
                     }
                 }
 
-                Err(anyhow!("unexpected bucket type"))
+                Err(Assume(UnexpectedType("hashmap bucket")))
             })
             .collect()?;
 
@@ -456,16 +459,16 @@ impl<'a> VariableParserExtension<'a> {
         SpecializedVariableIR::HashSet {
             set: weak_error!(self
                 .parse_hashset_inner(eval_ctx, VariableIR::Struct(structure.clone()))
-                .context("hashset interpretation")),
+                .context("HashSet<T> interpretation")),
             original: structure,
         }
     }
 
-    pub fn parse_hashset_inner(
+    fn parse_hashset_inner(
         &self,
         eval_ctx: &EvaluationContext,
         ir: VariableIR,
-    ) -> anyhow::Result<HashSetVariable> {
+    ) -> Result<HashSetVariable, ParsingError> {
         let ctrl = ir.assume_field_as_pointer("pointer")?;
         let bucket_mask = ir.assume_field_as_scalar_number("bucket_mask")?;
 
@@ -473,20 +476,21 @@ impl<'a> VariableParserExtension<'a> {
         let kv_type = table
             .type_params
             .get("T")
-            .ok_or_else(|| anyhow!("hashset bucket type not found"))?
-            .ok_or_else(|| anyhow!("unknown hashset bucket type"))?;
+            .ok_or(TypeParameterNotFound("T"))?
+            .ok_or(TypeParameterTypeNotFound("T"))?;
+        let r#type = self.parser.r#type;
         let kv_size = self
             .parser
             .r#type
             .type_size_in_bytes(eval_ctx, kv_type)
-            .ok_or_else(|| anyhow!("unknown hashset bucket size"))?;
+            .ok_or_else(|| UnknownSize(r#type.type_name(kv_type).unwrap_or_default()))?;
 
         let reflection =
             HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
 
         let iterator = reflection.iter(eval_ctx.expl_ctx.pid_on_focus())?;
         let items = iterator
-            .map_err(anyhow::Error::from)
+            .map_err(ParsingError::from)
             .filter_map(|bucket| {
                 let data = bucket.read(eval_ctx.expl_ctx.pid_on_focus());
 
@@ -505,7 +509,7 @@ impl<'a> VariableParserExtension<'a> {
                     }
                 }
 
-                Err(anyhow!("unexpected bucket type"))
+                Err(Assume(UnexpectedType("hashset bucket")))
             })
             .collect()?;
 
@@ -531,29 +535,29 @@ impl<'a> VariableParserExtension<'a> {
                     identity,
                     type_params
                 )
-                .context("BTreeMap interpretation")),
+                .context("BTreeMap<K, V> interpretation")),
             original: structure,
         }
     }
 
-    pub fn parse_btree_map_inner(
+    fn parse_btree_map_inner(
         &self,
         eval_ctx: &EvaluationContext,
         ir: VariableIR,
         identity: TypeIdentity,
         type_params: &HashMap<String, Option<TypeIdentity>>,
-    ) -> anyhow::Result<HashMapVariable> {
+    ) -> Result<HashMapVariable, ParsingError> {
         let height = ir.assume_field_as_scalar_number("height")?;
         let ptr = ir.assume_field_as_pointer("pointer")?;
 
         let k_type = type_params
             .get("K")
-            .ok_or_else(|| anyhow!("btree map bucket type not found"))?
-            .ok_or_else(|| anyhow!("unknown BTreeMap bucket type"))?;
+            .ok_or(TypeParameterNotFound("K"))?
+            .ok_or(TypeParameterTypeNotFound("K"))?;
         let v_type = type_params
             .get("V")
-            .ok_or_else(|| anyhow!("btree map bucket type not found"))?
-            .ok_or_else(|| anyhow!("unknown BTreeMap bucket type"))?;
+            .ok_or(TypeParameterNotFound("V"))?
+            .ok_or(TypeParameterTypeNotFound("V"))?;
 
         let reflection = BTreeReflection::new(
             self.parser.r#type,
@@ -565,7 +569,7 @@ impl<'a> VariableParserExtension<'a> {
         )?;
         let iterator = reflection.iter(eval_ctx)?;
         let kv_items = iterator
-            .map_err(anyhow::Error::from)
+            .map_err(ParsingError::from)
             .map(|(k, v)| {
                 let key = self.parser.parse_inner(
                     eval_ctx,
@@ -601,7 +605,7 @@ impl<'a> VariableParserExtension<'a> {
         }
     }
 
-    pub fn parse_btree_set_inner(&self, ir: VariableIR) -> anyhow::Result<HashSetVariable> {
+    fn parse_btree_set_inner(&self, ir: VariableIR) -> Result<HashSetVariable, ParsingError> {
         let inner_map = ir
             .bfs_iterator()
             .find_map(|child| {
@@ -616,7 +620,7 @@ impl<'a> VariableParserExtension<'a> {
                 }
                 None
             })
-            .ok_or(AssumeError::IncompleteInterp("BTreeMap"))?;
+            .ok_or(IncompleteInterp("BTreeMap"))?;
 
         Ok(HashSetVariable {
             identity: ir.identity().clone(),
@@ -638,29 +642,29 @@ impl<'a> VariableParserExtension<'a> {
                     VariableIR::Struct(structure.clone()),
                     type_params
                 )
-                .context("VeqDequeue interpretation")),
+                .context("VeqDequeue<T> interpretation")),
             original: structure,
         }
     }
 
-    pub fn parse_vec_dequeue_inner(
+    fn parse_vec_dequeue_inner(
         &self,
         eval_ctx: &EvaluationContext,
         ir: VariableIR,
         type_params: &HashMap<String, Option<TypeIdentity>>,
-    ) -> anyhow::Result<VecVariable> {
+    ) -> Result<VecVariable, ParsingError> {
         let inner_type = type_params
             .get("T")
-            .ok_or_else(|| anyhow!("template parameter `T`"))?
-            .ok_or_else(|| anyhow!("unreachable: template param die without type"))?;
+            .ok_or(TypeParameterNotFound("T"))?
+            .ok_or(TypeParameterTypeNotFound("T"))?;
         let len = ir.assume_field_as_scalar_number("len")? as usize;
         let len = guard_len(len as i64) as usize;
 
-        let el_type_size = self
-            .parser
-            .r#type
+        let r#type = self.parser.r#type;
+        let el_type_size = r#type
             .type_size_in_bytes(eval_ctx, inner_type)
-            .ok_or_else(|| anyhow!("unknown element size"))? as usize;
+            .ok_or_else(|| UnknownSize(r#type.type_name(inner_type).unwrap_or_default()))?
+            as usize;
         let cap = if el_type_size == 0 {
             usize::MAX
         } else {
@@ -735,18 +739,18 @@ impl<'a> VariableParserExtension<'a> {
         SpecializedVariableIR::Cell {
             value: weak_error!(self
                 .parse_cell_inner(VariableIR::Struct(structure.clone()))
-                .context("cell interpretation"))
+                .context("Cell<T> interpretation"))
             .map(Box::new),
             original: structure,
         }
     }
 
-    pub fn parse_cell_inner(&self, ir: VariableIR) -> anyhow::Result<VariableIR> {
+    fn parse_cell_inner(&self, ir: VariableIR) -> Result<VariableIR, ParsingError> {
         let unsafe_cell = ir.assume_field_as_struct("value")?;
         let value = unsafe_cell
             .members
             .get(0)
-            .ok_or(AssumeError::IncompleteInterp("UnsafeCell"))?;
+            .ok_or(IncompleteInterp("UnsafeCell"))?;
         Ok(value.clone())
     }
 
@@ -754,13 +758,13 @@ impl<'a> VariableParserExtension<'a> {
         SpecializedVariableIR::RefCell {
             value: weak_error!(self
                 .parse_refcell_inner(VariableIR::Struct(structure.clone()))
-                .context("refcell interpretation"))
+                .context("RefCell<T> interpretation"))
             .map(Box::new),
             original: structure,
         }
     }
 
-    pub fn parse_refcell_inner(&self, ir: VariableIR) -> anyhow::Result<VariableIR> {
+    fn parse_refcell_inner(&self, ir: VariableIR) -> Result<VariableIR, ParsingError> {
         let borrow = ir
             .bfs_iterator()
             .find_map(|child| {
@@ -773,9 +777,9 @@ impl<'a> VariableParserExtension<'a> {
                 }
                 None
             })
-            .ok_or(AssumeError::IncompleteInterp("Cell"))?;
+            .ok_or(IncompleteInterp("Cell"))?;
         let VariableIR::Scalar(mut var) = *borrow else {
-          return Err(AssumeError::IncompleteInterp("Cell").into());
+          return Err(IncompleteInterp("Cell").into());
         };
         var.identity = VariableIdentity::no_namespace(Some("borrow".to_string()));
         let borrow = VariableIR::Scalar(var);
@@ -784,7 +788,7 @@ impl<'a> VariableParserExtension<'a> {
         let value = unsafe_cell
             .members
             .get(0)
-            .ok_or(AssumeError::IncompleteInterp("UnsafeCell"))?;
+            .ok_or(IncompleteInterp("UnsafeCell"))?;
 
         Ok(VariableIR::Struct(StructVariable {
             identity: ir.identity().clone(),
@@ -798,12 +802,12 @@ impl<'a> VariableParserExtension<'a> {
         SpecializedVariableIR::Rc {
             value: weak_error!(self
                 .parse_rc_inner(VariableIR::Struct(structure.clone()))
-                .context("rc interpretation")),
+                .context("Rc<T> interpretation")),
             original: structure,
         }
     }
 
-    pub fn parse_rc_inner(&self, ir: VariableIR) -> anyhow::Result<PointerVariable> {
+    fn parse_rc_inner(&self, ir: VariableIR) -> Result<PointerVariable, ParsingError> {
         Ok(ir
             .bfs_iterator()
             .find_map(|child| {
@@ -816,19 +820,19 @@ impl<'a> VariableParserExtension<'a> {
                 }
                 None
             })
-            .ok_or(AssumeError::IncompleteInterp("rc"))?)
+            .ok_or(IncompleteInterp("rc"))?)
     }
 
     pub fn parse_arc(&self, structure: StructVariable) -> SpecializedVariableIR {
         SpecializedVariableIR::Arc {
             value: weak_error!(self
                 .parse_arc_inner(VariableIR::Struct(structure.clone()))
-                .context("arc interpretation")),
+                .context("Arc<T> interpretation")),
             original: structure,
         }
     }
 
-    pub fn parse_arc_inner(&self, ir: VariableIR) -> anyhow::Result<PointerVariable> {
+    fn parse_arc_inner(&self, ir: VariableIR) -> Result<PointerVariable, ParsingError> {
         Ok(ir
             .bfs_iterator()
             .find_map(|child| {
@@ -841,6 +845,6 @@ impl<'a> VariableParserExtension<'a> {
                 }
                 None
             })
-            .ok_or(AssumeError::IncompleteInterp("arc"))?)
+            .ok_or(IncompleteInterp("Arc"))?)
     }
 }

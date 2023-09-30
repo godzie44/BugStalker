@@ -1,7 +1,7 @@
+use crate::debugger::address::Address;
 use crate::debugger::breakpoint::BreakpointView;
+use crate::debugger::error::Error;
 use crate::debugger::Debugger;
-
-pub use crate::debugger::breakpoint::SetBreakpointError;
 
 #[derive(Debug, Clone)]
 pub enum Breakpoint {
@@ -41,20 +41,12 @@ pub enum HandlingResult<'a> {
     AddDeferred,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum BreakpointError {
-    #[error(transparent)]
-    SetError(#[from] SetBreakpointError),
-    #[error(transparent)]
-    OtherError(#[from] anyhow::Error),
-}
-
 impl<'a> Break<'a> {
     pub fn new(debugger: &'a mut Debugger) -> Self {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&mut self, cmd: &Command) -> Result<HandlingResult, BreakpointError> {
+    pub fn handle(&mut self, cmd: &Command) -> Result<HandlingResult, Error> {
         let result = match cmd {
             Command::Add(brkpt) => {
                 let res = match brkpt {
@@ -70,7 +62,7 @@ impl<'a> Break<'a> {
                 let res = match brkpt {
                     Breakpoint::Address(addr) => self
                         .dbg
-                        .remove_breakpoint_at_addr((*addr).into())?
+                        .remove_breakpoint(Address::Relocated((*addr).into()))?
                         .map(|brkpt| vec![brkpt])
                         .unwrap_or_default(),
                     Breakpoint::Line(file, line) => {

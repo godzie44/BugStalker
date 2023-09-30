@@ -2,8 +2,9 @@ use crate::debugger::address::{Address, GlobalAddress};
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
 use crate::debugger::debugee::tracer::{StopReason, TraceContext};
+use crate::debugger::error::Error;
+use crate::debugger::error::Error::{NoFunctionRanges, PlaceNotFound, ProcessExit};
 use crate::debugger::{Debugger, ExplorationContext};
-use anyhow::{anyhow, bail};
 use nix::sys::signal::Signal;
 
 /// Result of a step, if [`SignalInterrupt`] then step process interrupted by a signal and user must know it.
@@ -35,7 +36,7 @@ impl Debugger {
     /// or [`StepResult::Done`] if step done.
     ///
     /// **! change exploration context**
-    pub(super) fn step_in(&mut self) -> anyhow::Result<StepResult> {
+    pub(super) fn step_in(&mut self) -> Result<StepResult, Error> {
         enum PlaceOrSignal {
             Place(PlaceDescriptorOwned),
             Signal(Signal),
@@ -44,7 +45,7 @@ impl Debugger {
         // make instruction step but ignoring functions prolog
         // initial function must exists (do instruction steps until it's not)
         // returns stop place or signal if step is undone
-        fn step_over_prolog(debugger: &mut Debugger) -> anyhow::Result<PlaceOrSignal> {
+        fn step_over_prolog(debugger: &mut Debugger) -> Result<PlaceOrSignal, Error> {
             loop {
                 // initial step
                 if let Some(StopReason::SignalStop(_, sign)) = debugger.single_step_instruction()? {
@@ -146,7 +147,7 @@ impl Debugger {
     /// May return a [`StopReason::SignalStop`] if the step didn't happen cause signal.
     ///
     /// **! change exploration context**
-    pub(super) fn single_step_instruction(&mut self) -> anyhow::Result<Option<StopReason>> {
+    pub(super) fn single_step_instruction(&mut self) -> Result<Option<StopReason>, Error> {
         let loc = self.exploration_ctx().location();
         let mb_signal = if self.breakpoints.get_enabled(loc.pc).is_some() {
             self.step_over_breakpoint()?
@@ -165,7 +166,7 @@ impl Debugger {
     /// May return a [`StopReason::SignalStop`] if the step didn't happen cause signal.
     ///
     /// **! change exploration context**
-    pub(super) fn step_over_breakpoint(&mut self) -> anyhow::Result<Option<StopReason>> {
+    pub(super) fn step_over_breakpoint(&mut self) -> Result<Option<StopReason>, Error> {
         // cannot use debugee::Location mapping offset may be not init yet
         let tracee = self
             .debugee
@@ -190,7 +191,7 @@ impl Debugger {
     /// Move to higher stack frame.
     ///
     /// **! change exploration context**
-    pub(super) fn step_out_frame(&mut self) -> anyhow::Result<()> {
+    pub(super) fn step_out_frame(&mut self) -> Result<(), Error> {
         let ctx = self.exploration_ctx();
         let location = ctx.location();
         let debug_info = self.debugee.debug_info(location.pc)?;
@@ -216,7 +217,7 @@ impl Debugger {
     /// or [`StepResult::Done`] if step done.
     ///
     /// **! change exploration context**
-    pub(super) fn step_over_any(&mut self) -> anyhow::Result<StepResult> {
+    pub(super) fn step_over_any(&mut self) -> Result<StepResult, Error> {
         let ctx = self.exploration_ctx();
         let mut current_location = ctx.location();
 
@@ -239,16 +240,17 @@ impl Debugger {
 
         let current_place = dwarf
             .find_place_from_pc(current_location.global_pc)?
-            .ok_or_else(|| anyhow!("current line not found"))?;
+            .ok_or(PlaceNotFound(current_location.global_pc))?;
 
         let mut step_over_breakpoints = vec![];
         let mut to_delete = vec![];
 
+        let fn_full_name = func.full_name();
         for range in func.ranges() {
             let mut place = func
                 .unit()
                 .find_place_by_pc(GlobalAddress::from(range.begin))
-                .ok_or_else(|| anyhow!("unknown function range"))?;
+                .ok_or_else(|| NoFunctionRanges(fn_full_name.clone()))?;
 
             while place.address.in_range(range) {
                 // skip places in function prolog
@@ -272,7 +274,7 @@ impl Debugger {
                 {
                     let load_addr = place
                         .address
-                        .relocate(self.debugee.mapping_offset_for_pc(current_location.pc)?);
+                        .relocate_to_segment_by_pc(&self.debugee, current_location.pc)?;
                     if self.breakpoints.get_enabled(load_addr).is_none() {
                         step_over_breakpoints.push(load_addr);
                         to_delete.push(load_addr);
@@ -330,7 +332,7 @@ impl Debugger {
                 .debugee
                 .debug_info(new_location.pc)?
                 .find_place_from_pc(new_location.global_pc)?
-                .ok_or_else(|| anyhow!("unknown function range"))?;
+                .ok_or_else(|| NoFunctionRanges(fn_full_name))?;
             if place.address != new_location.global_pc {
                 if let StepResult::SignalInterrupt { signal, .. } = self.step_in()? {
                     return Ok(StepResult::signal_interrupt(signal));
@@ -339,7 +341,8 @@ impl Debugger {
         }
 
         if self.debugee.is_exited() {
-            bail!("debugee exited while step execution");
+            // todo add exit code here
+            return Err(ProcessExit(0));
         }
 
         self.expl_ctx_update_location()?;

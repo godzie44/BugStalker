@@ -7,6 +7,7 @@ use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::debugee::Debugee;
+use crate::debugger::error::Error;
 use gimli::{
     Attribute, AttributeValue, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DwAte, DwTag,
     Encoding, Range, UnitHeader, UnitOffset,
@@ -389,7 +390,7 @@ macro_rules! resolve_unit_call {
             UnitResult::Ok(value) => value,
             UnitResult::Reload => {
                 let parser = DwarfUnitParser::new(&$dwarf);
-                $unit.reload(parser).expect("parse unit fail unexpectedly");
+                $unit.reload(parser).expect("unit parsing was fail unexpectedly");
                 $unit.$fn_name(
                         $(
                             $arg,
@@ -432,9 +433,12 @@ pub struct Unit {
 impl Unit {
     /// Update unit to full state.
     /// Note: this method will panic if called twice.
-    pub fn reload(&self, parser: DwarfUnitParser) -> anyhow::Result<()> {
-        let additional = parser.parse_additional(self.header.take().unwrap())?;
-        self.lazy_part.set(additional).unwrap();
+    pub fn reload(&self, parser: DwarfUnitParser) -> Result<(), Error> {
+        let additional = parser
+            .parse_additional(self.header.take().expect("unreachable: header must exists"))?;
+        self.lazy_part
+            .set(additional)
+            .expect("unreachable: lazy part must be empty");
         Ok(())
     }
 

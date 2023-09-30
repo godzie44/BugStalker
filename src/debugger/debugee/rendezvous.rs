@@ -17,7 +17,7 @@ pub enum RendezvousError {
     #[error(".dynamic section not found")]
     DynamicSectNotFound,
     #[error("read from remote process: {0}")]
-    RemoteReadError(#[from] nix::Error),
+    PtraceRead(#[from] nix::Error),
     #[error("rendezvous not found")]
     NotFound,
 }

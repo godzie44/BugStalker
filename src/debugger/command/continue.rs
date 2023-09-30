@@ -1,5 +1,4 @@
 use crate::debugger::{command, Debugger};
-use anyhow::Context;
 
 pub struct Continue<'a> {
     dbg: &'a mut Debugger,
@@ -11,9 +10,7 @@ impl<'a> Continue<'a> {
     }
 
     pub fn handle(&mut self) -> command::HandleResult<()> {
-        Ok(self
-            .dbg
-            .continue_debugee()
-            .context("Failed to continue execution")?)
+        self.dbg.continue_debugee()?;
+        Ok(())
     }
 }

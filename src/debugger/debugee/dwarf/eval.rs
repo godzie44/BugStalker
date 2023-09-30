@@ -1,13 +1,16 @@
 use crate::debugger;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
-use crate::debugger::debugee::dwarf::eval::EvalError::{OptionRequired, UnsupportedRequire};
 use crate::debugger::debugee::dwarf::unit::DieRef;
 use crate::debugger::debugee::dwarf::unit::{DieVariant, Unit};
 use crate::debugger::debugee::dwarf::{ContextualDieRef, DwarfUnwinder, EndianArcSlice};
 use crate::debugger::debugee::Debugee;
+use crate::debugger::error::Error;
+use crate::debugger::error::Error::{
+    DieNotFound, EvalOptionRequired, EvalUnsupportedRequire, FunctionNotFound, ImplicitPointer,
+    NoDieType, NoFunctionRanges, Ptrace, TypeBinaryRepr, UnwindNoContext,
+};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::{debugee, ExplorationContext};
-use anyhow::anyhow;
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{
     DebugAddr, Encoding, EndianSlice, EvaluationResult, Expression, Location, Piece, Register,
@@ -19,25 +22,7 @@ use std::cell::RefCell;
 use std::cmp::min;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::{mem, result};
-
-#[derive(thiserror::Error, Debug)]
-pub enum EvalError {
-    #[error(transparent)]
-    Gimli(#[from] gimli::read::Error),
-    #[error("eval option {0} required")]
-    OptionRequired(&'static str),
-    #[error("unsupported evaluation require {0:?}")]
-    UnsupportedRequire(String),
-    #[error("nix error {0}")]
-    Nix(#[from] nix::Error),
-    #[error("unwind error {0}")]
-    Unwind(#[from] unwind::Error),
-    #[error(transparent)]
-    Other(#[from] anyhow::Error),
-}
-
-pub type Result<T> = result::Result<T, EvalError>;
+use std::mem;
 
 /// Resolve requirements that the `ExpressionEvaluator` may need. Relevant for the current breakpoint.
 /// Some options are lazy to avoid overhead on recalculation.
@@ -57,7 +42,7 @@ impl<'a> RequirementsResolver<'a> {
     }
 
     /// Return base address of current frame.
-    fn base_addr(&self, ctx: &ExplorationContext) -> anyhow::Result<RelocatedAddress> {
+    fn base_addr(&self, ctx: &ExplorationContext) -> Result<RelocatedAddress, Error> {
         match self.base_address.borrow_mut().entry(ctx.pid_on_focus()) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(e) => {
@@ -66,7 +51,7 @@ impl<'a> RequirementsResolver<'a> {
                     .debugee
                     .debug_info(ctx.location().pc)?
                     .find_function_by_pc(loc.global_pc)?
-                    .ok_or_else(|| anyhow!("current function not found"))?;
+                    .ok_or(FunctionNotFound(loc.global_pc))?;
                 let base_addr = func.frame_base_addr(ctx, self.debugee)?;
                 Ok(*e.insert(base_addr))
             }
@@ -74,7 +59,7 @@ impl<'a> RequirementsResolver<'a> {
     }
 
     /// Return canonical frame address of current frame.
-    fn cfa(&self, ctx: &ExplorationContext) -> anyhow::Result<RelocatedAddress> {
+    fn cfa(&self, ctx: &ExplorationContext) -> Result<RelocatedAddress, Error> {
         match self.cfa.borrow_mut().entry(ctx.pid_on_focus()) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(e) => {
@@ -87,11 +72,11 @@ impl<'a> RequirementsResolver<'a> {
         }
     }
 
-    fn relocation_addr(&self, ctx: &ExplorationContext) -> anyhow::Result<usize> {
+    fn relocation_addr(&self, ctx: &ExplorationContext) -> Result<usize, Error> {
         self.debugee.mapping_offset_for_pc(ctx.location().pc)
     }
 
-    fn resolve_tls(&self, pid: Pid, offset: u64) -> anyhow::Result<RelocatedAddress> {
+    fn resolve_tls(&self, pid: Pid, offset: u64) -> Result<RelocatedAddress, Error> {
         let lm_addr = self.debugee.rendezvous().link_map_main();
         self.debugee
             .tracee_ctl()
@@ -101,17 +86,17 @@ impl<'a> RequirementsResolver<'a> {
     fn debug_addr_section(
         &self,
         ctx: &ExplorationContext,
-    ) -> anyhow::Result<&DebugAddr<EndianArcSlice>> {
+    ) -> Result<&DebugAddr<EndianArcSlice>, Error> {
         Ok(self.debugee.debug_info(ctx.location().pc)?.debug_addr())
     }
 
-    fn resolve_registers(&self, ctx: &ExplorationContext) -> anyhow::Result<DwarfRegisterMap> {
+    fn resolve_registers(&self, ctx: &ExplorationContext) -> Result<DwarfRegisterMap, Error> {
         let current_loc = ctx.location();
         let current_fn = self
             .debugee
             .debug_info(ctx.location().pc)?
             .find_function_by_pc(current_loc.global_pc)?
-            .ok_or_else(|| anyhow!("not in function"))?;
+            .ok_or(FunctionNotFound(current_loc.global_pc))?;
         let entry_pc: GlobalAddress = current_fn
             .die
             .base_attributes
@@ -119,17 +104,16 @@ impl<'a> RequirementsResolver<'a> {
             .iter()
             .map(|r| r.begin)
             .min()
-            .ok_or_else(|| anyhow!("entry point pc not found"))?
+            .ok_or_else(|| NoFunctionRanges(current_fn.full_name()))?
             .into();
 
         let backtrace = self.debugee.unwind(ctx.pid_on_focus())?;
-        let entry_pc_rel =
-            entry_pc.relocate(self.debugee.mapping_offset_for_pc(ctx.location().pc)?);
+        let entry_pc_rel = entry_pc.relocate_to_segment_by_pc(self.debugee, ctx.location().pc)?;
         backtrace
             .iter()
             .enumerate()
             .find(|(_, frame)| frame.fn_start_ip == Some(entry_pc_rel))
-            .map(|(num, _)| -> anyhow::Result<DwarfRegisterMap> {
+            .map(|(num, _)| -> Result<DwarfRegisterMap, Error> {
                 // try to use libunwind if frame determined
                 let mut registers = RegisterMap::current(ctx.pid_on_focus())?.into();
                 self.debugee.restore_registers_at_frame(
@@ -149,7 +133,7 @@ impl<'a> RequirementsResolver<'a> {
                 };
                 Ok(unwinder
                     .context_for(&ExplorationContext::new(location, ctx.focus_frame))?
-                    .ok_or(anyhow!("fetch register fail"))?
+                    .ok_or(UnwindNoContext)?
                     .registers())
             })
     }
@@ -224,7 +208,7 @@ impl<'a> ExpressionEvaluator<'a> {
         &self,
         ctx: &'a ExplorationContext,
         expr: Expression<EndianArcSlice>,
-    ) -> Result<CompletedResult> {
+    ) -> Result<CompletedResult, Error> {
         self.evaluate_with_resolver(ExternalRequirementsResolver::default(), ctx, expr)
     }
 
@@ -233,7 +217,7 @@ impl<'a> ExpressionEvaluator<'a> {
         mut resolver: ExternalRequirementsResolver,
         ctx: &'a ExplorationContext,
         expr: Expression<EndianArcSlice>,
-    ) -> Result<CompletedResult> {
+    ) -> Result<CompletedResult, Error> {
         let mut eval = expr.evaluation(self.encoding);
 
         let mut result = eval.evaluate()?;
@@ -270,7 +254,7 @@ impl<'a> ExpressionEvaluator<'a> {
                         resolver
                             .at_location
                             .take()
-                            .ok_or(OptionRequired("at_location"))?
+                            .ok_or(EvalOptionRequired("at_location"))?
                             .into(),
                         RunTimeEndian::Little,
                     );
@@ -291,14 +275,15 @@ impl<'a> ExpressionEvaluator<'a> {
                         address as usize,
                         size as usize,
                     )
-                    .map_err(EvalError::Nix)?;
+                    .map_err(Ptrace)?;
 
                     let value_type = self.value_type_from_offset(base_type);
                     let value = match value_type {
                         ValueType::Generic => {
-                            let u = u64::from_ne_bytes(
-                                memory.try_into().map_err(|e| anyhow!("{e:?}"))?,
-                            );
+                            let u =
+                                u64::from_ne_bytes(memory.try_into().map_err(|data: Vec<_>| {
+                                    TypeBinaryRepr("u64", data.into_boxed_slice())
+                                })?);
                             Value::Generic(u)
                         }
                         _ => Value::parse(
@@ -342,7 +327,7 @@ impl<'a> ExpressionEvaluator<'a> {
                     result = eval.resume_with_entry_value(Value::Generic(u))?;
                 }
                 EvaluationResult::RequiresParameterRef(_) => {
-                    return Err(UnsupportedRequire(format!("{:?}", result)));
+                    return Err(EvalUnsupportedRequire("parameter_ref"));
                 }
                 EvaluationResult::Complete => {
                     unreachable!()
@@ -378,96 +363,96 @@ pub enum AddressKind {
 }
 
 impl<'a> CompletedResult<'a> {
-    pub fn into_scalar<T: Copy>(self, address_kind: AddressKind) -> Result<T> {
+    pub fn into_scalar<T: Copy>(self, address_kind: AddressKind) -> Result<T, Error> {
         let bytes = self.into_raw_buffer(mem::size_of::<T>(), address_kind)?;
         Ok(scalar_from_bytes(&bytes))
     }
 
-    pub fn into_raw_buffer(self, byte_size: usize, address_kind: AddressKind) -> Result<Bytes> {
+    pub fn into_raw_buffer(
+        self,
+        byte_size: usize,
+        address_kind: AddressKind,
+    ) -> Result<Bytes, Error> {
         let mut buf = BytesMut::with_capacity(byte_size);
-        self.inner.into_iter().try_for_each(|piece| -> Result<()> {
-            let read_size = piece
-                .size_in_bits
-                .map(|bits| bits as usize / 8)
-                .unwrap_or(byte_size);
-            let offset = piece.bit_offset.unwrap_or(0);
+        self.inner
+            .into_iter()
+            .try_for_each(|piece| -> Result<(), Error> {
+                let read_size = piece
+                    .size_in_bits
+                    .map(|bits| bits as usize / 8)
+                    .unwrap_or(byte_size);
+                let offset = piece.bit_offset.unwrap_or(0);
 
-            match piece.location {
-                Location::Register { register } => {
-                    buf.put(read_register(
-                        self.debugee,
-                        self.ctx,
-                        register,
-                        read_size,
-                        offset,
-                    )?);
-                }
-                Location::Address { address } => {
-                    match address_kind {
-                        AddressKind::MemoryAddress => {
-                            let memory = debugger::read_memory_by_pid(
-                                self.ctx.pid_on_focus(),
-                                address as usize,
-                                read_size,
-                            )
-                            .map_err(EvalError::Nix)?;
-                            buf.put(Bytes::from(memory))
-                        }
-                        AddressKind::Value => {
-                            buf.put_slice(&address.to_ne_bytes());
-                        }
-                    };
-                }
-                Location::Value { value } => {
-                    match value {
-                        Value::Generic(v) | Value::U64(v) => buf.put_slice(&v.to_ne_bytes()),
-                        Value::I8(v) => buf.put_slice(&v.to_ne_bytes()),
-                        Value::U8(v) => buf.put_slice(&v.to_ne_bytes()),
-                        Value::I16(v) => buf.put_slice(&v.to_ne_bytes()),
-                        Value::U16(v) => buf.put_slice(&v.to_ne_bytes()),
-                        Value::I32(v) => buf.put_slice(&v.to_ne_bytes()),
-                        Value::U32(v) => buf.put_slice(&v.to_ne_bytes()),
-                        Value::I64(v) => buf.put_slice(&v.to_ne_bytes()),
-                        Value::F32(v) => buf.put_slice(&v.to_ne_bytes()),
-                        Value::F64(v) => buf.put_slice(&v.to_ne_bytes()),
-                    };
-                }
-                Location::Bytes { value, .. } => {
-                    buf.put_slice(value.bytes());
-                }
-                Location::ImplicitPointer { value, byte_offset } => {
-                    let die_ref = DieRef::Global(value);
-                    let dwarf = self.debugee.debug_info(self.ctx.location().pc)?;
-                    let (entry, unit) = dwarf.deref_die(self.unit, die_ref).ok_or_else(|| {
-                        EvalError::Other(anyhow!("die not found by ref: {die_ref:?}"))
-                    })?;
-                    if let DieVariant::Variable(ref variable) = &entry.die {
-                        let ctx_die = ContextualDieRef {
-                            debug_info: dwarf,
-                            unit_idx: unit.idx(),
-                            node: &entry.node,
-                            die: variable,
-                        };
-                        let r#type = ctx_die
-                            .r#type()
-                            .ok_or_else(|| EvalError::Other(anyhow!("unknown die type")))?;
-                        let bytes = ctx_die
-                            .read_value(self.ctx, self.debugee, &r#type)
-                            .ok_or_else(|| {
-                                EvalError::Other(anyhow!("implicit pointer address invalid value"))
-                            })?;
-                        let bytes: &[u8] = bytes
-                            .read_slice_at(byte_offset as u64, byte_size)
-                            .map_err(|_| {
-                                EvalError::Other(anyhow!("implicit pointer address invalid value"))
-                            })?;
-                        buf.put_slice(bytes)
+                match piece.location {
+                    Location::Register { register } => {
+                        buf.put(read_register(
+                            self.debugee,
+                            self.ctx,
+                            register,
+                            read_size,
+                            offset,
+                        )?);
                     }
-                }
-                Location::Empty => {}
-            };
-            Ok(())
-        })?;
+                    Location::Address { address } => {
+                        match address_kind {
+                            AddressKind::MemoryAddress => {
+                                let memory = debugger::read_memory_by_pid(
+                                    self.ctx.pid_on_focus(),
+                                    address as usize,
+                                    read_size,
+                                )
+                                .map_err(Ptrace)?;
+                                buf.put(Bytes::from(memory))
+                            }
+                            AddressKind::Value => {
+                                buf.put_slice(&address.to_ne_bytes());
+                            }
+                        };
+                    }
+                    Location::Value { value } => {
+                        match value {
+                            Value::Generic(v) | Value::U64(v) => buf.put_slice(&v.to_ne_bytes()),
+                            Value::I8(v) => buf.put_slice(&v.to_ne_bytes()),
+                            Value::U8(v) => buf.put_slice(&v.to_ne_bytes()),
+                            Value::I16(v) => buf.put_slice(&v.to_ne_bytes()),
+                            Value::U16(v) => buf.put_slice(&v.to_ne_bytes()),
+                            Value::I32(v) => buf.put_slice(&v.to_ne_bytes()),
+                            Value::U32(v) => buf.put_slice(&v.to_ne_bytes()),
+                            Value::I64(v) => buf.put_slice(&v.to_ne_bytes()),
+                            Value::F32(v) => buf.put_slice(&v.to_ne_bytes()),
+                            Value::F64(v) => buf.put_slice(&v.to_ne_bytes()),
+                        };
+                    }
+                    Location::Bytes { value, .. } => {
+                        buf.put_slice(value.bytes());
+                    }
+                    Location::ImplicitPointer { value, byte_offset } => {
+                        let die_ref = DieRef::Global(value);
+                        let dwarf = self.debugee.debug_info(self.ctx.location().pc)?;
+                        let (entry, unit) = dwarf
+                            .deref_die(self.unit, die_ref)
+                            .ok_or_else(|| DieNotFound(die_ref))?;
+                        if let DieVariant::Variable(ref variable) = &entry.die {
+                            let ctx_die = ContextualDieRef {
+                                debug_info: dwarf,
+                                unit_idx: unit.idx(),
+                                node: &entry.node,
+                                die: variable,
+                            };
+                            let r#type = ctx_die.r#type().ok_or(NoDieType)?;
+                            let bytes = ctx_die
+                                .read_value(self.ctx, self.debugee, &r#type)
+                                .ok_or(ImplicitPointer)?;
+                            let bytes: &[u8] = bytes
+                                .read_slice_at(byte_offset as u64, byte_size)
+                                .map_err(|_| ImplicitPointer)?;
+                            buf.put_slice(bytes)
+                        }
+                    }
+                    Location::Empty => {}
+                };
+                Ok(())
+            })?;
 
         Ok(buf.freeze())
     }
@@ -479,7 +464,7 @@ fn read_register(
     reg: Register,
     size_in_bytes: usize,
     offset: u64,
-) -> Result<Bytes> {
+) -> Result<Bytes, Error> {
     let pid = ctx.pid_on_focus();
     let mut registers = DwarfRegisterMap::from(RegisterMap::current(pid)?);
     // try to use registers for in focus frame

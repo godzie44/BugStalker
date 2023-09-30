@@ -2,9 +2,9 @@ use crate::debugger::address::RelocatedAddress;
 use crate::debugger::debugee::tracee::StopType::Interrupt;
 use crate::debugger::debugee::tracee::TraceeStatus::{Running, Stopped};
 use crate::debugger::debugee::{Debugee, Location};
+use crate::debugger::error::Error;
+use crate::debugger::error::Error::{MultipleErrors, NoThreadDB, Ptrace, ThreadDB, Waitpid};
 use crate::debugger::register::{Register, RegisterMap};
-use anyhow::{anyhow, bail};
-use itertools::Itertools;
 use log::{debug, warn};
 use nix::errno::Errno;
 use nix::sys;
@@ -58,16 +58,16 @@ impl Tracee {
     }
 
     /// Wait for change of tracee status.
-    pub fn wait_one(&self) -> nix::Result<WaitStatus> {
+    pub fn wait_one(&self) -> Result<WaitStatus, Error> {
         debug!(target: "tracer", "wait for tracee status, thread {pid}", pid = self.pid);
-        let status = waitpid(self.pid, None)?;
+        let status = waitpid(self.pid, None).map_err(Waitpid)?;
         debug!(target: "tracer", "receive tracee status, thread {pid}, status: {status:?}", pid = self.pid);
         Ok(status)
     }
 
     /// Move the stopped tracee process forward by a single instruction step.
-    pub fn step(&self, sig: Option<Signal>) -> nix::Result<()> {
-        sys::ptrace::step(self.pid, sig)
+    pub fn step(&self, sig: Option<Signal>) -> Result<(), Error> {
+        sys::ptrace::step(self.pid, sig).map_err(Ptrace)
     }
 
     fn update_status(&mut self, status: TraceeStatus) {
@@ -80,17 +80,19 @@ impl Tracee {
     }
 
     /// Resume tracee with, if signal is some - inject signal or resuming.
-    pub fn r#continue(&mut self, sig: Option<Signal>) -> nix::Result<()> {
+    pub fn r#continue(&mut self, sig: Option<Signal>) -> Result<(), Error> {
         debug!(
             target: "tracer",
             "continue tracee execution with signal {sig:?}, thread: {pid}",
             pid = self.pid,
         );
 
-        sys::ptrace::cont(self.pid, sig).map(|ok| {
-            self.update_status(Running);
-            ok
-        })
+        sys::ptrace::cont(self.pid, sig)
+            .map(|ok| {
+                self.update_status(Running);
+                ok
+            })
+            .map_err(Ptrace)
     }
 
     /// Set tracee status into stop.
@@ -106,20 +108,20 @@ impl Tracee {
     }
 
     /// Get current program counter value.
-    pub fn pc(&self) -> nix::Result<RelocatedAddress> {
+    pub fn pc(&self) -> Result<RelocatedAddress, Error> {
         RegisterMap::current(self.pid)
             .map(|reg_map| RelocatedAddress::from(reg_map.value(Register::Rip)))
     }
 
     /// Set new program counter value.
-    pub fn set_pc(&self, value: u64) -> nix::Result<()> {
+    pub fn set_pc(&self, value: u64) -> Result<(), Error> {
         let mut map = RegisterMap::current(self.pid)?;
         map.update(Register::Rip, value);
         map.persist(self.pid)
     }
 
     /// Get current tracee location.
-    pub fn location(&self, debugee: &Debugee) -> anyhow::Result<Location> {
+    pub fn location(&self, debugee: &Debugee) -> Result<Location, Error> {
         let pc = self.pc()?;
         Ok(Location {
             pid: self.pid,
@@ -180,7 +182,7 @@ impl TraceeCtl {
     }
 
     /// Continue all currently stopped tracees.
-    pub fn cont_stopped(&mut self) -> Result<(), anyhow::Error> {
+    pub fn cont_stopped(&mut self) -> Result<(), Vec<Error>> {
         let mut errors = vec![];
 
         self.threads_state.iter_mut().for_each(|(_, tracee)| {
@@ -190,17 +192,17 @@ impl TraceeCtl {
 
             if let Err(e) = tracee.r#continue(None) {
                 // if no such process - continue, it will be removed later, on PTRACE_EVENT_EXIT event.
-                if Errno::ESRCH == e {
+                if matches!(e, Ptrace(err) if err == Errno::ESRCH) {
                     //warn!("thread {} not found, ESRCH", tracee.pid);
                     return;
                 }
 
-                errors.push(anyhow::Error::from(e).context(format!("thread: {}", tracee.pid)));
+                errors.push(e);
             }
         });
 
         if !errors.is_empty() {
-            bail!(errors.into_iter().join(";"))
+            return Err(errors);
         }
         Ok(())
     }
@@ -215,7 +217,7 @@ impl TraceeCtl {
         &mut self,
         inject_request: Option<(Pid, Signal)>,
         exclude: HashSet<Pid>,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), Error> {
         let mut errors = vec![];
         let (signal, pid) = (inject_request.map(|s| s.1), inject_request.map(|s| s.0));
 
@@ -236,17 +238,17 @@ impl TraceeCtl {
 
             if let Err(e) = tracee.r#continue(resume_sign) {
                 // if no such process - continue, it will be removed later, on PTRACE_EVENT_EXIT event.
-                if Errno::ESRCH == e {
+                if matches!(e, Ptrace(err) if err == Errno::ESRCH) {
                     warn!("thread {} not found, ESRCH", tracee.pid);
                     return;
                 }
 
-                errors.push(anyhow::Error::from(e).context(format!("thread: {}", tracee.pid)));
+                errors.push(e);
             }
         });
 
         if !errors.is_empty() {
-            bail!(errors.into_iter().join(";"))
+            return Err(MultipleErrors(errors));
         }
         Ok(())
     }
@@ -257,7 +259,7 @@ impl TraceeCtl {
 
     /// Load libthread_db and init libthread_db process handle.
     /// libthread_db must initialized after first thread created.
-    pub(super) fn init_thread_db(&mut self) -> anyhow::Result<()> {
+    pub(super) fn init_thread_db(&mut self) -> Result<(), Error> {
         let thread_db_lib = thread_db::Lib::try_load()?;
         let td_process = ThreadDBProcessTryBuilder {
             lib: thread_db_lib,
@@ -274,13 +276,11 @@ impl TraceeCtl {
         tid: Pid,
         link_map_addr: RelocatedAddress,
         offset: usize,
-    ) -> anyhow::Result<RelocatedAddress> {
-        let td_proc = self
-            .thread_db_proc
-            .as_ref()
-            .ok_or_else(|| anyhow!("libthread_db not enabled"))?;
+    ) -> Result<RelocatedAddress, Error> {
+        let td_proc = self.thread_db_proc.as_ref().ok_or(NoThreadDB)?;
 
-        let thread: thread_db::Thread = td_proc.borrow_process().get_thread(tid)?;
+        let thread: thread_db::Thread =
+            td_proc.borrow_process().get_thread(tid).map_err(ThreadDB)?;
 
         Ok(RelocatedAddress::from(
             thread.tls_addr(link_map_addr.into(), offset)? as usize,

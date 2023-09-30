@@ -5,6 +5,7 @@ use crate::debugger::debugee::dwarf::unit::{
     VolatileDie,
 };
 use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianArcSlice, NamespaceHierarchy};
+use crate::debugger::error::Error;
 use crate::debugger::ExplorationContext;
 use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
@@ -30,8 +31,8 @@ pub struct MemberLocationExpression {
 }
 
 impl MemberLocationExpression {
-    fn base_addr(&self, eval_ctx: &EvaluationContext, entity_addr: usize) -> anyhow::Result<usize> {
-        Ok(eval_ctx
+    fn base_addr(&self, eval_ctx: &EvaluationContext, entity_addr: usize) -> Result<usize, Error> {
+        eval_ctx
             .evaluator
             .evaluate_with_resolver(
                 eval::ExternalRequirementsResolver::new()
@@ -39,7 +40,7 @@ impl MemberLocationExpression {
                 eval_ctx.expl_ctx,
                 self.expr.clone(),
             )?
-            .into_scalar::<usize>(AddressKind::Value)?)
+            .into_scalar::<usize>(AddressKind::Value)
     }
 }
 
@@ -89,11 +90,11 @@ pub struct ArrayBoundValueExpression {
 }
 
 impl ArrayBoundValueExpression {
-    fn bound(&self, eval_ctx: &EvaluationContext) -> anyhow::Result<i64> {
-        Ok(eval_ctx
+    fn bound(&self, eval_ctx: &EvaluationContext) -> Result<i64, Error> {
+        eval_ctx
             .evaluator
             .evaluate(eval_ctx.expl_ctx, self.expr.clone())?
-            .into_scalar::<i64>(AddressKind::MemoryAddress)?)
+            .into_scalar::<i64>(AddressKind::MemoryAddress)
     }
 }
 
@@ -104,7 +105,7 @@ pub enum ArrayBoundValue {
 }
 
 impl ArrayBoundValue {
-    pub fn value(&self, eval_ctx: &EvaluationContext) -> anyhow::Result<i64> {
+    pub fn value(&self, eval_ctx: &EvaluationContext) -> Result<i64, Error> {
         match self {
             ArrayBoundValue::Const(v) => Ok(*v),
             ArrayBoundValue::Expr(e) => e.bound(eval_ctx),

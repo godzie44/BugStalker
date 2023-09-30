@@ -1,4 +1,6 @@
+use crate::debugger::debugee::dwarf::DebugInformation;
 use crate::debugger::debugee::Debugee;
+use crate::debugger::error::Error;
 use gimli::Range;
 use std::fmt::{Display, Formatter};
 
@@ -13,7 +15,7 @@ impl RelocatedAddress {
         GlobalAddress(self.0 - offset)
     }
 
-    pub fn into_global(self, debugee: &Debugee) -> anyhow::Result<GlobalAddress> {
+    pub fn into_global(self, debugee: &Debugee) -> Result<GlobalAddress, Error> {
         Ok(self.remove_vas_region_offset(debugee.mapping_offset_for_pc(self)?))
     }
 
@@ -74,8 +76,36 @@ impl Display for RelocatedAddress {
 pub struct GlobalAddress(usize);
 
 impl GlobalAddress {
-    pub fn relocate(self, offset: usize) -> RelocatedAddress {
+    fn relocate(self, offset: usize) -> RelocatedAddress {
         RelocatedAddress(self.0 + offset)
+    }
+
+    /// Relocate address to VAS segment determined by debug information.
+    ///
+    /// # Errors
+    ///
+    /// Return error if no VAS offset for debug information.
+    pub fn relocate_to_segment(
+        self,
+        debugee: &Debugee,
+        segment: &DebugInformation,
+    ) -> Result<RelocatedAddress, Error> {
+        let offset = debugee.mapping_offset_for_file(segment)?;
+        Ok(self.relocate(offset))
+    }
+
+    /// Relocate address to VAS segment determined by another address.
+    ///
+    /// # Errors
+    ///
+    /// Return error if no VAS offset for address.
+    pub fn relocate_to_segment_by_pc(
+        self,
+        debugee: &Debugee,
+        pc: RelocatedAddress,
+    ) -> Result<RelocatedAddress, Error> {
+        let offset = debugee.mapping_offset_for_pc(pc)?;
+        Ok(self.relocate(offset))
     }
 
     pub fn in_range(self, range: &Range) -> bool {

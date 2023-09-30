@@ -1,4 +1,5 @@
-use anyhow::{anyhow, bail};
+use crate::debugger::error::Error;
+use crate::debugger::error::Error::{DefaultToolchainNotFound, UnrecognizedRustupOut};
 use log::warn;
 use once_cell::sync::OnceCell;
 use std::path::PathBuf;
@@ -20,7 +21,7 @@ impl Environment {
     pub fn init(std_lib_path: Option<PathBuf>) {
         let toolchain = default_toolchain();
         if let Err(ref e) = toolchain {
-            warn!("detect toolchain: {e}")
+            warn!(target: "debugger", "detect toolchain: {e}")
         }
         if ENVIRONMENT
             .set(Environment {
@@ -30,7 +31,7 @@ impl Environment {
             })
             .is_err()
         {
-            warn!("rust env already set")
+            warn!(target: "debugger", "rust env already set")
         }
     }
 }
@@ -48,7 +49,7 @@ impl Toolchain {
     }
 }
 
-pub fn default_toolchain() -> anyhow::Result<Toolchain> {
+pub fn default_toolchain() -> Result<Toolchain, Error> {
     let rustup_out = Command::new("rustup")
         .args(["toolchain", "list", "-v"])
         .output()?;
@@ -56,12 +57,12 @@ pub fn default_toolchain() -> anyhow::Result<Toolchain> {
     let toolchain = toolchains
         .lines()
         .find(|line| line.contains("(default)"))
-        .ok_or_else(|| anyhow!("default toolchain not found"))?;
+        .ok_or(DefaultToolchainNotFound)?;
 
     let toolchain_verbose_parts = toolchain.split_whitespace().collect::<Vec<_>>();
 
     if toolchain_verbose_parts.len() < 3 {
-        bail!("failed to recognize rustup output")
+        return Err(UnrecognizedRustupOut);
     }
 
     Ok(Toolchain {

@@ -2,7 +2,8 @@ use crate::debugger::address::RelocatedAddress;
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::code;
 use crate::debugger::debugee::tracee::{StopType, TraceeCtl, TraceeStatus};
-use anyhow::bail;
+use crate::debugger::error::Error;
+use crate::debugger::error::Error::{MultipleErrors, ProcessExit, Ptrace, Waitpid};
 use log::{debug, warn};
 use nix::errno::Errno;
 use nix::libc::pid_t;
@@ -67,7 +68,7 @@ impl Tracer {
     }
 
     /// Continue debugee execution until stop happened.
-    pub fn resume(&mut self, ctx: TraceContext) -> anyhow::Result<StopReason> {
+    pub fn resume(&mut self, ctx: TraceContext) -> Result<StopReason, Error> {
         loop {
             if let Some(req) = self.signal_queue.pop_front() {
                 self.tracee_ctl.cont_stopped_ex(
@@ -81,7 +82,7 @@ impl Tracer {
                     return Ok(StopReason::SignalStop(pid, sign));
                 }
             } else {
-                self.tracee_ctl.cont_stopped()?;
+                self.tracee_ctl.cont_stopped().map_err(MultipleErrors)?;
             }
 
             debug!(target: "tracer", "resume debugee execution, wait for updates");
@@ -90,7 +91,7 @@ impl Tracer {
                 Err(Errno::ECHILD) => {
                     return Ok(StopReason::NoSuchProcess(self.tracee_ctl.proc_pid()))
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(Waitpid(e)),
             };
 
             debug!(target: "tracer", "received new thread status: {status:?}");
@@ -131,11 +132,7 @@ impl Tracer {
     /// # Arguments
     ///
     /// * `initiator_pid`: tracee with this thread id already stopped, there is no need to interrupt it.
-    fn group_stop_interrupt(
-        &mut self,
-        ctx: TraceContext,
-        initiator_pid: Pid,
-    ) -> anyhow::Result<()> {
+    fn group_stop_interrupt(&mut self, ctx: TraceContext, initiator_pid: Pid) -> Result<(), Error> {
         if self.group_stop_in_progress() {
             return Ok(());
         }
@@ -189,7 +186,7 @@ impl Tracer {
                         }
                         continue;
                     }
-                    bail!(anyhow::Error::from(e).context(format!("thread: {}", tracee.pid)));
+                    return Err(Ptrace(e));
                 }
 
                 let mut wait = tracee.wait_one()?;
@@ -204,9 +201,7 @@ impl Tracer {
                                 break;
                             }
                         }
-                        Some(StopReason::DebugeeExit(code)) => {
-                            bail!("debugee process exit with {code}")
-                        }
+                        Some(StopReason::DebugeeExit(code)) => return Err(ProcessExit(code)),
                         Some(StopReason::DebugeeStart) => {
                             unreachable!("stop at debugee entry point twice")
                         }
@@ -264,7 +259,7 @@ impl Tracer {
         &mut self,
         ctx: TraceContext,
         status: WaitStatus,
-    ) -> anyhow::Result<Option<StopReason>> {
+    ) -> Result<Option<StopReason>, Error> {
         match status {
             WaitStatus::Exited(pid, code) => {
                 // Thread exited with tread id
@@ -287,7 +282,8 @@ impl Tracer {
                         self.tracee_ctl
                             .tracee_ensure_mut(pid)
                             .set_stop(StopType::Interrupt);
-                        let new_thread_id = Pid::from_raw(sys::ptrace::getevent(pid)? as pid_t);
+                        let new_thread_id =
+                            Pid::from_raw(sys::ptrace::getevent(pid).map_err(Ptrace)? as pid_t);
 
                         // PTRACE_EVENT_STOP may be received first, and new tracee may be already registered at this point
                         if self.tracee_ctl.tracee_mut(new_thread_id).is_none() {
@@ -330,7 +326,7 @@ impl Tracer {
                 let info = match sys::ptrace::getsiginfo(pid) {
                     Ok(info) => info,
                     Err(Errno::ESRCH) => return Ok(Some(StopReason::NoSuchProcess(pid))),
-                    Err(e) => return Err(e.into()),
+                    Err(e) => return Err(Ptrace(e)),
                 };
 
                 match signal {
@@ -421,7 +417,7 @@ impl Tracer {
         &mut self,
         ctx: TraceContext,
         pid: Pid,
-    ) -> anyhow::Result<Option<StopReason>> {
+    ) -> Result<Option<StopReason>, Error> {
         let tracee = self.tracee_ctl.tracee_ensure(pid);
         let initial_pc = tracee.pc()?;
         tracee.step(None)?;
@@ -429,7 +425,7 @@ impl Tracer {
         let reason = loop {
             let tracee = self.tracee_ctl.tracee_ensure_mut(pid);
             let status = tracee.wait_one()?;
-            let info = sys::ptrace::getsiginfo(pid)?;
+            let info = sys::ptrace::getsiginfo(pid).map_err(Ptrace)?;
 
             // check that debugee step into expected trap (breakpoints ignored and are also considered as a trap)
             let in_trap = matches!(status, WaitStatus::Stopped(_, Signal::SIGTRAP))
@@ -450,7 +446,7 @@ impl Tracer {
                 matches!(status, WaitStatus::Stopped(_, Signal::SIGTRAP)) && (info.si_code == 5);
             if in_trap {
                 // if in syscall step to syscall end
-                sys::ptrace::syscall(tracee.pid, None)?;
+                sys::ptrace::syscall(tracee.pid, None).map_err(Ptrace)?;
                 let syscall_status = tracee.wait_one()?;
                 debug_assert!(matches!(
                     syscall_status,
@@ -477,9 +473,7 @@ impl Tracer {
                 Some(StopReason::Breakpoint(_, _)) => {
                     unreachable!("breakpoints must be ignore");
                 }
-                Some(StopReason::DebugeeExit(code)) => {
-                    bail!("debugee process exit with {code}")
-                }
+                Some(StopReason::DebugeeExit(code)) => return Err(ProcessExit(code)),
                 Some(StopReason::DebugeeStart) => {
                     unreachable!("stop at debugee entry point twice")
                 }

@@ -19,7 +19,7 @@ fn test_debugee_run() {
 #[serial]
 fn test_multiple_brkpt_on_addr() {
     let process = prepare_debugee_process(HW_APP, &[]);
-    let debugee_pid = process.pid();
+    let atempt_1_pid = process.pid();
     let info = DebugeeRunInfo::default();
     let mut dbg = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
     dbg.set_breakpoint_at_line("hello_world.rs", 5).unwrap();
@@ -43,7 +43,7 @@ fn test_multiple_brkpt_on_addr() {
     dbg.set_breakpoint_at_addr(addr_2).unwrap();
 
     // restart
-    dbg.restart_debugee().unwrap();
+    let atempt_2_pid = dbg.restart_debugee().unwrap();
 
     // assert stop points
     assert_eq!(info.line.take(), Some(5));
@@ -53,7 +53,8 @@ fn test_multiple_brkpt_on_addr() {
 
     dbg.continue_debugee().unwrap();
 
-    assert_no_proc!(debugee_pid);
+    assert_no_proc!(atempt_1_pid);
+    assert_no_proc!(atempt_2_pid);
 }
 
 #[test]

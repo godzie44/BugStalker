@@ -1,5 +1,5 @@
+use crate::debugger::error::Error;
 use crate::debugger::{command, Debugger};
-use anyhow::anyhow;
 use nix::libc::uintptr_t;
 use std::mem;
 
@@ -21,16 +21,13 @@ impl<'a> Memory<'a> {
     pub fn handle(&self, cmd: Command) -> command::HandleResult<uintptr_t> {
         let result = match &cmd {
             Command::Read(addr) => {
-                let bytes = self
-                    .dbg
-                    .read_memory(*addr, mem::size_of::<usize>())
-                    .map_err(anyhow::Error::from)?;
-                uintptr_t::from_ne_bytes(bytes.try_into().map_err(|e| anyhow!("{e:?}"))?)
+                let bytes = self.dbg.read_memory(*addr, mem::size_of::<usize>())?;
+                uintptr_t::from_ne_bytes(bytes.try_into().map_err(|data: Vec<u8>| {
+                    Error::TypeBinaryRepr("uintptr_t", data.into_boxed_slice())
+                })?)
             }
             Command::Write(addr, ptr) => {
-                self.dbg
-                    .write_memory(*addr, *ptr)
-                    .map_err(anyhow::Error::from)?;
+                self.dbg.write_memory(*addr, *ptr)?;
                 *ptr
             }
         };

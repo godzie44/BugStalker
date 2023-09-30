@@ -7,6 +7,7 @@ use crate::debugger::debugee::dwarf::unit::{
 };
 use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
+use crate::debugger::error::Error;
 use crate::debugger::rust::Environment;
 use fallible_iterator::FallibleIterator;
 use gimli::{
@@ -74,7 +75,7 @@ impl<'a> DwarfUnitParser<'a> {
     pub(super) fn parse_additional(
         &self,
         header: UnitHeader<EndianArcSlice>,
-    ) -> gimli::Result<UnitLazyPart> {
+    ) -> Result<UnitLazyPart, Error> {
         let unit = self.dwarf.unit(header)?;
 
         let mut entries: Vec<Entry> = vec![];

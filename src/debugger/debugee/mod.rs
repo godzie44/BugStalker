@@ -1,4 +1,14 @@
+pub mod dwarf;
+mod ldd;
+mod registry;
+mod rendezvous;
+pub mod tracee;
+pub mod tracer;
+pub use registry::RegionInfo;
+pub use rendezvous::RendezvousError;
+
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
+use crate::debugger::breakpoint::BrkptType;
 use crate::debugger::debugee::dwarf::unwind;
 use crate::debugger::debugee::dwarf::unwind::Backtrace;
 use crate::debugger::debugee::dwarf::DebugInformation;
@@ -6,11 +16,12 @@ use crate::debugger::debugee::registry::DwarfRegistry;
 use crate::debugger::debugee::rendezvous::Rendezvous;
 use crate::debugger::debugee::tracee::{Tracee, TraceeCtl};
 use crate::debugger::debugee::tracer::{StopReason, TraceContext, Tracer};
+use crate::debugger::error::Error;
+use crate::debugger::error::Error::{FunctionNotFound, MappingOffsetNotFound, TraceeNotFound};
 use crate::debugger::register::DwarfRegisterMap;
 use crate::debugger::unwind::FrameSpan;
 use crate::debugger::ExplorationContext;
 use crate::{muted_error, print_warns, weak_error};
-use anyhow::anyhow;
 use log::{info, warn};
 use nix::unistd::Pid;
 use nix::NixPath;
@@ -19,15 +30,6 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-pub mod dwarf;
-mod ldd;
-mod registry;
-mod rendezvous;
-pub mod tracee;
-pub mod tracer;
-use crate::debugger::breakpoint::BrkptType;
-pub use registry::RegionInfo;
 
 /// Stack frame information.
 #[derive(Debug, Default, Clone)]
@@ -87,7 +89,7 @@ pub struct Debugee {
 }
 
 impl Debugee {
-    pub fn new_non_running(path: &Path, proc: Pid, object: &object::File) -> anyhow::Result<Self> {
+    pub fn new_non_running(path: &Path, proc: Pid, object: &object::File) -> Result<Self, Error> {
         let dwarf_builder = dwarf::DebugInformationBuilder::default();
         let dwarf = dwarf_builder.build(path, object)?;
         let mut registry = DwarfRegistry::new(proc, path.to_path_buf(), dwarf);
@@ -169,7 +171,7 @@ impl Debugee {
         }
     }
 
-    pub fn trace_until_stop(&mut self, ctx: TraceContext) -> anyhow::Result<StopReason> {
+    pub fn trace_until_stop(&mut self, ctx: TraceContext) -> Result<StopReason, Error> {
         let event = self.tracer.resume(ctx)?;
         match event {
             StopReason::DebugeeExit(_) => {
@@ -214,7 +216,7 @@ impl Debugee {
     /// # Arguments
     ///
     /// * `quite`: true for enable logging of library names
-    fn update_debug_info_registry(&mut self, quite: bool) -> anyhow::Result<()> {
+    fn update_debug_info_registry(&mut self, quite: bool) -> Result<(), Error> {
         let lmaps = self.rendezvous().link_maps()?;
         let current_deps = lmaps
             .into_iter()
@@ -242,11 +244,11 @@ impl Debugee {
         &self.tracer.tracee_ctl
     }
 
-    pub fn frame_info(&self, ctx: &ExplorationContext) -> anyhow::Result<FrameInfo> {
+    pub fn frame_info(&self, ctx: &ExplorationContext) -> Result<FrameInfo, Error> {
         let dwarf = self.debug_info(ctx.location().pc)?;
         let func = dwarf
             .find_function_by_pc(ctx.location().global_pc)?
-            .ok_or_else(|| anyhow!("current function not found"))?;
+            .ok_or(FunctionNotFound(ctx.location().global_pc))?;
 
         let base_addr = func.frame_base_addr(ctx, self)?;
         let cfa = dwarf.get_cfa(self, ctx)?;
@@ -266,7 +268,7 @@ impl Debugee {
         })
     }
 
-    pub fn thread_state(&self, ctx: &ExplorationContext) -> anyhow::Result<Vec<ThreadSnapshot>> {
+    pub fn thread_state(&self, ctx: &ExplorationContext) -> Result<Vec<ThreadSnapshot>, Error> {
         let threads = self.tracee_ctl().snapshot();
         Ok(threads
             .into_iter()
@@ -317,34 +319,34 @@ impl Debugee {
     /// # Arguments
     ///
     /// * `num`: tracee number
-    pub fn get_tracee_by_num(&self, num: u32) -> anyhow::Result<Tracee> {
+    pub fn get_tracee_by_num(&self, num: u32) -> Result<Tracee, Error> {
         let mut snapshot = self.tracee_ctl().snapshot();
         let tracee = snapshot.drain(..).find(|tracee| tracee.number == num);
-        tracee.ok_or(anyhow!("tracee {num} not found"))
+        tracee.ok_or(TraceeNotFound(num))
     }
 
     /// Return debug information about program determined by program counter address.
     #[inline(always)]
-    pub fn debug_info(&self, addr: RelocatedAddress) -> anyhow::Result<&DebugInformation> {
+    pub fn debug_info(&self, addr: RelocatedAddress) -> Result<&DebugInformation, Error> {
         self.dwarf_registry
             .find_by_addr(addr)
-            .ok_or(anyhow!("no debugee information for current location"))
+            .ok_or(Error::NoDebugInformation("current location"))
     }
 
     /// Return debug information about program determined by file which from it been parsed.
     #[inline(always)]
-    pub fn debug_info_from_file(&self, path: &Path) -> anyhow::Result<&DebugInformation> {
+    pub fn debug_info_from_file(&self, path: &Path) -> Result<&DebugInformation, Error> {
         self.dwarf_registry
             .find_by_file(path)
-            .ok_or(anyhow!("no debugee information for file"))
+            .ok_or(Error::NoDebugInformation("file"))
     }
 
     /// Get main executable object debug information.
     #[inline(always)]
-    pub fn program_debug_info(&self) -> anyhow::Result<&DebugInformation> {
+    pub fn program_debug_info(&self) -> Result<&DebugInformation, Error> {
         self.dwarf_registry
             .find_main_program_dwarf()
-            .ok_or(anyhow!("no debugee information for executable object"))
+            .ok_or(Error::NoDebugInformation("executable object"))
     }
 
     /// Return all known debug information. Debug info about main executable is located at the zero index.
@@ -359,10 +361,10 @@ impl Debugee {
     /// # Arguments
     ///
     /// * `pc`: VAS address, determine region for which offset is needed.
-    pub fn mapping_offset_for_pc(&self, addr: RelocatedAddress) -> anyhow::Result<usize> {
-        self.dwarf_registry.find_mapping_offset(addr).ok_or(anyhow!(
-            "determine mapping offset fail, unknown current location"
-        ))
+    pub fn mapping_offset_for_pc(&self, addr: RelocatedAddress) -> Result<usize, Error> {
+        self.dwarf_registry
+            .find_mapping_offset(addr)
+            .ok_or(MappingOffsetNotFound("address out of bounds"))
     }
 
     /// Return mapped memory region offset for region.
@@ -370,10 +372,10 @@ impl Debugee {
     /// # Arguments
     ///
     /// * `dwarf`: debug information (with file path inside) for determine memory region.
-    pub fn mapping_offset_for_file(&self, dwarf: &DebugInformation) -> anyhow::Result<usize> {
+    pub fn mapping_offset_for_file(&self, dwarf: &DebugInformation) -> Result<usize, Error> {
         self.dwarf_registry
             .find_mapping_offset_for_file(dwarf)
-            .ok_or(anyhow!("determine mapping offset fail: unknown segment"))
+            .ok_or(MappingOffsetNotFound("unknown segment"))
     }
 
     /// Unwind debugee thread stack and return a backtrace.
@@ -381,7 +383,7 @@ impl Debugee {
     /// # Arguments
     ///
     /// * `pid`: thread for unwinding
-    pub fn unwind(&self, pid: Pid) -> anyhow::Result<Backtrace> {
+    pub fn unwind(&self, pid: Pid) -> Result<Backtrace, Error> {
         unwind::unwind(self, pid)
     }
 
@@ -398,7 +400,7 @@ impl Debugee {
         pid: Pid,
         registers: &mut DwarfRegisterMap,
         frame_num: u32,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         unwind::restore_registers_at_frame(self, pid, registers, frame_num)
     }
 
@@ -408,7 +410,7 @@ impl Debugee {
     ///
     /// * `pid`: thread for unwinding
     #[allow(unused)]
-    pub fn return_addr(&self, pid: Pid) -> anyhow::Result<Option<RelocatedAddress>> {
+    pub fn return_addr(&self, pid: Pid) -> Result<Option<RelocatedAddress>, Error> {
         unwind::return_addr(self, pid)
     }
 
@@ -419,7 +421,7 @@ impl Debugee {
 }
 
 /// Parse dwarf information from new dependency.
-fn parse_dependency(dep_file: impl Into<PathBuf>) -> anyhow::Result<Option<DebugInformation>> {
+fn parse_dependency(dep_file: impl Into<PathBuf>) -> Result<Option<DebugInformation>, Error> {
     let dep_file = dep_file.into();
 
     // empty string represent a program executable that must already parsed

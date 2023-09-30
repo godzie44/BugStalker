@@ -1,4 +1,5 @@
-use anyhow::anyhow;
+use crate::debugger::error::Error;
+use crate::debugger::error::Error::{Ptrace, RegisterNotFound};
 use nix::libc::user_regs_struct;
 use nix::sys;
 use nix::unistd::Pid;
@@ -182,8 +183,8 @@ impl RegisterMap {
     /// # Arguments
     ///
     /// * `pid`: thread id.
-    pub fn current(pid: Pid) -> nix::Result<Self> {
-        let regs = sys::ptrace::getregs(pid)?;
+    pub fn current(pid: Pid) -> Result<Self, Error> {
+        let regs = sys::ptrace::getregs(pid).map_err(Ptrace)?;
         Ok(regs.into())
     }
 
@@ -268,8 +269,8 @@ impl RegisterMap {
     /// # Arguments
     ///
     /// * `pid`: target thread.
-    pub fn persist(self, pid: Pid) -> nix::Result<()> {
-        sys::ptrace::setregs(pid, self.into())
+    pub fn persist(self, pid: Pid) -> Result<(), Error> {
+        sys::ptrace::setregs(pid, self.into()).map_err(Ptrace)
     }
 }
 
@@ -283,12 +284,12 @@ impl DwarfRegisterMap {
     /// # Arguments
     ///
     /// * `register`: target register.
-    pub fn value(&self, register: gimli::Register) -> anyhow::Result<u64> {
+    pub fn value(&self, register: gimli::Register) -> Result<u64, Error> {
         self.0
             .get(register.0 as usize)
             .copied()
             .and_then(|v| v)
-            .ok_or(anyhow!("register {} not found", register.0))
+            .ok_or(RegisterNotFound(register))
     }
 
     /// Set new register value.

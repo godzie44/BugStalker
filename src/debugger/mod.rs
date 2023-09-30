@@ -3,6 +3,7 @@ mod breakpoint;
 mod code;
 pub mod command;
 mod debugee;
+mod error;
 pub mod process;
 pub mod register;
 pub mod rust;
@@ -16,6 +17,7 @@ pub use debugee::dwarf::unit::FunctionDie;
 pub use debugee::dwarf::unit::PlaceDescriptor;
 pub use debugee::dwarf::unwind;
 pub use debugee::ThreadSnapshot;
+pub use error::Error;
 
 use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};
@@ -25,13 +27,16 @@ use crate::debugger::debugee::dwarf::{DwarfUnwinder, Symbol};
 use crate::debugger::debugee::tracee::Tracee;
 use crate::debugger::debugee::tracer::{StopReason, TraceContext};
 use crate::debugger::debugee::{Debugee, ExecutionStatus, FrameInfo, Location, RegionInfo};
+use crate::debugger::error::Error::{
+    FrameNotFound, Hook, ProcessNotStarted, Ptrace, RegisterNameNotFound, UnwindNoContext,
+};
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::step::StepResult;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::variable::VariableIR;
+use crate::debugger::Error::Syscall;
 use crate::{print_warns, weak_error};
-use anyhow::{anyhow, bail};
 use nix::libc::{c_void, uintptr_t};
 use nix::sys;
 use nix::sys::signal;
@@ -102,9 +107,8 @@ pub trait EventHook {
 
 macro_rules! disable_when_not_stared {
     ($this: expr) => {
-        use anyhow::bail;
         if !$this.debugee.is_in_progress() {
-            bail!("The program is not being started.")
+            return Err(ProcessNotStarted);
         }
     };
 }
@@ -212,7 +216,7 @@ impl Debugger {
     }
 
     /// Update current program counters for current in focus thread.
-    fn expl_ctx_update_location(&mut self) -> anyhow::Result<&ExplorationContext> {
+    fn expl_ctx_update_location(&mut self) -> Result<&ExplorationContext, Error> {
         let old_ctx = self.exploration_ctx();
         self.expl_context = ExplorationContext::new(
             self.debugee
@@ -224,7 +228,7 @@ impl Debugger {
     }
 
     /// Restore frame from user defined to real.
-    fn expl_ctx_restore_frame(&mut self) -> anyhow::Result<&ExplorationContext> {
+    fn expl_ctx_restore_frame(&mut self) -> Result<&ExplorationContext, Error> {
         self.expl_ctx_update_location()
     }
 
@@ -233,7 +237,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `pid`: new in focus thread id
-    fn expl_ctx_switch_thread(&mut self, pid: Pid) -> anyhow::Result<&ExplorationContext> {
+    fn expl_ctx_switch_thread(&mut self, pid: Pid) -> Result<&ExplorationContext, Error> {
         self.expl_context = ExplorationContext::new(
             self.debugee
                 .get_tracee_ensure(pid)
@@ -247,7 +251,7 @@ impl Debugger {
     /// Return if breakpoint is reached or signal occurred or debugee exit.
     ///
     /// **! change exploration context**
-    fn continue_execution(&mut self) -> anyhow::Result<StopReason> {
+    fn continue_execution(&mut self) -> Result<StopReason, Error> {
         if let Some(StopReason::SignalStop(pid, sign)) = self.step_over_breakpoint()? {
             self.hooks.on_signal(sign);
             return Ok(StopReason::SignalStop(pid, sign));
@@ -269,7 +273,7 @@ impl Debugger {
                     // no need to update expl context cause next stop been soon, on entry point
                 }
                 StopReason::NoSuchProcess(_) => {
-                    bail!("The program is not being started.");
+                    return Err(ProcessNotStarted);
                 }
                 StopReason::Breakpoint(pid, current_pc) => {
                     self.expl_ctx_switch_thread(pid)?;
@@ -279,7 +283,7 @@ impl Debugger {
                             BrkptType::EntryPoint => {
                                 print_warns!(self
                                     .breakpoints
-                                    .enable_all_breakpoints(&self.debugee)?);
+                                    .enable_all_breakpoints(&self.debugee));
 
                                 // rendezvous already available at this point
                                 let brk = self.debugee.rendezvous().r_brk();
@@ -308,7 +312,8 @@ impl Debugger {
                                     .flatten()
                                     .map(|f| f.die);
                                 self.hooks
-                                    .on_breakpoint(current_pc, bp.number(), place, func)?;
+                                    .on_breakpoint(current_pc, bp.number(), place, func)
+                                    .map_err(Hook)?;
                                 break event;
                             }
                             BrkptType::Temporary => {
@@ -336,7 +341,7 @@ impl Debugger {
     /// Return when new debugee stopped or ends.
     ///
     /// **! change exploration context**
-    pub fn restart_debugee(&mut self) -> anyhow::Result<()> {
+    pub fn restart_debugee(&mut self) -> Result<Pid, Error> {
         match self.debugee.execution_status() {
             ExecutionStatus::Unload => {
                 // all breakpoints already disabled by default
@@ -350,8 +355,8 @@ impl Debugger {
         }
 
         if !self.debugee.is_exited() {
-            let proc_pid = self.debugee.tracee_ctl().proc_pid();
-            signal::kill(proc_pid, SIGKILL)?;
+            let proc_pid = self.process.pid();
+            signal::kill(proc_pid, SIGKILL).map_err(|e| Syscall("kill", e))?;
             _ = self.debugee.tracer_mut().resume(TraceContext::new(&vec![]));
         }
 
@@ -366,12 +371,12 @@ impl Debugger {
         self.hooks.on_process_install(self.process.pid());
         self.expl_context = ExplorationContext::new_non_running(self.process.pid());
         self.continue_execution()?;
-        Ok(())
+        Ok(self.process.pid())
     }
 
     /// Start debugee.
     /// Return when debugee stopped or ends.
-    pub fn start_debugee(&mut self) -> anyhow::Result<()> {
+    pub fn start_debugee(&mut self) -> Result<(), Error> {
         if !self.debugee.is_in_progress() {
             self.continue_execution()?;
         }
@@ -379,7 +384,7 @@ impl Debugger {
     }
 
     /// Continue debugee execution.
-    pub fn continue_debugee(&mut self) -> anyhow::Result<()> {
+    pub fn continue_debugee(&mut self) -> Result<(), Error> {
         disable_when_not_stared!(self);
         self.continue_execution()?;
         Ok(())
@@ -390,7 +395,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `regex`: regular expression
-    pub fn get_symbols(&self, regex: &str) -> anyhow::Result<Vec<&Symbol>> {
+    pub fn get_symbols(&self, regex: &str) -> Result<Vec<&Symbol>, Error> {
         let regex = Regex::new(regex)?;
 
         Ok(self
@@ -402,7 +407,7 @@ impl Debugger {
     }
 
     /// Return in focus frame information.
-    pub fn frame_info(&self) -> anyhow::Result<FrameInfo> {
+    pub fn frame_info(&self) -> Result<FrameInfo, Error> {
         disable_when_not_stared!(self);
         self.debugee.frame_info(self.exploration_ctx())
     }
@@ -412,13 +417,11 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `num`: frame number in backtrace
-    pub fn set_frame_into_focus(&mut self, num: u32) -> anyhow::Result<u32> {
+    pub fn set_frame_into_focus(&mut self, num: u32) -> Result<u32, Error> {
         disable_when_not_stared!(self);
         let ctx = self.exploration_ctx();
         let backtrace = self.debugee.unwind(ctx.pid_on_focus())?;
-        let frame = backtrace
-            .get(num as usize)
-            .ok_or(anyhow!("frame {num} not found"))?;
+        let frame = backtrace.get(num as usize).ok_or(FrameNotFound(num))?;
         self.expl_context = ExplorationContext::new(
             Location {
                 pc: frame.ip,
@@ -431,7 +434,7 @@ impl Debugger {
     }
 
     /// Execute `on_step` callback with current exploration context
-    fn execute_on_step_hook(&self) -> anyhow::Result<()> {
+    fn execute_on_step_hook(&self) -> Result<(), Error> {
         let ctx = self.exploration_ctx();
         let pc = ctx.location().pc;
         let global_pc = ctx.location().global_pc;
@@ -440,13 +443,13 @@ impl Debugger {
         let func = weak_error!(dwarf.find_function_by_pc(global_pc))
             .flatten()
             .map(|f| f.die);
-        self.hooks.on_step(pc, place, func)
+        self.hooks.on_step(pc, place, func).map_err(Hook)
     }
 
     /// Do single step (until debugee reaches a different source line).
     ///
     /// **! change exploration context**
-    pub fn step_into(&mut self) -> anyhow::Result<()> {
+    pub fn step_into(&mut self) -> Result<(), Error> {
         disable_when_not_stared!(self);
         self.expl_ctx_restore_frame()?;
 
@@ -464,7 +467,7 @@ impl Debugger {
     /// Move in focus thread to next instruction.
     ///
     /// **! change exploration context**
-    pub fn stepi(&mut self) -> anyhow::Result<()> {
+    pub fn stepi(&mut self) -> Result<(), Error> {
         disable_when_not_stared!(self);
         self.expl_ctx_restore_frame()?;
 
@@ -477,7 +480,7 @@ impl Debugger {
     }
 
     /// Return list of currently running debugee threads.
-    pub fn thread_state(&self) -> anyhow::Result<Vec<ThreadSnapshot>> {
+    pub fn thread_state(&self) -> Result<Vec<ThreadSnapshot>, Error> {
         disable_when_not_stared!(self);
         self.debugee.thread_state(self.exploration_ctx())
     }
@@ -487,7 +490,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `num`: thread number
-    pub fn set_thread_into_focus(&mut self, num: u32) -> anyhow::Result<Tracee> {
+    pub fn set_thread_into_focus(&mut self, num: u32) -> Result<Tracee, Error> {
         disable_when_not_stared!(self);
         let tracee = self.debugee.get_tracee_by_num(num)?;
         self.expl_ctx_switch_thread(tracee.pid)?;
@@ -499,7 +502,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `pid`: thread id
-    pub fn backtrace(&self, pid: Pid) -> anyhow::Result<Backtrace> {
+    pub fn backtrace(&self, pid: Pid) -> Result<Backtrace, Error> {
         disable_when_not_stared!(self);
         self.debugee.unwind(pid)
     }
@@ -510,13 +513,9 @@ impl Debugger {
     ///
     /// * `addr`: address in debugee address space where reads
     /// * `read_n`: read byte count
-    pub fn read_memory(&self, addr: usize, read_n: usize) -> anyhow::Result<Vec<u8>> {
+    pub fn read_memory(&self, addr: usize, read_n: usize) -> Result<Vec<u8>, Error> {
         disable_when_not_stared!(self);
-        Ok(read_memory_by_pid(
-            self.debugee.tracee_ctl().proc_pid(),
-            addr,
-            read_n,
-        )?)
+        read_memory_by_pid(self.debugee.tracee_ctl().proc_pid(), addr, read_n).map_err(Ptrace)
     }
 
     /// Write sizeof(uintptr_t) bytes in debugee address space
@@ -525,19 +524,20 @@ impl Debugger {
     ///
     /// * `addr`: address to write
     /// * `value`: value to write
-    pub fn write_memory(&self, addr: uintptr_t, value: uintptr_t) -> anyhow::Result<()> {
+    pub fn write_memory(&self, addr: uintptr_t, value: uintptr_t) -> Result<(), Error> {
         disable_when_not_stared!(self);
         unsafe {
-            Ok(sys::ptrace::write(
+            sys::ptrace::write(
                 self.debugee.tracee_ctl().proc_pid(),
                 addr as *mut c_void,
                 value as *mut c_void,
-            )?)
+            )
+            .map_err(Ptrace)
         }
     }
 
     /// Move to higher stack frame.
-    pub fn step_out(&mut self) -> anyhow::Result<()> {
+    pub fn step_out(&mut self) -> Result<(), Error> {
         disable_when_not_stared!(self);
         self.expl_ctx_restore_frame()?;
         self.step_out_frame()?;
@@ -545,7 +545,7 @@ impl Debugger {
     }
 
     /// Do debugee step (over subroutine calls to).
-    pub fn step_over(&mut self) -> anyhow::Result<()> {
+    pub fn step_over(&mut self) -> Result<(), Error> {
         disable_when_not_stared!(self);
         self.expl_ctx_restore_frame()?;
         match self.step_over_any()? {
@@ -560,13 +560,13 @@ impl Debugger {
     }
 
     /// Reads all local variables from current function in current thread.
-    pub fn read_local_variables(&self) -> anyhow::Result<Vec<VariableIR>> {
+    pub fn read_local_variables(&self) -> Result<Vec<VariableIR>, Error> {
         disable_when_not_stared!(self);
 
         let evaluator = variable::select::SelectExpressionEvaluator::new(
             self,
             Expression::Variable(VariableSelector::Any),
-        )?;
+        );
         evaluator.evaluate()
     }
 
@@ -576,9 +576,9 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_variable(&self, select_expr: Expression) -> anyhow::Result<Vec<VariableIR>> {
+    pub fn read_variable(&self, select_expr: Expression) -> Result<Vec<VariableIR>, Error> {
         disable_when_not_stared!(self);
-        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr)?;
+        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
         evaluator.evaluate()
     }
 
@@ -588,9 +588,9 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_variable_names(&self, select_expr: Expression) -> anyhow::Result<Vec<String>> {
+    pub fn read_variable_names(&self, select_expr: Expression) -> Result<Vec<String>, Error> {
         disable_when_not_stared!(self);
-        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr)?;
+        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
         evaluator.evaluate_names()
     }
 
@@ -600,9 +600,9 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_argument(&self, select_expr: Expression) -> anyhow::Result<Vec<VariableIR>> {
+    pub fn read_argument(&self, select_expr: Expression) -> Result<Vec<VariableIR>, Error> {
         disable_when_not_stared!(self);
-        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr)?;
+        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
         evaluator.evaluate_on_arguments()
     }
 
@@ -612,9 +612,9 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_argument_names(&self, select_expr: Expression) -> anyhow::Result<Vec<String>> {
+    pub fn read_argument_names(&self, select_expr: Expression) -> Result<Vec<String>, Error> {
         disable_when_not_stared!(self);
-        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr)?;
+        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
         evaluator.evaluate_on_arguments_names()
     }
 
@@ -623,11 +623,12 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `register_name`: x86-64 register name (ex: `rip`)
-    pub fn get_register_value(&self, register_name: &str) -> anyhow::Result<u64> {
+    pub fn get_register_value(&self, register_name: &str) -> Result<u64, Error> {
         disable_when_not_stared!(self);
 
-        Ok(RegisterMap::current(self.exploration_ctx().pid_on_focus())?
-            .value(Register::from_str(register_name)?))
+        let r = Register::from_str(register_name)
+            .map_err(|_| RegisterNameNotFound(register_name.into()))?;
+        Ok(RegisterMap::current(self.exploration_ctx().pid_on_focus())?.value(r))
     }
 
     /// Return registers dump for on focus thread at instruction defined by pc.
@@ -638,7 +639,7 @@ impl Debugger {
     pub fn current_thread_registers_at_pc(
         &self,
         pc: RelocatedAddress,
-    ) -> anyhow::Result<DwarfRegisterMap> {
+    ) -> Result<DwarfRegisterMap, Error> {
         disable_when_not_stared!(self);
         let unwinder = DwarfUnwinder::new(&self.debugee);
         let location = Location {
@@ -650,7 +651,7 @@ impl Debugger {
             // there is no chance to determine frame number, cause pc may owned by code outside backtrace
             // so set frame num to 0 is ok
             .context_for(&ExplorationContext::new(location, 0))?
-            .ok_or(anyhow!("fetch register fail"))?
+            .ok_or(UnwindNoContext)?
             .registers())
     }
 
@@ -660,13 +661,17 @@ impl Debugger {
     ///
     /// * `register_name`: x86-64 register name (ex: `rip`)
     /// * `val`: 8 bite value
-    pub fn set_register_value(&self, register_name: &str, val: u64) -> anyhow::Result<()> {
+    pub fn set_register_value(&self, register_name: &str, val: u64) -> Result<(), Error> {
         disable_when_not_stared!(self);
 
         let in_focus_pid = self.exploration_ctx().pid_on_focus();
         let mut map = RegisterMap::current(in_focus_pid)?;
-        map.update(Register::try_from(register_name)?, val);
-        Ok(map.persist(in_focus_pid)?)
+        map.update(
+            Register::try_from(register_name)
+                .map_err(|_| RegisterNameNotFound(register_name.into()))?,
+            val,
+        );
+        map.persist(in_focus_pid)
     }
 
     /// Return list of known files income from dwarf parser.
@@ -737,7 +742,7 @@ impl Drop for Debugger {
 }
 
 /// Read N bytes from `PID` process.
-pub fn read_memory_by_pid(pid: Pid, addr: usize, read_n: usize) -> nix::Result<Vec<u8>> {
+pub fn read_memory_by_pid(pid: Pid, addr: usize, read_n: usize) -> Result<Vec<u8>, nix::Error> {
     let mut read_reminder = read_n as isize;
     let mut result = Vec::with_capacity(read_n);
 

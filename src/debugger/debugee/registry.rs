@@ -1,6 +1,7 @@
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::debugee::dwarf::{DebugInformation, EndianArcSlice};
-use anyhow::{anyhow, Error};
+use crate::debugger::error::Error;
+use crate::debugger::error::Error::MappingNotFound;
 use nix::unistd::Pid;
 use proc_maps::MapRange;
 use std::cmp::Ordering;
@@ -68,7 +69,7 @@ impl DwarfRegistry {
     /// # Arguments
     ///
     /// * `only_main`: if true - update mappings only for main executable file, false - update all
-    pub fn update_mappings(&mut self, only_main: bool) -> anyhow::Result<Vec<Error>> {
+    pub fn update_mappings(&mut self, only_main: bool) -> Result<Vec<Error>, Error> {
         let proc_maps: Vec<MapRange> = proc_maps::get_process_maps(self.pid.as_raw())?;
 
         let mut mappings = HashMap::with_capacity(self.files.len());
@@ -97,7 +98,7 @@ impl DwarfRegistry {
                 .collect::<Vec<_>>();
 
             if maps.is_empty() {
-                errors.push(anyhow!("mapping not found for {file:?}"));
+                errors.push(MappingNotFound(file.to_string_lossy().to_string()));
                 return;
             }
 
@@ -145,7 +146,7 @@ impl DwarfRegistry {
         &mut self,
         file: impl Into<PathBuf>,
         dwarf: DebugInformation<EndianArcSlice>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         let path = file.into();
         // validate path
         path.canonicalize()?;

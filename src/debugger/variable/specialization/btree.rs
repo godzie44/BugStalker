@@ -2,15 +2,17 @@ use crate::debugger;
 use crate::debugger::debugee::dwarf::r#type::{
     ComplexType, EvaluationContext, StructureMember, TypeIdentity,
 };
+use crate::debugger::variable::AssumeError::NoType;
+use crate::debugger::variable::ParsingError::ReadDebugeeMemory;
+use crate::debugger::variable::{AssumeError, ParsingError};
 use crate::debugger::TypeDeclaration;
-use anyhow::anyhow;
 use fallible_iterator::FallibleIterator;
 use std::mem;
 use std::ptr::NonNull;
 
 const B: usize = 6;
 
-/// Helper function, returns true if member name exists and starts with `starts_with` string.
+/// Helper function, returns true if structure member name exists and starts with `starts_with` string.
 fn assert_member_name(member: &StructureMember, starts_with: &str) -> bool {
     member
         .name
@@ -155,13 +157,14 @@ impl Leaf {
         r#type: &ComplexType,
         ptr: *const (),
         markup: &LeafNodeMarkup,
-    ) -> anyhow::Result<Leaf> {
+    ) -> Result<Leaf, ParsingError> {
         let leaf_bytes = debugger::read_memory_by_pid(
             eval_ctx.expl_ctx.pid_on_focus(),
             ptr as usize,
             markup.size,
-        )?;
-        Self::from_bytes(eval_ctx, r#type, leaf_bytes, markup)
+        )
+        .map_err(ReadDebugeeMemory)?;
+        Ok(Self::from_bytes(eval_ctx, r#type, leaf_bytes, markup)?)
     }
 
     fn from_bytes(
@@ -169,42 +172,53 @@ impl Leaf {
         r#type: &ComplexType,
         bytes: Vec<u8>,
         markup: &LeafNodeMarkup,
-    ) -> anyhow::Result<Leaf> {
+    ) -> Result<Leaf, AssumeError> {
         let parent = unsafe {
-            mem::transmute::<[u8; mem::size_of::<Option<NonNull<()>>>()], Option<NonNull<()>>>(
+            const EXPECTED_SIZE: usize = mem::size_of::<Option<NonNull<()>>>();
+            mem::transmute::<[u8; EXPECTED_SIZE], Option<NonNull<()>>>(
                 markup
                     .parent
                     .value(eval_ctx, r#type, bytes.as_ptr() as usize)
-                    .ok_or(anyhow!("read leaf node"))?
+                    .ok_or(AssumeError::NoData("leaf node (parent)"))?
                     .to_vec()
                     .try_into()
-                    .map_err(|e| anyhow!("{e:?}"))?,
+                    .map_err(|data: Vec<_>| {
+                        AssumeError::UnexpectedBinaryRepr(
+                            "leaf node (parent)",
+                            EXPECTED_SIZE,
+                            data.len(),
+                        )
+                    })?,
             )
         };
 
         let len_bytes = markup
             .len
             .value(eval_ctx, r#type, bytes.as_ptr() as usize)
-            .ok_or(anyhow!("read leaf node"))?
+            .ok_or(AssumeError::NoData("leaf node (len)"))?
             .to_vec();
-        let len = u16::from_ne_bytes(len_bytes.try_into().map_err(|e| anyhow!("{e:?}"))?);
+        let len = u16::from_ne_bytes(len_bytes.try_into().map_err(|data: Vec<_>| {
+            AssumeError::UnexpectedBinaryRepr("leaf node len", 2, data.len())
+        })?);
         let parent_idx_bytes = markup
             .parent_idx
             .value(eval_ctx, r#type, bytes.as_ptr() as usize)
-            .ok_or(anyhow!("read leaf node"))?
+            .ok_or(AssumeError::NoData("leaf node (parent index)"))?
             .to_vec();
         let parent_idx =
-            u16::from_ne_bytes(parent_idx_bytes.try_into().map_err(|e| anyhow!("{e:?}"))?);
+            u16::from_ne_bytes(parent_idx_bytes.try_into().map_err(|data: Vec<_>| {
+                AssumeError::UnexpectedBinaryRepr("leaf node parent index", 2, data.len())
+            })?);
 
         let keys_raw = markup
             .keys
             .value(eval_ctx, r#type, bytes.as_ptr() as usize)
-            .ok_or(anyhow!("read leaf node"))?
+            .ok_or(AssumeError::NoData("leaf node (keys)"))?
             .to_vec();
         let vals_raw = markup
             .vals
             .value(eval_ctx, r#type, bytes.as_ptr() as usize)
-            .ok_or(anyhow!("read leaf node"))?
+            .ok_or(AssumeError::NoData("leaf node (vals)"))?
             .to_vec();
 
         Ok(Leaf {
@@ -230,32 +244,36 @@ impl Internal {
         ptr: *const (),
         l_markup: &LeafNodeMarkup,
         i_markup: &InternalNodeMarkup,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, ParsingError> {
         let bytes = debugger::read_memory_by_pid(
             eval_ctx.expl_ctx.pid_on_focus(),
             ptr as usize,
             i_markup.size,
-        )?;
+        )
+        .map_err(ReadDebugeeMemory)?;
 
         let edges_v = i_markup
             .edges
             .value(eval_ctx, r#type, bytes.as_ptr() as usize)
-            .ok_or(anyhow!("read internal node"))?
+            .ok_or(AssumeError::NoData("internal node (edges_v)"))?
             .to_vec()
-            .chunks_exact(8)
+            .chunks_exact(mem::size_of::<usize>())
             .map(|chunk| {
-                Ok(
-                    usize::from_ne_bytes(chunk.try_into().map_err(|e| anyhow!("{e:?}"))?)
-                        as *const (),
-                )
+                usize::from_ne_bytes(
+                    chunk
+                        .try_into()
+                        .expect("unreachable: 8 bytes chunk must be convertible for usize"),
+                ) as *const ()
             })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        let edges: [*const (); B * 2] = edges_v.try_into().map_err(|e| anyhow!("{e:?}"))?;
+            .collect::<Vec<_>>();
+        let edges: [*const (); B * 2] = edges_v
+            .try_into()
+            .map_err(|_edges: Vec<_>| AssumeError::NoData("internal node (edges_v)"))?;
 
         let leaf_bytes = i_markup
             .data
             .value(eval_ctx, r#type, bytes.as_ptr() as usize)
-            .ok_or(anyhow!("read internal node"))?;
+            .ok_or(AssumeError::NoData("internal node (leaf_bytes)"))?;
 
         Ok(Internal {
             leaf: Leaf::from_bytes(eval_ctx, r#type, leaf_bytes.to_vec(), l_markup)?,
@@ -328,7 +346,7 @@ impl Handle {
         self,
         eval_ctx: &EvaluationContext,
         reflection: &BTreeReflection,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, ParsingError> {
         if self.node_is_leaf() {
             Ok(Handle {
                 node: self.node,
@@ -360,7 +378,7 @@ impl Handle {
         self,
         eval_ctx: &EvaluationContext,
         reflection: &BTreeReflection,
-    ) -> anyhow::Result<Handle> {
+    ) -> Result<Handle, ParsingError> {
         let mut handle = self;
 
         while !handle.node_is_leaf() {
@@ -379,7 +397,7 @@ impl Handle {
         &self,
         eval_ctx: &EvaluationContext,
         reflection: &BTreeReflection,
-    ) -> anyhow::Result<Option<Handle>> {
+    ) -> Result<Option<Handle>, ParsingError> {
         let leaf = self.node.data.leaf();
         let parent = match leaf.parent {
             None => return Ok(None),
@@ -413,14 +431,14 @@ impl<'a> BTreeReflection<'a> {
         map_id: TypeIdentity,
         k_type_id: TypeIdentity,
         v_type_id: TypeIdentity,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, AssumeError> {
         Ok(Self {
             root: root_ptr,
             root_h: root_height,
             internal_markup: InternalNodeMarkup::from_type(r#type, map_id, k_type_id, v_type_id)
-                .ok_or(anyhow!("internal node type not found"))?,
+                .ok_or(NoType("internal node"))?,
             leaf_markup: LeafNodeMarkup::from_type(r#type, map_id, k_type_id, v_type_id)
-                .ok_or(anyhow!("leaf node type not found"))?,
+                .ok_or(NoType("leaf node"))?,
             r#type,
             k_type_id,
             v_type_id,
@@ -432,7 +450,7 @@ impl<'a> BTreeReflection<'a> {
         eval_ctx: &EvaluationContext,
         node_ptr: *const (),
         height: usize,
-    ) -> anyhow::Result<Node> {
+    ) -> Result<Node, ParsingError> {
         let data = if height == 0 {
             LeafOrInternal::Leaf(Leaf::from_markup(
                 eval_ctx,
@@ -454,15 +472,15 @@ impl<'a> BTreeReflection<'a> {
     }
 
     /// Creates new BTreeMap key-value iterator.
-    pub fn iter(self, eval_ctx: &'a EvaluationContext) -> anyhow::Result<KVIterator<'a>> {
+    pub fn iter(self, eval_ctx: &'a EvaluationContext) -> Result<KVIterator<'a>, AssumeError> {
         let k_size = self
             .r#type
             .type_size_in_bytes(eval_ctx, self.k_type_id)
-            .ok_or_else(|| anyhow!("unknown hashmap bucket size"))?;
+            .ok_or(AssumeError::UnknownSize("btree key type".into()))?;
         let v_size = self
             .r#type
             .type_size_in_bytes(eval_ctx, self.v_type_id)
-            .ok_or_else(|| anyhow!("unknown hashmap bucket size"))?;
+            .ok_or(AssumeError::UnknownSize("btree value type".into()))?;
 
         Ok(KVIterator {
             reflection: self,
@@ -484,7 +502,7 @@ pub struct KVIterator<'a> {
 
 impl<'a> FallibleIterator for KVIterator<'a> {
     type Item = (Vec<u8>, Vec<u8>);
-    type Error = anyhow::Error;
+    type Error = ParsingError;
 
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
         let mut handle = match self.handle.take() {
