@@ -529,10 +529,10 @@ impl DebugInformationBuilder {
                 return Err(DebugIDFormat);
             }
 
-            let dir = format!("{:x}", note[0]);
+            let dir = format!("{:02x}", note[0]);
             let file = note[1..]
                 .iter()
-                .map(|&b| format!("{:x}", b))
+                .map(|&b| format!("{:02x}", b))
                 .collect::<Vec<String>>()
                 .join("")
                 .add(".debug");
