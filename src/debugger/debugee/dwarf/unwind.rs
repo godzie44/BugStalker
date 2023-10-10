@@ -177,6 +177,8 @@ impl<'a> UnwindContext<'a> {
                         weak_error!(expr_result.into_scalar::<u64>(AddressKind::MemoryAddress))?
                     }
                     RegisterRule::Architectural => return None,
+                    RegisterRule::Constant(val) => *val,
+                    _ => unreachable!(),
                 };
 
                 Some((*register, value))
