@@ -1,35 +1,51 @@
 use crate::debugger::Debugger;
-use crossterm::cursor::Show;
-use crossterm::event;
+use crate::tui::output::{OutputLine, OutputStreamProcessor, StreamType};
+use crate::tui::tick::Ticker;
+use crate::util::DebugeeOutReader;
+use crossterm::cursor::{SavePosition, Show};
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
-use os_pipe::PipeReader;
-use std::cell::RefCell;
-use std::io::{BufRead, BufReader, Read};
-use std::rc::Rc;
+use once_cell::sync;
+use once_cell::sync::Lazy;
+use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::{Duration, Instant};
-use std::{io, thread};
+use std::time::Duration;
+use timeout_readwrite::TimeoutReader;
 use tui::backend::CrosstermBackend;
 use tui::Terminal;
 
 mod context;
 pub mod hook;
+pub mod output;
+mod tick;
 pub mod window;
 
-pub(super) enum Event<I> {
+#[derive(Default, Clone)]
+pub struct Handle {
+    flag: Arc<AtomicBool>,
+}
+
+impl Drop for Handle {
+    fn drop(&mut self) {
+        self.flag.store(true, Ordering::SeqCst)
+    }
+}
+
+pub enum Event<I> {
     Input(I),
     Tick,
 }
 
 pub struct AppBuilder {
-    debugee_out: PipeReader,
-    debugee_err: PipeReader,
+    debugee_out: DebugeeOutReader,
+    debugee_err: DebugeeOutReader,
 }
 
 impl AppBuilder {
-    pub fn new(debugee_out: PipeReader, debugee_err: PipeReader) -> Self {
+    pub fn new(debugee_out: DebugeeOutReader, debugee_err: DebugeeOutReader) -> Self {
         Self {
             debugee_out,
             debugee_err,
@@ -52,22 +68,35 @@ pub enum AppState {
 
 #[derive(Default, Clone)]
 pub struct DebugeeStreamBuffer {
-    data: Arc<Mutex<Vec<StreamLine>>>,
+    data: Arc<Mutex<Vec<OutputLine>>>,
 }
 
-enum StreamLine {
-    Out(String),
-    Err(String),
+static CTRL_C_CHAN: Lazy<Mutex<Option<Sender<Event<KeyEvent>>>>> = sync::Lazy::new(Mutex::default);
+
+fn ctrl_c_handler() {
+    let mb_chan = CTRL_C_CHAN.lock().unwrap();
+    let mb_chan = mb_chan.as_ref();
+
+    if let Some(chan) = mb_chan {
+        _ = chan.send(Event::Input(KeyEvent::new(
+            KeyCode::Char('q'),
+            KeyModifiers::empty(),
+        )));
+    }
 }
 
 pub struct TuiApplication {
     debugger: Debugger,
-    debugee_out: PipeReader,
-    debugee_err: PipeReader,
+    debugee_out: DebugeeOutReader,
+    debugee_err: DebugeeOutReader,
 }
 
 impl TuiApplication {
-    pub fn new(debugger: Debugger, debugee_out: PipeReader, debugee_err: PipeReader) -> Self {
+    pub fn new(
+        debugger: Debugger,
+        debugee_out: DebugeeOutReader,
+        debugee_err: DebugeeOutReader,
+    ) -> Self {
         Self {
             debugger,
             debugee_out,
@@ -77,74 +106,36 @@ impl TuiApplication {
 
     pub fn run(self) -> anyhow::Result<()> {
         let stream_buff = DebugeeStreamBuffer::default();
-        enum StreamType {
-            StdErr,
-            StdOut,
-        }
-        fn stream_to_buffer(
-            stream: impl Read,
-            buffer: Arc<Mutex<Vec<StreamLine>>>,
-            stream_type: StreamType,
-        ) {
-            let mut stream = BufReader::new(stream);
-            loop {
-                let mut line = String::new();
-                let size = stream.read_line(&mut line).unwrap_or(0);
-                if size == 0 {
-                    return;
-                }
-                let line = match stream_type {
-                    StreamType::StdErr => StreamLine::Err(line),
-                    StreamType::StdOut => StreamLine::Out(line),
-                };
-                buffer.lock().unwrap().push(line);
-            }
-        }
 
-        {
-            let out_buff = stream_buff.data.clone();
-            thread::spawn(move || stream_to_buffer(self.debugee_out, out_buff, StreamType::StdOut));
-            let err_buff = stream_buff.data.clone();
-            thread::spawn(move || stream_to_buffer(self.debugee_err, err_buff, StreamType::StdErr));
-        }
+        // init debugee stdout handler
+        let out = TimeoutReader::new(self.debugee_out.clone(), Duration::from_millis(1));
+        let std_out_handle =
+            OutputStreamProcessor::new(StreamType::StdOut).run(out, stream_buff.data.clone());
+
+        // init debugee stderr handler
+        let out = TimeoutReader::new(self.debugee_err.clone(), Duration::from_millis(1));
+        let std_err_handle =
+            OutputStreamProcessor::new(StreamType::StdErr).run(out, stream_buff.data.clone());
 
         enable_raw_mode()?;
 
         let (tx, rx) = mpsc::channel();
         {
-            let tx = tx.clone();
-            ctrlc::set_handler(move || {
-                tx.send(Event::Input(KeyEvent::new(
-                    KeyCode::Char('q'),
-                    KeyModifiers::empty(),
-                )))
-                .unwrap()
-            })?;
+            *CTRL_C_CHAN.lock().unwrap() = Some(tx.clone());
         }
-
-        let tick_rate = Duration::from_millis(200);
-        thread::spawn(move || {
-            let mut last_tick = Instant::now();
-            loop {
-                let timeout = tick_rate
-                    .checked_sub(last_tick.elapsed())
-                    .unwrap_or_else(|| Duration::from_secs(0));
-
-                if event::poll(timeout).expect("poll works") {
-                    if let event::Event::Key(key) = event::read().expect("can read events") {
-                        tx.send(Event::Input(key)).expect("can send events");
-                    }
-                }
-
-                if last_tick.elapsed() >= tick_rate && tx.send(Event::Tick).is_ok() {
-                    last_tick = Instant::now();
-                }
-            }
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            _ = ctrlc::set_handler(ctrl_c_handler);
         });
+
+        let ticker = Ticker::new(Duration::from_millis(200));
+        let ticker_handle = ticker.run(tx);
+
         let stdout = io::stdout();
         let mut stdout = stdout.lock();
 
         crossterm::execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        crossterm::execute!(stdout, SavePosition)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         terminal.clear()?;
@@ -159,9 +150,12 @@ impl TuiApplication {
 
         window::run(
             terminal,
-            Rc::new(RefCell::new(self.debugger)),
+            self.debugger,
             rx,
             stream_buff,
+            self.debugee_out,
+            self.debugee_err,
+            vec![std_err_handle, std_out_handle, ticker_handle],
         )
     }
 }

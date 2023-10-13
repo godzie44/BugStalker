@@ -152,6 +152,7 @@ dependencies = [
  "sysinfo",
  "thiserror",
  "thread_db",
+ "timeout-readwrite",
  "trie-rs",
  "tui",
  "tui-textarea",
@@ -1624,6 +1625,15 @@ dependencies = [
  "object",
  "proc-maps",
  "thiserror",
+]
+
+[[package]]
+name = "timeout-readwrite"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37312ddc0adbd0f112618a4250ac586448151ff6d69241ff061b29b883349f3e"
+dependencies = [
+ "nix 0.26.2",
 ]
 
 [[package]]

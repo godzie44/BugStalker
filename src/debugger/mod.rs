@@ -209,6 +209,14 @@ impl Debugger {
         })
     }
 
+    pub fn process(&self) -> &Child<Installed> {
+        &self.process
+    }
+
+    pub fn set_hook(&mut self, hooks: impl EventHook + 'static) {
+        self.hooks = Box::new(hooks);
+    }
+
     /// Return last set exploration context.
     #[inline(always)]
     pub fn exploration_ctx(&self) -> &ExplorationContext {

@@ -1,3 +1,4 @@
+use crate::debugger::Debugger;
 use crate::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::KeyEvent;
 use std::io::StdoutLock;
@@ -16,6 +17,7 @@ impl TuiComponent for Logs {
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         opts: RenderOpts,
+        _: &mut Debugger,
     ) {
         let border_style = if opts.in_focus {
             Style::default().fg(Color::Yellow)

@@ -17,12 +17,13 @@ use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::{command, Debugger};
+use crate::tui::hook::TuiHook;
+use crate::util::DebugeeOutReader;
 use command::{Memory, Register};
 use crossterm::style::Stylize;
 use debugger::Error;
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
-use os_pipe::PipeReader;
 use r#break::Command as BreakpointCommand;
 use rustyline::error::ReadlineError;
 use rustyline::history::MemHistory;
@@ -31,9 +32,10 @@ use std::io::{BufRead, BufReader};
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex, Once};
 use std::thread;
 use std::time::Duration;
+use timeout_readwrite::TimeoutReader;
 
 mod editor;
 mod help;
@@ -50,19 +52,22 @@ const PROMT: &str = "(bs) ";
 type BSEditor = Editor<RLHelper, MemHistory>;
 
 pub struct AppBuilder {
-    debugee_out: PipeReader,
-    debugee_err: PipeReader,
+    debugee_out: DebugeeOutReader,
+    debugee_err: DebugeeOutReader,
 }
 
 impl AppBuilder {
-    pub fn new(debugee_out: PipeReader, debugee_err: PipeReader) -> Self {
+    pub fn new(debugee_out: DebugeeOutReader, debugee_err: DebugeeOutReader) -> Self {
         Self {
             debugee_out,
             debugee_err,
         }
     }
 
-    pub fn build(self, process: Child<Installed>) -> anyhow::Result<TerminalApplication> {
+    pub fn build_from_process(
+        self,
+        process: Child<Installed>,
+    ) -> anyhow::Result<TerminalApplication> {
         let (control_tx, control_rx) = mpsc::sync_channel::<Control>(0);
         let mut editor = create_editor(PROMT)?;
 
@@ -88,8 +93,38 @@ impl AppBuilder {
             debugger,
             debugee_pid,
             editor,
-            debugee_out: Arc::new(self.debugee_out),
-            debugee_err: Arc::new(self.debugee_err),
+            debugee_out: self.debugee_out,
+            debugee_err: self.debugee_err,
+            control_tx,
+            control_rx,
+        })
+    }
+
+    pub fn build(self, mut debugger: Debugger) -> anyhow::Result<TerminalApplication> {
+        let (control_tx, control_rx) = mpsc::sync_channel::<Control>(0);
+        let mut editor = create_editor(PROMT)?;
+
+        if let Some(h) = editor.helper_mut() {
+            h.completer
+                .lock()
+                .unwrap()
+                .replace_file_hints(debugger.known_files().cloned())
+        }
+
+        let debugee_pid = Arc::new(Mutex::new(debugger.process().pid()));
+        debugger.set_hook(TerminalHook::new(
+            ExternalPrinter::new(&mut editor)?,
+            move |pid| {
+                *debugee_pid.lock().unwrap() = pid;
+            },
+        ));
+
+        Ok(TerminalApplication {
+            debugee_pid: Arc::new(Mutex::new(debugger.process().pid())),
+            debugger,
+            editor,
+            debugee_out: self.debugee_out,
+            debugee_err: self.debugee_err,
             control_tx,
             control_rx,
         })
@@ -97,8 +132,12 @@ impl AppBuilder {
 }
 
 enum Control {
+    /// New command from user received
     Cmd(String),
+    /// Terminate application
     Terminate,
+    /// Switch to TUI mode
+    ChangeMode,
 }
 
 pub struct TerminalApplication {
@@ -106,22 +145,40 @@ pub struct TerminalApplication {
     /// shared debugee process pid, installed by hook
     debugee_pid: Arc<Mutex<Pid>>,
     editor: BSEditor,
-    debugee_out: Arc<PipeReader>,
-    debugee_err: Arc<PipeReader>,
+    debugee_out: DebugeeOutReader,
+    debugee_err: DebugeeOutReader,
     control_tx: SyncSender<Control>,
     control_rx: Receiver<Control>,
 }
 
+pub static LOGGER_ONCE: Once = Once::new();
+pub static HELLO_ONCE: Once = Once::new();
+
 impl TerminalApplication {
     pub fn run(mut self) -> anyhow::Result<()> {
-        env_logger::init();
+        LOGGER_ONCE.call_once(|| {
+            env_logger::init();
+        });
 
         macro_rules! print_out {
-            ($stream: expr, $format: tt, $printer: expr) => {{
+            ($stream: expr, $format: tt, $printer: expr, $cancel: expr) => {{
                 let mut stream = BufReader::new($stream);
                 loop {
+                    if $cancel.load(Ordering::SeqCst) {
+                        return;
+                    }
+
                     let mut line = String::new();
-                    let size = stream.read_line(&mut line).unwrap_or(0);
+                    let size = match stream.read_line(&mut line) {
+                        Ok(size) => size,
+                        Err(e) => {
+                            if e.kind() == std::io::ErrorKind::TimedOut {
+                                continue;
+                            }
+                            0
+                        }
+                    };
+
                     if size == 0 {
                         return;
                     }
@@ -131,15 +188,19 @@ impl TerminalApplication {
         }
 
         // start threads for printing program stdout and stderr
+        let cancel = Arc::new(AtomicBool::new(false));
         {
-            let stdout = self.debugee_out.clone();
-            let stdout_printer = ExternalPrinter::new(&mut self.editor)?;
-            thread::spawn(move || print_out!(stdout.as_ref(), "{}", stdout_printer));
+            let cancel1 = cancel.clone();
+            let cancel2 = cancel.clone();
 
-            let stderr = self.debugee_err.clone();
+            let stdout = TimeoutReader::new(self.debugee_out.clone(), Duration::from_millis(1));
+            let stdout_printer = ExternalPrinter::new(&mut self.editor)?;
+            thread::spawn(move || print_out!(stdout, "{}", stdout_printer, cancel1));
+
+            let stderr = TimeoutReader::new(self.debugee_err.clone(), Duration::from_millis(1));
             let stderr_printer = ExternalPrinter::new(&mut self.editor)?;
-            thread::spawn(move || print_out!(stderr.as_ref(), "\x1b[31m{}", stderr_printer));
-        }
+            thread::spawn(move || print_out!(stderr, "\x1b[31m{}", stderr_printer, cancel2));
+        };
 
         let app_loop = AppLoop {
             debugger: self.debugger,
@@ -152,19 +213,28 @@ impl TerminalApplication {
                     .completer,
             ),
             printer: ExternalPrinter::new(&mut self.editor)?,
+            debugee_out: self.debugee_out.clone(),
+            debugee_err: self.debugee_err.clone(),
+            cancel_output_flag: cancel,
         };
 
         let mut editor = self.editor;
         {
             let control_tx = self.control_tx.clone();
             thread::spawn(move || {
-                println!("{WELCOME_TEXT}");
+                HELLO_ONCE.call_once(|| {
+                    println!("{WELCOME_TEXT}");
+                });
+
                 loop {
                     let line = editor.readline(PROMT);
                     match line {
                         Ok(input) => {
                             if input == "q" || input == "quit" {
                                 _ = control_tx.send(Control::Terminate);
+                                break;
+                            } else if input == "tui" {
+                                _ = control_tx.send(Control::ChangeMode);
                                 break;
                             } else {
                                 _ = editor.add_history_entry(&input);
@@ -207,6 +277,9 @@ struct AppLoop {
     control_rx: Receiver<Control>,
     printer: ExternalPrinter,
     completer: Arc<Mutex<CommandCompleter>>,
+    debugee_out: DebugeeOutReader,
+    debugee_err: DebugeeOutReader,
+    cancel_output_flag: Arc<AtomicBool>,
 }
 
 impl AppLoop {
@@ -222,7 +295,7 @@ impl AppLoop {
                 let cmd = cmd.to_lowercase();
                 cmd == "y" || cmd == "yes"
             }
-            Control::Terminate => false,
+            Control::Terminate | Control::ChangeMode => false,
         }
     }
 
@@ -520,6 +593,14 @@ impl AppLoop {
                     }
                 }
                 Control::Terminate => {
+                    break;
+                }
+                Control::ChangeMode => {
+                    self.debugger.set_hook(TuiHook::new());
+                    self.cancel_output_flag.store(true, Ordering::SeqCst);
+                    let app = crate::tui::AppBuilder::new(self.debugee_out, self.debugee_err)
+                        .build(self.debugger);
+                    app.run().expect("run application fail");
                     break;
                 }
             }

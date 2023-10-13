@@ -44,6 +44,7 @@ rayon = "1.7.0"
 trie-rs = "0.1.1"
 regex = "1.8.4"
 walkdir = "2.3.3"
+timeout-readwrite = "0.3.3"
 
 [dev-dependencies]
 sysinfo = "0.29.10"

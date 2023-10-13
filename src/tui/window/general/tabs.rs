@@ -1,3 +1,4 @@
+use crate::debugger::Debugger;
 use crate::fire;
 use crate::tui::window::{message, RenderOpts, TuiComponent};
 use crate::tui::{context, AppState};
@@ -79,7 +80,13 @@ impl Tabs {
 }
 
 impl TuiComponent for Tabs {
-    fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, _: RenderOpts) {
+    fn render(
+        &self,
+        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
+        rect: Rect,
+        _: RenderOpts,
+        _: &mut Debugger,
+    ) {
         let titles = self
             .tabs
             .iter()

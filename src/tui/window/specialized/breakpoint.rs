@@ -9,7 +9,6 @@ use crate::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::cell::RefCell;
 use std::io::StdoutLock;
-use std::rc::Rc;
 use tui::backend::CrosstermBackend;
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
@@ -17,14 +16,12 @@ use tui::widgets::{Block, BorderType, Borders, List, ListItem};
 use tui::Frame;
 
 pub struct Breakpoints {
-    debugger: Rc<RefCell<Debugger>>,
     breakpoints: RefCell<PersistentList<Breakpoint>>,
 }
 
 impl Breakpoints {
-    pub fn new(debugger: impl Into<Rc<RefCell<Debugger>>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            debugger: debugger.into(),
             breakpoints: RefCell::default(),
         }
     }
@@ -36,6 +33,7 @@ impl TuiComponent for Breakpoints {
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         opts: RenderOpts,
+        _: &mut Debugger,
     ) {
         let items: Vec<ListItem> = self
             .breakpoints
@@ -102,13 +100,12 @@ impl TuiComponent for Breakpoints {
         }
     }
 
-    fn update(&mut self) -> anyhow::Result<()> {
+    fn update(&mut self, debugger: &mut Debugger) -> anyhow::Result<()> {
         for action in Exchanger::current().pop(self.name()) {
             if let ActionMessage::HandleUserInput { input } = action {
-                let dbg = &mut (*self.debugger).borrow_mut();
                 let command = Command::parse(&input)?;
                 if let Command::Breakpoint(BreakpointCommand::Add(brkpt)) = command {
-                    Break::new(dbg).handle(&BreakpointCommand::Add(brkpt.clone()))?;
+                    Break::new(debugger).handle(&BreakpointCommand::Add(brkpt.clone()))?;
                     self.breakpoints.borrow_mut().items().push(brkpt);
                 }
             }

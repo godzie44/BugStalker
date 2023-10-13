@@ -1,3 +1,4 @@
+use crate::debugger::Debugger;
 use crate::tui::context;
 use crate::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::{KeyCode, KeyEvent};
@@ -44,6 +45,7 @@ impl TuiComponent for DebugeeView {
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         opts: RenderOpts,
+        _: &mut Debugger,
     ) {
         let border_style = if opts.in_focus {
             Style::default().fg(Color::Yellow)

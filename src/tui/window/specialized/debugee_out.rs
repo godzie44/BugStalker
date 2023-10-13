@@ -1,5 +1,7 @@
+use crate::debugger::Debugger;
+use crate::tui::output::OutputLine;
 use crate::tui::window::{RenderOpts, TuiComponent};
-use crate::tui::{DebugeeStreamBuffer, StreamLine};
+use crate::tui::DebugeeStreamBuffer;
 use crossterm::event::KeyEvent;
 use std::io::StdoutLock;
 use tui::backend::CrosstermBackend;
@@ -25,6 +27,7 @@ impl TuiComponent for DebugeeOut {
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         opts: RenderOpts,
+        _: &mut Debugger,
     ) {
         let border_style = if opts.in_focus {
             Style::default().fg(Color::Yellow)
@@ -40,8 +43,8 @@ impl TuiComponent for DebugeeOut {
             .iter()
             .map(|line| {
                 let span = match line {
-                    StreamLine::Out(stdout_line) => Span::raw(stdout_line.to_string()),
-                    StreamLine::Err(stderr_line) => {
+                    OutputLine::Out(stdout_line) => Span::raw(stdout_line.to_string()),
+                    OutputLine::Err(stderr_line) => {
                         Span::styled(stderr_line.to_string(), Style::default().fg(Color::Red))
                     }
                 };

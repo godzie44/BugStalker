@@ -20,6 +20,7 @@ reg, register read|write|info <addr>        -- read, write, or view debugged pro
 thread info|current|switch <number>         -- show list of threads or current (in focus) thread or set thread in focus
 sharedlib info                              -- show list of shared libraries
 h, help |<command>                          -- show help
+tui                                         -- change ui mode to tui
 q, quit                                     -- exit the BugStalker 
 "#;
 
@@ -198,6 +199,11 @@ Available subcomands:
 sharedlib info - print list of loaded shared libraries and their mapping addresses
 ";
 
+pub const HELP_TUI: &str = "\
+\x1b[32;1mtui\x1b[0m
+Change ui mode to terminal ui.
+";
+
 pub const HELP_QUIT: &str = "\
 \x1b[32;1mq, quit\x1b[0m
 Exit the BugStalker, kill debugee before it.
@@ -223,6 +229,7 @@ pub fn help_for_command(command: Option<&str>) -> &str {
         Some(command::REGISTER_COMMAND) | Some(command::REGISTER_COMMAND_SHORT) => HELP_REGISTER,
         Some(command::THREAD_COMMAND) => HELP_THREAD,
         Some(command::SHARED_LIB_COMMAND) => HELP_SHARED_LIB,
+        Some("tui") => HELP_TUI,
         Some("q") | Some("quit") => HELP_QUIT,
         _ => "unknown command",
     }

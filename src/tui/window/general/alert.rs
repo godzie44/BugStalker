@@ -1,3 +1,4 @@
+use crate::debugger::Debugger;
 use crate::tui::context;
 use crate::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::{KeyCode, KeyEvent};
@@ -12,7 +13,13 @@ use tui::Frame;
 pub struct Alert {}
 
 impl TuiComponent for Alert {
-    fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, _: RenderOpts) {
+    fn render(
+        &self,
+        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
+        rect: Rect,
+        _: RenderOpts,
+        _: &mut Debugger,
+    ) {
         if let Some(txt) = context::Context::current().alert() {
             let block = Block::default()
                 .title("Alert!")

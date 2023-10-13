@@ -5,7 +5,6 @@ use crate::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::cell::RefCell;
 use std::io::StdoutLock;
-use std::rc::Rc;
 use tui::backend::CrosstermBackend;
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
@@ -13,14 +12,12 @@ use tui::widgets::{Block, BorderType, Borders, List, ListItem};
 use tui::Frame;
 
 pub struct ThreadTrace {
-    debugger: Rc<RefCell<Debugger>>,
     thread_list: RefCell<PersistentList<ThreadSnapshot>>,
 }
 
 impl ThreadTrace {
-    pub fn new(debugger: impl Into<Rc<RefCell<Debugger>>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            debugger: debugger.into(),
             thread_list: RefCell::default(),
         }
     }
@@ -32,9 +29,9 @@ impl TuiComponent for ThreadTrace {
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         opts: RenderOpts,
+        debugger: &mut Debugger,
     ) {
-        let debugger = self.debugger.borrow();
-        let trace_cmd = command::Backtrace::new(&debugger);
+        let trace_cmd = command::Backtrace::new(debugger);
         let threads = trace_cmd.handle(BacktraceCommand::All).unwrap_or_default();
         self.thread_list.borrow_mut().update_items(threads);
 

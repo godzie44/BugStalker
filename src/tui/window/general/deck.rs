@@ -1,3 +1,4 @@
+use crate::debugger::Debugger;
 use crate::fire;
 use crate::tui::window::general::tabs;
 use crate::tui::window::general::tabs::{TabVariant, Tabs};
@@ -70,6 +71,7 @@ impl TuiComponent for WindowDeck {
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         mut opts: RenderOpts,
+        debugger: &mut Debugger,
     ) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -81,8 +83,8 @@ impl TuiComponent for WindowDeck {
             opts.in_focus = true;
         }
 
-        self.tabs.render(frame, chunks[0], opts);
-        self.windows[self.visible_window].render(frame, chunks[1], opts);
+        self.tabs.render(frame, chunks[0], opts, debugger);
+        self.windows[self.visible_window].render(frame, chunks[1], opts, debugger);
     }
 
     fn handle_user_event(&mut self, e: KeyEvent) {
@@ -94,7 +96,7 @@ impl TuiComponent for WindowDeck {
         }
     }
 
-    fn update(&mut self) -> anyhow::Result<()> {
+    fn update(&mut self, debugger: &mut Debugger) -> anyhow::Result<()> {
         for msg in Exchanger::current().pop(self.name) {
             match msg {
                 ActionMessage::ActivateComponent { activate } => {
@@ -110,7 +112,9 @@ impl TuiComponent for WindowDeck {
             }
         }
 
-        self.windows.iter_mut().try_for_each(|(_, w)| w.update())
+        self.windows
+            .iter_mut()
+            .try_for_each(|(_, w)| w.update(debugger))
     }
 
     fn name(&self) -> &'static str {

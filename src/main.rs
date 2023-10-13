@@ -43,12 +43,13 @@ fn main() {
         "tui" => {
             let debugger =
                 Debugger::new(process, TuiHook::new()).expect("prepare application fail");
-            let app = tui::AppBuilder::new(stdout_reader, stderr_reader).build(debugger);
+            let app =
+                tui::AppBuilder::new(stdout_reader.into(), stderr_reader.into()).build(debugger);
             app.run().expect("run application fail");
         }
         _ => {
-            let app = AppBuilder::new(stdout_reader, stderr_reader)
-                .build(process)
+            let app = AppBuilder::new(stdout_reader.into(), stderr_reader.into())
+                .build_from_process(process)
                 .expect("build application fail");
             app.run().expect("run application fail");
         }

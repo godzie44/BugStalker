@@ -1,3 +1,4 @@
+use crate::debugger::Debugger;
 use crate::tui::window::{RenderOpts, TuiComponent};
 use crate::tui::{context, AppState};
 use crossterm::event::KeyEvent;
@@ -11,7 +12,13 @@ use tui::Frame;
 pub(in crate::tui::window) struct ContextHelp {}
 
 impl TuiComponent for ContextHelp {
-    fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, _: RenderOpts) {
+    fn render(
+        &self,
+        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
+        rect: Rect,
+        _: RenderOpts,
+        _: &mut Debugger,
+    ) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(80), Constraint::Percentage(20)].as_ref())

@@ -1,3 +1,4 @@
+use crate::debugger::Debugger;
 use crate::fire;
 use crate::tui::window::message::ActionMessage;
 use crate::tui::window::{message, RenderOpts, TuiComponent};
@@ -36,7 +37,13 @@ impl UserInput {
 }
 
 impl TuiComponent for UserInput {
-    fn render(&self, frame: &mut Frame<CrosstermBackend<StdoutLock>>, rect: Rect, _: RenderOpts) {
+    fn render(
+        &self,
+        frame: &mut Frame<CrosstermBackend<StdoutLock>>,
+        rect: Rect,
+        _: RenderOpts,
+        _: &mut Debugger,
+    ) {
         frame.render_widget(self.textarea.widget(), rect);
     }
 
@@ -63,7 +70,7 @@ impl TuiComponent for UserInput {
         }
     }
 
-    fn update(&mut self) -> anyhow::Result<()> {
+    fn update(&mut self, _: &mut Debugger) -> anyhow::Result<()> {
         message::Exchanger::current()
             .pop(self.name())
             .into_iter()
