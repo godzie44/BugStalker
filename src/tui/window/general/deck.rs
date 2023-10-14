@@ -6,12 +6,12 @@ use crate::tui::window::message::{ActionMessage, Exchanger};
 use crate::tui::window::{RenderOpts, TuiComponent};
 use crate::tui::AppState;
 use crossterm::event::KeyEvent;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::Frame;
 use std::collections::HashMap;
 use std::default::Default;
 use std::io::StdoutLock;
-use tui::backend::CrosstermBackend;
-use tui::layout::{Constraint, Direction, Layout, Rect};
-use tui::Frame;
 
 pub struct WindowDeck {
     name: &'static str,

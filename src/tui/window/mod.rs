@@ -7,11 +7,11 @@ use crate::tui::{context, AppState, DebugeeStreamBuffer, Event, Handle};
 use crate::util::DebugeeOutReader;
 use crossterm::event::{DisableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, LeaveAlternateScreen};
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Rect;
+use ratatui::{Frame, Terminal};
 use std::io::StdoutLock;
 use std::sync::mpsc::Receiver;
-use tui::backend::CrosstermBackend;
-use tui::layout::Rect;
-use tui::{Frame, Terminal};
 
 mod app;
 mod general;

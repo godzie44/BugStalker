@@ -1,4 +1,4 @@
-use tui::widgets::ListState;
+use ratatui::widgets::ListState;
 
 pub(super) mod breakpoint;
 pub(super) mod debugee_out;

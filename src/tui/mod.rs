@@ -8,14 +8,14 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use once_cell::sync;
 use once_cell::sync::Lazy;
+use ratatui::backend::CrosstermBackend;
+use ratatui::Terminal;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use timeout_readwrite::TimeoutReader;
-use tui::backend::CrosstermBackend;
-use tui::Terminal;
 
 mod context;
 pub mod hook;

@@ -2,17 +2,17 @@ use crate::debugger::Debugger;
 use crate::tui::context;
 use crate::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::{Alignment, Rect};
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use ratatui::Frame;
 use std::cell::{Cell, RefCell};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io::{BufRead, StdoutLock};
 use std::{fs, io};
-use tui::backend::CrosstermBackend;
-use tui::layout::{Alignment, Rect};
-use tui::style::{Color, Style};
-use tui::text::{Span, Spans, Text};
-use tui::widgets::{Block, BorderType, Borders, Paragraph};
-use tui::Frame;
 
 #[derive(Default)]
 pub struct DebugeeView {
@@ -34,7 +34,7 @@ impl DebugeeView {
 }
 
 impl DebugeeView {
-    fn default_view(&self) -> Vec<Spans> {
+    fn default_view(&self) -> Vec<Line> {
         vec!["Welcome into BUG STALKER!".into()]
     }
 }
@@ -94,12 +94,12 @@ impl TuiComponent for DebugeeView {
                     .enumerate()
                     .map(|(i, l)| {
                         if self.current_break_line.get() == Some(i as u64) {
-                            Spans::from(Span::styled(
+                            Line::from(Span::styled(
                                 l.as_str(),
                                 Style::default().bg(Color::LightRed),
                             ))
                         } else {
-                            Spans::from(l.as_str())
+                            Line::from(l.as_str())
                         }
                     })
                     .collect()

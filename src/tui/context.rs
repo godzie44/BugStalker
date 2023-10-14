@@ -1,7 +1,7 @@
 use crate::tui::AppState;
+use ratatui::text::Text;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use tui::text::Text;
 
 #[derive(Default)]
 pub struct TrapData {

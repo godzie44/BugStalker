@@ -4,12 +4,12 @@ use crate::tui::window::message::ActionMessage;
 use crate::tui::window::{message, RenderOpts, TuiComponent};
 use crate::tui::{context, AppState};
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Style};
+use ratatui::widgets::{Block, Borders};
+use ratatui::Frame;
 use std::io::StdoutLock;
-use tui::backend::CrosstermBackend;
-use tui::layout::Rect;
-use tui::style::{Color, Style};
-use tui::widgets::{Block, Borders};
-use tui::Frame;
 use tui_textarea::TextArea;
 
 pub(in crate::tui::window) struct UserInput {

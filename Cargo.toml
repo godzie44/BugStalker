@@ -24,9 +24,9 @@ thiserror = "1.0.37"
 bytes = "1.2.1"
 log = "0.4.17"
 env_logger = "0.10.0"
-tui = "0.19"
-tui-textarea = "*"
-crossterm = "0.25.0"
+ratatui = "0.23.0"
+tui-textarea = { version = "0.2.2", features = ["ratatui-crossterm"], default-features = false }
+crossterm = "0.27.0"
 clap =  { version = "4.0", features = ["derive"] }
 uuid = {version = "1.2.2", features = ["v4", "fast-rng", "macro-diagnostics"]}
 os_pipe = "1.1.2"

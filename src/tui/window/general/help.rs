@@ -2,12 +2,12 @@ use crate::debugger::Debugger;
 use crate::tui::window::{RenderOpts, TuiComponent};
 use crate::tui::{context, AppState};
 use crossterm::event::KeyEvent;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Style};
+use ratatui::widgets::{Block, BorderType, Paragraph};
+use ratatui::Frame;
 use std::io::StdoutLock;
-use tui::backend::CrosstermBackend;
-use tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use tui::style::{Color, Style};
-use tui::widgets::{Block, BorderType, Paragraph};
-use tui::Frame;
 
 pub(in crate::tui::window) struct ContextHelp {}
 
@@ -29,7 +29,7 @@ impl TuiComponent for ContextHelp {
             .alignment(Alignment::Center)
             .block(
                 Block::default()
-                    .borders(tui::widgets::Borders::ALL)
+                    .borders(ratatui::widgets::Borders::ALL)
                     .style(Style::default().fg(Color::White))
                     .title("Copyright")
                     .border_type(BorderType::Plain),
@@ -48,7 +48,7 @@ impl TuiComponent for ContextHelp {
             .alignment(Alignment::Center)
             .block(
                 Block::default()
-                    .borders(tui::widgets::Borders::ALL)
+                    .borders(ratatui::widgets::Borders::ALL)
                     .style(Style::default().fg(Color::White))
                     .title("State")
                     .border_type(BorderType::Rounded),

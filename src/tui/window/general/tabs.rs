@@ -3,14 +3,14 @@ use crate::fire;
 use crate::tui::window::{message, RenderOpts, TuiComponent};
 use crate::tui::{context, AppState};
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders};
+use ratatui::Frame;
 use std::collections::HashMap;
 use std::io::StdoutLock;
-use tui::backend::CrosstermBackend;
-use tui::layout::Rect;
-use tui::style::{Color, Modifier, Style};
-use tui::text::{Span, Spans};
-use tui::widgets::{Block, BorderType, Borders};
-use tui::Frame;
 
 pub(in crate::tui::window) struct TabVariant {
     title: String,
@@ -104,7 +104,7 @@ impl TuiComponent for Tabs {
                     .into()
                 } else {
                     let (first, rest) = t.title.split_at(1);
-                    Spans::from(vec![
+                    Line::from(vec![
                         Span::styled(
                             first.to_uppercase(),
                             Style::default()
@@ -117,7 +117,7 @@ impl TuiComponent for Tabs {
             })
             .collect();
 
-        let tabs = tui::widgets::Tabs::new(titles)
+        let tabs = ratatui::widgets::Tabs::new(titles)
             .select(self.active_tab)
             .block(
                 Block::default()

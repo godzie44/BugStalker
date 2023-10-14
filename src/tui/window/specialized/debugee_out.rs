@@ -3,13 +3,13 @@ use crate::tui::output::OutputLine;
 use crate::tui::window::{RenderOpts, TuiComponent};
 use crate::tui::DebugeeStreamBuffer;
 use crossterm::event::KeyEvent;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::{Alignment, Rect};
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use ratatui::Frame;
 use std::io::StdoutLock;
-use tui::backend::CrosstermBackend;
-use tui::layout::{Alignment, Rect};
-use tui::style::{Color, Style};
-use tui::text::{Span, Spans};
-use tui::widgets::{Block, BorderType, Borders, Paragraph};
-use tui::Frame;
 
 pub struct DebugeeOut {
     stream_buff: DebugeeStreamBuffer,
@@ -48,7 +48,7 @@ impl TuiComponent for DebugeeOut {
                         Span::styled(stderr_line.to_string(), Style::default().fg(Color::Red))
                     }
                 };
-                Spans::from(vec![span])
+                Line::from(vec![span])
             })
             .collect::<Vec<_>>();
 

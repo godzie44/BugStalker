@@ -5,13 +5,13 @@ use crate::debugger::{command, Debugger};
 use crate::tui::window::specialized::PersistentList;
 use crate::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::widgets::{Block, BorderType, Borders, List, ListItem};
+use ratatui::Frame;
 use std::cell::RefCell;
 use std::io::StdoutLock;
-use tui::backend::CrosstermBackend;
-use tui::layout::Rect;
-use tui::style::{Color, Modifier, Style};
-use tui::widgets::{Block, BorderType, Borders, List, ListItem};
-use tui::Frame;
 
 pub struct Variables {
     variables: RefCell<PersistentList<VariableIR>>,

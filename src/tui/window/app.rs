@@ -15,12 +15,12 @@ use crate::tui::window::specialized::variable::Variables;
 use crate::tui::window::{RenderOpts, TuiComponent};
 use crate::tui::{AppState, DebugeeStreamBuffer};
 use crossterm::event::KeyEvent;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::Frame;
 use std::collections::HashMap;
 use std::default::Default;
 use std::io::StdoutLock;
-use tui::backend::CrosstermBackend;
-use tui::layout::{Constraint, Direction, Layout, Rect};
-use tui::Frame;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum AppMode {

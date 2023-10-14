@@ -3,8 +3,8 @@ use crate::debugger::{EventHook, FunctionDie, PlaceDescriptor};
 use crate::tui::{context, AppState};
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
-use tui::style::{Color, Style};
-use tui::text::{Span, Spans};
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
 
 #[derive(Default)]
 pub struct TuiHook {}
@@ -48,7 +48,7 @@ impl EventHook for TuiHook {
     }
 
     fn on_signal(&self, signal: Signal) {
-        let alert_text = vec![Spans::from(vec![
+        let alert_text = vec![Line::from(vec![
             Span::raw("Application receive signal: "),
             Span::styled(format!("{signal}"), Style::default().fg(Color::Red)),
         ])];
