@@ -554,8 +554,9 @@ impl AppLoop {
                         .map(|range| format!("{} - {}", range.from, range.to));
 
                     self.printer.print(format!(
-                        "{} {}",
+                        "{}  {}  {}",
                         AddressView::from(mb_range),
+                        if !lib.has_debug_info { "*" } else { " " },
                         FilePathView::from(lib.path.to_string_lossy())
                     ))
                 }

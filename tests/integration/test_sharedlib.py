@@ -14,9 +14,9 @@ class SharedLibTestCase(unittest.TestCase):
         """View information about loaded shared libraries"""
         self.debugger.sendline('sharedlib info')
         # assert that main executable showing
-        self.debugger.expect_exact('??? ./examples/target/debug/calc_bin')
+        self.debugger.expect_exact('???     ./examples/target/debug/calc_bin')
         # assert that shared lib showing
-        self.debugger.expect_exact('??? ./examples/target/debug/libcalc_lib.so')
+        self.debugger.expect_exact('???     ./examples/target/debug/libcalc_lib.so')
 
         self.debugger.sendline('break main.rs:7')
         self.debugger.expect('New breakpoint')

@@ -18,6 +18,7 @@ pub struct RegionRange {
 /// Information about loaded in VAS region.
 pub struct RegionInfo {
     pub path: PathBuf,
+    pub has_debug_info: bool,
     pub range: Option<RegionRange>,
 }
 
@@ -287,10 +288,11 @@ impl DwarfRegistry {
     pub fn dump(&self) -> Vec<RegionInfo> {
         let mut regions: Vec<_> = self
             .files
-            .keys()
-            .map(|path| {
+            .iter()
+            .map(|(path, debug_info)| {
                 let file_range = self.ranges.iter().find(|(p, _)| path == p);
                 RegionInfo {
+                    has_debug_info: debug_info.has_debug_info(),
                     path: path.clone(),
                     range: file_range.map(|(_, range)| range.clone()),
                 }
