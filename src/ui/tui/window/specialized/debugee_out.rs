@@ -1,7 +1,7 @@
 use crate::debugger::Debugger;
-use crate::tui::output::OutputLine;
-use crate::tui::window::{RenderOpts, TuiComponent};
-use crate::tui::DebugeeStreamBuffer;
+use crate::ui::tui::output::OutputLine;
+use crate::ui::tui::window::{RenderOpts, TuiComponent};
+use crate::ui::tui::DebugeeStreamBuffer;
 use crossterm::event::KeyEvent;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Rect};

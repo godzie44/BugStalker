@@ -1,14 +1,6 @@
-use super::debugger::command::Continue;
-use crate::console::editor::{create_editor, CommandCompleter, RLHelper};
-use crate::console::help::*;
-use crate::console::hook::TerminalHook;
-use crate::console::print::style::{
-    AddressView, ErrorView, FilePathView, FunctionNameView, KeywordView,
-};
-use crate::console::print::ExternalPrinter;
-use crate::console::variable::render_variable_ir;
 use crate::debugger;
 use crate::debugger::command::r#break::{Break, HandlingResult};
+use crate::debugger::command::Continue;
 use crate::debugger::command::{
     r#break, Arguments, Backtrace, Command, Frame, FrameResult, HandlingError, Run, SharedLib,
     StepI, StepInto, StepOut, StepOver, Symbol, ThreadCommand, ThreadResult, Variables,
@@ -17,8 +9,16 @@ use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::{command, Debugger};
-use crate::tui::hook::TuiHook;
-use crate::util::DebugeeOutReader;
+use crate::ui::console::editor::{create_editor, CommandCompleter, RLHelper};
+use crate::ui::console::help::*;
+use crate::ui::console::hook::TerminalHook;
+use crate::ui::console::print::style::{
+    AddressView, ErrorView, FilePathView, FunctionNameView, KeywordView,
+};
+use crate::ui::console::print::ExternalPrinter;
+use crate::ui::console::variable::render_variable_ir;
+use crate::ui::tui::hook::TuiHook;
+use crate::ui::DebugeeOutReader;
 use command::{Memory, Register};
 use crossterm::style::Stylize;
 use debugger::Error;
@@ -599,7 +599,7 @@ impl AppLoop {
                 Control::ChangeMode => {
                     self.debugger.set_hook(TuiHook::new());
                     self.cancel_output_flag.store(true, Ordering::SeqCst);
-                    let app = crate::tui::AppBuilder::new(self.debugee_out, self.debugee_err)
+                    let app = crate::ui::tui::AppBuilder::new(self.debugee_out, self.debugee_err)
                         .build(self.debugger);
                     app.run().expect("run application fail");
                     break;

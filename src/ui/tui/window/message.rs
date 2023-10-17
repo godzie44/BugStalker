@@ -44,7 +44,7 @@ impl Exchanger {
 #[macro_export]
 macro_rules! fire {
     ($action: expr => $recipient: expr) => {
-        $crate::tui::window::message::EXCHANGER.with(|q| {
+        $crate::ui::tui::window::message::EXCHANGER.with(|q| {
             let mut hm = (*q.buff).borrow_mut();
             let v = hm.entry($recipient).or_insert(vec![]);
             v.push($action);

@@ -1,10 +1,10 @@
-use crate::console;
 use crate::debugger::command::{Continue, Run, StepInto, StepOut, StepOver};
 use crate::debugger::Debugger;
-use crate::tui::window::app::AppWindow;
-use crate::tui::window::message::Exchanger;
-use crate::tui::{context, AppState, DebugeeStreamBuffer, Event, Handle};
-use crate::util::DebugeeOutReader;
+use crate::ui::console;
+use crate::ui::tui::window::app::AppWindow;
+use crate::ui::tui::window::message::Exchanger;
+use crate::ui::tui::{context, AppState, DebugeeStreamBuffer, Event, Handle};
+use crate::ui::DebugeeOutReader;
 use crossterm::event::{DisableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;

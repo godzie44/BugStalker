@@ -1,7 +1,7 @@
 use crate::debugger::Debugger;
-use crate::tui::output::{OutputLine, OutputStreamProcessor, StreamType};
-use crate::tui::tick::Ticker;
-use crate::util::DebugeeOutReader;
+use crate::ui::tui::output::{OutputLine, OutputStreamProcessor, StreamType};
+use crate::ui::tui::tick::Ticker;
+use crate::ui::DebugeeOutReader;
 use crossterm::cursor::{SavePosition, Show};
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};

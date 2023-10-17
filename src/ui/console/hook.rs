@@ -1,9 +1,9 @@
-use crate::console::print::style::{AddressView, FilePathView, FunctionNameView, KeywordView};
-use crate::console::print::ExternalPrinter;
-use crate::console::view::FileView;
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::PlaceDescriptor;
 use crate::debugger::{EventHook, FunctionDie};
+use crate::ui::console::print::style::{AddressView, FilePathView, FunctionNameView, KeywordView};
+use crate::ui::console::print::ExternalPrinter;
+use crate::ui::console::view::FileView;
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use std::cell::RefCell;

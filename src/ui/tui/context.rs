@@ -1,4 +1,4 @@
-use crate::tui::AppState;
+use crate::ui::tui::AppState;
 use ratatui::text::Text;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;

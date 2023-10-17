@@ -1,3 +1,6 @@
+pub mod console;
+pub mod tui;
+
 use os_pipe::PipeReader;
 use std::io::Read;
 use std::os::fd::{AsRawFd, RawFd};

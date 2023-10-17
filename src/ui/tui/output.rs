@@ -1,5 +1,5 @@
-use crate::tui::Handle;
-use crate::util::DebugeeOutReader;
+use crate::ui::tui::Handle;
+use crate::ui::DebugeeOutReader;
 use std::io::{BufRead, BufReader};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};

@@ -1,5 +1,5 @@
 use crate::debugger::Debugger;
-use crate::tui::window::{RenderOpts, TuiComponent};
+use crate::ui::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::KeyEvent;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Rect};

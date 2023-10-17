@@ -1,7 +1,7 @@
 use crate::debugger::Debugger;
 use crate::fire;
-use crate::tui::window::{message, RenderOpts, TuiComponent};
-use crate::tui::{context, AppState};
+use crate::ui::tui::window::{message, RenderOpts, TuiComponent};
+use crate::ui::tui::{context, AppState};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
@@ -12,7 +12,7 @@ use ratatui::Frame;
 use std::collections::HashMap;
 use std::io::StdoutLock;
 
-pub(in crate::tui::window) struct TabVariant {
+pub(in crate::ui::tui::window) struct TabVariant {
     title: String,
     active_state: Option<AppState>,
     on_select: message::ActionMessage,
@@ -20,7 +20,7 @@ pub(in crate::tui::window) struct TabVariant {
 }
 
 impl TabVariant {
-    pub(in crate::tui::window) fn new(
+    pub(in crate::ui::tui::window) fn new(
         title: impl Into<String>,
         on_select: message::ActionMessage,
         message_recipient: &'static str,
@@ -33,7 +33,7 @@ impl TabVariant {
         }
     }
 
-    pub(in crate::tui::window) fn contextual(
+    pub(in crate::ui::tui::window) fn contextual(
         title: impl Into<String>,
         on_select: message::ActionMessage,
         state: AppState,
@@ -48,7 +48,7 @@ impl TabVariant {
     }
 }
 
-pub(in crate::tui::window) struct Tabs {
+pub(in crate::ui::tui::window) struct Tabs {
     name: &'static str,
     title: &'static str,
     tabs: Vec<TabVariant>,
@@ -57,7 +57,7 @@ pub(in crate::tui::window) struct Tabs {
 }
 
 impl Tabs {
-    pub(in crate::tui::window) fn new(
+    pub(in crate::ui::tui::window) fn new(
         name: &'static str,
         title: &'static str,
         tabs: Vec<TabVariant>,

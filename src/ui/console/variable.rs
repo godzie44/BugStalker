@@ -1,7 +1,7 @@
-use crate::console::print::style::AddressView;
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::variable::render::{RenderRepr, ValueLayout};
 use crate::debugger::variable::VariableIR;
+use crate::ui::console::print::style::AddressView;
 
 const TAB: &str = "\t";
 

@@ -1,8 +1,8 @@
-use bugstalker::console::AppBuilder;
 use bugstalker::debugger::process::Child;
 use bugstalker::debugger::{rust, Debugger};
-use bugstalker::tui;
-use bugstalker::tui::hook::TuiHook;
+use bugstalker::ui::console::AppBuilder;
+use bugstalker::ui::tui;
+use bugstalker::ui::tui::hook::TuiHook;
 use clap::{arg, Parser};
 use std::path::PathBuf;
 

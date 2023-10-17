@@ -1,10 +1,10 @@
 use crate::debugger::Debugger;
 use crate::fire;
-use crate::tui::window::general::tabs;
-use crate::tui::window::general::tabs::{TabVariant, Tabs};
-use crate::tui::window::message::{ActionMessage, Exchanger};
-use crate::tui::window::{RenderOpts, TuiComponent};
-use crate::tui::AppState;
+use crate::ui::tui::window::general::tabs;
+use crate::ui::tui::window::general::tabs::{TabVariant, Tabs};
+use crate::ui::tui::window::message::{ActionMessage, Exchanger};
+use crate::ui::tui::window::{RenderOpts, TuiComponent};
+use crate::ui::tui::AppState;
 use crossterm::event::KeyEvent;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};

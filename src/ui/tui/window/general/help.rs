@@ -1,6 +1,6 @@
 use crate::debugger::Debugger;
-use crate::tui::window::{RenderOpts, TuiComponent};
-use crate::tui::{context, AppState};
+use crate::ui::tui::window::{RenderOpts, TuiComponent};
+use crate::ui::tui::{context, AppState};
 use crossterm::event::KeyEvent;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, BorderType, Paragraph};
 use ratatui::Frame;
 use std::io::StdoutLock;
 
-pub(in crate::tui::window) struct ContextHelp {}
+pub(in crate::ui::tui::window) struct ContextHelp {}
 
 impl TuiComponent for ContextHelp {
     fn render(

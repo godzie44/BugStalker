@@ -1,7 +1,7 @@
 use crate::debugger::command::BacktraceCommand;
 use crate::debugger::{command, Debugger, ThreadSnapshot};
-use crate::tui::window::specialized::PersistentList;
-use crate::tui::window::{RenderOpts, TuiComponent};
+use crate::ui::tui::window::specialized::PersistentList;
+use crate::ui::tui::window::{RenderOpts, TuiComponent};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;

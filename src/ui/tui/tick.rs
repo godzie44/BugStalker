@@ -1,4 +1,4 @@
-use crate::tui::{Event, Handle};
+use crate::ui::tui::{Event, Handle};
 use crossterm::event;
 use crossterm::event::KeyEvent;
 use std::sync::atomic::Ordering;
