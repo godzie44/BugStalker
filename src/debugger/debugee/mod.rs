@@ -9,6 +9,7 @@ pub use rendezvous::RendezvousError;
 
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::BrkptType;
+use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
 use crate::debugger::debugee::dwarf::unwind;
 use crate::debugger::debugee::dwarf::unwind::Backtrace;
 use crate::debugger::debugee::dwarf::DebugInformation;
@@ -50,6 +51,8 @@ pub struct ThreadSnapshot {
     pub thread: Tracee,
     /// Backtrace
     pub bt: Option<Backtrace>,
+    /// Place in source code where thread is stopped
+    pub place: Option<PlaceDescriptorOwned>,
     /// On focus frame number (if focus on this thread)
     pub focus_frame: Option<usize>,
     /// True if thread in focus, false elsewhere
@@ -289,10 +292,20 @@ impl Debugee {
                         .find_map(|(i, frame)| (frame.ip == ctx.location().pc).then_some(i))
                 });
 
+                let place = mb_bt.as_ref().and_then(|bt| {
+                    bt.first().and_then(|first_frame| {
+                        let debug_info = self.debug_info(first_frame.ip).ok()?;
+                        debug_info
+                            .find_place_from_pc(first_frame.ip.into_global(self).ok()?)
+                            .ok()?
+                    })
+                });
+
                 Some(ThreadSnapshot {
                     in_focus: tracee.pid == ctx.pid_on_focus(),
                     thread: tracee,
                     bt: mb_bt,
+                    place: place.map(|p| p.to_owned()),
                     focus_frame: frame_num,
                 })
             })

@@ -4,7 +4,9 @@ use crate::prepare_debugee_process;
 use crate::{assert_no_proc, MT_APP};
 use bugstalker::debugger::unwind::Backtrace;
 use bugstalker::debugger::Debugger;
+use itertools::Itertools;
 use serial_test::serial;
+use std::ffi::OsStr;
 
 #[test]
 #[serial]
@@ -71,6 +73,10 @@ fn test_multithreaded_backtrace() {
 
     let threads = debugger.thread_state().unwrap();
     let current_thread = threads.into_iter().find(|t| t.in_focus).unwrap();
+
+    let current_place = current_thread.place.unwrap();
+    assert!(current_place.file.iter().contains(&OsStr::new("mt.rs")));
+    assert_eq!(current_place.line_number, 24);
 
     let bt = debugger.backtrace(current_thread.thread.pid).unwrap();
     assert_eq!(bt[0].func_name.as_ref().unwrap(), "mt::sum1");
