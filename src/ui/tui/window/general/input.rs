@@ -2,7 +2,7 @@ use crate::debugger::Debugger;
 use crate::fire;
 use crate::ui::tui::window::message::ActionMessage;
 use crate::ui::tui::window::{message, RenderOpts, TuiComponent};
-use crate::ui::tui::{context, AppState};
+use crate::ui::{context, AppState};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;

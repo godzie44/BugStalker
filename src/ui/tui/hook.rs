@@ -1,6 +1,6 @@
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::{EventHook, FunctionDie, PlaceDescriptor};
-use crate::ui::tui::{context, AppState};
+use crate::ui::{context, AppState};
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use ratatui::style::{Color, Style};

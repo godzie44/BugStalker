@@ -1,4 +1,5 @@
 pub mod console;
+pub mod context;
 pub mod tui;
 
 use os_pipe::PipeReader;
@@ -25,4 +26,13 @@ impl Read for DebugeeOutReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.0.as_ref().read(buf)
     }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum AppState {
+    Initial,
+    DebugeeRun,
+    DebugeeBreak,
+    UserInput,
+    Finish,
 }

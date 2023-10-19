@@ -4,7 +4,7 @@ use crate::ui::tui::window::general::tabs;
 use crate::ui::tui::window::general::tabs::{TabVariant, Tabs};
 use crate::ui::tui::window::message::{ActionMessage, Exchanger};
 use crate::ui::tui::window::{RenderOpts, TuiComponent};
-use crate::ui::tui::AppState;
+use crate::ui::AppState;
 use crossterm::event::KeyEvent;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};

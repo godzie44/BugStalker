@@ -1,6 +1,6 @@
 use crate::debugger::Debugger;
 use crate::ui::tui::window::{RenderOpts, TuiComponent};
-use crate::ui::tui::{context, AppState};
+use crate::ui::{context, AppState};
 use crossterm::event::KeyEvent;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};

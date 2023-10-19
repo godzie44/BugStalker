@@ -17,7 +17,6 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use timeout_readwrite::TimeoutReader;
 
-mod context;
 pub mod hook;
 pub mod output;
 mod tick;
@@ -55,15 +54,6 @@ impl AppBuilder {
     pub fn build(self, debugger: Debugger) -> TuiApplication {
         TuiApplication::new(debugger, self.debugee_out, self.debugee_err)
     }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum AppState {
-    Initial,
-    DebugeeRun,
-    DebugeeBreak,
-    UserInput,
-    Finish,
 }
 
 #[derive(Default, Clone)]

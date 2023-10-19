@@ -1,10 +1,10 @@
 use crate::debugger::command::{Continue, Run, StepInto, StepOut, StepOver};
 use crate::debugger::Debugger;
-use crate::ui::console;
 use crate::ui::tui::window::app::AppWindow;
 use crate::ui::tui::window::message::Exchanger;
-use crate::ui::tui::{context, AppState, DebugeeStreamBuffer, Event, Handle};
-use crate::ui::DebugeeOutReader;
+use crate::ui::tui::{DebugeeStreamBuffer, Event, Handle};
+use crate::ui::{console, AppState};
+use crate::ui::{context, DebugeeOutReader};
 use crossterm::event::{DisableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
@@ -55,6 +55,18 @@ pub(super) fn run(
     debugee_err: DebugeeOutReader,
     handles: Vec<Handle>,
 ) -> anyhow::Result<()> {
+    // initialize context first
+    if let Ok(threads) = debugger.thread_state() {
+        let in_focus_thread = threads.into_iter().find(|snap| snap.in_focus);
+        if let Some(in_focus_thread) = in_focus_thread {
+            if let Some(place) = in_focus_thread.place {
+                let ctx = context::Context::current();
+                ctx.set_trap_file_name(place.file.to_string_lossy().to_string());
+                ctx.set_trap_text_pos(place.line_number);
+            }
+        }
+    }
+
     let mut app_window = AppWindow::new(stream_buff);
 
     loop {

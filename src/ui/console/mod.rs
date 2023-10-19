@@ -18,7 +18,7 @@ use crate::ui::console::print::style::{
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::variable::render_variable_ir;
 use crate::ui::tui::hook::TuiHook;
-use crate::ui::DebugeeOutReader;
+use crate::ui::{context, AppState, DebugeeOutReader};
 use command::{Memory, Register};
 use crossterm::style::Stylize;
 use debugger::Error;
@@ -403,6 +403,8 @@ impl AppLoop {
                 }
             }
             Command::Run => {
+                context::Context::current().change_state(AppState::DebugeeRun);
+
                 static ALREADY_RUN: AtomicBool = AtomicBool::new(false);
 
                 if ALREADY_RUN.load(Ordering::Acquire) {
