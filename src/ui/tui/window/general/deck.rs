@@ -87,11 +87,11 @@ impl TuiComponent for WindowDeck {
         self.windows[self.visible_window].render(frame, chunks[1], opts, debugger);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) {
-        self.tabs.handle_user_event(e);
+    fn handle_user_event(&mut self, e: KeyEvent, debugger: &mut Debugger) {
+        self.tabs.handle_user_event(e, debugger);
         if let Some(in_focus_component) = self.in_focus_window {
             if let Some(component) = self.windows.get_mut(in_focus_component) {
-                component.handle_user_event(e);
+                component.handle_user_event(e, debugger);
             }
         }
     }

@@ -63,7 +63,7 @@ impl TuiComponent for DebugeeOut {
         frame.render_widget(home, rect);
     }
 
-    fn handle_user_event(&mut self, _: KeyEvent) {}
+    fn handle_user_event(&mut self, _: KeyEvent, _: &mut Debugger) {}
 
     fn name(&self) -> &'static str {
         "output"

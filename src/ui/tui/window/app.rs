@@ -119,15 +119,15 @@ impl TuiComponent for AppWindow {
         self.alert.render(frame, rect, opts, debugger);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) {
+    fn handle_user_event(&mut self, e: KeyEvent, debugger: &mut Debugger) {
         match self.mode {
             AppMode::UserInput => {
-                self.user_input.handle_user_event(e);
+                self.user_input.handle_user_event(e, debugger);
             }
             AppMode::Default => {
-                self.alert.handle_user_event(e);
-                self.left_deck.handle_user_event(e);
-                self.right_deck.handle_user_event(e);
+                self.alert.handle_user_event(e, debugger);
+                self.left_deck.handle_user_event(e, debugger);
+                self.right_deck.handle_user_event(e, debugger);
             }
         }
     }

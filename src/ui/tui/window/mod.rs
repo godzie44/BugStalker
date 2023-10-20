@@ -31,7 +31,7 @@ pub trait TuiComponent {
         opts: RenderOpts,
         debugger: &mut Debugger,
     );
-    fn handle_user_event(&mut self, e: KeyEvent);
+    fn handle_user_event(&mut self, e: KeyEvent, debugger: &mut Debugger);
     fn update(&mut self, _debugger: &mut Debugger) -> anyhow::Result<()> {
         Ok(())
     }
@@ -78,7 +78,7 @@ pub(super) fn run(
         let ctx = context::Context::current();
         if ctx.assert_state(AppState::UserInput) {
             match event_chan.recv()? {
-                Event::Input(e) => app_window.handle_user_event(e),
+                Event::Input(e) => app_window.handle_user_event(e, &mut debugger),
                 Event::Tick => {}
             }
         } else {
@@ -155,7 +155,7 @@ pub(super) fn run(
                         try_else_alert!(StepOut::new(&mut debugger).handle());
                     }
                     _ => {
-                        app_window.handle_user_event(e);
+                        app_window.handle_user_event(e, &mut debugger);
                     }
                 },
                 Event::Tick => {}

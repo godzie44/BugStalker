@@ -26,10 +26,6 @@ impl<T> PersistentList<T> {
         self.items = new_items;
     }
 
-    fn items(&mut self) -> &mut Vec<T> {
-        &mut self.items
-    }
-
     fn next(&mut self) {
         if self.items.is_empty() {
             self.state.select(None);
@@ -68,12 +64,13 @@ impl<T> PersistentList<T> {
         self.state.select(Some(i));
     }
 
-    fn remove_selected(&mut self) {
+    fn remove_selected(&mut self) -> Option<T> {
         let i = match self.state.selected() {
             Some(i) => i,
-            None => return,
+            None => return None,
         };
-        self.items.remove(i);
+        let removed = self.items.remove(i);
         self.previous();
+        Some(removed)
     }
 }

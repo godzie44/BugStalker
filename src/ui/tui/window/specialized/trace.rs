@@ -74,7 +74,7 @@ impl TuiComponent for ThreadTrace {
         frame.render_stateful_widget(list, rect, &mut self.thread_list.borrow_mut().state)
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) {
+    fn handle_user_event(&mut self, e: KeyEvent, _: &mut Debugger) {
         match e.code {
             KeyCode::Up => {
                 self.thread_list.borrow_mut().previous();

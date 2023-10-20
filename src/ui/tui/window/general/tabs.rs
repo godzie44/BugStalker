@@ -132,7 +132,7 @@ impl TuiComponent for Tabs {
         frame.render_widget(tabs, rect);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) {
+    fn handle_user_event(&mut self, e: KeyEvent, _: &mut Debugger) {
         if let KeyCode::Char(char_key) = e.code {
             if let Some(tab_idx) = self.hot_keys.get(&char_key) {
                 let tab = &self.tabs[*tab_idx];

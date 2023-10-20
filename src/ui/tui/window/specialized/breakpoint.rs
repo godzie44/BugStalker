@@ -1,7 +1,7 @@
+use crate::debugger::command::r#break::Break;
 use crate::debugger::command::r#break::Command as BreakpointCommand;
-use crate::debugger::command::r#break::{Break, Breakpoint};
 use crate::debugger::command::Command;
-use crate::debugger::Debugger;
+use crate::debugger::{BreakpointViewOwned, Debugger};
 use crate::fire;
 use crate::ui::tui::window::message::{ActionMessage, Exchanger};
 use crate::ui::tui::window::specialized::PersistentList;
@@ -16,7 +16,7 @@ use std::cell::RefCell;
 use std::io::StdoutLock;
 
 pub struct Breakpoints {
-    breakpoints: RefCell<PersistentList<Breakpoint>>,
+    breakpoints: RefCell<PersistentList<BreakpointViewOwned>>,
 }
 
 impl Breakpoints {
@@ -33,26 +33,25 @@ impl TuiComponent for Breakpoints {
         frame: &mut Frame<CrosstermBackend<StdoutLock>>,
         rect: Rect,
         opts: RenderOpts,
-        _: &mut Debugger,
+        debugger: &mut Debugger,
     ) {
+        self.breakpoints.borrow_mut().items = debugger
+            .breakpoints_snapshot()
+            .into_iter()
+            .map(|view| view.to_owned())
+            .collect();
+
         let items: Vec<ListItem> = self
             .breakpoints
             .borrow()
             .items
             .iter()
-            .enumerate()
-            .map(|(i, bp)| {
-                let bp_index = i + 1;
-                let view = match bp {
-                    Breakpoint::Address(addr) => {
-                        format!("{bp_index}. {addr:#016X}")
-                    }
-                    Breakpoint::Line(file, line) => {
-                        format!("{bp_index}. {file}:{line}")
-                    }
-                    Breakpoint::Function(function) => {
-                        format!("{bp_index}. {function}")
-                    }
+            .map(|brkpt| {
+                let bp_index = brkpt.number;
+                let view = if let Some(ref place) = brkpt.place {
+                    format!("{bp_index}. {:?}:{}", place.file, place.line_number)
+                } else {
+                    format!("{bp_index}. {}", brkpt.addr)
                 };
                 ListItem::new(view)
             })
@@ -82,13 +81,14 @@ impl TuiComponent for Breakpoints {
         frame.render_stateful_widget(list, rect, &mut self.breakpoints.borrow_mut().state);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) {
+    fn handle_user_event(&mut self, e: KeyEvent, debugger: &mut Debugger) {
         match e.code {
             KeyCode::Char('a') => {
                 fire!(ActionMessage::ActivateUserInput {sender: self.name()} => "app_window")
             }
             KeyCode::Char('r') => {
-                self.breakpoints.borrow_mut().remove_selected();
+                let removed = self.breakpoints.borrow_mut().remove_selected();
+                _ = debugger.remove_breakpoints_at_addresses(removed.map(|r| r.addr).into_iter());
             }
             KeyCode::Up => {
                 self.breakpoints.borrow_mut().previous();
@@ -106,7 +106,6 @@ impl TuiComponent for Breakpoints {
                 let command = Command::parse(&input)?;
                 if let Command::Breakpoint(BreakpointCommand::Add(brkpt)) = command {
                     Break::new(debugger).handle(&BreakpointCommand::Add(brkpt.clone()))?;
-                    self.breakpoints.borrow_mut().items().push(brkpt);
                 }
             }
         }

@@ -58,7 +58,7 @@ impl TuiComponent for ContextHelp {
         frame.render_widget(app_state, chunks[1]);
     }
 
-    fn handle_user_event(&mut self, _: KeyEvent) {}
+    fn handle_user_event(&mut self, _: KeyEvent, _: &mut Debugger) {}
 
     fn name(&self) -> &'static str {
         "context-help"

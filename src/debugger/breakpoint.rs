@@ -179,7 +179,7 @@ impl Debugger {
             .chain(uninit_addresses_to_remove.into_iter()))
     }
 
-    fn remove_breakpoints_at_addresses(
+    pub fn remove_breakpoints_at_addresses(
         &mut self,
         addresses: impl Iterator<Item = Address>,
     ) -> Result<Vec<BreakpointView>, Error> {
@@ -689,6 +689,22 @@ impl<'a> From<&'a UninitBreakpoint> for BreakpointView<'a> {
             addr: brkpt.addr,
             number: brkpt.number,
             place: brkpt.place.as_ref().map(Cow::Borrowed),
+        }
+    }
+}
+
+pub struct BreakpointViewOwned {
+    pub addr: Address,
+    pub number: u32,
+    pub place: Option<PlaceDescriptorOwned>,
+}
+
+impl<'a> BreakpointView<'a> {
+    pub fn to_owned(&self) -> BreakpointViewOwned {
+        BreakpointViewOwned {
+            addr: self.addr,
+            number: self.number,
+            place: self.place.clone().map(|p| p.into_owned()),
         }
     }
 }

@@ -12,6 +12,7 @@ mod utils;
 pub mod variable;
 
 pub use breakpoint::BreakpointView;
+pub use breakpoint::BreakpointViewOwned;
 pub use debugee::dwarf::r#type::TypeDeclaration;
 pub use debugee::dwarf::unit::FunctionDie;
 pub use debugee::dwarf::unit::PlaceDescriptor;

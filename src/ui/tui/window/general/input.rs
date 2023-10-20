@@ -47,7 +47,7 @@ impl TuiComponent for UserInput {
         frame.render_widget(self.textarea.widget(), rect);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) {
+    fn handle_user_event(&mut self, e: KeyEvent, _: &mut Debugger) {
         match e.code {
             KeyCode::Esc => {
                 self.clear();

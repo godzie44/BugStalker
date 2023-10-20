@@ -59,7 +59,7 @@ impl TuiComponent for Alert {
         }
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) {
+    fn handle_user_event(&mut self, e: KeyEvent, _: &mut Debugger) {
         match e.code {
             KeyCode::Esc | KeyCode::Enter => {
                 context::Context::current().drop_alert();

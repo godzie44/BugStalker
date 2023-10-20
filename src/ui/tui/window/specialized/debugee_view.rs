@@ -121,7 +121,7 @@ impl TuiComponent for DebugeeView {
         frame.render_widget(view, rect);
     }
 
-    fn handle_user_event(&mut self, e: KeyEvent) {
+    fn handle_user_event(&mut self, e: KeyEvent, _: &mut Debugger) {
         match e.code {
             KeyCode::Up => {
                 self.current_scroll_pos.set(
