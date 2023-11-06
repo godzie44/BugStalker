@@ -22,8 +22,7 @@ use crate::debugger::error::Error::{FunctionNotFound, MappingOffsetNotFound, Tra
 use crate::debugger::register::DwarfRegisterMap;
 use crate::debugger::unwind::FrameSpan;
 use crate::debugger::ExplorationContext;
-use crate::{muted_error, print_warns, weak_error};
-use log::{info, warn};
+use crate::{bs_info, bs_warn, muted_error, print_warns, weak_error};
 use nix::unistd::Pid;
 use nix::NixPath;
 use object::{Object, ObjectSection};
@@ -164,10 +163,10 @@ impl Debugee {
     fn init_libthread_db(&mut self) {
         match self.tracer.tracee_ctl.init_thread_db() {
             Ok(_) => {
-                info!(target: "loading", "libthread_db enabled")
+                bs_info!(target: "loading", "libthread_db enabled")
             }
             Err(e) => {
-                warn!(
+                bs_warn!(
                     target: "loading", "libthread_db load fail with \"{e}\", some thread debug functions are omitted"
                 );
             }
@@ -467,13 +466,13 @@ fn parse_dependencies_into_registry(
             match parse_result {
                 Ok(mb_dep) => mb_dep.map(|dwarf| {
                     if !quiet {
-                        info!(target: "dwarf-loader", "load shared library {dep:?}");
+                        bs_info!(target: "dwarf-loader", "load shared library {dep:?}");
                     }
 
                     (dep, dwarf)
                 }),
                 Err(e) => {
-                    warn!(target: "debugger", "broken dependency {:?}: {:#}", dep, e);
+                    bs_warn!(target: "debugger", "broken dependency {:?}: {:#}", dep, e);
                     None
                 }
             }
@@ -482,7 +481,7 @@ fn parse_dependencies_into_registry(
 
     dwarfs.into_iter().for_each(|(dep_name, dwarf)| {
         if let Err(e) = registry.add(&dep_name, dwarf) {
-            warn!(target: "debugger", "broken dependency {:?}: {:#}", dep_name, e);
+            bs_warn!(target: "debugger", "broken dependency {:?}: {:#}", dep_name, e);
         }
     });
 }

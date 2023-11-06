@@ -3,7 +3,7 @@ use crate::debugger::command::r#break::{Break, HandlingResult};
 use crate::debugger::command::Continue;
 use crate::debugger::command::{
     r#break, Arguments, Backtrace, Command, Frame, FrameResult, HandlingError, Run, SharedLib,
-    StepI, StepInto, StepOut, StepOver, Symbol, ThreadCommand, ThreadResult, Variables,
+    StepI, StepInto, StepOut, StepOver, Symbol, ThreadResult, Variables,
 };
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::render::RenderRepr;
@@ -17,8 +17,7 @@ use crate::ui::console::print::style::{
 };
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::variable::render_variable_ir;
-use crate::ui::tui::hook::TuiHook;
-use crate::ui::{context, AppState, DebugeeOutReader};
+use crate::ui::DebugeeOutReader;
 use command::{Memory, Register};
 use crossterm::style::Stylize;
 use debugger::Error;
@@ -403,8 +402,6 @@ impl AppLoop {
                 }
             }
             Command::Run => {
-                context::Context::current().change_state(AppState::DebugeeRun);
-
                 static ALREADY_RUN: AtomicBool = AtomicBool::new(false);
 
                 if ALREADY_RUN.load(Ordering::Acquire) {
@@ -519,7 +516,7 @@ impl AppLoop {
                 }
             }
             Command::Thread(cmd) => {
-                let result = ThreadCommand::new(&mut self.debugger).handle(cmd)?;
+                let result = command::Thread::new(&mut self.debugger).handle(cmd)?;
                 match result {
                     ThreadResult::List(mut list) => {
                         list.sort_by(|t1, t2| t1.thread.number.cmp(&t2.thread.number));
@@ -599,7 +596,6 @@ impl AppLoop {
                     break;
                 }
                 Control::ChangeMode => {
-                    self.debugger.set_hook(TuiHook::new());
                     self.cancel_output_flag.store(true, Ordering::SeqCst);
                     let app = crate::ui::tui::AppBuilder::new(self.debugee_out, self.debugee_err)
                         .build(self.debugger);

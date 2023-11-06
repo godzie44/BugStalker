@@ -4,7 +4,7 @@ use crate::debugger::code;
 use crate::debugger::debugee::tracee::{StopType, TraceeCtl, TraceeStatus};
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::{MultipleErrors, ProcessExit, Ptrace, Waitpid};
-use log::{debug, warn};
+use crate::{bs_debug, bs_warn};
 use nix::errno::Errno;
 use nix::libc::pid_t;
 use nix::sys::signal::{Signal, SIGSTOP};
@@ -85,7 +85,7 @@ impl Tracer {
                 self.tracee_ctl.cont_stopped().map_err(MultipleErrors)?;
             }
 
-            debug!(target: "tracer", "resume debugee execution, wait for updates");
+            bs_debug!(target: "tracer", "resume debugee execution, wait for updates");
             let status = match waitpid(Pid::from_raw(-1), None) {
                 Ok(status) => status,
                 Err(Errno::ECHILD) => {
@@ -94,7 +94,7 @@ impl Tracer {
                 Err(e) => return Err(Waitpid(e)),
             };
 
-            debug!(target: "tracer", "received new thread status: {status:?}");
+            bs_debug!(target: "tracer", "received new thread status: {status:?}");
             if let Some(stop) = self.apply_new_status(ctx, status)? {
                 // if stop fired by quiet signal - go to next iteration, this will inject signal at
                 // tracee process and resume it
@@ -104,7 +104,7 @@ impl Tracer {
                     }
                 }
 
-                debug!(target: "tracer", "debugee stopped, reason: {stop:?}");
+                bs_debug!(target: "tracer", "debugee stopped, reason: {stop:?}");
                 return Ok(stop);
             }
         }
@@ -138,7 +138,7 @@ impl Tracer {
         }
         self.lock_group_stop();
 
-        debug!(
+        bs_debug!(
             target: "tracer",
             "initiate group stop, initiator: {initiator_pid}, debugee state: {:?}",
             self.tracee_ctl.snapshot()
@@ -151,7 +151,7 @@ impl Tracer {
             .any(|t| t.pid != initiator_pid);
         if !non_stopped_exists {
             // no need to group-stop
-            debug!(
+            bs_debug!(
                 target: "tracer",
                 "group stop complete, debugee state: {:?}",
                 self.tracee_ctl.snapshot()
@@ -180,7 +180,7 @@ impl Tracer {
                 if let Err(e) = sys::ptrace::interrupt(tracee.pid) {
                     // if no such process - continue, it will be removed later, on PTRACE_EVENT_EXIT event.
                     if Errno::ESRCH == e {
-                        warn!("thread {} not found, ESRCH", tracee.pid);
+                        bs_warn!("thread {} not found, ESRCH", tracee.pid);
                         if let Some(t) = self.tracee_ctl.tracee_mut(tracee.pid) {
                             t.set_stop(StopType::Interrupt);
                         }
@@ -239,7 +239,7 @@ impl Tracer {
 
         self.unlock_group_stop();
 
-        debug!(
+        bs_debug!(
             target: "tracer",
             "group stop complete, debugee state: {:?}",
             self.tracee_ctl.snapshot()
@@ -317,7 +317,7 @@ impl Tracer {
                         }
                     }
                     _ => {
-                        warn!("unsupported (ignored) ptrace event, code: {code}");
+                        bs_warn!("unsupported (ignored) ptrace event, code: {code}");
                     }
                 }
                 Ok(None)
@@ -375,7 +375,7 @@ impl Tracer {
                             Ok(Some(StopReason::Breakpoint(pid, current_pc)))
                         }
                         code => {
-                            debug!(
+                            bs_debug!(
                                 target: "tracer",
                                 "unexpected SIGTRAP code {code}",
                             );
@@ -398,7 +398,7 @@ impl Tracer {
             }
             WaitStatus::Signaled(_, _, _) => Ok(None),
             _ => {
-                warn!("unexpected wait status: {status:?}");
+                bs_warn!("unexpected wait status: {status:?}");
                 Ok(None)
             }
         }

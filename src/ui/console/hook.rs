@@ -4,7 +4,6 @@ use crate::debugger::{EventHook, FunctionDie};
 use crate::ui::console::print::style::{AddressView, FilePathView, FunctionNameView, KeywordView};
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::view::FileView;
-use crate::ui::{context, AppState};
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use std::cell::RefCell;
@@ -41,8 +40,6 @@ impl EventHook for TerminalHook {
         mb_place: Option<PlaceDescriptor>,
         mb_func: Option<&FunctionDie>,
     ) -> anyhow::Result<()> {
-        context::Context::current().change_state(AppState::DebugeeBreak);
-
         let msg = format!("Hit breakpoint {num} at {}:", AddressView::from(pc));
         if let Some(place) = mb_place {
             self.printer.print(format!(
@@ -66,8 +63,6 @@ impl EventHook for TerminalHook {
         mb_place: Option<PlaceDescriptor>,
         mb_func: Option<&FunctionDie>,
     ) -> anyhow::Result<()> {
-        context::Context::current().change_state(AppState::DebugeeBreak);
-
         if let Some(place) = mb_place {
             if self.context.borrow().prev_func.as_ref() != mb_func {
                 self.context.borrow_mut().prev_func = mb_func.cloned();
@@ -103,7 +98,6 @@ impl EventHook for TerminalHook {
     }
 
     fn on_exit(&self, code: i32) {
-        context::Context::current().change_state(AppState::Finish);
         self.printer.print(format!(
             "Program exit with code: {}",
             KeywordView::from(code)

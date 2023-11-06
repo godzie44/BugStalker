@@ -1,41 +1,68 @@
 use crate::debugger::Debugger;
+use crate::ui::tui::app::port::DebuggerEventQueue;
+use crate::ui::tui::app::Model;
 use crate::ui::tui::output::{OutputLine, OutputStreamProcessor, StreamType};
-use crate::ui::tui::tick::Ticker;
-use crate::ui::DebugeeOutReader;
-use crossterm::cursor::{SavePosition, Show};
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
-use once_cell::sync;
-use once_cell::sync::Lazy;
-use ratatui::backend::CrosstermBackend;
-use ratatui::Terminal;
-use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Sender;
-use std::sync::{mpsc, Arc, Mutex};
+use crate::ui::tui::proto::{exchanger, Request};
+use crate::ui::{console, DebugeeOutReader};
+use anyhow::anyhow;
+use log::error;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 use timeout_readwrite::TimeoutReader;
+use tuirealm::{AttrValue, Attribute, PollStrategy};
 
-pub mod hook;
-pub mod output;
-mod tick;
-pub mod window;
+mod app;
+pub mod components;
+mod output;
+mod proto;
+
+pub use crate::ui::tui::app::port::TuiHook;
+
+// Component ids for debugger application
+#[derive(Debug, Eq, PartialEq, Clone, Hash)]
+pub enum Id {
+    LeftTabs,
+    RightTabs,
+
+    Breakpoints,
+    Threads,
+    Variables,
+    Output,
+    Source,
+    Logs,
+
+    Status,
+    GlobalControl,
+
+    Input,
+    Alert,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Msg {
+    None,
+    AppClose,
+    AppRunning,
+    LeftTabsInFocus,
+    RightTabsInFocus,
+    SwitchUI,
+    BreakpointsInFocus,
+    VariablesInFocus,
+    ThreadsInFocus,
+    SourceInFocus,
+    OutputInFocus,
+    LogsInFocus,
+    AddBreakpointRequest,
+    RemoveBreakpointRequest(u32),
+    ShowAlert(String),
+    CloseAlert,
+    Input(String),
+}
 
 #[derive(Default, Clone)]
-pub struct Handle {
-    flag: Arc<AtomicBool>,
-}
-
-impl Drop for Handle {
-    fn drop(&mut self) {
-        self.flag.store(true, Ordering::SeqCst)
-    }
-}
-
-pub enum Event<I> {
-    Input(I),
-    Tick,
+pub struct DebugeeStreamBuffer {
+    data: Arc<Mutex<Vec<OutputLine>>>,
 }
 
 pub struct AppBuilder {
@@ -53,25 +80,6 @@ impl AppBuilder {
 
     pub fn build(self, debugger: Debugger) -> TuiApplication {
         TuiApplication::new(debugger, self.debugee_out, self.debugee_err)
-    }
-}
-
-#[derive(Default, Clone)]
-pub struct DebugeeStreamBuffer {
-    data: Arc<Mutex<Vec<OutputLine>>>,
-}
-
-static CTRL_C_CHAN: Lazy<Mutex<Option<Sender<Event<KeyEvent>>>>> = sync::Lazy::new(Mutex::default);
-
-fn ctrl_c_handler() {
-    let mb_chan = CTRL_C_CHAN.lock().unwrap();
-    let mb_chan = mb_chan.as_ref();
-
-    if let Some(chan) = mb_chan {
-        _ = chan.send(Event::Input(KeyEvent::new(
-            KeyCode::Char('q'),
-            KeyModifiers::empty(),
-        )));
     }
 }
 
@@ -94,58 +102,131 @@ impl TuiApplication {
         }
     }
 
-    pub fn run(self) -> anyhow::Result<()> {
-        let stream_buff = DebugeeStreamBuffer::default();
+    pub fn run(mut self) -> anyhow::Result<()> {
+        // disable default logger
+        crate::log::disable();
+
+        let debugger_event_queue = DebuggerEventQueue::default();
+        self.debugger
+            .set_hook(TuiHook::new(debugger_event_queue.clone()));
+
+        let stream_buf = DebugeeStreamBuffer::default();
 
         // init debugee stdout handler
         let out = TimeoutReader::new(self.debugee_out.clone(), Duration::from_millis(1));
         let std_out_handle =
-            OutputStreamProcessor::new(StreamType::StdOut).run(out, stream_buff.data.clone());
+            OutputStreamProcessor::new(StreamType::StdOut).run(out, stream_buf.data.clone());
 
         // init debugee stderr handler
         let out = TimeoutReader::new(self.debugee_err.clone(), Duration::from_millis(1));
         let std_err_handle =
-            OutputStreamProcessor::new(StreamType::StdErr).run(out, stream_buff.data.clone());
+            OutputStreamProcessor::new(StreamType::StdErr).run(out, stream_buf.data.clone());
 
-        enable_raw_mode()?;
+        let (srv_exchanger, client_exchanger) = exchanger();
 
-        let (tx, rx) = mpsc::channel();
-        {
-            *CTRL_C_CHAN.lock().unwrap() = Some(tx.clone());
-        }
-        static ONCE: std::sync::Once = std::sync::Once::new();
-        ONCE.call_once(|| {
-            _ = ctrlc::set_handler(ctrl_c_handler);
+        // tui thread
+        let ui_jh = thread::spawn(|| -> anyhow::Result<()> {
+            let mut model = Model::new(stream_buf, debugger_event_queue, client_exchanger)?;
+            model.terminal.enter_alternate_screen()?;
+            model.terminal.enable_raw_mode()?;
+
+            while !model.quit {
+                match model.app.tick(PollStrategy::Once) {
+                    Err(err) => {
+                        model.app.attr(
+                            &Id::Alert,
+                            Attribute::Text,
+                            AttrValue::String(format!("Tui error: {err}")),
+                        )?;
+                        model.app.active(&Id::Alert)?;
+                        model.alert = true;
+                    }
+                    Ok(messages) if !messages.is_empty() => {
+                        // NOTE: redraw if at least one msg has been processed
+                        model.redraw = true;
+                        for msg in messages.into_iter() {
+                            let mut msg = Some(msg);
+                            while msg.is_some() {
+                                msg = match model.update(msg) {
+                                    Ok(msg) => msg,
+                                    Err(e) => Some(Msg::ShowAlert(e.to_string())),
+                                };
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                // Redraw
+                if model.redraw {
+                    model.view();
+                    model.redraw = false;
+                }
+            }
+
+            model.terminal.leave_alternate_screen()?;
+            model.terminal.disable_raw_mode()?;
+            model.terminal.clear_screen()?;
+
+            Ok(())
         });
 
-        let ticker = Ticker::new(Duration::from_millis(200));
-        let ticker_handle = ticker.run(tx);
+        enum ExitType {
+            Exit,
+            Shutdown,
+            SwitchUi,
+        }
 
-        let stdout = io::stdout();
-        let mut stdout = stdout.lock();
+        let exit_type;
+        loop {
+            match srv_exchanger.next_request() {
+                Some(Request::Exit) => {
+                    exit_type = ExitType::Exit;
+                    break;
+                }
+                Some(Request::SwitchUi) => {
+                    exit_type = ExitType::SwitchUi;
+                    break;
+                }
+                Some(Request::DebuggerSyncTask(task)) => {
+                    let result = task(&mut self.debugger);
+                    srv_exchanger.send_response(result);
+                }
+                Some(Request::DebuggerAsyncTask(task)) => {
+                    if let Err(e) = task(&mut self.debugger) {
+                        srv_exchanger.send_async_response(e);
+                    }
+                }
+                None => {
+                    exit_type = ExitType::Shutdown;
+                    break;
+                }
+            }
+        }
 
-        crossterm::execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-        crossterm::execute!(stdout, SavePosition)?;
-        let backend = CrosstermBackend::new(stdout);
-        let mut terminal = Terminal::new(backend)?;
-        terminal.clear()?;
+        drop(std_out_handle);
+        drop(std_err_handle);
+        crate::log::enable();
 
-        let original_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |panic| {
-            disable_raw_mode().unwrap();
-            crossterm::execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture).unwrap();
-            crossterm::execute!(io::stdout(), Show).unwrap();
-            original_hook(panic);
-        }));
+        match exit_type {
+            ExitType::Exit => {}
+            ExitType::Shutdown => {
+                let join_result = ui_jh.join();
+                let join_result = join_result
+                    .map_err(|_| anyhow!("unexpected: tui thread panic"))
+                    .and_then(|r| r);
+                if let Err(e) = join_result {
+                    error!(target: "tui", "tui thread error: {e}");
+                };
+            }
+            ExitType::SwitchUi => {
+                _ = ui_jh.join();
+                let app = console::AppBuilder::new(self.debugee_out, self.debugee_err)
+                    .build(self.debugger)
+                    .expect("build application fail");
+                app.run().expect("run application fail");
+            }
+        }
 
-        window::run(
-            terminal,
-            self.debugger,
-            rx,
-            stream_buff,
-            self.debugee_out,
-            self.debugee_err,
-            vec![std_err_handle, std_out_handle, ticker_handle],
-        )
+        Ok(())
     }
 }

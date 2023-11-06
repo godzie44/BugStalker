@@ -1,8 +1,7 @@
 use bugstalker::debugger::process::Child;
-use bugstalker::debugger::{rust, Debugger};
+use bugstalker::debugger::{rust, Debugger, DoNothingHook};
 use bugstalker::ui::console::AppBuilder;
 use bugstalker::ui::tui;
-use bugstalker::ui::tui::hook::TuiHook;
 use clap::{arg, Parser};
 use std::path::PathBuf;
 
@@ -42,7 +41,7 @@ fn main() {
     match args.ui.as_str() {
         "tui" => {
             let debugger =
-                Debugger::new(process, TuiHook::new()).expect("prepare application fail");
+                Debugger::new(process, DoNothingHook {}).expect("prepare application fail");
             let app =
                 tui::AppBuilder::new(stdout_reader.into(), stderr_reader.into()).build(debugger);
             app.run().expect("run application fail");

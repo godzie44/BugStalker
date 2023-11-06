@@ -1,11 +1,22 @@
-use crate::ui::tui::Handle;
 use crate::ui::DebugeeOutReader;
 use std::io::{BufRead, BufReader};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::{io, thread};
 use timeout_readwrite::TimeoutReader;
 
+#[derive(Default, Clone)]
+pub struct Handle {
+    flag: Arc<AtomicBool>,
+}
+
+impl Drop for Handle {
+    fn drop(&mut self) {
+        self.flag.store(true, Ordering::SeqCst)
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, PartialOrd)]
 pub enum OutputLine {
     Out(String),
     Err(String),

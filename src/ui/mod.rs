@@ -1,5 +1,4 @@
 pub mod console;
-pub mod context;
 pub mod tui;
 
 use os_pipe::PipeReader;

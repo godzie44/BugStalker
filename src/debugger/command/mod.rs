@@ -22,7 +22,9 @@ pub use backtrace::Command as BacktraceCommand;
 pub use frame::Frame;
 pub use frame::Result as FrameResult;
 pub use memory::Memory;
-use r#break::Breakpoint;
+pub use r#break::Break;
+use r#break::BreakpointRequest;
+pub use r#break::Command as BreakpointCommand;
 pub use r#continue::Continue;
 pub use register::Register;
 pub use run::Run;
@@ -32,8 +34,9 @@ pub use step_into::StepInto;
 pub use step_out::StepOut;
 pub use step_over::StepOver;
 pub use symbol::Symbol;
+pub use thread::Command as ThreadCommand;
 pub use thread::Result as ThreadResult;
-pub use thread::Thread as ThreadCommand;
+pub use thread::Thread;
 pub use variables::Variables;
 
 use crate::debugger::error::Error;
@@ -53,7 +56,6 @@ use nom::{IResult, Parser};
 use nom_supreme::error::ErrorTree;
 use nom_supreme::final_parser::Location;
 use nom_supreme::tag::complete::tag;
-use r#break::Command as BreakpointCommand;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
@@ -286,16 +288,20 @@ impl Command {
 
         fn break_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             fn breakpoint_arg_parser<'a>(
-            ) -> impl FnMut(&'a str) -> IResult<&'a str, Breakpoint, ErrorTree<&str>> {
+            ) -> impl FnMut(&'a str) -> IResult<&'a str, BreakpointRequest, ErrorTree<&str>>
+            {
                 alt((
-                    map_res(hexadecimal, |hex| -> Result<Breakpoint, ParseIntError> {
-                        let addr = usize::from_str_radix(hex, 16)?;
-                        Ok(Breakpoint::Address(addr))
-                    }),
+                    map_res(
+                        hexadecimal,
+                        |hex| -> Result<BreakpointRequest, ParseIntError> {
+                            let addr = usize::from_str_radix(hex, 16)?;
+                            Ok(BreakpointRequest::Address(addr))
+                        },
+                    ),
                     map_res(
                         separated_pair(is_not(":"), tag(":"), digit1),
-                        |(file, line): (&str, &str)| -> Result<Breakpoint, ParseIntError> {
-                            Ok(Breakpoint::Line(
+                        |(file, line): (&str, &str)| -> Result<BreakpointRequest, ParseIntError> {
+                            Ok(BreakpointRequest::Line(
                                 file.trim().to_string(),
                                 u64::from_str(line.trim())?,
                             ))
@@ -303,8 +309,8 @@ impl Command {
                     ),
                     map_res(
                         rust_identifier,
-                        |fn_name: &str| -> Result<Breakpoint, ParseIntError> {
-                            Ok(Breakpoint::Function(fn_name.to_string()))
+                        |fn_name: &str| -> Result<BreakpointRequest, ParseIntError> {
+                            Ok(BreakpointRequest::Function(fn_name.to_string()))
                         },
                     ),
                 ))
@@ -629,7 +635,7 @@ mod test {
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Add(Breakpoint::Function(f))) if f == "some_func"
+                        Command::Breakpoint(r#break::Command::Add(BreakpointRequest::Function(f))) if f == "some_func"
                     ));
                 },
             },
@@ -638,7 +644,7 @@ mod test {
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Add(Breakpoint::Function(f))) if f == "ns1::some_func" || f == "ns1::ns2::some_func"
+                        Command::Breakpoint(r#break::Command::Add(BreakpointRequest::Function(f))) if f == "ns1::some_func" || f == "ns1::ns2::some_func"
                     ));
                 },
             },
@@ -647,7 +653,7 @@ mod test {
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Add(Breakpoint::Line(f, n))) if f == "file" && n == 123
+                        Command::Breakpoint(r#break::Command::Add(BreakpointRequest::Line(f, n))) if f == "file" && n == 123
                     ));
                 },
             },
@@ -656,7 +662,7 @@ mod test {
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Add(Breakpoint::Address(a))) if a == 0x123
+                        Command::Breakpoint(r#break::Command::Add(BreakpointRequest::Address(a))) if a == 0x123
                     ));
                 },
             },
@@ -669,7 +675,7 @@ mod test {
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Remove(Breakpoint::Function(f))) if f == "some_func"
+                        Command::Breakpoint(r#break::Command::Remove(BreakpointRequest::Function(f))) if f == "some_func"
                     ));
                 },
             },
@@ -682,7 +688,7 @@ mod test {
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Remove(Breakpoint::Function(f))) if f == "ns1::some_func"
+                        Command::Breakpoint(r#break::Command::Remove(BreakpointRequest::Function(f))) if f == "ns1::some_func"
                     ));
                 },
             },
@@ -695,7 +701,7 @@ mod test {
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Remove(Breakpoint::Line(f, n))) if f == "file" && n == 123
+                        Command::Breakpoint(r#break::Command::Remove(BreakpointRequest::Line(f, n))) if f == "file" && n == 123
                     ));
                 },
             },
@@ -704,7 +710,7 @@ mod test {
                 command_matcher: |result| {
                     assert!(matches!(
                         result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Remove(Breakpoint::Address(a))) if a == 0x123
+                        Command::Breakpoint(r#break::Command::Remove(BreakpointRequest::Address(a))) if a == 0x123
                     ));
                 },
             },

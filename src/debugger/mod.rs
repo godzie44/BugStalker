@@ -16,6 +16,7 @@ pub use breakpoint::BreakpointViewOwned;
 pub use debugee::dwarf::r#type::TypeDeclaration;
 pub use debugee::dwarf::unit::FunctionDie;
 pub use debugee::dwarf::unit::PlaceDescriptor;
+pub use debugee::dwarf::unit::PlaceDescriptorOwned;
 pub use debugee::dwarf::unwind;
 pub use debugee::ThreadSnapshot;
 pub use error::Error;
@@ -104,6 +105,35 @@ pub trait EventHook {
     ///
     /// * `pid`: debugee process pid
     fn on_process_install(&self, pid: Pid);
+}
+
+pub struct DoNothingHook {}
+
+impl EventHook for DoNothingHook {
+    fn on_breakpoint(
+        &self,
+        _: RelocatedAddress,
+        _: u32,
+        _: Option<PlaceDescriptor>,
+        _: Option<&FunctionDie>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn on_step(
+        &self,
+        _: RelocatedAddress,
+        _: Option<PlaceDescriptor>,
+        _: Option<&FunctionDie>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn on_signal(&self, _: Signal) {}
+
+    fn on_exit(&self, _: i32) {}
+
+    fn on_process_install(&self, _: Pid) {}
 }
 
 macro_rules! disable_when_not_stared {

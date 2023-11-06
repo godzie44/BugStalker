@@ -5,13 +5,12 @@ use crate::debugger::debugee::dwarf::r#type::{ComplexType, TypeDeclaration};
 use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef, NamespaceHierarchy};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::specialization::VariableParserExtension;
-use crate::{debugger, weak_error};
+use crate::{bs_warn, debugger, weak_error};
 use bytes::Bytes;
 use gimli::{
     DW_ATE_address, DW_ATE_boolean, DW_ATE_float, DW_ATE_signed, DW_ATE_signed_char,
     DW_ATE_unsigned, DW_ATE_unsigned_char, DW_ATE_ASCII, DW_ATE_UTF,
 };
-use log::warn;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Display, Formatter};
 use std::string::FromUtf8Error;
@@ -336,6 +335,10 @@ pub enum VariableIR {
     CModifiedVariable(CModifiedVariable),
 }
 
+// SAFETY: this enum may contains a raw pointers on memory in debugee process,
+// it is safe to dereference it using public API of *Variable structures.
+unsafe impl Send for VariableIR {}
+
 impl Debug for VariableIR {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.name())
@@ -628,7 +631,7 @@ impl<'a> VariableParser<'a> {
                 }
                 16 => render_scalar::<i128>(value).map(SupportedScalar::I128),
                 _ => {
-                    warn!(
+                    bs_warn!(
                         "parse scalar: unexpected signed size: {size:?}",
                         size = r#type.byte_size
                     );
@@ -649,7 +652,7 @@ impl<'a> VariableParser<'a> {
                 }
                 16 => render_scalar::<u128>(value).map(SupportedScalar::U128),
                 _ => {
-                    warn!(
+                    bs_warn!(
                         "parse scalar: unexpected unsigned size: {size:?}",
                         size = r#type.byte_size
                     );
@@ -660,7 +663,7 @@ impl<'a> VariableParser<'a> {
                 4 => render_scalar::<f32>(value).map(SupportedScalar::F32),
                 8 => render_scalar::<f64>(value).map(SupportedScalar::F64),
                 _ => {
-                    warn!(
+                    bs_warn!(
                         "parse scalar: unexpected float size: {size:?}",
                         size = r#type.byte_size
                     );
@@ -671,7 +674,7 @@ impl<'a> VariableParser<'a> {
             DW_ATE_UTF => render_scalar::<char>(value).map(SupportedScalar::Char),
             DW_ATE_ASCII => render_scalar::<char>(value).map(SupportedScalar::Char),
             _ => {
-                warn!("parse scalar: unexpected base type encoding: {encoding}");
+                bs_warn!("parse scalar: unexpected base type encoding: {encoding}");
                 None
             }
         });
@@ -713,7 +716,7 @@ impl<'a> VariableParser<'a> {
     ) -> Option<VariableIR> {
         let name = member.name.clone();
         let Some(type_ref) = member.type_ref else {
-            warn!("parse structure: unknown type for member {}", name.as_deref().unwrap_or_default());
+            bs_warn!("parse structure: unknown type for member {}", name.as_deref().unwrap_or_default());
             return None;
         };
         let member_val =

@@ -63,7 +63,7 @@ impl Debugger {
         )))
     }
 
-    /// Disable and remove breakpoint by its address.
+    /// Disable and remove a breakpoint by it address.
     ///
     /// # Arguments
     ///
@@ -73,6 +73,18 @@ impl Debugger {
         addr: Address,
     ) -> Result<Option<BreakpointView>, Error> {
         self.breakpoints.remove_by_addr(addr)
+    }
+
+    /// Disable and remove a breakpoint by it number.
+    ///
+    /// # Arguments
+    ///
+    /// * `number`: breakpoint number
+    pub fn remove_breakpoint_by_number(
+        &mut self,
+        number: u32,
+    ) -> Result<Option<BreakpointView>, Error> {
+        self.breakpoints.remove_by_num(number)
     }
 
     fn create_breakpoint_at_places(
@@ -786,6 +798,29 @@ impl BreakpointRegistry {
                 return Ok(Some(brkpt.into()));
             }
         }
+        Ok(None)
+    }
+
+    /// Remove enabled breakpoint from registry by it number.
+    pub fn remove_by_num(&mut self, number: u32) -> Result<Option<BreakpointView<'static>>, Error> {
+        if let Some(addr) = self.disabled_breakpoints.iter().find_map(|(addr, brkpt)| {
+            if brkpt.number == number {
+                return Some(addr);
+            }
+            None
+        }) {
+            return self.remove_by_addr(*addr);
+        }
+
+        if let Some(addr) = self.breakpoints.iter().find_map(|(addr, brkpt)| {
+            if brkpt.number == number {
+                return Some(addr);
+            }
+            None
+        }) {
+            return self.remove_by_addr(Address::Relocated(*addr));
+        }
+
         Ok(None)
     }
 

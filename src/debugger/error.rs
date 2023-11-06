@@ -200,10 +200,10 @@ macro_rules! _error {
 #[macro_export]
 macro_rules! weak_error {
     ($res: expr) => {
-        $crate::_error!(log::warn, $res)
+        $crate::_error!($crate::bs_warn, $res)
     };
     ($res: expr, $msg: tt) => {
-        $crate::_error!(log::warn, $res, $msg)
+        $crate::_error!($crate::bs_warn, $res, $msg)
     };
 }
 
@@ -211,10 +211,10 @@ macro_rules! weak_error {
 #[macro_export]
 macro_rules! muted_error {
     ($res: expr) => {
-        $crate::_error!(log::debug, $res)
+        $crate::_error!($crate::bs_debug, $res)
     };
     ($res: expr, $msg: tt) => {
-        $crate::_error!(log::debug, $res, $msg)
+        $crate::_error!($crate::bs_debug, $res, $msg)
     };
 }
 
@@ -223,7 +223,7 @@ macro_rules! muted_error {
 macro_rules! print_warns {
     ($errors:expr) => {
         $errors.iter().for_each(|e| {
-            log::warn!(target: "debugger", "{:#}", e);
+            $crate::bs_warn!(target: "debugger", "{:#}", e);
         })
     };
 }
