@@ -1,10 +1,10 @@
 use crate::debugger::address::Address;
-use crate::debugger::breakpoint::BreakpointView;
-use crate::debugger::error::Error;
+use crate::debugger::BreakpointView;
 use crate::debugger::Debugger;
+use crate::debugger::Error;
 
 #[derive(Debug, Clone)]
-pub enum BreakpointRequest {
+pub enum BreakpointIdentity {
     Address(usize),
     Line(String, u64),
     Function(String),
@@ -13,15 +13,15 @@ pub enum BreakpointRequest {
 
 #[derive(Debug)]
 pub enum Command {
-    Add(BreakpointRequest),
-    Remove(BreakpointRequest),
+    Add(BreakpointIdentity),
+    Remove(BreakpointIdentity),
     Info,
-    AddDeferred(BreakpointRequest),
+    AddDeferred(BreakpointIdentity),
 }
 
 impl Command {
-    /// Return underline breakpoint request (if exists).
-    pub fn breakpoint(&self) -> Option<BreakpointRequest> {
+    /// Return underline breakpoint identity (if command not an `info`).
+    pub fn identity(&self) -> Option<BreakpointIdentity> {
         match self {
             Command::Add(b) => Some(b.clone()),
             Command::Remove(b) => Some(b.clone()),
@@ -31,79 +31,79 @@ impl Command {
     }
 }
 
-pub struct Break<'a> {
+pub struct Handler<'a> {
     dbg: &'a mut Debugger,
 }
 
-pub enum HandlingResult<'a> {
+pub enum ExecutionResult<'a> {
     New(Vec<BreakpointView<'a>>),
     Removed(Vec<BreakpointView<'a>>),
     Dump(Vec<BreakpointView<'a>>),
     AddDeferred,
 }
 
-impl<'a> Break<'a> {
+impl<'a> Handler<'a> {
     pub fn new(debugger: &'a mut Debugger) -> Self {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&mut self, cmd: &Command) -> Result<HandlingResult, Error> {
+    pub fn handle(&mut self, cmd: &Command) -> Result<ExecutionResult, Error> {
         let result = match cmd {
             Command::Add(brkpt) => {
                 let res = match brkpt {
-                    BreakpointRequest::Address(addr) => {
+                    BreakpointIdentity::Address(addr) => {
                         vec![self.dbg.set_breakpoint_at_addr((*addr).into())?]
                     }
-                    BreakpointRequest::Line(file, line) => {
+                    BreakpointIdentity::Line(file, line) => {
                         self.dbg.set_breakpoint_at_line(file, *line)?
                     }
-                    BreakpointRequest::Function(func_name) => {
+                    BreakpointIdentity::Function(func_name) => {
                         self.dbg.set_breakpoint_at_fn(func_name)?
                     }
-                    BreakpointRequest::Number(_) => {
+                    BreakpointIdentity::Number(_) => {
                         unimplemented!()
                     }
                 };
-                HandlingResult::New(res)
+                ExecutionResult::New(res)
             }
             Command::Remove(brkpt) => {
                 let res = match brkpt {
-                    BreakpointRequest::Address(addr) => self
+                    BreakpointIdentity::Address(addr) => self
                         .dbg
                         .remove_breakpoint(Address::Relocated((*addr).into()))?
                         .map(|brkpt| vec![brkpt])
                         .unwrap_or_default(),
-                    BreakpointRequest::Line(file, line) => {
+                    BreakpointIdentity::Line(file, line) => {
                         self.dbg.remove_breakpoint_at_line(file, *line)?
                     }
-                    BreakpointRequest::Function(func_name) => {
+                    BreakpointIdentity::Function(func_name) => {
                         self.dbg.remove_breakpoint_at_fn(func_name)?
                     }
-                    BreakpointRequest::Number(number) => self
+                    BreakpointIdentity::Number(number) => self
                         .dbg
                         .remove_breakpoint_by_number(*number)?
                         .map(|brkpt| vec![brkpt])
                         .unwrap_or_default(),
                 };
-                HandlingResult::Removed(res)
+                ExecutionResult::Removed(res)
             }
-            Command::Info => HandlingResult::Dump(self.dbg.breakpoints_snapshot()),
+            Command::Info => ExecutionResult::Dump(self.dbg.breakpoints_snapshot()),
             Command::AddDeferred(brkpt) => {
                 match brkpt {
-                    BreakpointRequest::Address(addr) => {
+                    BreakpointIdentity::Address(addr) => {
                         self.dbg.add_deferred_at_addr((*addr).into())
                     }
-                    BreakpointRequest::Line(file, line) => {
+                    BreakpointIdentity::Line(file, line) => {
                         self.dbg.add_deferred_at_line(file, *line)
                     }
-                    BreakpointRequest::Function(function) => {
+                    BreakpointIdentity::Function(function) => {
                         self.dbg.add_deferred_at_function(function)
                     }
-                    BreakpointRequest::Number(_) => {
+                    BreakpointIdentity::Number(_) => {
                         unimplemented!()
                     }
                 };
-                HandlingResult::AddDeferred
+                ExecutionResult::AddDeferred
             }
         };
         Ok(result)

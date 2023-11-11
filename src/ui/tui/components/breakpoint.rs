@@ -1,6 +1,6 @@
-use crate::debugger::command;
-use crate::debugger::command::r#break::HandlingResult;
-use crate::debugger::command::BreakpointCommand;
+use crate::ui::command;
+use crate::ui::command::r#break::Command as BreakpointCommand;
+use crate::ui::command::r#break::ExecutionResult;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::Msg;
@@ -64,9 +64,9 @@ impl MockComponent for Breakpoints {
 impl Breakpoints {
     pub fn breakpoint_table(exchanger: Arc<ClientExchanger>) -> Table {
         let breakpoints = exchanger.request_sync(|dbg| {
-            let mut cmd = command::Break::new(dbg);
+            let mut cmd = command::r#break::Handler::new(dbg);
             let brkpt_result = cmd.handle(&BreakpointCommand::Info).expect("unreachable");
-            let HandlingResult::Dump(breakpoints) =  brkpt_result else {
+            let ExecutionResult::Dump(breakpoints) =  brkpt_result else {
                 unreachable!()
             };
 

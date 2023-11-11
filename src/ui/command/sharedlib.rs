@@ -1,11 +1,11 @@
-use crate::debugger::debugee::RegionInfo;
 use crate::debugger::Debugger;
+use crate::debugger::RegionInfo;
 
-pub struct SharedLib<'a> {
+pub struct Handler<'a> {
     dbg: &'a Debugger,
 }
 
-impl<'a> SharedLib<'a> {
+impl<'a> Handler<'a> {
     pub fn new(debugger: &'a Debugger) -> Self {
         Self { dbg: debugger }
     }

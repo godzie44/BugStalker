@@ -1,4 +1,5 @@
-use crate::debugger::{command, Debugger, ThreadSnapshot};
+use crate::debugger::{Debugger, ThreadSnapshot};
+use crate::ui::command;
 
 #[derive(Debug)]
 pub enum Command {
@@ -6,16 +7,16 @@ pub enum Command {
     All,
 }
 
-pub struct Backtrace<'a> {
+pub struct Handler<'a> {
     dbg: &'a Debugger,
 }
 
-impl<'a> Backtrace<'a> {
+impl<'a> Handler<'a> {
     pub fn new(debugger: &'a Debugger) -> Self {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&self, cmd: Command) -> command::HandleResult<Vec<ThreadSnapshot>> {
+    pub fn handle(&self, cmd: Command) -> command::CommandResult<Vec<ThreadSnapshot>> {
         let mut snap = self.dbg.thread_state()?;
 
         match cmd {

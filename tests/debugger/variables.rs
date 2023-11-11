@@ -3,11 +3,11 @@ use crate::common::TestHooks;
 use crate::VARS_APP;
 use crate::{assert_no_proc, prepare_debugee_process};
 use bugstalker::debugger;
-use bugstalker::debugger::command::expression;
 use bugstalker::debugger::variable::render::RenderRepr;
 use bugstalker::debugger::variable::select::{Expression, VariableSelector};
 use bugstalker::debugger::variable::{select, VariableIR};
 use bugstalker::debugger::{variable, Debugger};
+use bugstalker::ui::command::parser::expression;
 use debugger::variable::SupportedScalar;
 use serial_test::serial;
 

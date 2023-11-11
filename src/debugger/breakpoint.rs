@@ -68,10 +68,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `addr`: breakpoint address
-    pub(super) fn remove_breakpoint(
-        &mut self,
-        addr: Address,
-    ) -> Result<Option<BreakpointView>, Error> {
+    pub fn remove_breakpoint(&mut self, addr: Address) -> Result<Option<BreakpointView>, Error> {
         self.breakpoints.remove_by_addr(addr)
     }
 

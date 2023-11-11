@@ -1,5 +1,6 @@
-use crate::debugger::command::ThreadResult;
-use crate::debugger::{command, ThreadSnapshot};
+use crate::debugger::ThreadSnapshot;
+use crate::ui::command;
+use crate::ui::command::thread::ExecutionResult as ThreadResult;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::{Id, Msg};
@@ -24,11 +25,11 @@ pub struct Threads {
 impl Threads {
     fn update_threads(&mut self) {
         let threads = self.exchanger.request_sync(|dbg| {
-            let thread_result = command::Thread::new(dbg)
-                .handle(command::ThreadCommand::Info)
+            let thread_result = command::thread::Handler::new(dbg)
+                .handle(command::thread::Command::Info)
                 .unwrap_or(ThreadResult::List(vec![]));
 
-            let command::ThreadResult::List(threads) = thread_result else {
+            let ThreadResult::List(threads) = thread_result else {
                 unreachable!()
             };
 
@@ -65,7 +66,7 @@ impl Threads {
                 .as_ref()
                 .map(|l| l.line_number.to_string())
                 .unwrap_or("???".to_string());
-            table_builder.add_col(make_span(format!("{func_name}(:{line})"), &thread_info));
+            table_builder.add_col(make_span(format!("{func_name}(:{line})"), thread_info));
 
             table_builder.add_row();
         }

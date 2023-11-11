@@ -1,4 +1,5 @@
-use crate::debugger::command;
+use crate::ui::command;
+use command::parser;
 
 pub const HELP: &str = r#"
 Available debugger commands:
@@ -213,22 +214,22 @@ pub fn help_for_command(command: Option<&str>) -> &str {
     match command {
         None => HELP,
         Some("data_query") => DATA_QUERY_DESCRIPTION,
-        Some(command::VAR_COMMAND) => HELP_VAR,
-        Some(command::ARG_COMMAND) => HELP_ARG,
-        Some(command::BACKTRACE_COMMAND) | Some(command::BACKTRACE_COMMAND_SHORT) => HELP_BACKTRACE,
-        Some(command::FRAME_COMMAND) | Some(command::FRAME_COMMAND_SHORT) => HELP_FRAME,
-        Some(command::CONTINUE_COMMAND) | Some(command::CONTINUE_COMMAND_SHORT) => HELP_CONTINUE,
-        Some(command::RUN_COMMAND) | Some(command::RUN_COMMAND_SHORT) => HELP_RUN,
-        Some(command::STEP_INSTRUCTION_COMMAND) => HELP_STEPI,
-        Some(command::STEP_INTO_COMMAND) | Some(command::STEP_INTO_COMMAND_SHORT) => HELP_STEPINTO,
-        Some(command::STEP_OUT_COMMAND) | Some(command::STEP_OUT_COMMAND_SHORT) => HELP_STEPOUT,
-        Some(command::STEP_OVER_COMMAND) | Some(command::STEP_OVER_COMMAND_SHORT) => HELP_STEPOVER,
-        Some(command::BREAK_COMMAND) | Some(command::BREAK_COMMAND_SHORT) => HELP_BREAK,
-        Some(command::SYMBOL_COMMAND) => HELP_SYMBOL,
-        Some(command::MEMORY_COMMAND) | Some(command::MEMORY_COMMAND_SHORT) => HELP_MEMORY,
-        Some(command::REGISTER_COMMAND) | Some(command::REGISTER_COMMAND_SHORT) => HELP_REGISTER,
-        Some(command::THREAD_COMMAND) => HELP_THREAD,
-        Some(command::SHARED_LIB_COMMAND) => HELP_SHARED_LIB,
+        Some(parser::VAR_COMMAND) => HELP_VAR,
+        Some(parser::ARG_COMMAND) => HELP_ARG,
+        Some(parser::BACKTRACE_COMMAND) | Some(parser::BACKTRACE_COMMAND_SHORT) => HELP_BACKTRACE,
+        Some(parser::FRAME_COMMAND) | Some(parser::FRAME_COMMAND_SHORT) => HELP_FRAME,
+        Some(parser::CONTINUE_COMMAND) | Some(parser::CONTINUE_COMMAND_SHORT) => HELP_CONTINUE,
+        Some(parser::RUN_COMMAND) | Some(parser::RUN_COMMAND_SHORT) => HELP_RUN,
+        Some(parser::STEP_INSTRUCTION_COMMAND) => HELP_STEPI,
+        Some(parser::STEP_INTO_COMMAND) | Some(parser::STEP_INTO_COMMAND_SHORT) => HELP_STEPINTO,
+        Some(parser::STEP_OUT_COMMAND) | Some(parser::STEP_OUT_COMMAND_SHORT) => HELP_STEPOUT,
+        Some(parser::STEP_OVER_COMMAND) | Some(parser::STEP_OVER_COMMAND_SHORT) => HELP_STEPOVER,
+        Some(parser::BREAK_COMMAND) | Some(parser::BREAK_COMMAND_SHORT) => HELP_BREAK,
+        Some(parser::SYMBOL_COMMAND) => HELP_SYMBOL,
+        Some(parser::MEMORY_COMMAND) | Some(parser::MEMORY_COMMAND_SHORT) => HELP_MEMORY,
+        Some(parser::REGISTER_COMMAND) | Some(parser::REGISTER_COMMAND_SHORT) => HELP_REGISTER,
+        Some(parser::THREAD_COMMAND) => HELP_THREAD,
+        Some(parser::SHARED_LIB_COMMAND) => HELP_SHARED_LIB,
         Some("tui") => HELP_TUI,
         Some("q") | Some("quit") => HELP_QUIT,
         _ => "unknown command",

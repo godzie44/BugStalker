@@ -1,4 +1,4 @@
-use crate::debugger::command::rust_identifier;
+use super::rust_identifier;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use nom::character::complete::{digit1, multispace0};
 use nom::combinator::{cut, eof, peek};
@@ -74,7 +74,7 @@ fn r_op(i: &str) -> IResult<&str, Expression, ErrorTree<&str>> {
     Ok((i, fold_expressions(initial, remainder)))
 }
 
-/// Parser for debugger::variables::select::Expression.
+/// Parser for [`Expression`].
 pub fn expr(input: &str) -> IResult<&str, Expression, ErrorTree<&str>> {
     alt((
         map(preceded(tag("*"), expr), |expr| {

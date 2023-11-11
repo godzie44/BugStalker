@@ -1,7 +1,7 @@
-use crate::debugger::command;
 use crate::debugger::variable::render::{RenderRepr, ValueLayout};
 use crate::debugger::variable::select;
 use crate::debugger::variable::select::VariableSelector;
+use crate::ui::command;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::{Id, Msg};
@@ -27,7 +27,7 @@ impl Variables {
     fn update_variables(&mut self) {
         let variables = self.exchanger.request_sync(|dbg| {
             let expr = select::Expression::Variable(VariableSelector::Any);
-            let vars = command::Variables::new(dbg)
+            let vars = command::variables::Handler::new(dbg)
                 .handle(expr)
                 .unwrap_or_default();
             vars

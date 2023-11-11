@@ -5,9 +5,10 @@ use ratatui::style::Color;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::debugger::command;
-use crate::debugger::command::r#break::BreakpointRequest;
-use crate::debugger::command::{BreakpointCommand, Command};
+use crate::ui::command;
+use crate::ui::command::r#break;
+use crate::ui::command::r#break::BreakpointIdentity;
+use crate::ui::command::Command;
 use crate::ui::tui::app::port::{
     AsyncResponsesPort, DebuggerEventQueue, DebuggerEventsPort, OutputPort, UserEvent,
 };
@@ -294,8 +295,8 @@ impl Model {
                     self.exchanger
                         .request_sync(move |dbg| -> anyhow::Result<()> {
                             let cmd =
-                                BreakpointCommand::Remove(BreakpointRequest::Number(brkpt_num));
-                            command::Break::new(dbg).handle(&cmd)?;
+                                r#break::Command::Remove(BreakpointIdentity::Number(brkpt_num));
+                            command::r#break::Handler::new(dbg).handle(&cmd)?;
                             Ok(())
                         })?;
 
@@ -311,10 +312,9 @@ impl Model {
                         self.exchanger
                             .request_sync(move |dbg| -> anyhow::Result<()> {
                                 let command = Command::parse(&input)?;
-                                if let Command::Breakpoint(BreakpointCommand::Add(brkpt)) = command
-                                {
-                                    command::Break::new(dbg)
-                                        .handle(&BreakpointCommand::Add(brkpt))?;
+                                if let Command::Breakpoint(r#break::Command::Add(brkpt)) = command {
+                                    command::r#break::Handler::new(dbg)
+                                        .handle(&r#break::Command::Add(brkpt))?;
                                 };
                                 Ok(())
                             })?;

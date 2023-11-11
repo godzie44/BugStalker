@@ -1,4 +1,5 @@
-use crate::debugger::{command, Debugger, FrameInfo};
+use crate::debugger::{Debugger, FrameInfo};
+use crate::ui::command;
 
 #[derive(Debug)]
 pub enum Command {
@@ -6,29 +7,29 @@ pub enum Command {
     Switch(u32),
 }
 
-pub enum Result {
+pub enum ExecutionResult {
     FrameInfo(FrameInfo),
     BroughtIntoFocus(u32),
 }
 
-pub struct Frame<'a> {
+pub struct Handler<'a> {
     dbg: &'a mut Debugger,
 }
 
-impl<'a> Frame<'a> {
+impl<'a> Handler<'a> {
     pub fn new(debugger: &'a mut Debugger) -> Self {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&mut self, cmd: Command) -> command::HandleResult<Result> {
+    pub fn handle(&mut self, cmd: Command) -> command::CommandResult<ExecutionResult> {
         match cmd {
             Command::Info => {
                 let info = self.dbg.frame_info()?;
-                Ok(Result::FrameInfo(info))
+                Ok(ExecutionResult::FrameInfo(info))
             }
             Command::Switch(num) => {
                 self.dbg.set_frame_into_focus(num)?;
-                Ok(Result::BroughtIntoFocus(num))
+                Ok(ExecutionResult::BroughtIntoFocus(num))
             }
         }
     }

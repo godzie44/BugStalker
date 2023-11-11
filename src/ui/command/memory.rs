@@ -1,5 +1,6 @@
-use crate::debugger::error::Error;
-use crate::debugger::{command, Debugger};
+use crate::debugger::Debugger;
+use crate::debugger::Error;
+use crate::ui::command;
 use nix::libc::uintptr_t;
 use std::mem;
 
@@ -9,16 +10,16 @@ pub enum Command {
     Write(usize, uintptr_t),
 }
 
-pub struct Memory<'a> {
+pub struct Handler<'a> {
     dbg: &'a Debugger,
 }
 
-impl<'a> Memory<'a> {
+impl<'a> Handler<'a> {
     pub fn new(debugger: &'a Debugger) -> Self {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&self, cmd: Command) -> command::HandleResult<uintptr_t> {
+    pub fn handle(&self, cmd: Command) -> command::CommandResult<uintptr_t> {
         let result = match &cmd {
             Command::Read(addr) => {
                 let bytes = self.dbg.read_memory(*addr, mem::size_of::<usize>())?;

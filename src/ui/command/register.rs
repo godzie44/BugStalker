@@ -1,6 +1,7 @@
-use crate::debugger::command::HandlingError;
 use crate::debugger::register::RegisterMap;
-use crate::debugger::{command, register, Debugger};
+use crate::debugger::{register, Debugger};
+use crate::ui::command;
+use crate::ui::command::CommandError;
 use register::Register as Reg;
 
 #[derive(Debug)]
@@ -10,7 +11,7 @@ pub enum Command {
     Write(String, u64),
 }
 
-pub struct Register<'a> {
+pub struct Handler<'a> {
     dbg: &'a Debugger,
 }
 
@@ -19,14 +20,14 @@ pub struct RegisterValue {
     pub value: u64,
 }
 
-pub type Response = Vec<RegisterValue>;
+pub type ExecutionResult = Vec<RegisterValue>;
 
-impl<'a> Register<'a> {
+impl<'a> Handler<'a> {
     pub fn new(debugger: &'a Debugger) -> Self {
         Self { dbg: debugger }
     }
 
-    pub fn handle(self, cmd: &Command) -> command::HandleResult<Response> {
+    pub fn handle(self, cmd: &Command) -> command::CommandResult<ExecutionResult> {
         match cmd {
             Command::Info => {
                 let registers_to_dump = &[
@@ -60,7 +61,7 @@ impl<'a> Register<'a> {
                 ];
 
                 let register_map = RegisterMap::current(self.dbg.exploration_ctx().pid_on_focus())
-                    .map_err(HandlingError::Debugger)?;
+                    .map_err(CommandError::Handle)?;
 
                 Ok(registers_to_dump
                     .iter()

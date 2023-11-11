@@ -2,9 +2,9 @@ use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
 use crate::CALC_APP;
 use crate::{assert_no_proc, prepare_debugee_process, HW_APP, RECURSION_APP, VARS_APP};
-use bugstalker::debugger::command::expression;
 use bugstalker::debugger::variable::{SupportedScalar, VariableIR};
 use bugstalker::debugger::Debugger;
+use bugstalker::ui::command::parser::expression;
 use serial_test::serial;
 use std::mem;
 

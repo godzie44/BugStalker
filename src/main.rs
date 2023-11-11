@@ -1,3 +1,5 @@
+//! Debugger application entry point.
+
 use bugstalker::debugger::process::Child;
 use bugstalker::debugger::{rust, Debugger, DoNothingHook};
 use bugstalker::ui::console::AppBuilder;

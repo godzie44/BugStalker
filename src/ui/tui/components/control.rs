@@ -1,4 +1,5 @@
-use crate::debugger::command;
+use crate::ui::command;
+use crate::ui::command::run;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::{Id, Msg};
@@ -113,7 +114,7 @@ impl Component<Msg, UserEvent> for GlobalControl {
                 modifiers: KeyModifiers::NONE,
             }) => {
                 self.exchanger
-                    .request_async(|dbg| Ok(command::Continue::new(dbg).handle()?));
+                    .request_async(|dbg| Ok(command::r#continue::Handler::new(dbg).handle()?));
                 Msg::AppRunning
             }
             Event::Keyboard(KeyEvent {
@@ -121,7 +122,7 @@ impl Component<Msg, UserEvent> for GlobalControl {
                 modifiers: KeyModifiers::NONE,
             }) => {
                 self.exchanger
-                    .request_async(|dbg| Ok(command::Run::new(dbg).start()?));
+                    .request_async(|dbg| Ok(run::Handler::new(dbg).handle(run::Command::Start)?));
                 Msg::AppRunning
             }
             Event::User(UserEvent::Signal(sig)) => {
@@ -132,7 +133,7 @@ impl Component<Msg, UserEvent> for GlobalControl {
                 modifiers: KeyModifiers::NONE,
             }) => {
                 self.exchanger
-                    .request_async(|dbg| Ok(command::StepOver::new(dbg).handle()?));
+                    .request_async(|dbg| Ok(command::step_over::Handler::new(dbg).handle()?));
                 Msg::AppRunning
             }
             Event::Keyboard(KeyEvent {
@@ -140,7 +141,7 @@ impl Component<Msg, UserEvent> for GlobalControl {
                 modifiers: KeyModifiers::NONE,
             }) => {
                 self.exchanger
-                    .request_async(|dbg| Ok(command::StepInto::new(dbg).handle()?));
+                    .request_async(|dbg| Ok(command::step_into::Handler::new(dbg).handle()?));
                 Msg::AppRunning
             }
             Event::Keyboard(KeyEvent {
@@ -148,7 +149,7 @@ impl Component<Msg, UserEvent> for GlobalControl {
                 modifiers: KeyModifiers::NONE,
             }) => {
                 self.exchanger
-                    .request_async(|dbg| Ok(command::StepOut::new(dbg).handle()?));
+                    .request_async(|dbg| Ok(command::step_out::Handler::new(dbg).handle()?));
                 Msg::AppRunning
             }
             Event::User(UserEvent::AsyncErrorResponse(err)) => Msg::ShowAlert(err),

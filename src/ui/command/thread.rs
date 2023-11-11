@@ -1,5 +1,6 @@
-use crate::debugger::debugee::tracee::Tracee;
-use crate::debugger::{command, Debugger, ThreadSnapshot};
+use crate::debugger::Tracee;
+use crate::debugger::{Debugger, ThreadSnapshot};
+use crate::ui::command;
 
 #[derive(Debug)]
 pub enum Command {
@@ -8,35 +9,35 @@ pub enum Command {
     Switch(u32),
 }
 
-pub struct Thread<'a> {
+pub struct Handler<'a> {
     dbg: &'a mut Debugger,
 }
 
-pub enum Result {
+pub enum ExecutionResult {
     List(Vec<ThreadSnapshot>),
     BroughtIntoFocus(Tracee),
 }
 
-impl<'a> Thread<'a> {
+impl<'a> Handler<'a> {
     pub fn new(debugger: &'a mut Debugger) -> Self {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&mut self, cmd: Command) -> command::HandleResult<Result> {
+    pub fn handle(&mut self, cmd: Command) -> command::CommandResult<ExecutionResult> {
         match cmd {
             Command::Info => {
                 let state = self.dbg.thread_state()?;
-                Ok(Result::List(state))
+                Ok(ExecutionResult::List(state))
             }
             Command::Current => {
                 let state = self.dbg.thread_state()?;
-                Ok(Result::List(
+                Ok(ExecutionResult::List(
                     state.into_iter().filter(|t| t.in_focus).collect(),
                 ))
             }
             Command::Switch(num) => {
                 let in_focus_tracee = self.dbg.set_thread_into_focus(num)?;
-                Ok(Result::BroughtIntoFocus(in_focus_tracee))
+                Ok(ExecutionResult::BroughtIntoFocus(in_focus_tracee))
             }
         }
     }

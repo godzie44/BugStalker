@@ -1,14 +1,25 @@
 use crate::debugger;
-use crate::debugger::command::r#break::{Break, HandlingResult};
-use crate::debugger::command::Continue;
-use crate::debugger::command::{
-    r#break, Arguments, Backtrace, Command, Frame, FrameResult, HandlingError, Run, SharedLib,
-    StepI, StepInto, StepOut, StepOver, Symbol, ThreadResult, Variables,
-};
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::select::{Expression, VariableSelector};
-use crate::debugger::{command, Debugger};
+use crate::debugger::Debugger;
+use crate::ui::command;
+use crate::ui::command::arguments::Handler as ArgumentsHandler;
+use crate::ui::command::backtrace::Handler as BacktraceHandler;
+use crate::ui::command::frame::ExecutionResult as FrameResult;
+use crate::ui::command::frame::Handler as FrameHandler;
+use crate::ui::command::memory::Handler as MemoryHandler;
+use crate::ui::command::r#break::ExecutionResult;
+use crate::ui::command::r#break::Handler as BreakpointHandler;
+use crate::ui::command::r#continue::Handler as ContinueHandler;
+use crate::ui::command::register::Handler as RegisterHandler;
+use crate::ui::command::run::Handler as RunHandler;
+use crate::ui::command::sharedlib::Handler as SharedlibHandler;
+use crate::ui::command::symbol::Handler as SymbolHandler;
+use crate::ui::command::thread::ExecutionResult as ThreadResult;
+use crate::ui::command::variables::Handler as VariablesHandler;
+use crate::ui::command::{r#break, step_instruction, step_into, step_out, step_over, CommandError};
+use crate::ui::command::{run, Command};
 use crate::ui::console::editor::{create_editor, CommandCompleter, RLHelper};
 use crate::ui::console::help::*;
 use crate::ui::console::hook::TerminalHook;
@@ -18,7 +29,6 @@ use crate::ui::console::print::style::{
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::variable::render_variable_ir;
 use crate::ui::DebugeeOutReader;
-use command::{Memory, Register};
 use crossterm::style::Stylize;
 use debugger::Error;
 use nix::sys::signal::{kill, Signal};
@@ -312,9 +322,9 @@ impl AppLoop {
         Ok(())
     }
 
-    fn handle_command(&mut self, cmd: &str) -> Result<(), HandlingError> {
+    fn handle_command(&mut self, cmd: &str) -> Result<(), CommandError> {
         match Command::parse(cmd)? {
-            Command::PrintVariables(print_var_command) => Variables::new(&self.debugger)
+            Command::PrintVariables(print_var_command) => VariablesHandler::new(&self.debugger)
                 .handle(print_var_command)?
                 .into_iter()
                 .for_each(|var| {
@@ -324,7 +334,7 @@ impl AppLoop {
                         render_variable_ir(&var, 0)
                     ));
                 }),
-            Command::PrintArguments(print_arg_command) => Arguments::new(&self.debugger)
+            Command::PrintArguments(print_arg_command) => ArgumentsHandler::new(&self.debugger)
                 .handle(print_arg_command)?
                 .into_iter()
                 .for_each(|arg| {
@@ -335,7 +345,7 @@ impl AppLoop {
                     ));
                 }),
             Command::PrintBacktrace(cmd) => {
-                let bt = Backtrace::new(&self.debugger).handle(cmd)?;
+                let bt = BacktraceHandler::new(&self.debugger).handle(cmd)?;
                 bt.into_iter().for_each(|thread| {
                     let ip = thread
                         .bt
@@ -379,11 +389,11 @@ impl AppLoop {
                 });
             }
             Command::Continue => {
-                Continue::new(&mut self.debugger).handle()?;
+                ContinueHandler::new(&mut self.debugger).handle()?;
                 _ = self.update_completer_variables();
             }
             Command::Frame(cmd) => {
-                let result = Frame::new(&mut self.debugger).handle(cmd)?;
+                let result = FrameHandler::new(&mut self.debugger).handle(cmd)?;
                 match result {
                     FrameResult::FrameInfo(frame) => {
                         self.printer.print(format!(
@@ -406,28 +416,28 @@ impl AppLoop {
 
                 if ALREADY_RUN.load(Ordering::Acquire) {
                     if self.yes("Restart program? (y or n)") {
-                        Run::new(&mut self.debugger).restart()?
+                        RunHandler::new(&mut self.debugger).handle(run::Command::Restart)?
                     }
                 } else {
-                    Run::new(&mut self.debugger).start()?;
+                    RunHandler::new(&mut self.debugger).handle(run::Command::Start)?;
                     ALREADY_RUN.store(true, Ordering::Release);
                     _ = self.update_completer_variables();
                 }
             }
             Command::StepInstruction => {
-                StepI::new(&mut self.debugger).handle()?;
+                step_instruction::Handler::new(&mut self.debugger).handle()?;
                 _ = self.update_completer_variables();
             }
             Command::StepInto => {
-                StepInto::new(&mut self.debugger).handle()?;
+                step_into::Handler::new(&mut self.debugger).handle()?;
                 _ = self.update_completer_variables();
             }
             Command::StepOut => {
-                StepOut::new(&mut self.debugger).handle()?;
+                step_out::Handler::new(&mut self.debugger).handle()?;
                 _ = self.update_completer_variables();
             }
             Command::StepOver => {
-                StepOver::new(&mut self.debugger).handle()?;
+                step_over::Handler::new(&mut self.debugger).handle()?;
                 _ = self.update_completer_variables();
             }
             Command::Breakpoint(mut brkpt_cmd) => {
@@ -451,18 +461,18 @@ impl AppLoop {
                 };
 
                 loop {
-                    match Break::new(&mut self.debugger).handle(&brkpt_cmd) {
-                        Ok(r#break::HandlingResult::New(brkpts)) => {
+                    match BreakpointHandler::new(&mut self.debugger).handle(&brkpt_cmd) {
+                        Ok(r#break::ExecutionResult::New(brkpts)) => {
                             brkpts
                                 .iter()
                                 .for_each(|brkpt| print_bp("New breakpoint", brkpt));
                         }
-                        Ok(r#break::HandlingResult::Removed(brkpts)) => {
+                        Ok(r#break::ExecutionResult::Removed(brkpts)) => {
                             brkpts
                                 .iter()
                                 .for_each(|brkpt| print_bp("Remove breakpoint", brkpt));
                         }
-                        Ok(r#break::HandlingResult::Dump(brkpts)) => brkpts
+                        Ok(r#break::ExecutionResult::Dump(brkpts)) => brkpts
                             .iter()
                             .for_each(|brkpt| print_bp("- Breakpoint", brkpt)),
                         Err(Error::NoSuitablePlace) => {
@@ -471,14 +481,14 @@ impl AppLoop {
                             ) {
                                 brkpt_cmd = BreakpointCommand::AddDeferred(
                                         brkpt_cmd
-                                            .breakpoint()
+                                            .identity()
                                             .expect("unreachable: deferred breakpoint must based on exists breakpoint"),
                                     );
                                 continue;
                             }
                         }
                         Err(e) => return Err(e.into()),
-                        Ok(HandlingResult::AddDeferred) => {
+                        Ok(ExecutionResult::AddDeferred) => {
                             self.printer.print("Add deferred endpoint")
                         }
                     }
@@ -486,11 +496,11 @@ impl AppLoop {
                 }
             }
             Command::Memory(mem_cmd) => {
-                let read = Memory::new(&self.debugger).handle(mem_cmd)?;
+                let read = MemoryHandler::new(&self.debugger).handle(mem_cmd)?;
                 self.printer.print(format!("{:#016X}", read));
             }
             Command::Register(reg_cmd) => {
-                let response = Register::new(&self.debugger).handle(&reg_cmd)?;
+                let response = RegisterHandler::new(&self.debugger).handle(&reg_cmd)?;
                 response.iter().for_each(|register| {
                     self.printer.print(format!(
                         "{:10} {:#016X}",
@@ -505,7 +515,7 @@ impl AppLoop {
                 self.printer.print(help_for_command(command.as_deref()));
             }
             Command::PrintSymbol(symbol) => {
-                let symbols = Symbol::new(&self.debugger).handle(&symbol)?;
+                let symbols = SymbolHandler::new(&self.debugger).handle(&symbol)?;
                 for symbol in symbols {
                     self.printer.print(format!(
                         "{} - {:?} {}",
@@ -516,7 +526,7 @@ impl AppLoop {
                 }
             }
             Command::Thread(cmd) => {
-                let result = command::Thread::new(&mut self.debugger).handle(cmd)?;
+                let result = command::thread::Handler::new(&mut self.debugger).handle(cmd)?;
                 match result {
                     ThreadResult::List(mut list) => {
                         list.sort_by(|t1, t2| t1.thread.number.cmp(&t2.thread.number));
@@ -546,7 +556,7 @@ impl AppLoop {
                 }
             }
             Command::SharedLib => {
-                let cmd = SharedLib::new(&self.debugger);
+                let cmd = SharedlibHandler::new(&self.debugger);
                 for lib in cmd.handle() {
                     let mb_range = lib
                         .range
@@ -576,16 +586,16 @@ impl AppLoop {
                     thread::sleep(Duration::from_millis(1));
                     if let Err(e) = self.handle_command(&command) {
                         match e {
-                            HandlingError::Parser(_) => {
+                            CommandError::Parsing(_) => {
                                 self.printer.print(ErrorView::from(e));
                             }
-                            HandlingError::Debugger(ref err) if err.is_fatal() => {
+                            CommandError::Handle(ref err) if err.is_fatal() => {
                                 self.printer.print(ErrorView::from("shutdown debugger"));
                                 self.printer
                                     .print(ErrorView::from(format!("fatal debugger error: {e:#}")));
                                 exit(0);
                             }
-                            HandlingError::Debugger(_) => {
+                            CommandError::Handle(_) => {
                                 self.printer
                                     .print(ErrorView::from(format!("debugger error: {e:#}")));
                             }

@@ -1,7 +1,6 @@
 pub mod address;
 mod breakpoint;
 mod code;
-pub mod command;
 mod debugee;
 mod error;
 pub mod process;
@@ -18,6 +17,10 @@ pub use debugee::dwarf::unit::FunctionDie;
 pub use debugee::dwarf::unit::PlaceDescriptor;
 pub use debugee::dwarf::unit::PlaceDescriptorOwned;
 pub use debugee::dwarf::unwind;
+pub use debugee::dwarf::Symbol;
+pub use debugee::tracee::Tracee;
+pub use debugee::FrameInfo;
+pub use debugee::RegionInfo;
 pub use debugee::ThreadSnapshot;
 pub use error::Error;
 
@@ -25,10 +28,9 @@ use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};
 use crate::debugger::debugee::dwarf::r#type::TypeCache;
 use crate::debugger::debugee::dwarf::unwind::Backtrace;
-use crate::debugger::debugee::dwarf::{DwarfUnwinder, Symbol};
-use crate::debugger::debugee::tracee::Tracee;
+use crate::debugger::debugee::dwarf::DwarfUnwinder;
 use crate::debugger::debugee::tracer::{StopReason, TraceContext};
-use crate::debugger::debugee::{Debugee, ExecutionStatus, FrameInfo, Location, RegionInfo};
+use crate::debugger::debugee::{Debugee, ExecutionStatus, Location};
 use crate::debugger::error::Error::{
     FrameNotFound, Hook, ProcessNotStarted, Ptrace, RegisterNameNotFound, UnwindNoContext,
 };
