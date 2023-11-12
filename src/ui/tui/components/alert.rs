@@ -1,11 +1,11 @@
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::Msg;
-use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::prelude::Style;
-use ratatui::style::Color;
-use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::event::{Key, KeyEvent};
+use tuirealm::tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use tuirealm::tui::prelude::Style;
+use tuirealm::tui::style::Color;
+use tuirealm::tui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use tuirealm::{AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State};
 
 #[derive(Default)]

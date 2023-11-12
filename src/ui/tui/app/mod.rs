@@ -1,9 +1,9 @@
 pub mod port;
 
-use ratatui::layout::Alignment;
-use ratatui::style::Color;
 use std::sync::Arc;
 use std::time::Duration;
+use tuirealm::tui::layout::Alignment;
+use tuirealm::tui::style::Color;
 
 use crate::ui::command;
 use crate::ui::command::r#break;

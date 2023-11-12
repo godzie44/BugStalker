@@ -1,13 +1,13 @@
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::output::OutputLine;
 use crate::ui::tui::{Id, Msg};
-use ratatui::layout::Alignment;
-use ratatui::prelude::Color;
-use ratatui::widgets::BorderType;
 use tui_realm_stdlib::Textarea;
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
 use tuirealm::props::{Borders, PropPayload, PropValue, TextSpan};
+use tuirealm::tui::layout::Alignment;
+use tuirealm::tui::prelude::Color;
+use tuirealm::tui::widgets::BorderType;
 use tuirealm::{
     AttrValue, Attribute, Component, Event, MockComponent, Sub, SubClause, SubEventClause,
 };

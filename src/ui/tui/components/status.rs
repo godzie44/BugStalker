@@ -1,12 +1,12 @@
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::{Id, Msg};
 use nix::sys::signal::Signal;
-use ratatui::layout::{Alignment, Rect};
-use ratatui::style::Color;
-use ratatui::widgets::BorderType;
 use tui_realm_stdlib::{Container, Label};
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::props::{Borders, Layout, PropPayload, PropValue, TextSpan};
+use tuirealm::tui::layout::{Alignment, Rect};
+use tuirealm::tui::style::Color;
+use tuirealm::tui::widgets::BorderType;
 use tuirealm::{
     AttrValue, Attribute, Component, Event, Frame, MockComponent, State, Sub, SubClause,
     SubEventClause,

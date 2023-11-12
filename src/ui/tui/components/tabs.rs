@@ -1,12 +1,12 @@
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::Msg;
-use ratatui::layout::Alignment;
-use ratatui::style::Color;
-use ratatui::widgets::BorderType;
 use tui_realm_stdlib::Radio;
 use tuirealm::command::{Cmd, CmdResult, Direction};
 use tuirealm::event::{Key, KeyEvent};
 use tuirealm::props::Borders;
+use tuirealm::tui::layout::Alignment;
+use tuirealm::tui::style::Color;
+use tuirealm::tui::widgets::BorderType;
 use tuirealm::{Component, Event, MockComponent, State, StateValue};
 
 #[derive(MockComponent)]

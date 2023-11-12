@@ -5,13 +5,13 @@ use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::{Id, Msg};
 use nix::sys::signal::Signal;
-use ratatui::layout::Alignment;
-use ratatui::style::Color;
 use std::sync::Arc;
 use tui_realm_stdlib::List;
 use tuirealm::command::{Cmd, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
 use tuirealm::props::{TableBuilder, TextSpan};
+use tuirealm::tui::layout::Alignment;
+use tuirealm::tui::style::Color;
 use tuirealm::{
     AttrValue, Attribute, Component, Event, MockComponent, Sub, SubClause, SubEventClause,
 };

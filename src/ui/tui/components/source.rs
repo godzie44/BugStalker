@@ -1,9 +1,6 @@
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::{Id, Msg};
-use ratatui::layout::Alignment;
-use ratatui::prelude::Color;
-use ratatui::widgets::BorderType;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -14,6 +11,9 @@ use tui_realm_stdlib::Textarea;
 use tuirealm::command::{Cmd, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
 use tuirealm::props::{Borders, PropPayload, PropValue, TextSpan};
+use tuirealm::tui::layout::Alignment;
+use tuirealm::tui::prelude::Color;
+use tuirealm::tui::widgets::BorderType;
 use tuirealm::{
     AttrValue, Attribute, Component, Event, MockComponent, Sub, SubClause, SubEventClause,
 };

@@ -139,7 +139,6 @@ dependencies = [
  "ouroboros",
  "proc-maps",
  "rand",
- "ratatui",
  "rayon",
  "regex",
  "rustc-demangle",
@@ -156,7 +155,6 @@ dependencies = [
  "timeout-readwrite",
  "trie-rs",
  "tui-realm-stdlib",
- "tui-textarea",
  "tuirealm",
  "typed-arena",
  "unwind",
@@ -1751,16 +1749,6 @@ dependencies = [
  "textwrap",
  "tuirealm",
  "unicode-width",
-]
-
-[[package]]
-name = "tui-textarea"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ddd5d2aea3541baccf9c298ecace702201e0fbf348e80bd8811acb4f62b5952"
-dependencies = [
- "crossterm 0.27.0",
- "ratatui",
 ]
 
 [[package]]
