@@ -16,6 +16,7 @@ mod app;
 pub mod components;
 mod output;
 mod proto;
+pub mod utils;
 
 pub use crate::ui::tui::app::port::TuiHook;
 

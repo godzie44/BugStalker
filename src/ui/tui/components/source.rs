@@ -1,16 +1,21 @@
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
+use crate::ui::tui::utils::mstextarea::MultiSpanTextarea;
+use crate::ui::tui::utils::syntect::into_text_span;
 use crate::ui::tui::{Id, Msg};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::io::BufRead;
+use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::{fs, io};
-use tui_realm_stdlib::Textarea;
+use syntect::easy::HighlightLines;
+use syntect::highlighting::ThemeSet;
+use syntect::parsing::SyntaxSet;
+use syntect::util::LinesWithEndings;
 use tuirealm::command::{Cmd, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
-use tuirealm::props::{Borders, PropPayload, PropValue, TextSpan};
+use tuirealm::props::{Borders, TextSpan};
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::prelude::Color;
 use tuirealm::tui::widgets::BorderType;
@@ -20,25 +25,41 @@ use tuirealm::{
 
 #[derive(Default)]
 struct FileLinesCache {
-    files: HashMap<PathBuf, Vec<String>>,
+    files: HashMap<PathBuf, Vec<Vec<TextSpan>>>,
 }
 
 impl FileLinesCache {
-    fn lines(&mut self, file: &Path) -> &Vec<String> {
+    fn lines(&mut self, file: &Path) -> &Vec<Vec<TextSpan>> {
         match self.files.entry(file.to_path_buf()) {
             Entry::Occupied(o) => o.into_mut(),
             Entry::Vacant(v) => {
-                let lines = fs::File::open(file)
-                    .map(|file| {
-                        io::BufReader::new(file)
-                            .lines()
-                            .enumerate()
-                            .filter_map(|(num, line)| {
-                                line.map(|l| format!("{ln} {l}", ln = num + 1)).ok()
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_else(|_| vec!["Failed to open file".to_string()]);
+                let mut file = match fs::File::open(file) {
+                    Ok(f) => f,
+                    Err(_) => panic!("Failed to open file"),
+                };
+
+                let mut source_code = String::new();
+                file.read_to_string(&mut source_code).unwrap();
+
+                let ps = SyntaxSet::load_defaults_newlines();
+                let ts = ThemeSet::load_defaults();
+                let syntax = ps.find_syntax_by_extension("rs").unwrap();
+                let mut h = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
+                let mut lines = vec![];
+                for (i, line) in LinesWithEndings::from(&source_code).enumerate() {
+                    let mut line_spans = vec![TextSpan::new(format!("{:>4} ", i + 1))];
+
+                    h.highlight_line(line, &ps)
+                        .unwrap()
+                        .into_iter()
+                        .for_each(|segment| {
+                            if let Ok(span) = into_text_span(segment) {
+                                line_spans.push(span)
+                            }
+                        });
+
+                    lines.push(line_spans);
+                }
 
                 v.insert(lines)
             }
@@ -48,7 +69,7 @@ impl FileLinesCache {
 
 #[derive(MockComponent)]
 pub struct Source {
-    component: Textarea,
+    component: MultiSpanTextarea,
     file_cache: FileLinesCache,
 }
 
@@ -70,7 +91,7 @@ impl Source {
         });
 
         let cache = FileLinesCache::default();
-        let component = Textarea::default()
+        let component = MultiSpanTextarea::default()
             .borders(
                 Borders::default()
                     .modifiers(BorderType::Rounded)
@@ -103,22 +124,16 @@ impl Source {
             .file_cache
             .lines(file)
             .iter()
+            .cloned()
             .enumerate()
-            .map(|(i, line)| {
+            .map(|(i, mut line)| {
                 if Some((i + 1) as u64) == mb_line_num {
-                    TextSpan::new(line).bg(Color::LightRed)
-                } else {
-                    TextSpan::new(line)
+                    line.iter_mut().for_each(|text| text.fg = Color::LightRed)
                 }
+                line
             })
-            .collect::<Vec<_>>();
-
-        self.component.attr(
-            Attribute::Text,
-            AttrValue::Payload(PropPayload::Vec(
-                lines.into_iter().map(PropValue::TextSpan).collect(),
-            )),
-        );
+            .collect();
+        self.component.text_rows(lines);
 
         if let Some(line) = mb_line_num {
             self.component.states.list_index = (line as usize).saturating_sub(1);
