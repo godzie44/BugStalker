@@ -12,13 +12,15 @@ use tuirealm::{Component, Event, MockComponent, Sub, SubClause, SubEventClause};
 pub struct GlobalControl {
     component: tui_realm_stdlib::Phantom,
     exchanger: Arc<ClientExchanger>,
+    already_run: bool,
 }
 
 impl GlobalControl {
-    pub fn new(exchanger: Arc<ClientExchanger>) -> Self {
+    pub fn new(exchanger: Arc<ClientExchanger>, app_already_run: bool) -> Self {
         Self {
             component: tui_realm_stdlib::Phantom::default(),
             exchanger,
+            already_run: app_already_run,
         }
     }
 
@@ -119,15 +121,22 @@ impl Component<Msg, UserEvent> for GlobalControl {
             }
             Event::Keyboard(KeyEvent {
                 code: Key::Char('r'),
-                modifiers: KeyModifiers::NONE,
+                ..
             }) => {
-                self.exchanger
-                    .request_async(|dbg| Ok(run::Handler::new(dbg).handle(run::Command::Start)?));
-                Msg::AppRunning
+                if self.already_run {
+                    Msg::ConfirmDebuggerRestart
+                } else {
+                    self.exchanger.request_async(|dbg| {
+                        Ok(run::Handler::new(dbg).handle(run::Command::Start)?)
+                    });
+                    self.already_run = true;
+                    Msg::AppRunning
+                }
             }
-            Event::User(UserEvent::Signal(sig)) => {
-                Msg::ShowAlert(format!("Application receive signal: {sig}"))
-            }
+            Event::User(UserEvent::Signal(sig)) => Msg::ShowOkPopup(
+                Some("Signal stop".to_string()),
+                format!("Application receive signal: {sig}"),
+            ),
             Event::Keyboard(KeyEvent {
                 code: Key::Function(8),
                 modifiers: KeyModifiers::NONE,
@@ -152,7 +161,9 @@ impl Component<Msg, UserEvent> for GlobalControl {
                     .request_async(|dbg| Ok(command::step_out::Handler::new(dbg).handle()?));
                 Msg::AppRunning
             }
-            Event::User(UserEvent::AsyncErrorResponse(err)) => Msg::ShowAlert(err),
+            Event::User(UserEvent::AsyncErrorResponse(err)) => {
+                Msg::ShowOkPopup(Some("Error".to_string()), err)
+            }
             _ => Msg::None,
         };
         Some(msg)

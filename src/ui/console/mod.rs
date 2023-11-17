@@ -63,6 +63,7 @@ type BSEditor = Editor<RLHelper, MemHistory>;
 pub struct AppBuilder {
     debugee_out: DebugeeOutReader,
     debugee_err: DebugeeOutReader,
+    already_run: bool,
 }
 
 impl AppBuilder {
@@ -70,6 +71,14 @@ impl AppBuilder {
         Self {
             debugee_out,
             debugee_err,
+            already_run: false,
+        }
+    }
+
+    pub fn app_already_run(self) -> Self {
+        Self {
+            already_run: true,
+            ..self
         }
     }
 
@@ -106,6 +115,7 @@ impl AppBuilder {
             debugee_err: self.debugee_err,
             control_tx,
             control_rx,
+            already_run: self.already_run,
         })
     }
 
@@ -136,6 +146,7 @@ impl AppBuilder {
             debugee_err: self.debugee_err,
             control_tx,
             control_rx,
+            already_run: self.already_run,
         })
     }
 }
@@ -158,6 +169,7 @@ pub struct TerminalApplication {
     debugee_err: DebugeeOutReader,
     control_tx: SyncSender<Control>,
     control_rx: Receiver<Control>,
+    already_run: bool,
 }
 
 pub static LOGGER_ONCE: Once = Once::new();
@@ -225,6 +237,7 @@ impl TerminalApplication {
             debugee_out: self.debugee_out.clone(),
             debugee_err: self.debugee_err.clone(),
             cancel_output_flag: cancel,
+            already_run: self.already_run,
         };
 
         let mut editor = self.editor;
@@ -289,6 +302,7 @@ struct AppLoop {
     debugee_out: DebugeeOutReader,
     debugee_err: DebugeeOutReader,
     cancel_output_flag: Arc<AtomicBool>,
+    already_run: bool,
 }
 
 impl AppLoop {
@@ -412,15 +426,13 @@ impl AppLoop {
                 }
             }
             Command::Run => {
-                static ALREADY_RUN: AtomicBool = AtomicBool::new(false);
-
-                if ALREADY_RUN.load(Ordering::Acquire) {
-                    if self.yes("Restart program? (y or n)") {
+                if self.already_run {
+                    if self.yes("Restart a program? (y or n)") {
                         RunHandler::new(&mut self.debugger).handle(run::Command::Restart)?
                     }
                 } else {
                     RunHandler::new(&mut self.debugger).handle(run::Command::Start)?;
-                    ALREADY_RUN.store(true, Ordering::Release);
+                    self.already_run = true;
                     _ = self.update_completer_variables();
                 }
             }
@@ -607,8 +619,12 @@ impl AppLoop {
                 }
                 Control::ChangeMode => {
                     self.cancel_output_flag.store(true, Ordering::SeqCst);
-                    let app = crate::ui::tui::AppBuilder::new(self.debugee_out, self.debugee_err)
-                        .build(self.debugger);
+                    let mut tui_builder =
+                        crate::ui::tui::AppBuilder::new(self.debugee_out, self.debugee_err);
+                    if self.already_run {
+                        tui_builder = tui_builder.app_already_run();
+                    }
+                    let app = tui_builder.build(self.debugger);
                     app.run().expect("run application fail");
                     break;
                 }

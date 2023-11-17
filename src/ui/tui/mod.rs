@@ -9,6 +9,7 @@ use log::error;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use strum_macros::{Display, EnumString};
 use timeout_readwrite::TimeoutReader;
 use tuirealm::{AttrValue, Attribute, PollStrategy};
 
@@ -19,6 +20,7 @@ mod proto;
 pub mod utils;
 
 pub use crate::ui::tui::app::port::TuiHook;
+use crate::ui::tui::components::popup::Popup;
 
 // Component ids for debugger application
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
@@ -37,7 +39,12 @@ pub enum Id {
     GlobalControl,
 
     Input,
-    Alert,
+    Popup,
+}
+
+#[derive(Debug, PartialEq, EnumString, Display)]
+pub enum ConfirmedAction {
+    Restart,
 }
 
 #[derive(Debug, PartialEq)]
@@ -56,8 +63,11 @@ pub enum Msg {
     LogsInFocus,
     AddBreakpointRequest,
     RemoveBreakpointRequest(u32),
-    ShowAlert(String),
-    CloseAlert,
+    ConfirmDebuggerRestart,
+    ShowOkPopup(Option<String>, String),
+    PopupOk,
+    PopupYes(ConfirmedAction),
+    PopupNo(ConfirmedAction),
     Input(String),
 }
 
@@ -69,6 +79,7 @@ pub struct DebugeeStreamBuffer {
 pub struct AppBuilder {
     debugee_out: DebugeeOutReader,
     debugee_err: DebugeeOutReader,
+    already_run: bool,
 }
 
 impl AppBuilder {
@@ -76,15 +87,29 @@ impl AppBuilder {
         Self {
             debugee_out,
             debugee_err,
+            already_run: false,
+        }
+    }
+
+    pub fn app_already_run(self) -> Self {
+        Self {
+            already_run: true,
+            ..self
         }
     }
 
     pub fn build(self, debugger: Debugger) -> TuiApplication {
-        TuiApplication::new(debugger, self.debugee_out, self.debugee_err)
+        TuiApplication::new(
+            debugger,
+            self.debugee_out,
+            self.debugee_err,
+            self.already_run,
+        )
     }
 }
 
 pub struct TuiApplication {
+    already_run: bool,
     debugger: Debugger,
     debugee_out: DebugeeOutReader,
     debugee_err: DebugeeOutReader,
@@ -95,11 +120,13 @@ impl TuiApplication {
         debugger: Debugger,
         debugee_out: DebugeeOutReader,
         debugee_err: DebugeeOutReader,
+        already_run: bool,
     ) -> Self {
         Self {
             debugger,
             debugee_out,
             debugee_err,
+            already_run,
         }
     }
 
@@ -126,8 +153,14 @@ impl TuiApplication {
         let (srv_exchanger, client_exchanger) = exchanger();
 
         // tui thread
-        let ui_jh = thread::spawn(|| -> anyhow::Result<()> {
-            let mut model = Model::new(stream_buf, debugger_event_queue, client_exchanger)?;
+        let already_run = self.already_run;
+        let ui_jh = thread::spawn(move || -> anyhow::Result<()> {
+            let mut model = Model::new(
+                stream_buf,
+                debugger_event_queue,
+                client_exchanger,
+                already_run,
+            )?;
             model.terminal.enter_alternate_screen()?;
             model.terminal.enable_raw_mode()?;
 
@@ -135,12 +168,19 @@ impl TuiApplication {
                 match model.app.tick(PollStrategy::Once) {
                     Err(err) => {
                         model.app.attr(
-                            &Id::Alert,
-                            Attribute::Text,
-                            AttrValue::String(format!("Tui error: {err}")),
+                            &Id::Popup,
+                            Attribute::Title,
+                            AttrValue::String("TUI error".to_string()),
                         )?;
-                        model.app.active(&Id::Alert)?;
-                        model.alert = true;
+                        model.app.attr(
+                            &Id::Popup,
+                            Attribute::Text,
+                            AttrValue::String(err.to_string()),
+                        )?;
+                        let (ok_attr, ok_attr_val) = Popup::ok_attrs();
+                        model.app.attr(&Id::Popup, ok_attr, ok_attr_val)?;
+                        model.app.active(&Id::Popup)?;
+                        model.popup = true;
                     }
                     Ok(messages) if !messages.is_empty() => {
                         // NOTE: redraw if at least one msg has been processed
@@ -150,7 +190,10 @@ impl TuiApplication {
                             while msg.is_some() {
                                 msg = match model.update(msg) {
                                     Ok(msg) => msg,
-                                    Err(e) => Some(Msg::ShowAlert(e.to_string())),
+                                    Err(e) => Some(Msg::ShowOkPopup(
+                                        Some("Error".to_string()),
+                                        e.to_string(),
+                                    )),
                                 };
                             }
                         }
@@ -221,7 +264,11 @@ impl TuiApplication {
             }
             ExitType::SwitchUi => {
                 _ = ui_jh.join();
-                let app = console::AppBuilder::new(self.debugee_out, self.debugee_err)
+                let mut builder = console::AppBuilder::new(self.debugee_out, self.debugee_err);
+                if self.already_run {
+                    builder = builder.app_already_run();
+                }
+                let app = builder
                     .build(self.debugger)
                     .expect("build application fail");
                 app.run().expect("run application fail");

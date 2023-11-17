@@ -158,7 +158,6 @@ impl Poll<UserEvent> for DebuggerEventsPort {
 }
 
 pub struct AsyncResponsesPort {
-    // async_responses: Receiver<anyhow::Error>,
     exchanger: Arc<ClientExchanger>,
 }
 

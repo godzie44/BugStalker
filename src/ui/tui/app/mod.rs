@@ -6,17 +6,17 @@ use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::style::Color;
 
 use crate::ui::command;
-use crate::ui::command::r#break;
 use crate::ui::command::r#break::BreakpointIdentity;
 use crate::ui::command::Command;
+use crate::ui::command::{r#break, run};
 use crate::ui::tui::app::port::{
     AsyncResponsesPort, DebuggerEventQueue, DebuggerEventsPort, OutputPort, UserEvent,
 };
-use crate::ui::tui::components::alert::Alert;
 use crate::ui::tui::components::breakpoint::Breakpoints;
 use crate::ui::tui::components::control::GlobalControl;
 use crate::ui::tui::components::input::Input;
 use crate::ui::tui::components::output::Output;
+use crate::ui::tui::components::popup::Popup;
 use crate::ui::tui::components::source::Source;
 use crate::ui::tui::components::status::Status;
 use crate::ui::tui::components::stub::Stub;
@@ -29,7 +29,7 @@ use tuirealm::terminal::TerminalBridge;
 use tuirealm::tui::layout::{Constraint, Direction, Layout};
 use tuirealm::{Application, AttrValue, Attribute, EventListenerCfg, State, StateValue};
 
-use super::{DebugeeStreamBuffer, Id, Msg};
+use super::{ConfirmedAction, DebugeeStreamBuffer, Id, Msg};
 
 enum InputType {
     Breakpoint,
@@ -45,7 +45,7 @@ pub struct Model {
 
     input_state: Option<InputType>,
 
-    pub alert: bool,
+    pub popup: bool,
 
     /// Used to draw to terminal
     pub terminal: TerminalBridge,
@@ -58,14 +58,15 @@ impl Model {
         output_buf: DebugeeStreamBuffer,
         event_queue: DebuggerEventQueue,
         client_exchanger: ClientExchanger,
+        already_run: bool,
     ) -> anyhow::Result<Self> {
         let exchanger = Arc::new(client_exchanger);
         Ok(Self {
-            app: Self::init_app(output_buf, event_queue, exchanger.clone())?,
+            app: Self::init_app(output_buf, event_queue, exchanger.clone(), already_run)?,
             quit: false,
             redraw: true,
             input_state: None,
-            alert: false,
+            popup: false,
             terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
             exchanger,
         })
@@ -148,8 +149,8 @@ impl Model {
                 self.app.view(&Id::Status, f, main_chunks[2]);
             }
 
-            if self.alert {
-                self.app.view(&Id::Alert, f, f.size());
+            if self.popup {
+                self.app.view(&Id::Popup, f, f.size());
             }
         });
     }
@@ -158,10 +159,8 @@ impl Model {
         output_buf: DebugeeStreamBuffer,
         event_queue: DebuggerEventQueue,
         exchanger: Arc<ClientExchanger>,
+        app_already_run: bool,
     ) -> anyhow::Result<Application<Id, Msg, UserEvent>> {
-        // NOTE: the event listener is configured to use the default crossterm input listener and to raise a Tick event each second
-        // which we will use to update the clock
-
         let mut app: Application<Id, Msg, UserEvent> = Application::init(
             EventListenerCfg::default()
                 .default_input_listener(Duration::from_millis(20))
@@ -183,11 +182,11 @@ impl Model {
 
         app.mount(
             Id::GlobalControl,
-            Box::new(GlobalControl::new(exchanger.clone())),
+            Box::new(GlobalControl::new(exchanger.clone(), app_already_run)),
             GlobalControl::subscriptions(),
         )?;
 
-        app.mount(Id::Alert, Box::<Alert>::default(), vec![])?;
+        app.mount(Id::Popup, Box::<Popup>::default(), vec![])?;
         app.mount(Id::Input, Box::<Input>::default(), vec![])?;
         app.mount(
             Id::Status,
@@ -330,14 +329,54 @@ impl Model {
                         )?;
                     }
                 },
-                Msg::ShowAlert(text) => {
-                    self.alert = true;
+                Msg::ShowOkPopup(title, text) => {
+                    self.popup = true;
+                    if let Some(title) = title {
+                        self.app
+                            .attr(&Id::Popup, Attribute::Title, AttrValue::String(title))?;
+                    }
                     self.app
-                        .attr(&Id::Alert, Attribute::Text, AttrValue::String(text))?;
-                    self.app.active(&Id::Alert)?;
+                        .attr(&Id::Popup, Attribute::Text, AttrValue::String(text))?;
+                    let (ok_attr, ok_attr_val) = Popup::ok_attrs();
+                    self.app.attr(&Id::Popup, ok_attr, ok_attr_val)?;
+                    self.app.active(&Id::Popup)?;
                 }
-                Msg::CloseAlert => {
-                    self.alert = false;
+                Msg::PopupOk => {
+                    self.popup = false;
+                    self.app.blur()?;
+                }
+                Msg::ConfirmDebuggerRestart => {
+                    self.popup = true;
+                    self.app.attr(
+                        &Id::Popup,
+                        Attribute::Text,
+                        AttrValue::String("Restart a program?".to_string()),
+                    )?;
+                    let (ok_attr, ok_attr_val) = Popup::yes_no_attrs();
+                    self.app.attr(&Id::Popup, ok_attr, ok_attr_val)?;
+                    let action = ConfirmedAction::Restart;
+                    self.app.attr(
+                        &Id::Popup,
+                        Attribute::Custom("action"),
+                        AttrValue::String(action.to_string()),
+                    )?;
+                    self.app.active(&Id::Popup)?;
+                }
+                Msg::PopupYes(action) => {
+                    match action {
+                        ConfirmedAction::Restart => {
+                            self.exchanger.request_async(|dbg| {
+                                Ok(run::Handler::new(dbg).handle(run::Command::Restart)?)
+                            });
+                        }
+                    }
+
+                    self.popup = false;
+                    self.app.blur()?;
+                    return Ok(Some(Msg::AppRunning));
+                }
+                Msg::PopupNo(_) => {
+                    self.popup = false;
                     self.app.blur()?;
                 }
 

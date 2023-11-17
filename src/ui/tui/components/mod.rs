@@ -1,8 +1,8 @@
-pub mod alert;
 pub mod breakpoint;
 pub mod control;
 pub mod input;
 pub mod output;
+pub mod popup;
 pub mod source;
 pub mod status;
 pub mod stub;
