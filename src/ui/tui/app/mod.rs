@@ -15,7 +15,6 @@ use crate::ui::tui::app::port::{
 };
 use crate::ui::tui::components::breakpoint::Breakpoints;
 use crate::ui::tui::components::control::GlobalControl;
-use crate::ui::tui::components::input;
 use crate::ui::tui::components::input::{Input, InputStringType};
 use crate::ui::tui::components::output::Output;
 use crate::ui::tui::components::popup::{Popup, YesNoLabels};
@@ -286,15 +285,15 @@ impl Model {
                     let (input_validator, input_data_type): (fn(&str) -> bool, _) = match r#type {
                         BreakpointsAddType::AtLine => (
                             |s| -> bool { command::parser::brkpt_at_line_parser(s).is_ok() },
-                            input::InputStringType::BreakpointAddAtLine,
+                            InputStringType::BreakpointAddAtLine,
                         ),
                         BreakpointsAddType::AtFunction => (
                             |s| -> bool { command::parser::brkpt_at_fn(s).is_ok() },
-                            input::InputStringType::BreakpointAddAtFunction,
+                            InputStringType::BreakpointAddAtFunction,
                         ),
                         BreakpointsAddType::AtAddress => (
                             |s| -> bool { command::parser::brkpt_at_addr_parser(s).is_ok() },
-                            input::InputStringType::BreakpointAddAtAddress,
+                            InputStringType::BreakpointAddAtAddress,
                         ),
                     };
 
@@ -321,7 +320,7 @@ impl Model {
                     self.app.lock_subs();
                 }
                 Msg::Input(input) => {
-                    let input_data_type = input::InputStringType::from_str(
+                    let input_data_type = InputStringType::from_str(
                         &self
                             .app
                             .query(&Id::Input, Attribute::Custom("input_data_type"))?
@@ -360,6 +359,11 @@ impl Model {
                             Ok(Some(Msg::BreakpointsUpdate))
                         }
                     };
+                }
+                Msg::InputCancel => {
+                    self.app.unlock_subs();
+                    self.app.blur()?;
+                    return Ok(Some(Msg::BreakpointsUpdate));
                 }
                 Msg::ShowOkPopup(title, text) => {
                     self.popup = true;

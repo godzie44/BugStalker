@@ -71,13 +71,16 @@ pub enum Msg {
     SourceInFocus,
     OutputInFocus,
     LogsInFocus,
+
     PopupConfirmDebuggerRestart,
     PopupBreakpoint(BreakpointViewOwned),
     ShowOkPopup(Option<String>, String),
     PopupOk,
     PopupYes(ConfirmedAction),
     PopupNo(ConfirmedAction),
+
     Input(String),
+    InputCancel,
 }
 
 #[derive(Default, Clone)]

@@ -74,7 +74,7 @@ impl Component<Msg, UserEvent> for Input {
                 }
                 CmdResult::None
             }
-
+            Event::Keyboard(KeyEvent { code: Key::Esc, .. }) => return Some(Msg::InputCancel),
             _ => CmdResult::None,
         };
         Some(Msg::None)
