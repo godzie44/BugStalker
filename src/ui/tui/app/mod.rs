@@ -39,9 +39,6 @@ pub struct Model {
     pub quit: bool,
     /// Tells whether to redraw interface
     pub redraw: bool,
-
-    pub popup: bool,
-
     /// Used to draw to terminal
     pub terminal: TerminalBridge,
 
@@ -60,7 +57,6 @@ impl Model {
             app: Self::init_app(output_buf, event_queue, exchanger.clone(), already_run)?,
             quit: false,
             redraw: true,
-            popup: false,
             terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
             exchanger,
         })
@@ -71,6 +67,7 @@ impl Model {
     pub fn view(&mut self) {
         _ = self.terminal.raw_mut().draw(|f| {
             let input_in_focus = self.app.focus() == Some(&Id::Input);
+            let popup_in_focus = self.app.focus() == Some(&Id::Popup);
 
             let mut constraints = vec![
                 Constraint::Max(3),
@@ -143,7 +140,7 @@ impl Model {
                 self.app.view(&Id::Status, f, main_chunks[2]);
             }
 
-            if self.popup {
+            if popup_in_focus {
                 self.app.view(&Id::Popup, f, f.size());
             }
         });
@@ -366,7 +363,6 @@ impl Model {
                     return Ok(Some(Msg::BreakpointsUpdate));
                 }
                 Msg::ShowOkPopup(title, text) => {
-                    self.popup = true;
                     if let Some(title) = title {
                         self.app
                             .attr(&Id::Popup, Attribute::Title, AttrValue::String(title))?;
@@ -378,11 +374,9 @@ impl Model {
                     self.app.active(&Id::Popup)?;
                 }
                 Msg::PopupOk => {
-                    self.popup = false;
                     self.app.blur()?;
                 }
                 Msg::PopupConfirmDebuggerRestart => {
-                    self.popup = true;
                     self.app.attr(
                         &Id::Popup,
                         Attribute::Text,
@@ -399,8 +393,6 @@ impl Model {
                     self.app.active(&Id::Popup)?;
                 }
                 Msg::PopupBreakpoint(brkpt) => {
-                    self.popup = true;
-
                     let place = &brkpt.place;
                     let file = place
                         .as_ref()
@@ -431,12 +423,10 @@ impl Model {
                         self.exchanger.request_async(|dbg| {
                             Ok(run::Handler::new(dbg).handle(run::Command::Restart)?)
                         });
-                        self.popup = false;
                         self.app.blur()?;
                         return Ok(Some(Msg::AppRunning));
                     }
                     _ => {
-                        self.popup = false;
                         self.app.blur()?;
                     }
                 },
@@ -450,12 +440,10 @@ impl Model {
                                 command::r#break::Handler::new(dbg).handle(&cmd)?;
                                 Ok(())
                             })?;
-                        self.popup = false;
                         self.app.blur()?;
                         return Ok(Some(Msg::BreakpointsUpdate));
                     }
                     _ => {
-                        self.popup = false;
                         self.app.blur()?;
                     }
                 },

@@ -192,7 +192,6 @@ impl TuiApplication {
                         let (ok_attr, ok_attr_val) = Popup::ok_attrs();
                         model.app.attr(&Id::Popup, ok_attr, ok_attr_val)?;
                         model.app.active(&Id::Popup)?;
-                        model.popup = true;
                     }
                     Ok(messages) if !messages.is_empty() => {
                         // NOTE: redraw if at least one msg has been processed
