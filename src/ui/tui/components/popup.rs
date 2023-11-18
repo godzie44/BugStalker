@@ -42,6 +42,26 @@ impl Default for Popup {
     }
 }
 
+pub struct YesNoLabels<T: ToString> {
+    yes: T,
+    no: T,
+}
+
+impl<T: ToString> YesNoLabels<T> {
+    pub fn new(yes: T, no: T) -> Self {
+        Self { yes, no }
+    }
+}
+
+impl Default for YesNoLabels<String> {
+    fn default() -> Self {
+        Self {
+            yes: "yes".to_string(),
+            no: "no".to_string(),
+        }
+    }
+}
+
 impl Popup {
     pub fn ok_attrs() -> (Attribute, AttrValue) {
         (
@@ -50,12 +70,12 @@ impl Popup {
         )
     }
 
-    pub fn yes_no_attrs() -> (Attribute, AttrValue) {
+    pub fn yes_no_attrs<T: ToString>(labels: YesNoLabels<T>) -> (Attribute, AttrValue) {
         (
             Attribute::Content,
             AttrValue::Payload(PropPayload::Vec(vec![
-                PropValue::Str("Yes".to_string()),
-                PropValue::Str("No".to_string()),
+                PropValue::Str(labels.yes.to_string()),
+                PropValue::Str(labels.no.to_string()),
             ])),
         )
     }
@@ -143,10 +163,10 @@ impl MockComponent for Popup {
         }
 
         if attr == Attribute::Content {
-            if value == Self::yes_no_attrs().1 {
-                self.mode = OpMode::YesNo;
-            } else {
+            if value == Self::ok_attrs().1 {
                 self.mode = OpMode::Ok;
+            } else {
+                self.mode = OpMode::YesNo;
             }
 
             return self.buttons.attr(attr, value);

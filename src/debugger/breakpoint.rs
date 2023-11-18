@@ -702,6 +702,7 @@ impl<'a> From<&'a UninitBreakpoint> for BreakpointView<'a> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct BreakpointViewOwned {
     pub addr: Address,
     pub number: u32,

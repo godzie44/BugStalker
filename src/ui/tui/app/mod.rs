@@ -1,5 +1,7 @@
 pub mod port;
 
+use std::borrow::Cow;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tuirealm::tui::layout::Alignment;
@@ -7,16 +9,16 @@ use tuirealm::tui::style::Color;
 
 use crate::ui::command;
 use crate::ui::command::r#break::BreakpointIdentity;
-use crate::ui::command::Command;
 use crate::ui::command::{r#break, run};
 use crate::ui::tui::app::port::{
     AsyncResponsesPort, DebuggerEventQueue, DebuggerEventsPort, OutputPort, UserEvent,
 };
 use crate::ui::tui::components::breakpoint::Breakpoints;
 use crate::ui::tui::components::control::GlobalControl;
-use crate::ui::tui::components::input::Input;
+use crate::ui::tui::components::input;
+use crate::ui::tui::components::input::{Input, InputStringType};
 use crate::ui::tui::components::output::Output;
-use crate::ui::tui::components::popup::Popup;
+use crate::ui::tui::components::popup::{Popup, YesNoLabels};
 use crate::ui::tui::components::source::Source;
 use crate::ui::tui::components::status::Status;
 use crate::ui::tui::components::stub::Stub;
@@ -27,13 +29,9 @@ use crate::ui::tui::proto::ClientExchanger;
 use tuirealm::props::{PropPayload, PropValue, TextSpan};
 use tuirealm::terminal::TerminalBridge;
 use tuirealm::tui::layout::{Constraint, Direction, Layout};
-use tuirealm::{Application, AttrValue, Attribute, EventListenerCfg, State, StateValue};
+use tuirealm::{props, Application, AttrValue, Attribute, EventListenerCfg, State, StateValue};
 
-use super::{ConfirmedAction, DebugeeStreamBuffer, Id, Msg};
-
-enum InputType {
-    Breakpoint,
-}
+use super::{BreakpointsAddType, ConfirmedAction, DebugeeStreamBuffer, Id, Msg};
 
 pub struct Model {
     /// Application
@@ -42,8 +40,6 @@ pub struct Model {
     pub quit: bool,
     /// Tells whether to redraw interface
     pub redraw: bool,
-
-    input_state: Option<InputType>,
 
     pub popup: bool,
 
@@ -65,7 +61,6 @@ impl Model {
             app: Self::init_app(output_buf, event_queue, exchanger.clone(), already_run)?,
             quit: false,
             redraw: true,
-            input_state: None,
             popup: false,
             terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
             exchanger,
@@ -259,6 +254,13 @@ impl Model {
                 Msg::BreakpointsInFocus => {
                     self.app.active(&Id::Breakpoints)?;
                 }
+                Msg::BreakpointsUpdate => {
+                    self.app.attr(
+                        &Id::Breakpoints,
+                        Attribute::Custom("update_breakpoints"),
+                        AttrValue::Flag(true),
+                    )?;
+                }
                 Msg::VariablesInFocus => {
                     self.app.active(&Id::Variables)?;
                 }
@@ -280,55 +282,85 @@ impl Model {
                 Msg::LogsInFocus => {
                     self.app.active(&Id::Logs)?;
                 }
-                Msg::AddBreakpointRequest => {
+                Msg::BreakpointAdd(r#type) => {
+                    let (input_validator, input_data_type): (fn(&str) -> bool, _) = match r#type {
+                        BreakpointsAddType::AtLine => (
+                            |s| -> bool { command::parser::brkpt_at_line_parser(s).is_ok() },
+                            input::InputStringType::BreakpointAddAtLine,
+                        ),
+                        BreakpointsAddType::AtFunction => (
+                            |s| -> bool { command::parser::brkpt_at_fn(s).is_ok() },
+                            input::InputStringType::BreakpointAddAtFunction,
+                        ),
+                        BreakpointsAddType::AtAddress => (
+                            |s| -> bool { command::parser::brkpt_at_addr_parser(s).is_ok() },
+                            input::InputStringType::BreakpointAddAtAddress,
+                        ),
+                    };
+
+                    self.app.attr(
+                        &Id::Input,
+                        Attribute::InputType,
+                        AttrValue::InputType(props::InputType::Custom(
+                            input_validator,
+                            |_, _| -> bool { true },
+                        )),
+                    )?;
                     self.app.attr(
                         &Id::Input,
                         Attribute::Title,
                         AttrValue::Title(("Add breakpoint".to_string(), Alignment::Left)),
                     )?;
+                    self.app.attr(
+                        &Id::Input,
+                        Attribute::Custom("input_data_type"),
+                        AttrValue::String(input_data_type.to_string()),
+                    )?;
+
                     self.app.active(&Id::Input)?;
-                    self.input_state = Some(InputType::Breakpoint);
                     self.app.lock_subs();
                 }
-                Msg::RemoveBreakpointRequest(brkpt_num) => {
-                    self.exchanger
-                        .request_sync(move |dbg| -> anyhow::Result<()> {
-                            let cmd =
-                                r#break::Command::Remove(BreakpointIdentity::Number(brkpt_num));
-                            command::r#break::Handler::new(dbg).handle(&cmd)?;
-                            Ok(())
-                        })?;
+                Msg::Input(input) => {
+                    let input_data_type = input::InputStringType::from_str(
+                        &self
+                            .app
+                            .query(&Id::Input, Attribute::Custom("input_data_type"))?
+                            .expect("infallible")
+                            .unwrap_string(),
+                    )
+                    .expect("infallible");
+                    return match input_data_type {
+                        InputStringType::BreakpointAddAtFunction
+                        | InputStringType::BreakpointAddAtLine
+                        | InputStringType::BreakpointAddAtAddress => {
+                            let identity = match input_data_type {
+                                InputStringType::BreakpointAddAtLine => {
+                                    let file_line: Vec<_> = input.split(':').collect();
+                                    let file = file_line[0];
+                                    let line: u64 = file_line[1].parse().expect("infallible");
+                                    BreakpointIdentity::Line(file.to_string(), line)
+                                }
+                                InputStringType::BreakpointAddAtFunction => {
+                                    BreakpointIdentity::Function(input)
+                                }
+                                InputStringType::BreakpointAddAtAddress => {
+                                    BreakpointIdentity::Address(input.parse().expect("infallible"))
+                                }
+                            };
 
-                    self.app.attr(
-                        &Id::Breakpoints,
-                        Attribute::Content,
-                        AttrValue::Table(Breakpoints::breakpoint_table(self.exchanger.clone())),
-                    )?;
+                            let cmd = r#break::Command::Add(identity);
+                            self.exchanger
+                                .request_sync(move |dbg| -> anyhow::Result<()> {
+                                    command::r#break::Handler::new(dbg).handle(&cmd)?;
+                                    Ok(())
+                                })?;
+
+                            self.app.unlock_subs();
+                            self.app.blur()?;
+                            Ok(Some(Msg::BreakpointsUpdate))
+                        }
+                    };
                 }
-                Msg::Input(input) => match self.input_state {
-                    None => {}
-                    Some(InputType::Breakpoint) => {
-                        self.exchanger
-                            .request_sync(move |dbg| -> anyhow::Result<()> {
-                                let command = Command::parse(&input)?;
-                                if let Command::Breakpoint(r#break::Command::Add(brkpt)) = command {
-                                    command::r#break::Handler::new(dbg)
-                                        .handle(&r#break::Command::Add(brkpt))?;
-                                };
-                                Ok(())
-                            })?;
-
-                        self.input_state = None;
-                        self.app.unlock_subs();
-                        self.app.blur()?;
-
-                        self.app.attr(
-                            &Id::Breakpoints,
-                            Attribute::Content,
-                            AttrValue::Table(Breakpoints::breakpoint_table(self.exchanger.clone())),
-                        )?;
-                    }
-                },
                 Msg::ShowOkPopup(title, text) => {
                     self.popup = true;
                     if let Some(title) = title {
@@ -345,15 +377,15 @@ impl Model {
                     self.popup = false;
                     self.app.blur()?;
                 }
-                Msg::ConfirmDebuggerRestart => {
+                Msg::PopupConfirmDebuggerRestart => {
                     self.popup = true;
                     self.app.attr(
                         &Id::Popup,
                         Attribute::Text,
                         AttrValue::String("Restart a program?".to_string()),
                     )?;
-                    let (ok_attr, ok_attr_val) = Popup::yes_no_attrs();
-                    self.app.attr(&Id::Popup, ok_attr, ok_attr_val)?;
+                    let (attr, attr_val) = Popup::yes_no_attrs(YesNoLabels::default());
+                    self.app.attr(&Id::Popup, attr, attr_val)?;
                     let action = ConfirmedAction::Restart;
                     self.app.attr(
                         &Id::Popup,
@@ -362,23 +394,67 @@ impl Model {
                     )?;
                     self.app.active(&Id::Popup)?;
                 }
-                Msg::PopupYes(action) => {
-                    match action {
-                        ConfirmedAction::Restart => {
-                            self.exchanger.request_async(|dbg| {
-                                Ok(run::Handler::new(dbg).handle(run::Command::Restart)?)
-                            });
-                        }
-                    }
+                Msg::PopupBreakpoint(brkpt) => {
+                    self.popup = true;
 
-                    self.popup = false;
-                    self.app.blur()?;
-                    return Ok(Some(Msg::AppRunning));
+                    let place = &brkpt.place;
+                    let file = place
+                        .as_ref()
+                        .map(|p| p.file.to_string_lossy())
+                        .unwrap_or(Cow::from("unknown"));
+                    let line = place
+                        .as_ref()
+                        .map(|p| p.line_number.to_string())
+                        .unwrap_or("unknown".to_string());
+                    let text = format!(
+                        "Breakpoint #{}\nAt: {:?}:{}\nAddress: {}",
+                        brkpt.number, file, line, brkpt.addr
+                    );
+
+                    self.app
+                        .attr(&Id::Popup, Attribute::Text, AttrValue::String(text))?;
+                    let (attr, attr_val) = Popup::yes_no_attrs(YesNoLabels::new("OK", "Remove"));
+                    self.app.attr(&Id::Popup, attr, attr_val)?;
+                    self.app.attr(
+                        &Id::Popup,
+                        Attribute::Custom("action"),
+                        AttrValue::String(ConfirmedAction::RemoveBreakpoint.to_string()),
+                    )?;
+                    self.app.active(&Id::Popup)?;
                 }
-                Msg::PopupNo(_) => {
-                    self.popup = false;
-                    self.app.blur()?;
-                }
+                Msg::PopupYes(action) => match action {
+                    ConfirmedAction::Restart => {
+                        self.exchanger.request_async(|dbg| {
+                            Ok(run::Handler::new(dbg).handle(run::Command::Restart)?)
+                        });
+                        self.popup = false;
+                        self.app.blur()?;
+                        return Ok(Some(Msg::AppRunning));
+                    }
+                    _ => {
+                        self.popup = false;
+                        self.app.blur()?;
+                    }
+                },
+                Msg::PopupNo(action) => match action {
+                    ConfirmedAction::RemoveBreakpoint => {
+                        let brkpt_num = self.app.state(&Id::Breakpoints)?.unwrap_one().unwrap_u32();
+                        self.exchanger
+                            .request_sync(move |dbg| -> anyhow::Result<()> {
+                                let cmd =
+                                    r#break::Command::Remove(BreakpointIdentity::Number(brkpt_num));
+                                command::r#break::Handler::new(dbg).handle(&cmd)?;
+                                Ok(())
+                            })?;
+                        self.popup = false;
+                        self.app.blur()?;
+                        return Ok(Some(Msg::BreakpointsUpdate));
+                    }
+                    _ => {
+                        self.popup = false;
+                        self.app.blur()?;
+                    }
+                },
 
                 Msg::None => {}
             }

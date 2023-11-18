@@ -1,4 +1,4 @@
-use crate::debugger::Debugger;
+use crate::debugger::{BreakpointViewOwned, Debugger};
 use crate::ui::tui::app::port::DebuggerEventQueue;
 use crate::ui::tui::app::Model;
 use crate::ui::tui::output::{OutputLine, OutputStreamProcessor, StreamType};
@@ -45,6 +45,14 @@ pub enum Id {
 #[derive(Debug, PartialEq, EnumString, Display)]
 pub enum ConfirmedAction {
     Restart,
+    RemoveBreakpoint,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum BreakpointsAddType {
+    AtLine,
+    AtFunction,
+    AtAddress,
 }
 
 #[derive(Debug, PartialEq)]
@@ -56,14 +64,15 @@ pub enum Msg {
     RightTabsInFocus,
     SwitchUI,
     BreakpointsInFocus,
+    BreakpointsUpdate,
+    BreakpointAdd(BreakpointsAddType),
     VariablesInFocus,
     ThreadsInFocus,
     SourceInFocus,
     OutputInFocus,
     LogsInFocus,
-    AddBreakpointRequest,
-    RemoveBreakpointRequest(u32),
-    ConfirmDebuggerRestart,
+    PopupConfirmDebuggerRestart,
+    PopupBreakpoint(BreakpointViewOwned),
     ShowOkPopup(Option<String>, String),
     PopupOk,
     PopupYes(ConfirmedAction),

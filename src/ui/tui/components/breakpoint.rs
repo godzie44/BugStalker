@@ -1,22 +1,30 @@
+use crate::debugger::BreakpointViewOwned;
 use crate::ui::command;
 use crate::ui::command::r#break::Command as BreakpointCommand;
 use crate::ui::command::r#break::ExecutionResult;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
-use crate::ui::tui::Msg;
+use crate::ui::tui::{BreakpointsAddType, Msg};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tui_realm_stdlib::List;
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
-use tuirealm::props::{Table, TableBuilder, TextSpan};
+use tuirealm::props::{TableBuilder, TextSpan};
 use tuirealm::tui::layout::{Alignment, Rect};
 use tuirealm::tui::style::Color;
 use tuirealm::{AttrValue, Attribute, Component, Event, Frame, MockComponent, State, StateValue};
 
+#[derive(PartialEq)]
+enum AddState {
+    SelectType,
+}
+
 pub struct Breakpoints {
+    state: Option<AddState>,
     component: List,
-    row_to_brkpt_num_map: HashMap<usize, u32>,
+    row_to_brkpt_map: HashMap<usize, BreakpointViewOwned>,
+    exchanger: Arc<ClientExchanger>,
 }
 
 impl MockComponent for Breakpoints {
@@ -29,31 +37,17 @@ impl MockComponent for Breakpoints {
     }
 
     fn attr(&mut self, attr: Attribute, value: AttrValue) {
-        if matches!(attr, Attribute::Content) {
-            let breakpoints_table = match value {
-                AttrValue::Table(ref t) => t,
-                _ => panic!("AttrValue is not Table"),
-            };
-
-            self.row_to_brkpt_num_map = breakpoints_table
-                .iter()
-                .map(|row| &row[0])
-                .enumerate()
-                // skip zero row cause iy is an add button
-                .skip(1)
-                .filter_map(|(idx, brkpt_num_col)| {
-                    let num: u32 = brkpt_num_col.content.parse().ok()?;
-                    Some((idx, num))
-                })
-                .collect();
+        if matches!(attr, Attribute::Custom("update_breakpoints")) {
+            return self.update_list();
         }
 
         self.component.attr(attr, value)
     }
 
+    // return a breakpoint index if breakpoint is select, panics elsewhere.
     fn state(&self) -> State {
         let list_idx = self.component.state().unwrap_one().unwrap_usize();
-        State::One(StateValue::U32(self.row_to_brkpt_num_map[&list_idx]))
+        State::One(StateValue::U32(self.row_to_brkpt_map[&list_idx].number))
     }
 
     fn perform(&mut self, cmd: Cmd) -> CmdResult {
@@ -62,8 +56,9 @@ impl MockComponent for Breakpoints {
 }
 
 impl Breakpoints {
-    pub fn breakpoint_table(exchanger: Arc<ClientExchanger>) -> Table {
-        let breakpoints = exchanger.request_sync(|dbg| {
+    /// Update breakpoint list. Triggered by custom attribute "update_breakpoints".
+    pub fn update_list(&mut self) {
+        let breakpoints = self.exchanger.request_sync(|dbg| {
             let mut cmd = command::r#break::Handler::new(dbg);
             let brkpt_result = cmd.handle(&BreakpointCommand::Info).expect("unreachable");
             let ExecutionResult::Dump(breakpoints) =  brkpt_result else {
@@ -76,11 +71,39 @@ impl Breakpoints {
                 .collect::<Vec<_>>()
         });
 
+        let skip = if self.state == Some(AddState::SelectType) {
+            // skip first 4 rows cause it is an add buttons
+            4
+        } else {
+            // skip zero row cause it is an add button
+            1
+        };
+        self.row_to_brkpt_map = breakpoints
+            .iter()
+            .enumerate()
+            .map(|(idx, brkpt)| (idx + skip, brkpt.clone()))
+            .collect();
+
         let mut table_builder = TableBuilder::default();
         table_builder.add_col(TextSpan::from(" "));
         table_builder.add_col(TextSpan::from("🚀"));
         table_builder.add_col(TextSpan::from("add new").fg(Color::Green).bold());
         table_builder.add_row();
+
+        if self.state == Some(AddState::SelectType) {
+            table_builder.add_col(TextSpan::from(" "));
+            table_builder.add_col(TextSpan::from(" "));
+            table_builder.add_col(TextSpan::from("   at file:line").fg(Color::Green).bold());
+            table_builder.add_row();
+            table_builder.add_col(TextSpan::from(" "));
+            table_builder.add_col(TextSpan::from(" "));
+            table_builder.add_col(TextSpan::from("   at function").fg(Color::Green).bold());
+            table_builder.add_row();
+            table_builder.add_col(TextSpan::from(" "));
+            table_builder.add_col(TextSpan::from(" "));
+            table_builder.add_col(TextSpan::from("   at address").fg(Color::Green).bold());
+            table_builder.add_row();
+        }
 
         for brkpt in breakpoints.iter() {
             table_builder.add_col(
@@ -99,10 +122,13 @@ impl Breakpoints {
             }
             table_builder.add_row();
         }
-        let mut tbl = table_builder.build();
+
+        let mut table = table_builder.build();
         // remove last unused row
-        tbl.pop();
-        tbl
+        table.pop();
+
+        self.component
+            .attr(Attribute::Content, AttrValue::Table(table));
     }
 }
 
@@ -112,17 +138,19 @@ impl Breakpoints {
             .title("Breakpoints", Alignment::Center)
             .scroll(true)
             .highlighted_color(Color::LightYellow)
-            .highlighted_str("✖")
+            .highlighted_str("▶")
             .rewind(true)
             .step(4);
 
         let mut brkpts = Self {
+            state: None,
             component: list,
-            row_to_brkpt_num_map: HashMap::default(),
+            row_to_brkpt_map: HashMap::default(),
+            exchanger,
         };
         brkpts.attr(
-            Attribute::Content,
-            AttrValue::Table(Self::breakpoint_table(exchanger)),
+            Attribute::Custom("update_breakpoints"),
+            AttrValue::Flag(true),
         );
 
         brkpts
@@ -131,38 +159,70 @@ impl Breakpoints {
 
 impl Component<Msg, UserEvent> for Breakpoints {
     fn on(&mut self, ev: Event<UserEvent>) -> Option<Msg> {
-        let _ = match ev {
+        match ev {
             Event::Keyboard(KeyEvent {
                 code: Key::Down, ..
-            }) => self.perform(Cmd::Move(Direction::Down)),
+            }) => {
+                self.perform(Cmd::Move(Direction::Down));
+            }
             Event::Keyboard(KeyEvent { code: Key::Up, .. }) => {
-                self.perform(Cmd::Move(Direction::Up))
+                self.perform(Cmd::Move(Direction::Up));
             }
             Event::Keyboard(KeyEvent {
                 code: Key::PageDown,
                 ..
-            }) => self.perform(Cmd::Scroll(Direction::Down)),
+            }) => {
+                self.perform(Cmd::Scroll(Direction::Down));
+            }
             Event::Keyboard(KeyEvent {
                 code: Key::PageUp, ..
-            }) => self.perform(Cmd::Scroll(Direction::Up)),
+            }) => {
+                self.perform(Cmd::Scroll(Direction::Up));
+            }
             Event::Keyboard(KeyEvent {
                 code: Key::Home, ..
-            }) => self.perform(Cmd::GoTo(Position::Begin)),
+            }) => {
+                self.perform(Cmd::GoTo(Position::Begin));
+            }
             Event::Keyboard(KeyEvent { code: Key::End, .. }) => {
-                self.perform(Cmd::GoTo(Position::End))
+                self.perform(Cmd::GoTo(Position::End));
             }
             Event::Keyboard(KeyEvent {
                 code: Key::Enter, ..
             }) => {
                 let idx = self.component.state().unwrap_one().unwrap_usize();
-                if idx == 0 {
-                    return Some(Msg::AddBreakpointRequest);
+
+                match self.state {
+                    None => {
+                        if idx == 0 {
+                            self.state = Some(AddState::SelectType);
+                            return Some(Msg::BreakpointsUpdate);
+                        }
+                    }
+                    Some(AddState::SelectType) => {
+                        self.state = None;
+                        match idx {
+                            0 => {
+                                return Some(Msg::BreakpointsUpdate);
+                            }
+                            1 => {
+                                return Some(Msg::BreakpointAdd(BreakpointsAddType::AtLine));
+                            }
+                            2 => {
+                                return Some(Msg::BreakpointAdd(BreakpointsAddType::AtFunction));
+                            }
+                            3 => {
+                                return Some(Msg::BreakpointAdd(BreakpointsAddType::AtAddress));
+                            }
+                            _ => {}
+                        }
+                    }
                 }
-                return Some(Msg::RemoveBreakpointRequest(
-                    self.state().unwrap_one().unwrap_u32(),
-                ));
+
+                let brkpt = &self.row_to_brkpt_map[&idx];
+                return Some(Msg::PopupBreakpoint(brkpt.clone()));
             }
-            _ => CmdResult::None,
+            _ => {}
         };
         Some(Msg::None)
     }

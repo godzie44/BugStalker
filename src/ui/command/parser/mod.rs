@@ -81,6 +81,37 @@ pub fn rust_identifier(input: &str) -> IResult<&str, &str, ErrorTree<&str>> {
     ))(input)
 }
 
+pub fn brkpt_at_addr_parser(input: &str) -> IResult<&str, BreakpointIdentity, ErrorTree<&str>> {
+    map_res(
+        hexadecimal,
+        |hex| -> Result<BreakpointIdentity, ParseIntError> {
+            let addr = usize::from_str_radix(hex, 16)?;
+            Ok(BreakpointIdentity::Address(addr))
+        },
+    )(input)
+}
+
+pub fn brkpt_at_line_parser(input: &str) -> IResult<&str, BreakpointIdentity, ErrorTree<&str>> {
+    map_res(
+        separated_pair(is_not(":"), tag(":"), digit1),
+        |(file, line): (&str, &str)| -> Result<BreakpointIdentity, ParseIntError> {
+            Ok(BreakpointIdentity::Line(
+                file.trim().to_string(),
+                u64::from_str(line.trim())?,
+            ))
+        },
+    )(input)
+}
+
+pub fn brkpt_at_fn(input: &str) -> IResult<&str, BreakpointIdentity, ErrorTree<&str>> {
+    map_res(
+        rust_identifier,
+        |fn_name: &str| -> Result<BreakpointIdentity, ParseIntError> {
+            Ok(BreakpointIdentity::Function(fn_name.to_string()))
+        },
+    )(input)
+}
+
 fn command<'a, F>(
     ctx: &'static str,
     inner: F,
@@ -215,35 +246,6 @@ impl Command {
         }
 
         fn break_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            fn breakpoint_arg_parser<'a>(
-            ) -> impl FnMut(&'a str) -> IResult<&'a str, BreakpointIdentity, ErrorTree<&str>>
-            {
-                alt((
-                    map_res(
-                        hexadecimal,
-                        |hex| -> Result<BreakpointIdentity, ParseIntError> {
-                            let addr = usize::from_str_radix(hex, 16)?;
-                            Ok(BreakpointIdentity::Address(addr))
-                        },
-                    ),
-                    map_res(
-                        separated_pair(is_not(":"), tag(":"), digit1),
-                        |(file, line): (&str, &str)| -> Result<BreakpointIdentity, ParseIntError> {
-                            Ok(BreakpointIdentity::Line(
-                                file.trim().to_string(),
-                                u64::from_str(line.trim())?,
-                            ))
-                        },
-                    ),
-                    map_res(
-                        rust_identifier,
-                        |fn_name: &str| -> Result<BreakpointIdentity, ParseIntError> {
-                            Ok(BreakpointIdentity::Function(fn_name.to_string()))
-                        },
-                    ),
-                ))
-            }
-
             preceded(
                 alt((
                     pair(tag(BREAK_COMMAND_SHORT), multispace1),
@@ -255,14 +257,16 @@ impl Command {
                             pair(tag("r"), multispace1),
                             pair(tag("remove"), multispace1),
                         )),
-                        map(breakpoint_arg_parser(), |brkpt| {
-                            Command::Breakpoint(r#break::Command::Remove(brkpt))
-                        }),
+                        map(
+                            alt((brkpt_at_addr_parser, brkpt_at_line_parser, brkpt_at_fn)),
+                            |brkpt| Command::Breakpoint(r#break::Command::Remove(brkpt)),
+                        ),
                     ),
                     map(tag("info"), |_| Command::Breakpoint(r#break::Command::Info)),
-                    map(breakpoint_arg_parser(), |brkpt| {
-                        Command::Breakpoint(r#break::Command::Add(brkpt))
-                    }),
+                    map(
+                        alt((brkpt_at_addr_parser, brkpt_at_line_parser, brkpt_at_fn)),
+                        |brkpt| Command::Breakpoint(r#break::Command::Add(brkpt)),
+                    ),
                 ))),
             )(input)
         }

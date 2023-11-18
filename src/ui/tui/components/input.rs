@@ -1,5 +1,6 @@
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::Msg;
+use strum_macros::{Display, EnumString};
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
 use tuirealm::event::{Key, KeyEvent, KeyModifiers};
 use tuirealm::props::{Borders, InputType};
@@ -7,6 +8,13 @@ use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::style::{Color, Style};
 use tuirealm::tui::widgets::BorderType;
 use tuirealm::{Component, Event, MockComponent, State, StateValue};
+
+#[derive(Debug, Display, EnumString)]
+pub enum InputStringType {
+    BreakpointAddAtLine,
+    BreakpointAddAtFunction,
+    BreakpointAddAtAddress,
+}
 
 #[derive(MockComponent)]
 pub struct Input {

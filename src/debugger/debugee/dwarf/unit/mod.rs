@@ -55,7 +55,7 @@ pub struct PlaceDescriptor<'a> {
 }
 
 /// Like a [`PlaceDescriptor`] but without reference to compilation unit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlaceDescriptorOwned {
     pub file: PathBuf,
     pub address: GlobalAddress,

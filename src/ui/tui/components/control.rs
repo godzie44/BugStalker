@@ -124,7 +124,7 @@ impl Component<Msg, UserEvent> for GlobalControl {
                 ..
             }) => {
                 if self.already_run {
-                    Msg::ConfirmDebuggerRestart
+                    Msg::PopupConfirmDebuggerRestart
                 } else {
                     self.exchanger.request_async(|dbg| {
                         Ok(run::Handler::new(dbg).handle(run::Command::Start)?)
