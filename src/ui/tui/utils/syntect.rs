@@ -10,7 +10,7 @@ pub fn into_text_span(
     Ok(TextSpan {
         content: String::from(content),
         fg: translate_colour(style.foreground).unwrap_or_default(),
-        bg: translate_colour(style.background).unwrap_or_default(),
+        bg: Color::default(),
         modifiers: translate_font_style(style.font_style)?,
     })
 }

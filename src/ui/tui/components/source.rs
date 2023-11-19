@@ -44,7 +44,7 @@ impl FileLinesCache {
                 let ps = SyntaxSet::load_defaults_newlines();
                 let ts = ThemeSet::load_defaults();
                 let syntax = ps.find_syntax_by_extension("rs").unwrap();
-                let mut h = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
+                let mut h = HighlightLines::new(syntax, &ts.themes["Solarized (dark)"]);
                 let mut lines = vec![];
                 for (i, line) in LinesWithEndings::from(&source_code).enumerate() {
                     let mut line_spans = vec![TextSpan::new(format!("{:>4} ", i + 1))];
