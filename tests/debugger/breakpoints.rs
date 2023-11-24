@@ -1,6 +1,6 @@
 use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
-use crate::{assert_no_proc, HW_APP, SHARED_LIB_APP};
+use crate::{assert_no_proc, HW_APP, SHARED_LIB_APP, VARS_APP};
 use crate::{prepare_debugee_process, CALC_APP};
 use bugstalker::debugger::Debugger;
 use serial_test::serial;
@@ -159,6 +159,26 @@ fn test_brkpt_on_line() {
     let pc2 = debugger.exploration_ctx().location().pc;
     assert_eq!(pc1, pc2);
     assert_eq!(info.line.take(), Some(15));
+
+    debugger.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_brkpt_on_line2() {
+    let process = prepare_debugee_process(VARS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = DebugeeRunInfo::default();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 144).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 310).unwrap();
+
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(144));
+
+    debugger.continue_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(310));
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);

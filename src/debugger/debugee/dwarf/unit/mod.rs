@@ -14,6 +14,7 @@ use gimli::{
 };
 use once_cell::sync::OnceCell;
 use std::cell::RefCell;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::path;
@@ -669,12 +670,26 @@ impl Unit {
             .enumerate()
             .filter_map(move |(idx, file)| {
                 let mut file_lines = grouped_by_file_lines.get(&idx).cloned().unwrap_or_default();
-                // files without lines not interests
+                // skip files without lines
                 if file_lines.is_empty() {
                     return None;
                 }
 
-                file_lines.sort_unstable_by_key(|line| self.lines[*line].line);
+                file_lines.sort_unstable_by(|&line1, &line2| {
+                    match self.lines[line1].line.cmp(&self.lines[line2].line) {
+                        Ordering::Less => Ordering::Less,
+                        Ordering::Greater => Ordering::Greater,
+                        Ordering::Equal => {
+                            match self.lines[line1].column.cmp(&self.lines[line2].column) {
+                                Ordering::Less => Ordering::Less,
+                                Ordering::Greater => Ordering::Greater,
+                                Ordering::Equal => {
+                                    self.lines[line1].address.cmp(&self.lines[line2].address)
+                                }
+                            }
+                        }
+                    }
+                });
 
                 Some((
                     file.iter().filter_map(|s| {

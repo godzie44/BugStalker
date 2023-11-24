@@ -59,7 +59,8 @@ pub struct DebugInformation<R: gimli::Reader = EndianArcSlice> {
     symbol_table: Option<SymbolTab>,
     pub_names: Option<HashSet<String>>,
     /// Index for fast search files by full path or part of file path. Contains unit index and
-    /// indexes of lines in [`Unit::lines`] vector that belongs to a file, indexes ordered by line number.
+    /// indexes of lines in [`Unit::lines`] vector that belongs to a file, indexes are ordered by
+    /// line number, column number and address.
     files_index: PathSearchIndex<(usize, Vec<usize>)>,
 }
 
@@ -349,6 +350,9 @@ impl DebugInformation {
             for line_idx in file_lines {
                 let line_row = unit.line(*line_idx);
                 if line_row.line < line {
+                    continue;
+                }
+                if !line_row.is_stmt {
                     continue;
                 }
                 if line_row.line > line + 1 {

@@ -4,7 +4,7 @@ use crate::debugger::debugee::dwarf::DebugInformation;
 use crate::debugger::debugee::Debugee;
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::{NoDebugInformation, NoSuitablePlace, PlaceNotFound};
-use crate::debugger::Debugger;
+use crate::debugger::{Debugger, PlaceDescriptor};
 use nix::libc::c_void;
 use nix::sys;
 use nix::unistd::Pid;
@@ -12,7 +12,7 @@ use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::mem;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 enum BrkptsToAddRequest {
@@ -265,12 +265,29 @@ impl Debugger {
             .iter()
             .filter(|dwarf| dwarf.has_debug_info())
             .map(|&dwarf| {
-                let places = dwarf
-                    .find_closest_place(fine_tpl, line)?
-                    .into_iter()
-                    .map(|place| place.to_owned())
-                    .collect();
-                Ok((dwarf, places))
+                let places: Vec<PlaceDescriptor> = dwarf.find_closest_place(fine_tpl, line)?;
+
+                let mut places_by_file: HashMap<&Path, PlaceDescriptor> = HashMap::new();
+                // return one place for each unique file
+                places.into_iter().for_each(|p| {
+                    // if place already exists for `p.file` - replace it if line distance is closer then existed
+                    let mb_already_existed_place = places_by_file.get(p.file);
+                    if let Some(exited_place) = mb_already_existed_place {
+                        if exited_place.line_number - line > p.line_number - line {
+                            places_by_file.insert(p.file, p);
+                        }
+                    } else {
+                        places_by_file.insert(p.file, p);
+                    }
+                });
+
+                Ok((
+                    dwarf,
+                    places_by_file
+                        .into_values()
+                        .map(|place| place.to_owned())
+                        .collect(),
+                ))
             })
             .collect()
     }

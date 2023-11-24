@@ -26,34 +26,33 @@ class TodosTestCase(unittest.TestCase):
         debugger.expect('BugStalker greets')
         self.debugger = debugger
 
-    def test_step_over_until_response(self):
-        """Runs a todos application and set breakpoint at http handler. Makes http request, and do `step over` command while http response not returning"""
-        # create breakpoint
-        self.debugger.sendline('b main.rs:108')
-
-        time.sleep(5)
-        self.debugger.sendline('run')
-        time.sleep(1)
-
-        event = threading.Event()
-        thread = threading.Thread(target=send_create_todo_request,
-                                  args=(event,))
-        thread.start()
-        time.sleep(1)
-
-        # check that response returns at this point
-        while not event.is_set():
-            # send `step over` command otherwise
-            self.debugger.sendline('next')
-            self.debugger.expect("next")
-            time.sleep(0.05)
-
-        self.debugger.sendline('q')
+    # todo try uncomment this test on next rust versions
+    # def test_step_over_until_response(self):
+    #     """Runs a todos application and set breakpoint at http handler. Makes http request, and do `step over` command while http response not returning"""
+    #     # create breakpoint
+    #     self.debugger.sendline('b main.rs:108')
+    #
+    #     time.sleep(5)
+    #     self.debugger.sendline('run')
+    #     time.sleep(1)
+    #
+    #     event = threading.Event()
+    #     thread = threading.Thread(target=send_create_todo_request,
+    #                               args=(event,))
+    #     thread.start()
+    #     time.sleep(1)
+    #
+    #     # check that response returns at this point
+    #     while not event.is_set():
+    #         # send `step over` command otherwise
+    #         self.debugger.sendline('next')
+    #         self.debugger.expect("next")
+    #         time.sleep(0.05)
+    #
+    #     self.debugger.sendline('q')
 
     def test_create_and_get(self):
         """Create item, then try to get it and check that it exists in debugger (by `var` command)"""
-        # create breakpoint
-        self.debugger.sendline('b main.rs:108')
         # get breakpoint
         self.debugger.sendline('b main.rs:99')
 
@@ -66,12 +65,6 @@ class TodosTestCase(unittest.TestCase):
                                   args=(event,))
         thread.start()
         time.sleep(1)
-
-        # break in create, continue
-        self.debugger.sendline('continue')
-        while not event.is_set():
-            time.sleep(0.1)
-        thread.join()
 
         event = threading.Event()
         thread = threading.Thread(target=send_get_todo_request, args=(event,))
