@@ -4,13 +4,13 @@ use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef};
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::FunctionNotFound;
 use crate::debugger::variable::{AssumeError, ParsingError, VariableIR};
-use crate::debugger::{variable, Debugger};
+use crate::debugger::{variable, Debugger, FunctionDie};
 use crate::{ctx_resolve_unit_call, weak_error};
 use std::collections::hash_map::Entry;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum VariableSelector {
-    Name(String),
+    Name { var_name: String, local: bool },
     Any,
 }
 
@@ -18,7 +18,7 @@ pub enum VariableSelector {
 /// Expression can be parsed from an input string like `*(*variable1.field2)[1]` (see debugger::command module)
 ///
 /// Supported operations are: dereference, get element by index, get field by name, make slice from pointer.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     Variable(VariableSelector),
     Field(Box<Expression>, String),
@@ -61,21 +61,34 @@ impl<'a> SelectExpressionEvaluator<'a> {
     /// Only filter expression supported.
     pub fn evaluate_names(&self) -> Result<Vec<String>, Error> {
         let ctx = self.debugger.exploration_ctx();
+        let get_current_fn = || -> Result<ContextualDieRef<FunctionDie>, Error> {
+            Ok(self
+                .debugger
+                .debugee
+                .debug_info(ctx.location().pc)?
+                .find_function_by_pc(ctx.location().global_pc)?
+                .ok_or(FunctionNotFound(ctx.location().global_pc))?)
+        };
+
         match &self.expression {
             Expression::Variable(selector) => {
                 let vars = match selector {
-                    VariableSelector::Name(variable_name) => self
-                        .debugger
-                        .debugee
-                        .debug_info(ctx.location().pc)?
-                        .find_variables(ctx.location(), variable_name)?,
+                    VariableSelector::Name { var_name, local } => {
+                        if *local {
+                            let current_func = get_current_fn()?;
+                            current_func
+                                .local_variable(ctx.location().global_pc, var_name)
+                                .map(|v| vec![v])
+                                .unwrap_or_default()
+                        } else {
+                            self.debugger
+                                .debugee
+                                .debug_info(ctx.location().pc)?
+                                .find_variables(ctx.location(), var_name)?
+                        }
+                    }
                     VariableSelector::Any => {
-                        let current_func = self
-                            .debugger
-                            .debugee
-                            .debug_info(ctx.location().pc)?
-                            .find_function_by_pc(ctx.location().global_pc)?
-                            .ok_or(FunctionNotFound(ctx.location().global_pc))?;
+                        let current_func = get_current_fn()?;
                         current_func.local_variables(ctx.location().global_pc)
                     }
                 };
@@ -95,23 +108,37 @@ impl<'a> SelectExpressionEvaluator<'a> {
 
     fn evaluate_inner(&self, expression: &Expression) -> Result<Vec<VariableIR>, Error> {
         let ctx = self.debugger.exploration_ctx();
+
+        let get_current_fn = || -> Result<ContextualDieRef<FunctionDie>, Error> {
+            Ok(self
+                .debugger
+                .debugee
+                .debug_info(ctx.location().pc)?
+                .find_function_by_pc(ctx.location().global_pc)?
+                .ok_or(FunctionNotFound(ctx.location().global_pc))?)
+        };
+
         // evaluate variable one by one in `evaluate_single_variable` method
         // here just filter variables
         match expression {
             Expression::Variable(selector) => {
                 let vars = match selector {
-                    VariableSelector::Name(variable_name) => self
-                        .debugger
-                        .debugee
-                        .debug_info(ctx.location().pc)?
-                        .find_variables(ctx.location(), variable_name)?,
+                    VariableSelector::Name { var_name, local } => {
+                        if *local {
+                            let current_func = get_current_fn()?;
+                            current_func
+                                .local_variable(ctx.location().global_pc, var_name)
+                                .map(|v| vec![v])
+                                .unwrap_or_default()
+                        } else {
+                            self.debugger
+                                .debugee
+                                .debug_info(ctx.location().pc)?
+                                .find_variables(ctx.location(), var_name)?
+                        }
+                    }
                     VariableSelector::Any => {
-                        let current_func = self
-                            .debugger
-                            .debugee
-                            .debug_info(ctx.location().pc)?
-                            .find_function_by_pc(ctx.location().global_pc)?
-                            .ok_or(FunctionNotFound(ctx.location().global_pc))?;
+                        let current_func = get_current_fn()?;
                         current_func.local_variables(ctx.location().global_pc)
                     }
                 };
@@ -148,11 +175,9 @@ impl<'a> SelectExpressionEvaluator<'a> {
                 let params = current_function.parameters();
 
                 let params = match selector {
-                    VariableSelector::Name(variable_name) => params
+                    VariableSelector::Name { var_name, .. } => params
                         .into_iter()
-                        .filter(|param| {
-                            param.die.base_attributes.name.as_ref() == Some(variable_name)
-                        })
+                        .filter(|param| param.die.base_attributes.name.as_ref() == Some(var_name))
                         .collect::<Vec<_>>(),
                     VariableSelector::Any => params,
                 };
@@ -187,11 +212,9 @@ impl<'a> SelectExpressionEvaluator<'a> {
                 let params = current_function.parameters();
 
                 let params = match selector {
-                    VariableSelector::Name(variable_name) => params
+                    VariableSelector::Name { var_name, .. } => params
                         .into_iter()
-                        .filter(|param| {
-                            param.die.base_attributes.name.as_ref() == Some(variable_name)
-                        })
+                        .filter(|param| param.die.base_attributes.name.as_ref() == Some(var_name))
                         .collect::<Vec<_>>(),
                     VariableSelector::Any => params,
                 };

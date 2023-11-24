@@ -853,17 +853,19 @@ fn test_read_static_variables() {
     assert_eq!(info.line.take(), Some(168));
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name(
-            "GLOB_1".to_string(),
-        )))
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "GLOB_1".to_string(),
+            local: false,
+        }))
         .unwrap();
     assert_eq!(vars.len(), 1);
     assert_str(&vars[0], "vars::GLOB_1", "glob_1");
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name(
-            "GLOB_2".to_string(),
-        )))
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "GLOB_2".to_string(),
+            local: false,
+        }))
         .unwrap();
     assert_eq!(vars.len(), 1);
     assert_scalar(
@@ -872,6 +874,31 @@ fn test_read_static_variables() {
         "i32",
         Some(SupportedScalar::I32(2)),
     );
+
+    debugger.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_read_only_local_variables() {
+    let process = prepare_debugee_process(VARS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = DebugeeRunInfo::default();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+
+    debugger.set_breakpoint_at_line("vars.rs", 168).unwrap();
+
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(168));
+
+    let vars = debugger
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "GLOB_1".to_string(),
+            local: true,
+        }))
+        .unwrap();
+    assert_eq!(vars.len(), 0);
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
@@ -891,9 +918,10 @@ fn test_read_static_variables_different_modules() {
     assert_eq!(info.line.take(), Some(179));
 
     let mut vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name(
-            "GLOB_3".to_string(),
-        )))
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "GLOB_3".to_string(),
+            local: false,
+        }))
         .unwrap();
     assert_eq!(vars.len(), 2);
     vars.sort_by(|v1, v2| v1.r#type().cmp(v2.r#type()));
@@ -924,9 +952,10 @@ fn test_read_tls_variables() {
     assert_eq!(info.line.take(), Some(194));
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name(
-            "THREAD_LOCAL_VAR_1".to_string(),
-        )))
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "THREAD_LOCAL_VAR_1".to_string(),
+            local: false,
+        }))
         .unwrap();
     assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>", |inner| {
         assert_cell(inner, "0", "Cell<i32>", |value| {
@@ -935,9 +964,10 @@ fn test_read_tls_variables() {
     });
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name(
-            "THREAD_LOCAL_VAR_2".to_string(),
-        )))
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "THREAD_LOCAL_VAR_2".to_string(),
+            local: false,
+        }))
         .unwrap();
     assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_2", "Cell<&str>", |inner| {
         assert_cell(inner, "0", "Cell<&str>", |value| {
@@ -951,9 +981,10 @@ fn test_read_tls_variables() {
     assert_eq!(info.line.take(), Some(199));
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name(
-            "THREAD_LOCAL_VAR_1".to_string(),
-        )))
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "THREAD_LOCAL_VAR_1".to_string(),
+            local: false,
+        }))
         .unwrap();
     assert_uninit_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>");
 
@@ -963,9 +994,10 @@ fn test_read_tls_variables() {
     assert_eq!(info.line.take(), Some(203));
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name(
-            "THREAD_LOCAL_VAR_1".to_string(),
-        )))
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "THREAD_LOCAL_VAR_1".to_string(),
+            local: false,
+        }))
         .unwrap();
     assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>", |inner| {
         assert_cell(inner, "0", "Cell<i32>", |value| {

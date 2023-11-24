@@ -36,7 +36,10 @@ fn parens(i: &str) -> IResult<&str, Expression, ErrorTree<&str>> {
 
 fn variable(i: &str) -> IResult<&str, Expression, ErrorTree<&str>> {
     map(delimited(multispace0, rust_identifier, multispace0), |id| {
-        Expression::Variable(VariableSelector::Name(id.to_string()))
+        Expression::Variable(VariableSelector::Name {
+            var_name: id.to_string(),
+            local: false,
+        })
     })(i)
 }
 
@@ -108,27 +111,35 @@ mod test {
         let test_cases = vec![
             TestCase {
                 string: "var1",
-                expr: Expression::Variable(VariableSelector::Name("var1".to_string())),
+                expr: Expression::Variable(VariableSelector::Name {
+                    var_name: "var1".to_string(),
+                    local: false,
+                }),
             },
             TestCase {
                 string: "*var1",
-                expr: Expression::Deref(Box::new(Expression::Variable(VariableSelector::Name(
-                    "var1".to_string(),
-                )))),
+                expr: Expression::Deref(Box::new(Expression::Variable(VariableSelector::Name {
+                    var_name: "var1".to_string(),
+                    local: false,
+                }))),
             },
             TestCase {
                 string: "**var1",
                 expr: Expression::Deref(Box::new(Expression::Deref(Box::new(
-                    Expression::Variable(VariableSelector::Name("var1".to_string())),
+                    Expression::Variable(VariableSelector::Name {
+                        var_name: "var1".to_string(),
+                        local: false,
+                    }),
                 )))),
             },
             TestCase {
                 string: "**var1.field1.field2",
                 expr: Expression::Deref(Box::new(Expression::Deref(Box::new(Expression::Field(
                     Box::new(Expression::Field(
-                        Box::new(Expression::Variable(VariableSelector::Name(
-                            "var1".to_string(),
-                        ))),
+                        Box::new(Expression::Variable(VariableSelector::Name {
+                            var_name: "var1".to_string(),
+                            local: false,
+                        })),
                         "field1".to_string(),
                     )),
                     "field2".to_string(),
@@ -139,9 +150,10 @@ mod test {
                 expr: Expression::Deref(Box::new(Expression::Deref(Box::new(
                     Expression::Parentheses(Box::new(Expression::Field(
                         Box::new(Expression::Field(
-                            Box::new(Expression::Variable(VariableSelector::Name(
-                                "var1".to_string(),
-                            ))),
+                            Box::new(Expression::Variable(VariableSelector::Name {
+                                var_name: "var1".to_string(),
+                                local: false,
+                            })),
                             "field1".to_string(),
                         )),
                         "field2".to_string(),
@@ -154,7 +166,10 @@ mod test {
                     Box::new(Expression::Field(
                         Box::new(Expression::Parentheses(Box::new(Expression::Deref(
                             Box::new(Expression::Deref(Box::new(Expression::Variable(
-                                VariableSelector::Name("var1".to_string()),
+                                VariableSelector::Name {
+                                    var_name: "var1".to_string(),
+                                    local: false,
+                                },
                             )))),
                         )))),
                         "field1".to_string(),
@@ -169,9 +184,10 @@ mod test {
                         Box::new(Expression::Field(
                             Box::new(Expression::Parentheses(Box::new(Expression::Deref(
                                 Box::new(Expression::Parentheses(Box::new(Expression::Field(
-                                    Box::new(Expression::Variable(VariableSelector::Name(
-                                        "var1".to_string(),
-                                    ))),
+                                    Box::new(Expression::Variable(VariableSelector::Name {
+                                        var_name: "var1".to_string(),
+                                        local: false,
+                                    })),
                                     "field1".to_string(),
                                 )))),
                             )))),
@@ -186,9 +202,10 @@ mod test {
                 string: "var1.field1[..5]",
                 expr: Expression::Slice(
                     Box::new(Expression::Field(
-                        Box::new(Expression::Variable(VariableSelector::Name(
-                            "var1".to_string(),
-                        ))),
+                        Box::new(Expression::Variable(VariableSelector::Name {
+                            var_name: "var1".to_string(),
+                            local: false,
+                        })),
                         "field1".to_string(),
                     )),
                     5,
@@ -198,9 +215,10 @@ mod test {
                 string: "enum1.0.a",
                 expr: Expression::Field(
                     Box::new(Expression::Field(
-                        Box::new(Expression::Variable(VariableSelector::Name(
-                            "enum1".to_string(),
-                        ))),
+                        Box::new(Expression::Variable(VariableSelector::Name {
+                            var_name: "enum1".to_string(),
+                            local: false,
+                        })),
                         "0".to_string(),
                     )),
                     "a".to_string(),

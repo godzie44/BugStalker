@@ -850,6 +850,35 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         result
     }
 
+    pub fn local_variable<'this>(
+        &'this self,
+        pc: GlobalAddress,
+        needle: &str,
+    ) -> Option<ContextualDieRef<'ctx, VariableDie>> {
+        let mut queue = VecDeque::from(self.node.children.clone());
+        while let Some(idx) = queue.pop_front() {
+            let entry = ctx_resolve_unit_call!(self, entry, idx);
+            if let DieVariant::Variable(ref var) = entry.die {
+                let var_ref = ContextualDieRef {
+                    debug_info: self.debug_info,
+                    unit_idx: self.unit_idx,
+                    node: &entry.node,
+                    die: var,
+                };
+
+                if var_ref.valid_at(pc) {
+                    continue;
+                }
+
+                if var_ref.die.name() == Some(needle) {
+                    return Some(var_ref);
+                }
+            }
+            entry.node.children.iter().for_each(|i| queue.push_back(*i));
+        }
+        None
+    }
+
     pub fn parameters(&self) -> Vec<ContextualDieRef<'_, ParameterDie>> {
         let mut result = vec![];
         for &idx in &self.node.children {

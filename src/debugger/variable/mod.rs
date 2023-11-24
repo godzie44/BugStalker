@@ -509,18 +509,14 @@ impl VariableIR {
                             SpecializedVariableIR::String {
                                 string: string_key, ..
                             } => string_key.and_then(|string| {
-                                if string.value == field_name {
-                                    return Some(value.clone_and_rename(&string.value));
-                                }
-                                None
+                                (string.value == field_name)
+                                    .then(|| value.clone_and_rename(&string.value))
                             }),
                             SpecializedVariableIR::Str {
                                 string: string_key, ..
                             } => string_key.and_then(|str| {
-                                if str.value == field_name {
-                                    return Some(value.clone_and_rename(&str.value));
-                                }
-                                None
+                                (str.value == field_name)
+                                    .then(|| value.clone_and_rename(&str.value))
                             }),
                             _ => None,
                         },
