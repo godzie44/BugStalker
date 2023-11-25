@@ -1,19 +1,49 @@
 use crate::debugger::variable::SpecializedVariableIR;
 use crate::debugger::variable::VariableIR;
 use std::borrow::Cow;
+use std::fmt::{Debug, Formatter};
 
-#[derive(Debug)]
 pub enum ValueLayout<'a> {
     PreRendered(Cow<'a, str>),
     Referential {
         addr: *const (),
     },
     Wrapped(&'a VariableIR),
-    Nested {
+    Structure {
         members: &'a [VariableIR],
-        named: bool,
+    },
+    List {
+        members: &'a [VariableIR],
+        indexed: bool,
     },
     Map(&'a [(VariableIR, VariableIR)]),
+}
+
+impl<'a> Debug for ValueLayout<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValueLayout::PreRendered(s) => f.debug_tuple("PreRendered").field(s).finish(),
+            ValueLayout::Referential { addr, .. } => {
+                f.debug_tuple("Referential").field(addr).finish()
+            }
+            ValueLayout::Wrapped(v) => f.debug_tuple("Wrapped").field(v).finish(),
+            ValueLayout::Structure { members } => {
+                f.debug_struct("Nested").field("members", members).finish()
+            }
+            ValueLayout::Map(kvs) => {
+                let mut list = f.debug_list();
+                for kv in kvs.iter() {
+                    list.entry(kv);
+                }
+                list.finish()
+            }
+            ValueLayout::List { members, indexed } => f
+                .debug_struct("List")
+                .field("members", members)
+                .field("indexed", indexed)
+                .finish(),
+        }
+    }
 }
 
 pub trait RenderRepr {
@@ -86,13 +116,12 @@ impl RenderRepr for VariableIR {
             VariableIR::Scalar(scalar) => {
                 ValueLayout::PreRendered(Cow::Owned(scalar.value.as_ref()?.to_string()))
             }
-            VariableIR::Struct(r#struct) => ValueLayout::Nested {
+            VariableIR::Struct(r#struct) => ValueLayout::Structure {
                 members: r#struct.members.as_ref(),
-                named: true,
             },
-            VariableIR::Array(array) => ValueLayout::Nested {
+            VariableIR::Array(array) => ValueLayout::List {
                 members: array.items.as_deref()?,
-                named: true,
+                indexed: true,
             },
             VariableIR::CEnum(r#enum) => {
                 ValueLayout::PreRendered(Cow::Borrowed(r#enum.value.as_ref()?))
@@ -105,26 +134,23 @@ impl RenderRepr for VariableIR {
             VariableIR::Specialized(spec) => match spec {
                 SpecializedVariableIR::Vector { vec, original }
                 | SpecializedVariableIR::VecDeque { vec, original } => match vec {
-                    None => ValueLayout::Nested {
+                    None => ValueLayout::Structure {
                         members: original.members.as_ref(),
-                        named: true,
                     },
-                    Some(v) => ValueLayout::Nested {
+                    Some(v) => ValueLayout::List {
                         members: v.structure.members.as_ref(),
-                        named: true,
+                        indexed: true,
                     },
                 },
                 SpecializedVariableIR::String { string, original } => match string {
-                    None => ValueLayout::Nested {
+                    None => ValueLayout::Structure {
                         members: original.members.as_ref(),
-                        named: true,
                     },
                     Some(s) => ValueLayout::PreRendered(Cow::Borrowed(&s.value)),
                 },
                 SpecializedVariableIR::Str { string, original } => match string {
-                    None => ValueLayout::Nested {
+                    None => ValueLayout::Structure {
                         members: original.members.as_ref(),
-                        named: true,
                     },
                     Some(s) => ValueLayout::PreRendered(Cow::Borrowed(&s.value)),
                 },
@@ -132,9 +158,8 @@ impl RenderRepr for VariableIR {
                     tls_var: value,
                     original,
                 } => match value {
-                    None => ValueLayout::Nested {
+                    None => ValueLayout::Structure {
                         members: original.members.as_ref(),
-                        named: true,
                     },
                     Some(ref tls_val) => match tls_val.inner_value.as_ref() {
                         None => ValueLayout::PreRendered(Cow::Borrowed("uninit")),
@@ -142,52 +167,46 @@ impl RenderRepr for VariableIR {
                     },
                 },
                 SpecializedVariableIR::HashMap { map, original } => match map {
-                    None => ValueLayout::Nested {
+                    None => ValueLayout::Structure {
                         members: original.members.as_ref(),
-                        named: true,
                     },
                     Some(map) => ValueLayout::Map(&map.kv_items),
                 },
                 SpecializedVariableIR::HashSet { set, original } => match set {
-                    None => ValueLayout::Nested {
+                    None => ValueLayout::Structure {
                         members: original.members.as_ref(),
-                        named: true,
                     },
-                    Some(set) => ValueLayout::Nested {
+                    Some(set) => ValueLayout::List {
                         members: &set.items,
-                        named: false,
+                        indexed: false,
                     },
                 },
                 SpecializedVariableIR::BTreeMap { map, original } => match map {
-                    None => ValueLayout::Nested {
+                    None => ValueLayout::Structure {
                         members: original.members.as_ref(),
-                        named: true,
                     },
                     Some(map) => ValueLayout::Map(&map.kv_items),
                 },
                 SpecializedVariableIR::BTreeSet { set, original } => match set {
-                    None => ValueLayout::Nested {
+                    None => ValueLayout::Structure {
                         members: original.members.as_ref(),
-                        named: true,
                     },
-                    Some(set) => ValueLayout::Nested {
+                    Some(set) => ValueLayout::List {
                         members: &set.items,
-                        named: false,
+                        indexed: false,
                     },
                 },
                 SpecializedVariableIR::Cell { value, original }
                 | SpecializedVariableIR::RefCell { value, original } => match value {
                     Some(v) => v.value()?,
-                    None => ValueLayout::Nested {
+                    None => ValueLayout::Structure {
                         members: original.members.as_ref(),
-                        named: true,
                     },
                 },
                 SpecializedVariableIR::Rc { value, original }
                 | SpecializedVariableIR::Arc { value, original } => match value {
-                    None => ValueLayout::Nested {
+                    None => ValueLayout::Structure {
                         members: original.members.as_ref(),
-                        named: true,
                     },
                     Some(pointer) => {
                         let ptr = pointer.value?;

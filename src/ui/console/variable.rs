@@ -22,22 +22,18 @@ pub fn render_variable_ir(view: &VariableIR, depth: usize) -> String {
             ValueLayout::Wrapped(val) => {
                 format!("{}::{}", view.r#type(), render_variable_ir(val, depth))
             }
-            ValueLayout::Nested { members, named } => {
+            ValueLayout::Structure { members } => {
                 let mut render = format!("{} {{", view.r#type());
 
                 let tabs = TAB.repeat(depth + 1);
 
                 for v in members {
                     render = format!("{render}\n");
-                    if named {
-                        render = format!(
-                            "{render}{tabs}{}: {}",
-                            v.name(),
-                            render_variable_ir(v, depth + 1)
-                        );
-                    } else {
-                        render = format!("{render}{tabs}{}", render_variable_ir(v, depth + 1));
-                    }
+                    render = format!(
+                        "{render}{tabs}{}: {}",
+                        v.name(),
+                        render_variable_ir(v, depth + 1)
+                    );
                 }
 
                 format!("{render}\n{}}}", TAB.repeat(depth))
@@ -54,6 +50,26 @@ pub fn render_variable_ir(view: &VariableIR, depth: usize) -> String {
                         render_variable_ir(&kv.0, depth + 1),
                         render_variable_ir(&kv.1, depth + 1)
                     );
+                }
+
+                format!("{render}\n{}}}", TAB.repeat(depth))
+            }
+            ValueLayout::List { members, indexed } => {
+                let mut render = format!("{} {{", view.r#type());
+
+                let tabs = TAB.repeat(depth + 1);
+
+                for v in members {
+                    render = format!("{render}\n");
+                    if indexed {
+                        render = format!(
+                            "{render}{tabs}{}: {}",
+                            v.name(),
+                            render_variable_ir(v, depth + 1)
+                        );
+                    } else {
+                        render = format!("{render}{tabs}{}", render_variable_ir(v, depth + 1));
+                    }
                 }
 
                 format!("{render}\n{}}}", TAB.repeat(depth))

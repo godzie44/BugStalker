@@ -171,6 +171,7 @@ dependencies = [
  "timeout-readwrite",
  "trie-rs",
  "tui-realm-stdlib",
+ "tui-realm-treeview",
  "tuirealm",
  "typed-arena",
  "unicode-width",
@@ -1134,6 +1135,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "orange-trees"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09076c6795512834ae9688afc74f3d5634e72486212155c62ffa9018a3cf93c8"
+
+[[package]]
 name = "os_pipe"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1934,6 +1941,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24d8dc6284ce10a3a3e0a969f0f929f582db65f28573c670f4dfbfdfbaf75c34"
 dependencies = [
  "textwrap",
+ "tuirealm",
+ "unicode-width",
+]
+
+[[package]]
+name = "tui-realm-treeview"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3d2d6c059f6adbb2ba7194ab50765dac793cb98fae097e0bb5bf8c23ffaf27c"
+dependencies = [
+ "orange-trees",
  "tuirealm",
  "unicode-width",
 ]
