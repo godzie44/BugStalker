@@ -111,6 +111,10 @@ impl GlobalAddress {
     pub fn in_range(self, range: &Range) -> bool {
         u64::from(self) >= range.begin && u64::from(self) < range.end
     }
+
+    pub fn in_ranges(self, ranges: &[Range]) -> bool {
+        ranges.iter().any(|range| self.in_range(range))
+    }
 }
 
 impl From<usize> for GlobalAddress {

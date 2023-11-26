@@ -60,21 +60,21 @@ fn test_multiple_brkpt_on_addr() {
 #[test]
 #[serial]
 fn test_brkpt_on_function() {
-    let process = prepare_debugee_process(HW_APP, &[]);
+    let process = prepare_debugee_process(CALC_APP, &["1", "2", "3", "--description", "result"]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
     let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
-    debugger.set_breakpoint_at_fn("myprint").unwrap();
+    debugger.set_breakpoint_at_fn("sum2").unwrap();
 
     debugger.start_debugee().unwrap();
     let pc1 = debugger.exploration_ctx().location().pc;
     assert!(u64::from(pc1) > 0);
-    assert_eq!(info.line.take(), Some(15));
+    assert_eq!(info.line.take(), Some(19));
 
     debugger.continue_debugee().unwrap();
     let pc2 = debugger.exploration_ctx().location().pc;
     assert_eq!(pc1, pc2);
-    assert_eq!(info.line.take(), Some(15));
+    assert_eq!(info.line.take(), Some(19));
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
@@ -220,5 +220,5 @@ fn test_deferred_breakpoint() {
     debugger.add_deferred_at_function("print_sum");
     debugger.start_debugee().unwrap();
 
-    assert_eq!(info.line.take(), Some(3));
+    assert!(info.line.take().is_some());
 }

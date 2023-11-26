@@ -315,8 +315,8 @@ impl DebugInformation {
                     .iter()
                     .map(|entry| {
                         let DieVariant::Function(func) = &entry.die else {
-                        unreachable!()
-                    };
+                            unreachable!()
+                        };
                         ContextualDieRef {
                             debug_info: self,
                             unit_idx: unit.idx(),

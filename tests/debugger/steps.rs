@@ -100,6 +100,9 @@ fn test_step_out() {
     assert_eq!(info.line.take(), Some(5));
 
     debugger.step_into().unwrap();
+    debugger.step_into().unwrap();
+    debugger.step_into().unwrap();
+    debugger.step_into().unwrap();
     assert_eq!(info.line.take(), Some(15));
 
     debugger.step_out().unwrap();

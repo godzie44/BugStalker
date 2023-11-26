@@ -18,7 +18,7 @@ fn assert_scalar(
     exp_val: Option<SupportedScalar>,
 ) {
     let VariableIR::Scalar(scalar) = var else {
-      panic!("not a scalar");
+        panic!("not a scalar");
     };
     assert_eq!(var.name(), exp_name);
     assert_eq!(var.r#type(), exp_type);
@@ -32,7 +32,7 @@ fn assert_struct(
     for_each_member: impl Fn(usize, &VariableIR),
 ) {
     let VariableIR::Struct(structure) = var else {
-      panic!("not a struct");
+        panic!("not a struct");
     };
     assert_eq!(var.name(), exp_name);
     assert_eq!(var.r#type(), exp_type);
@@ -48,7 +48,7 @@ fn assert_array(
     for_each_item: impl Fn(usize, &VariableIR),
 ) {
     let VariableIR::Array(array) = var else {
-      panic!("not a array");
+        panic!("not a array");
     };
     assert_eq!(array.identity.name.as_ref().unwrap(), exp_name);
     assert_eq!(array.type_name.as_ref().unwrap(), exp_type);
@@ -59,7 +59,7 @@ fn assert_array(
 
 fn assert_c_enum(var: &VariableIR, exp_name: &str, exp_type: &str, exp_value: Option<String>) {
     let VariableIR::CEnum(c_enum) = var else {
-      panic!("not a c_enum");
+        panic!("not a c_enum");
     };
     assert_eq!(var.name(), exp_name);
     assert_eq!(var.r#type(), exp_type);
@@ -95,7 +95,10 @@ fn assert_vec(
     exp_cap: usize,
     with_buf: impl FnOnce(&VariableIR),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Vector {vec: Some(vector), ..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::Vector {
+        vec: Some(vector), ..
+    }) = var
+    else {
         panic!("not a vector");
     };
     assert_eq!(var.name(), exp_name);
@@ -108,7 +111,11 @@ fn assert_vec(
 }
 
 fn assert_string(var: &VariableIR, exp_name: &str, exp_value: &str) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::String {string: Some(string), ..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::String {
+        string: Some(string),
+        ..
+    }) = var
+    else {
         panic!("not a string");
     };
     assert_eq!(var.name(), exp_name);
@@ -116,7 +123,10 @@ fn assert_string(var: &VariableIR, exp_name: &str, exp_value: &str) {
 }
 
 fn assert_str(var: &VariableIR, exp_name: &str, exp_value: &str) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Str {string: Some(str), ..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::Str {
+        string: Some(str), ..
+    }) = var
+    else {
         panic!("not a &str");
     };
     assert_eq!(var.name(), exp_name);
@@ -129,7 +139,10 @@ fn assert_init_tls(
     exp_type: &str,
     with_var: impl FnOnce(&VariableIR),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Tls {tls_var: Some(tls), ..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::Tls {
+        tls_var: Some(tls), ..
+    }) = var
+    else {
         panic!("not a tls");
     };
     assert_eq!(tls.identity.name.as_ref().unwrap(), exp_name);
@@ -138,7 +151,10 @@ fn assert_init_tls(
 }
 
 fn assert_uninit_tls(var: &VariableIR, exp_name: &str, exp_type: &str) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Tls {tls_var: Some(tls), ..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::Tls {
+        tls_var: Some(tls), ..
+    }) = var
+    else {
         panic!("not a tls");
     };
     assert_eq!(tls.identity.name.as_ref().unwrap(), exp_name);
@@ -152,7 +168,10 @@ fn assert_hashmap(
     exp_type: &str,
     with_kv_items: impl FnOnce(&Vec<(VariableIR, VariableIR)>),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::HashMap {map: Some(map), ..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::HashMap {
+        map: Some(map), ..
+    }) = var
+    else {
         panic!("not a hashmap");
     };
     assert_eq!(var.name(), exp_name);
@@ -172,7 +191,10 @@ fn assert_hashset(
     exp_type: &str,
     with_items: impl FnOnce(&Vec<VariableIR>),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::HashSet {set: Some(set), ..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::HashSet {
+        set: Some(set), ..
+    }) = var
+    else {
         panic!("not a hashset");
     };
     assert_eq!(set.identity.name.as_ref().unwrap(), exp_name);
@@ -192,7 +214,10 @@ fn assert_btree_map(
     exp_type: &str,
     with_kv_items: impl FnOnce(&Vec<(VariableIR, VariableIR)>),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::BTreeMap {map: Some(map), ..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::BTreeMap {
+        map: Some(map), ..
+    }) = var
+    else {
         panic!("not a BTreeMap");
     };
     assert_eq!(map.identity.name.as_ref().unwrap(), exp_name);
@@ -206,7 +231,10 @@ fn assert_btree_set(
     exp_type: &str,
     with_items: impl FnOnce(&Vec<VariableIR>),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::BTreeSet {set: Some(set), ..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::BTreeSet {
+        set: Some(set), ..
+    }) = var
+    else {
         panic!("not a BTreeSet");
     };
     assert_eq!(set.identity.name.as_ref().unwrap(), exp_name);
@@ -221,7 +249,11 @@ fn assert_vec_deque(
     exp_cap: usize,
     with_buf: impl FnOnce(&VariableIR),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::VecDeque {vec: Some(vector), ..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::VecDeque {
+        vec: Some(vector),
+        ..
+    }) = var
+    else {
         panic!("not a VecDeque");
     };
     assert_eq!(vector.structure.identity.name.as_ref().unwrap(), exp_name);
@@ -239,7 +271,7 @@ fn assert_cell(
     exp_type: &str,
     with_value: impl FnOnce(&VariableIR),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Cell {value, ..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::Cell { value, .. }) = var else {
         panic!("not a Cell");
     };
     assert_eq!(var.name(), exp_name);
@@ -254,7 +286,8 @@ fn assert_refcell(
     exp_borrow: isize,
     with_value: impl FnOnce(&VariableIR),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::RefCell {value, ..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::RefCell { value, .. }) = var
+    else {
         panic!("not a Cell");
     };
     assert_eq!(var.name(), exp_name);
@@ -275,7 +308,7 @@ fn assert_refcell(
 }
 
 fn assert_rc(var: &VariableIR, exp_name: &str, exp_type: &str) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Rc {..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::Rc { .. }) = var else {
         panic!("not an rc");
     };
     assert_eq!(var.name(), exp_name);
@@ -283,7 +316,7 @@ fn assert_rc(var: &VariableIR, exp_name: &str, exp_type: &str) {
 }
 
 fn assert_arc(var: &VariableIR, exp_name: &str, exp_type: &str) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Arc {..}) = var else {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::Arc { .. }) = var else {
         panic!("not an arc");
     };
     assert_eq!(var.name(), exp_name);
@@ -361,7 +394,10 @@ fn test_read_scalar_variables_at_place() {
     assert_eq!(info.line.take(), Some(11));
 
     let vars = debugger.read_local_variables().unwrap();
-    assert_eq!(vars.len(), 4);
+    // WAITFORFIX: https://github.com/rust-lang/rust/issues/113819
+    // expected: assert_eq!(vars.len(), 4);
+    // through this bug there is uninitialized variable here
+    assert_eq!(vars.len(), 5);
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
@@ -1436,8 +1472,16 @@ fn test_circular_ref_types() {
     assert_eq!(info.line.take(), Some(301));
 
     let vars = debugger.read_local_variables().unwrap();
-    assert_rc(&vars[0], "a_circ", "Rc<vars::circular::List>");
-    assert_rc(&vars[1], "b_circ", "Rc<vars::circular::List>");
+    assert_rc(
+        &vars[0],
+        "a_circ",
+        "Rc<vars::circular::List, alloc::alloc::Global>",
+    );
+    assert_rc(
+        &vars[1],
+        "b_circ",
+        "Rc<vars::circular::List, alloc::alloc::Global>",
+    );
 
     let deref = read_single_var(&debugger, "*a_circ");
     assert_struct(
@@ -1458,9 +1502,15 @@ fn test_circular_ref_types() {
                         1 => assert_refcell(
                             cons_member,
                             "1",
-                            "RefCell<alloc::rc::Rc<vars::circular::List>>",
+                            "RefCell<alloc::rc::Rc<vars::circular::List, alloc::alloc::Global>>",
                             0,
-                            |inner| assert_rc(inner, "value", "Rc<vars::circular::List>"),
+                            |inner| {
+                                assert_rc(
+                                    inner,
+                                    "value",
+                                    "Rc<vars::circular::List, alloc::alloc::Global>",
+                                )
+                            },
                         ),
                         _ => panic!("2 members expected"),
                     });
@@ -1487,7 +1537,10 @@ fn test_lexical_blocks() {
     assert_eq!(info.line.take(), Some(307));
 
     let vars = debugger.read_local_variables().unwrap();
-    assert_eq!(vars.len(), 1);
+    // WAITFORFIX: https://github.com/rust-lang/rust/issues/113819
+    // expected:     assert_eq!(vars.len(), 1);
+    // through this bug there is uninitialized variable here
+    assert_eq!(vars.len(), 2);
     assert_eq!(vars[0].name(), "alpha");
 
     debugger.set_breakpoint_at_line("vars.rs", 309).unwrap();
@@ -1884,7 +1937,7 @@ fn test_shared_ptr() {
     assert_eq!(info.line.take(), Some(409));
 
     let vars = debugger.read_local_variables().unwrap();
-    assert_rc(&vars[0], "rc0", "Rc<i32>");
+    assert_rc(&vars[0], "rc0", "Rc<i32, alloc::alloc::Global>");
     let deref = read_single_var(&debugger, "*rc0");
     assert_struct(&deref, "*rc0", "RcBox<i32>", |i, member| match i {
         0 => assert_cell(member, "strong", "Cell<usize>", |inner| {
@@ -1896,7 +1949,7 @@ fn test_shared_ptr() {
         2 => assert_scalar(member, "value", "i32", Some(SupportedScalar::I32(1))),
         _ => panic!("3 members expected"),
     });
-    assert_rc(&vars[1], "rc1", "Rc<i32>");
+    assert_rc(&vars[1], "rc1", "Rc<i32, alloc::alloc::Global>");
     let deref = read_single_var(&debugger, "*rc1");
     assert_struct(&deref, "*rc1", "RcBox<i32>", |i, member| match i {
         0 => assert_cell(member, "strong", "Cell<usize>", |inner| {
@@ -1908,7 +1961,7 @@ fn test_shared_ptr() {
         2 => assert_scalar(member, "value", "i32", Some(SupportedScalar::I32(1))),
         _ => panic!("3 members expected"),
     });
-    assert_rc(&vars[2], "weak_rc2", "Weak<i32>");
+    assert_rc(&vars[2], "weak_rc2", "Weak<i32, alloc::alloc::Global>");
     let deref = read_single_var(&debugger, "*weak_rc2");
     assert_struct(&deref, "*weak_rc2", "RcBox<i32>", |i, member| match i {
         0 => assert_cell(member, "strong", "Cell<usize>", |inner| {
@@ -1921,7 +1974,7 @@ fn test_shared_ptr() {
         _ => panic!("3 members expected"),
     });
 
-    assert_arc(&vars[3], "arc0", "Arc<i32>");
+    assert_arc(&vars[3], "arc0", "Arc<i32, alloc::alloc::Global>");
     let deref = read_single_var(&debugger, "*arc0");
     assert_struct(&deref, "*arc0", "ArcInner<i32>", |i, member| match i {
         0 => assert_struct(member, "strong", "AtomicUsize", |i, member| match i {
@@ -1939,7 +1992,7 @@ fn test_shared_ptr() {
         2 => assert_scalar(member, "data", "i32", Some(SupportedScalar::I32(2))),
         _ => panic!("3 members expected"),
     });
-    assert_arc(&vars[4], "arc1", "Arc<i32>");
+    assert_arc(&vars[4], "arc1", "Arc<i32, alloc::alloc::Global>");
     let deref = read_single_var(&debugger, "*arc1");
     assert_struct(&deref, "*arc1", "ArcInner<i32>", |i, member| match i {
         0 => assert_struct(member, "strong", "AtomicUsize", |i, member| match i {
@@ -1957,7 +2010,7 @@ fn test_shared_ptr() {
         2 => assert_scalar(member, "data", "i32", Some(SupportedScalar::I32(2))),
         _ => panic!("3 members expected"),
     });
-    assert_arc(&vars[5], "weak_arc2", "Weak<i32>");
+    assert_arc(&vars[5], "weak_arc2", "Weak<i32, alloc::alloc::Global>");
     let deref = read_single_var(&debugger, "*weak_arc2");
     assert_struct(&deref, "*weak_arc2", "ArcInner<i32>", |i, member| match i {
         0 => assert_struct(member, "strong", "AtomicUsize", |i, member| match i {

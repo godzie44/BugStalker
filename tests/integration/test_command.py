@@ -28,10 +28,10 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('continue')
-        self.debugger.expect_exact('println!("{}", s)')
+        self.debugger.expect_exact('Self::new(x, Display::fmt)')
         self.debugger.sendline('continue')
         self.debugger.expect('Hello, world!')
-        self.debugger.expect_exact('println!("{}", s)')
+        self.debugger.expect_exact('Self::new(x, Display::fmt)')
         self.debugger.sendline('continue')
         self.debugger.expect('bye!')
 
@@ -188,12 +188,10 @@ class CommandTestCase(unittest.TestCase):
 
     def test_step_out(self):
         """Debugger step out command (move out from current function)"""
-        self.debugger.sendline('break hello_world.rs:5')
+        self.debugger.sendline('break hello_world.rs:15')
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('myprint("Hello, world!");')
-        self.debugger.sendline('step')
         self.debugger.expect_exact('15     println!("{}", s)')
         self.debugger.sendline('stepout')
         self.debugger.expect_exact('7     sleep(Duration::from_secs(1));')
@@ -302,16 +300,18 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('break info')
-        self.debugger.expect(r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9')
-        self.debugger.expect(r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:15')
+
+        self.debugger.expect(r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9 ')
+        self.debugger.expect(r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/rt\.rs:97')
         self.debugger.expect(r'- Breakpoint 3 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:5')
         self.debugger.expect(r'- Breakpoint 4 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:7')
 
         self.debugger.sendline('run')
 
         self.debugger.sendline('break info')
-        self.debugger.expect(r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9')
-        self.debugger.expect(r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:15')
+
+        self.debugger.expect(r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9 ')
+        self.debugger.expect(r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/rt\.rs:97')
         self.debugger.expect(r'- Breakpoint 3 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:5')
         self.debugger.expect(r'- Breakpoint 4 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:7')
 
@@ -319,8 +319,8 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect('Remove breakpoint')
 
         self.debugger.sendline('break info')
-        self.debugger.expect(r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9')
-        self.debugger.expect(r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:15')
+        self.debugger.expect(r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9 ')
+        self.debugger.expect(r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/rt\.rs:97')
         self.debugger.expect(r'- Breakpoint 4 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:7')
 
     def test_debugee_restart(self):

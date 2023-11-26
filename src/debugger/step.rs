@@ -263,9 +263,7 @@ impl Debugger {
                 }
 
                 // guard from step at inlined function body
-                let in_inline_range = inline_ranges
-                    .iter()
-                    .any(|inline_range| place.address.in_range(inline_range));
+                let in_inline_range = place.address.in_ranges(&inline_ranges);
 
                 if !in_inline_range
                     && place.is_stmt

@@ -130,10 +130,10 @@ class MultithreadTestCase(unittest.TestCase):
         # two steps is needed
         try:
             self.debugger.sendline('step')
-            self.debugger.expect_exact('/sys/unix/thread.rs')
+            self.debugger.expect_exact('/linux/nanosleep.c')
         except pexpect.ExceptionPexpect:
             self.debugger.sendline('step')
-            self.debugger.expect_exact('/sys/unix/thread.rs')
+            self.debugger.expect_exact('/linux/nanosleep.c')
 
         self.debugger.sendline('step')
         self.debugger.sendline('step')

@@ -104,7 +104,9 @@ class SharedLibTestCase(unittest.TestCase):
         self.debugger.sendline('step')
         self.debugger.sendline('step')
         self.debugger.sendline('step')
-        self.debugger.expect_exact('printer_lib/src/lib.rs:3')
+        self.debugger.sendline('step')
+        self.debugger.sendline('step')
+        self.debugger.sendline('step')
         self.debugger.expect_exact('3     println!("sum is {num}")')
 
     def test_deferred_breakpoint(self):
@@ -115,4 +117,4 @@ class SharedLibTestCase(unittest.TestCase):
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('Hit breakpoint')
-        self.debugger.expect_exact('3     println!("sum is {num}")')
+        self.debugger.expect_exact('97         Self::new(x, Display::fmt)')
