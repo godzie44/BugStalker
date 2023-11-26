@@ -712,7 +712,10 @@ impl<'a> VariableParser<'a> {
     ) -> Option<VariableIR> {
         let name = member.name.clone();
         let Some(type_ref) = member.type_ref else {
-            bs_warn!("parse structure: unknown type for member {}", name.as_deref().unwrap_or_default());
+            bs_warn!(
+                "parse structure: unknown type for member {}",
+                name.as_deref().unwrap_or_default()
+            );
             return None;
         };
         let member_val =

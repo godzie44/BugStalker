@@ -185,7 +185,7 @@ impl Debugger {
 
         Ok(init_addresses_to_remove
             .into_iter()
-            .chain(uninit_addresses_to_remove.into_iter()))
+            .chain(uninit_addresses_to_remove))
     }
 
     pub fn remove_breakpoints_at_addresses(
@@ -861,10 +861,12 @@ impl BreakpointRegistry {
 
     /// Enable entry point breakpoint if it disabled.
     pub fn enable_entry_breakpoint(&mut self, debugee: &Debugee) -> Result<(), Error> {
-        let Some((&key, _)) = self.disabled_breakpoints.iter().find(|(_, brkpt)| {
-            brkpt.r#type == BrkptType::EntryPoint
-        }) else {
-            return Ok(())
+        let Some((&key, _)) = self
+            .disabled_breakpoints
+            .iter()
+            .find(|(_, brkpt)| brkpt.r#type == BrkptType::EntryPoint)
+        else {
+            return Ok(());
         };
 
         let uninit_entry_point_brkpt = self.disabled_breakpoints.remove(&key).unwrap();
@@ -924,12 +926,16 @@ impl BreakpointRegistry {
 
     /// Return view for all user defined breakpoints.
     pub fn snapshot(&self) -> Vec<BreakpointView> {
-        let active_bps = self.breakpoints.values().filter_map(|bp| {
-            (bp.r#type() == BrkptType::UserDefined).then(|| BreakpointView::from(bp))
-        });
-        let disabled_brkpts = self.disabled_breakpoints.values().filter_map(|bp| {
-            (bp.r#type == BrkptType::UserDefined).then(|| BreakpointView::from(bp))
-        });
+        let active_bps = self
+            .breakpoints
+            .values()
+            .filter(|&bp| bp.r#type() == BrkptType::UserDefined)
+            .map(BreakpointView::from);
+        let disabled_brkpts = self
+            .disabled_breakpoints
+            .values()
+            .filter(|&bp| bp.r#type == BrkptType::UserDefined)
+            .map(BreakpointView::from);
 
         let mut snap = active_bps.chain(disabled_brkpts).collect::<Vec<_>>();
         snap.sort_by(|a, b| a.number.cmp(&b.number));

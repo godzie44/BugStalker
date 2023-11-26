@@ -780,12 +780,7 @@ macro_rules! ctx_resolve_unit_call {
 
 impl<'a, T> Clone for ContextualDieRef<'a, T> {
     fn clone(&self) -> Self {
-        Self {
-            debug_info: self.debug_info,
-            unit_idx: self.unit_idx,
-            node: self.node,
-            die: self.die,
-        }
+        *self
     }
 }
 

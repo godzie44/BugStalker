@@ -266,11 +266,10 @@ impl Completer for CommandCompleter {
                     let subcmd_part = mb_subcmd_part.unwrap_or_default();
                     let subcommands = subcommands
                         .iter()
-                        .filter_map(|subcmd| {
-                            subcmd.starts_with(subcmd_part).then(|| Pair {
-                                display: subcmd.to_string(),
-                                replacement: subcmd.to_string(),
-                            })
+                        .filter(|&subcmd| subcmd.starts_with(subcmd_part))
+                        .map(|subcmd| Pair {
+                            display: subcmd.to_string(),
+                            replacement: subcmd.to_string(),
                         })
                         .collect();
 
@@ -283,11 +282,10 @@ impl Completer for CommandCompleter {
         let pairs = self
             .commands
             .iter()
-            .filter_map(|cmd| {
-                cmd.long.starts_with(line).then(|| Pair {
-                    display: cmd.display_with_short(),
-                    replacement: cmd.long(),
-                })
+            .filter(|&cmd| cmd.long.starts_with(line))
+            .map(|cmd| Pair {
+                display: cmd.display_with_short(),
+                replacement: cmd.long(),
             })
             .collect();
         Ok((0, pairs))

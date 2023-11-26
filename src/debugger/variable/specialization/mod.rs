@@ -779,7 +779,7 @@ impl<'a> VariableParserExtension<'a> {
             })
             .ok_or(IncompleteInterp("Cell"))?;
         let VariableIR::Scalar(mut var) = *borrow else {
-          return Err(IncompleteInterp("Cell").into());
+            return Err(IncompleteInterp("Cell").into());
         };
         var.identity = VariableIdentity::no_namespace(Some("borrow".to_string()));
         let borrow = VariableIR::Scalar(var);

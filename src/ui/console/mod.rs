@@ -590,7 +590,7 @@ impl AppLoop {
     fn run(mut self) {
         loop {
             let Ok(action) = self.control_rx.recv() else {
-                break
+                break;
             };
 
             match action {

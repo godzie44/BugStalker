@@ -62,12 +62,11 @@ impl<'a> SelectExpressionEvaluator<'a> {
     pub fn evaluate_names(&self) -> Result<Vec<String>, Error> {
         let ctx = self.debugger.exploration_ctx();
         let get_current_fn = || -> Result<ContextualDieRef<FunctionDie>, Error> {
-            Ok(self
-                .debugger
+            self.debugger
                 .debugee
                 .debug_info(ctx.location().pc)?
                 .find_function_by_pc(ctx.location().global_pc)?
-                .ok_or(FunctionNotFound(ctx.location().global_pc))?)
+                .ok_or(FunctionNotFound(ctx.location().global_pc))
         };
 
         match &self.expression {
@@ -110,12 +109,11 @@ impl<'a> SelectExpressionEvaluator<'a> {
         let ctx = self.debugger.exploration_ctx();
 
         let get_current_fn = || -> Result<ContextualDieRef<FunctionDie>, Error> {
-            Ok(self
-                .debugger
+            self.debugger
                 .debugee
                 .debug_info(ctx.location().pc)?
                 .find_function_by_pc(ctx.location().global_pc)?
-                .ok_or(FunctionNotFound(ctx.location().global_pc))?)
+                .ok_or(FunctionNotFound(ctx.location().global_pc))
         };
 
         // evaluate variable one by one in `evaluate_single_variable` method

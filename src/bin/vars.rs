@@ -412,7 +412,7 @@ fn shared_ptrs() {
 fn zst() {
     let ptr_zst = &();
     let array_zst = [(); 2];
-    let vec_zst = vec![(); 3];
+    let vec_zst: Vec<()> = vec![(); 3];
     let slice_zst = &[(), (), (), ()];
     struct StructZst(());
     let struct_zst = StructZst(());

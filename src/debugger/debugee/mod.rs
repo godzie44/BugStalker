@@ -92,7 +92,7 @@ pub struct Debugee {
 
 impl Debugee {
     pub fn new_non_running(path: &Path, proc: Pid, object: &object::File) -> Result<Self, Error> {
-        let dwarf_builder = dwarf::DebugInformationBuilder::default();
+        let dwarf_builder = dwarf::DebugInformationBuilder;
         let dwarf = dwarf_builder.build(path, object)?;
         let mut registry = DwarfRegistry::new(proc, path.to_path_buf(), dwarf);
 
@@ -446,7 +446,7 @@ fn parse_dependency(dep_file: impl Into<PathBuf>) -> Result<Option<DebugInformat
     let mmap = unsafe { memmap2::Mmap::map(&file)? };
     let object = object::File::parse(&*mmap)?;
 
-    let dwarf_builder = dwarf::DebugInformationBuilder::default();
+    let dwarf_builder = dwarf::DebugInformationBuilder;
     let dwarf = dwarf_builder.build(dep_file.as_path(), &object)?;
     Ok(Some(dwarf))
 }

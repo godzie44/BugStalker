@@ -55,7 +55,7 @@ impl Child<Template> {
             program: program.into(),
             args: args.into_iter().map(Into::into).collect(),
             pid: None,
-            _p: PhantomData::default(),
+            _p: PhantomData,
         }
     }
 }
@@ -101,7 +101,7 @@ impl<S: State> Child<S> {
                     program: self.program.clone(),
                     args: self.args.clone(),
                     pid: Some(pid),
-                    _p: PhantomData::default(),
+                    _p: PhantomData,
                 })
             }
             ForkResult::Child => {

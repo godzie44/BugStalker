@@ -6,3 +6,4 @@ members = [
   "shlib/calc_bin",
   "shlib/printer_lib",
 ]
+resolver = "2"

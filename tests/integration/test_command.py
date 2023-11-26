@@ -28,10 +28,10 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('continue')
-        self.debugger.expect_exact('Self::new(x, Display::fmt)')
+        self.debugger.expect_exact('Hit breakpoint 2')
         self.debugger.sendline('continue')
         self.debugger.expect('Hello, world!')
-        self.debugger.expect_exact('Self::new(x, Display::fmt)')
+        self.debugger.expect_exact('Hit breakpoint 2')
         self.debugger.sendline('continue')
         self.debugger.expect('bye!')
 

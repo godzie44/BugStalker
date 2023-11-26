@@ -109,12 +109,12 @@ impl<T> PathSearchIndex<T> {
             .collect();
 
         let Some(expected_head) = split.pop() else {
-            return vec![]
+            return vec![];
         };
         let expected_tail = split;
 
         let Some((tail_indexes, head_nonce)) = self.index.heads.get(&expected_head) else {
-            return vec![]
+            return vec![];
         };
 
         let tail_indexes = tail_indexes.iter().filter(|&&idx| {

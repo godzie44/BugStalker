@@ -61,7 +61,7 @@ impl Breakpoints {
         let breakpoints = self.exchanger.request_sync(|dbg| {
             let mut cmd = command::r#break::Handler::new(dbg);
             let brkpt_result = cmd.handle(&BreakpointCommand::Info).expect("unreachable");
-            let ExecutionResult::Dump(breakpoints) =  brkpt_result else {
+            let ExecutionResult::Dump(breakpoints) = brkpt_result else {
                 unreachable!()
             };
 

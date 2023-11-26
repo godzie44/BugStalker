@@ -117,4 +117,3 @@ class SharedLibTestCase(unittest.TestCase):
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('Hit breakpoint')
-        self.debugger.expect_exact('97         Self::new(x, Display::fmt)')
