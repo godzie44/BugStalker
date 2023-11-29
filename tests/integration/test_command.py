@@ -384,3 +384,22 @@ class CommandTestCase(unittest.TestCase):
         debugger.expect_exact('a = i64(1)')
         debugger.expect_exact('b = i64(2)')
         debugger.expect_exact('c = i64(3)')
+
+    def test_disasm(self):
+        """View function disassembled code"""
+        self.debugger.sendline('break main')
+        self.debugger.expect('New breakpoint')
+
+        self.debugger.sendline('run')
+
+        self.debugger.sendline('disasm')
+        self.debugger.expect_exact('Assembler code for function hello_world::main')
+        self.debugger.expect_exact('mov')
+
+        self.debugger.sendline('break myprint')
+        self.debugger.expect('New breakpoint')
+        self.debugger.sendline('continue')
+
+        self.debugger.sendline('disasm')
+        self.debugger.expect_exact('Assembler code for function hello_world::myprint')
+        self.debugger.expect_exact('mov')

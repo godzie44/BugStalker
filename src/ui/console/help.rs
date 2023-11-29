@@ -20,6 +20,7 @@ mem, memory read|write <addr>               -- read or write into debugged progr
 reg, register read|write|info <addr>        -- read, write, or view debugged program registers
 thread info|current|switch <number>         -- show list of threads or current (in focus) thread or set thread in focus
 sharedlib info                              -- show list of shared libraries
+disasm                                      -- show assembly instructions for current (in focus) function
 h, help |<command>                          -- show help
 tui                                         -- change ui mode to tui
 q, quit                                     -- exit the BugStalker 
@@ -200,6 +201,11 @@ Available subcomands:
 sharedlib info - print list of loaded shared libraries and their mapping addresses
 ";
 
+pub const HELP_DISASM: &str = "\
+\x1b[32;1mdisasm\x1b[0m
+Show assembly instructions for current (in focus) function.
+";
+
 pub const HELP_TUI: &str = "\
 \x1b[32;1mtui\x1b[0m
 Change ui mode to terminal ui.
@@ -230,6 +236,7 @@ pub fn help_for_command(command: Option<&str>) -> &str {
         Some(parser::REGISTER_COMMAND) | Some(parser::REGISTER_COMMAND_SHORT) => HELP_REGISTER,
         Some(parser::THREAD_COMMAND) => HELP_THREAD,
         Some(parser::SHARED_LIB_COMMAND) => HELP_SHARED_LIB,
+        Some(parser::DISASM_COMMAND) => HELP_DISASM,
         Some("tui") => HELP_TUI,
         Some("q") | Some("quit") => HELP_QUIT,
         _ => "unknown command",

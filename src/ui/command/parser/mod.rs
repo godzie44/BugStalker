@@ -61,6 +61,7 @@ pub const THREAD_COMMAND_SWITCH_SUBCOMMAND: &str = "switch";
 pub const THREAD_COMMAND_CURRENT_SUBCOMMAND: &str = "current";
 pub const SHARED_LIB_COMMAND: &str = "sharedlib";
 pub const SHARED_LIB_COMMAND_INFO_SUBCOMMAND: &str = "info";
+pub const DISASM_COMMAND: &str = "disasm";
 pub const HELP_COMMAND: &str = "help";
 pub const HELP_COMMAND_SHORT: &str = "h";
 
@@ -205,6 +206,7 @@ impl Command {
             STEP_OVER_COMMAND,
             Command::StepOver
         );
+        let disasm_parser = parser1_no_args!(DISASM_COMMAND, Command::DisAsm);
 
         fn help_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             map(
@@ -421,6 +423,7 @@ impl Command {
             command(HELP_COMMAND, help_parser),
             command(THREAD_COMMAND, thread_parser),
             command(SHARED_LIB_COMMAND, shared_lib_parser),
+            command(DISASM_COMMAND, disasm_parser),
             cut(map(not_line_ending, |_| Command::Help {
                 command: None,
                 reason: Some("unknown command".to_string()),
@@ -741,6 +744,12 @@ mod test {
                 inputs: vec!["sharedlib info", " sharedlib     info  "],
                 command_matcher: |result| {
                     assert!(matches!(result.unwrap(), Command::SharedLib));
+                },
+            },
+            TestCase {
+                inputs: vec!["disasm", " disasm  "],
+                command_matcher: |result| {
+                    assert!(matches!(result.unwrap(), Command::DisAsm));
                 },
             },
         ];

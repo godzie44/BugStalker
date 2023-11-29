@@ -105,5 +105,7 @@ pub mod style {
     view_struct!(FilePathView, Color::Green);
     view_struct!(FunctionNameView, Color::Yellow);
     view_struct!(KeywordView, Color::Magenta);
+    view_struct!(AsmInstructionView, Color::DarkRed);
+    view_struct!(AsmOperandsView, Color::DarkGreen);
     view_struct!(ErrorView, Color::Red);
 }

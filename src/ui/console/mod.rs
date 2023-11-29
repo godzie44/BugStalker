@@ -6,6 +6,7 @@ use crate::debugger::Debugger;
 use crate::ui::command;
 use crate::ui::command::arguments::Handler as ArgumentsHandler;
 use crate::ui::command::backtrace::Handler as BacktraceHandler;
+use crate::ui::command::disasm::Handler as DisAsmHandler;
 use crate::ui::command::frame::ExecutionResult as FrameResult;
 use crate::ui::command::frame::Handler as FrameHandler;
 use crate::ui::command::memory::Handler as MemoryHandler;
@@ -24,7 +25,8 @@ use crate::ui::console::editor::{create_editor, CommandCompleter, RLHelper};
 use crate::ui::console::help::*;
 use crate::ui::console::hook::TerminalHook;
 use crate::ui::console::print::style::{
-    AddressView, ErrorView, FilePathView, FunctionNameView, KeywordView,
+    AddressView, AsmInstructionView, AsmOperandsView, ErrorView, FilePathView, FunctionNameView,
+    KeywordView,
 };
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::variable::render_variable_ir;
@@ -568,8 +570,8 @@ impl AppLoop {
                 }
             }
             Command::SharedLib => {
-                let cmd = SharedlibHandler::new(&self.debugger);
-                for lib in cmd.handle() {
+                let handler = SharedlibHandler::new(&self.debugger);
+                for lib in handler.handle() {
                     let mb_range = lib
                         .range
                         .map(|range| format!("{} - {}", range.from, range.to));
@@ -580,6 +582,28 @@ impl AppLoop {
                         if !lib.has_debug_info { "*" } else { " " },
                         FilePathView::from(lib.path.to_string_lossy())
                     ))
+                }
+            }
+            Command::DisAsm => {
+                let handler = DisAsmHandler::new(&self.debugger);
+                let assembly = handler.handle()?;
+                self.printer.print(format!(
+                    "Assembler code for function {}",
+                    FunctionNameView::from(assembly.name)
+                ));
+                for ins in assembly.instructions {
+                    let instruction_view = format!(
+                        "{} {} {}",
+                        AddressView::from(ins.address),
+                        AsmInstructionView::from(ins.mnemonic),
+                        AsmOperandsView::from(ins.operands),
+                    );
+
+                    if ins.address == assembly.addr_in_focus {
+                        self.printer.print(format!("{}", instruction_view.bold()));
+                    } else {
+                        self.printer.print(instruction_view);
+                    }
                 }
             }
         }

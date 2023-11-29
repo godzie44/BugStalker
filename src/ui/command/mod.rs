@@ -9,6 +9,7 @@ pub mod arguments;
 pub mod backtrace;
 pub mod r#break;
 pub mod r#continue;
+pub mod disasm;
 pub mod frame;
 pub mod memory;
 pub mod parser;
@@ -55,6 +56,7 @@ pub enum Command {
     Register(register::Command),
     Thread(thread::Command),
     SharedLib,
+    DisAsm,
     Help {
         command: Option<String>,
         reason: Option<String>,
