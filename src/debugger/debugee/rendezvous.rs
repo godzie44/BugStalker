@@ -14,7 +14,7 @@ pub struct LinkMap {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RendezvousError {
-    #[error(".dynamic section not found")]
+    #[error("section \".dynamic\" not found")]
     DynamicSectNotFound,
     #[error("read from remote process: {0}")]
     PtraceRead(#[from] nix::Error),
@@ -101,7 +101,6 @@ mod ffi {
     use nix::unistd::Pid;
     use std::io::IoSliceMut;
     use std::mem;
-    use std::str::from_utf8;
 
     #[repr(C)]
     #[derive(Clone, Copy, Debug)]
@@ -161,7 +160,7 @@ mod ffi {
         loop {
             for b in word.to_ne_bytes() {
                 if b as char == '\0' {
-                    return Ok(from_utf8(&buff).unwrap().to_string());
+                    return Ok(String::from_utf8_lossy(&buff).to_string());
                 }
                 buff.push(b);
             }

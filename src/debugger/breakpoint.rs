@@ -413,10 +413,10 @@ pub struct Breakpoint {
     number: u32,
     /// Place information, None if brkpt is temporary or entry point
     place: Option<PlaceDescriptorOwned>,
-    saved_data: Cell<u8>,
+    pub saved_data: Cell<u8>,
     enabled: Cell<bool>,
     r#type: BrkptType,
-    debug_info_file: PathBuf,
+    pub debug_info_file: PathBuf,
 }
 
 impl Breakpoint {

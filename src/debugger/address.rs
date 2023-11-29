@@ -72,7 +72,7 @@ impl Display for RelocatedAddress {
 
 /// Represent address in object files.
 /// This address unique per object file but not per process.
-#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Debug, Default)]
 pub struct GlobalAddress(usize);
 
 impl GlobalAddress {

@@ -1,14 +1,17 @@
+mod disasm;
 pub mod dwarf;
 mod ldd;
 mod registry;
 mod rendezvous;
 pub mod tracee;
 pub mod tracer;
+
 pub use registry::RegionInfo;
 pub use rendezvous::RendezvousError;
 
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
-use crate::debugger::breakpoint::BrkptType;
+use crate::debugger::breakpoint::{Breakpoint, BrkptType};
+use crate::debugger::debugee::disasm::Disassembler;
 use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
 use crate::debugger::debugee::dwarf::unwind;
 use crate::debugger::debugee::dwarf::unwind::Backtrace;
@@ -74,6 +77,12 @@ pub enum ExecutionStatus {
     Exited,
 }
 
+pub struct FunctionAssembly {
+    pub name: Option<String>,
+    pub addr_in_focus: GlobalAddress,
+    pub instructions: Vec<disasm::Instruction>,
+}
+
 /// Debugee - represent static and runtime debugee information.
 pub struct Debugee {
     /// debugee running-status.
@@ -88,6 +97,7 @@ pub struct Debugee {
     rendezvous: Option<Rendezvous>,
     /// Registry for dwarf information of program and shared libraries.
     dwarf_registry: DwarfRegistry,
+    disassembly: Disassembler,
 }
 
 impl Debugee {
@@ -113,6 +123,7 @@ impl Debugee {
             rendezvous: None,
             tracer: Tracer::new(proc),
             dwarf_registry: registry,
+            disassembly: Disassembler::new()?,
         })
     }
 
@@ -129,6 +140,7 @@ impl Debugee {
             rendezvous: None,
             tracer: Tracer::new(proc),
             dwarf_registry: self.dwarf_registry.extend(proc),
+            disassembly: Disassembler::new().expect("infallible"),
         }
     }
 
@@ -429,6 +441,28 @@ impl Debugee {
     /// Return a ordered list of mapped regions (main executable region at first place).
     pub fn dump_mapped_regions(&self) -> Vec<RegionInfo> {
         self.dwarf_registry.dump()
+    }
+
+    /// Return a list of disassembled instruction for a function in focus.
+    pub fn disasm(
+        &self,
+        ctx: &ExplorationContext,
+        breakpoints: &[&Breakpoint],
+    ) -> Result<FunctionAssembly, Error> {
+        let debug_information = self.debug_info(ctx.location().pc)?;
+        let function = debug_information
+            .find_function_by_pc(ctx.location().global_pc)?
+            .ok_or(FunctionNotFound(ctx.location().global_pc))?;
+
+        let instructions =
+            self.disassembly
+                .disasm_function(self, debug_information, function, breakpoints)?;
+
+        Ok(FunctionAssembly {
+            name: function.full_name(),
+            addr_in_focus: ctx.location().global_pc,
+            instructions,
+        })
     }
 }
 

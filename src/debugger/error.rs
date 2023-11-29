@@ -38,6 +38,8 @@ pub enum Error {
     TraceeNotFound(u32),
     #[error("debug information entry (die) not found, reference: {0:?}")]
     DieNotFound(DieRef),
+    #[error("section \"{0}\" not found")]
+    SectionNotFound(&'static str),
 
     // --------------------------------- remote memory errors --------------------------------------
     #[error("invalid binary representation of type `{0}`: {1:?}")]
@@ -115,6 +117,12 @@ pub enum Error {
     #[error("unrecognized rustup output")]
     UnrecognizedRustupOut,
 
+    // --------------------------------- disasm ----------------------------------------------------
+    #[error("install disassembler: {0}")]
+    DisAsmInit(capstone::Error),
+    #[error("instructions disassembly error: {0}")]
+    DisAsm(capstone::Error),
+
     // --------------------------------- third party errors ----------------------------------------
     #[error("hook: {0}")]
     Hook(anyhow::Error),
@@ -164,12 +172,15 @@ impl Error {
             Error::DefaultToolchainNotFound => false,
             Error::UnrecognizedRustupOut => false,
             Error::Hook(_) => false,
+            Error::SectionNotFound(_) => false,
+            Error::DisAsm(_) => false,
 
             // currently fatal errors
             Error::DwarfParsing(_) => true,
             Error::ObjParsing(_) => true,
             Error::Syscall(_, _) => true,
             Error::NoThreadDB => true,
+            Error::DisAsmInit(_) => true,
         }
     }
 }

@@ -894,20 +894,31 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         result
     }
 
-    pub fn prolog_start_place(&self) -> Result<PlaceDescriptor, Error> {
-        let low_pc = self
-            .die
-            .base_attributes
-            .ranges
+    pub fn start_pc(&self) -> Result<GlobalAddress, Error> {
+        Ok(self
+            .ranges()
             .iter()
             .min_by(|r1, r2| r1.begin.cmp(&r2.begin))
             .ok_or_else(|| NoFunctionRanges(self.full_name()))?
-            .begin;
+            .begin
+            .into())
+    }
 
-        let fn_addr = GlobalAddress::from(low_pc);
+    pub fn end_pc(&self) -> Result<GlobalAddress, Error> {
+        Ok(self
+            .ranges()
+            .iter()
+            .max_by(|r1, r2| r1.begin.cmp(&r2.begin))
+            .ok_or_else(|| NoFunctionRanges(self.full_name()))?
+            .end
+            .into())
+    }
 
-        debug_info_exists!(self.debug_info.find_place_from_pc(fn_addr))
-            .ok_or(FunctionNotFound(fn_addr))
+    pub fn prolog_start_place(&self) -> Result<PlaceDescriptor, Error> {
+        let low_pc = self.start_pc()?;
+
+        debug_info_exists!(self.debug_info.find_place_from_pc(low_pc))
+            .ok_or(FunctionNotFound(low_pc))
     }
 
     pub fn prolog_end_place(&self) -> Result<PlaceDescriptor, Error> {
@@ -959,7 +970,7 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
                     unreachable!();
                 };
 
-                lb.base_attributes.ranges.iter().any(|r| pc.in_range(r))
+                pc.in_ranges(&lb.base_attributes.ranges)
             })
             .unwrap_or(true)
     }

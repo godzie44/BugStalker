@@ -134,3 +134,28 @@ fn test_registers() {
     drop(debugger);
     assert_no_proc!(debugee_pid);
 }
+
+#[test]
+#[serial]
+fn test_debugger_disassembler() {
+    let process = prepare_debugee_process(HW_APP, &[]);
+    let pid = process.pid();
+
+    let mut debugger = Debugger::new(process, TestHooks::default()).unwrap();
+    debugger.set_breakpoint_at_fn("main").unwrap();
+    debugger.start_debugee().unwrap();
+
+    let fn_assembly = debugger.disasm().unwrap();
+    assert_eq!(fn_assembly.name, Some("hello_world::main".to_string()));
+    assert!(!fn_assembly.instructions.is_empty());
+
+    debugger.set_breakpoint_at_fn("myprint").unwrap();
+    debugger.continue_debugee().unwrap();
+
+    let fn_assembly = debugger.disasm().unwrap();
+    assert_eq!(fn_assembly.name, Some("hello_world::myprint".to_string()));
+    assert!(!fn_assembly.instructions.is_empty());
+
+    drop(debugger);
+    assert_no_proc!(pid);
+}

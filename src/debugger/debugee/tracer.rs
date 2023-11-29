@@ -41,11 +41,11 @@ pub enum StopReason {
 
 #[derive(Clone, Copy)]
 pub struct TraceContext<'a> {
-    pub breakpoints: &'a Vec<&'a Breakpoint>,
+    pub breakpoints: &'a [&'a Breakpoint],
 }
 
 impl<'a> TraceContext<'a> {
-    pub fn new(breakpoints: &'a Vec<&'a Breakpoint>) -> Self {
+    pub fn new(breakpoints: &'a [&'a Breakpoint]) -> Self {
         Self { breakpoints }
     }
 }

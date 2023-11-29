@@ -7,7 +7,7 @@ use crate::debugger::debugee::Debugee;
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::{
     DieNotFound, EvalOptionRequired, EvalUnsupportedRequire, FunctionNotFound, ImplicitPointer,
-    NoDieType, NoFunctionRanges, Ptrace, TypeBinaryRepr, UnwindNoContext,
+    NoDieType, Ptrace, TypeBinaryRepr, UnwindNoContext,
 };
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::{debugee, ExplorationContext};
@@ -97,15 +97,7 @@ impl<'a> RequirementsResolver<'a> {
             .debug_info(ctx.location().pc)?
             .find_function_by_pc(current_loc.global_pc)?
             .ok_or(FunctionNotFound(current_loc.global_pc))?;
-        let entry_pc: GlobalAddress = current_fn
-            .die
-            .base_attributes
-            .ranges
-            .iter()
-            .map(|r| r.begin)
-            .min()
-            .ok_or_else(|| NoFunctionRanges(current_fn.full_name()))?
-            .into();
+        let entry_pc: GlobalAddress = current_fn.start_pc()?;
 
         let backtrace = self.debugee.unwind(ctx.pid_on_focus())?;
         let entry_pc_rel = entry_pc.relocate_to_segment_by_pc(self.debugee, ctx.location().pc)?;

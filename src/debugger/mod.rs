@@ -20,6 +20,7 @@ pub use debugee::dwarf::unwind;
 pub use debugee::dwarf::Symbol;
 pub use debugee::tracee::Tracee;
 pub use debugee::FrameInfo;
+pub use debugee::FunctionAssembly;
 pub use debugee::RegionInfo;
 pub use debugee::ThreadSnapshot;
 pub use error::Error;
@@ -398,7 +399,7 @@ impl Debugger {
         if !self.debugee.is_exited() {
             let proc_pid = self.process.pid();
             signal::kill(proc_pid, SIGKILL).map_err(|e| Syscall("kill", e))?;
-            _ = self.debugee.tracer_mut().resume(TraceContext::new(&vec![]));
+            _ = self.debugee.tracer_mut().resume(TraceContext::new(&[]));
         }
 
         self.process = self.process.install()?;
@@ -727,6 +728,14 @@ impl Debugger {
     /// Return a list of shared libraries.
     pub fn shared_libs(&self) -> Vec<RegionInfo> {
         self.debugee.dump_mapped_regions()
+    }
+
+    /// Return a list of disassembled instruction for a function in focus.
+    pub fn disasm(&self) -> Result<FunctionAssembly, Error> {
+        self.debugee.disasm(
+            self.exploration_ctx(),
+            &self.breakpoints.active_breakpoints(),
+        )
     }
 }
 
