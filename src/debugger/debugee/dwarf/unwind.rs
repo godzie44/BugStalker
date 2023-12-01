@@ -32,12 +32,12 @@ pub type Backtrace = Vec<FrameSpan>;
 /// * `pid`: thread for unwinding
 #[allow(unused)]
 pub fn unwind(debugee: &Debugee, pid: Pid) -> Result<Backtrace, Error> {
-    #[cfg(feature = "no_libunwind")]
+    #[cfg(not(feature = "libunwind"))]
     {
         let unwinder = DwarfUnwinder::new(debugee);
         unwinder.unwind(pid)
     }
-    #[cfg(not(feature = "no_libunwind"))]
+    #[cfg(feature = "libunwind")]
     libunwind::unwind(pid)
 }
 
@@ -56,12 +56,12 @@ pub fn restore_registers_at_frame(
     registers: &mut DwarfRegisterMap,
     frame_num: u32,
 ) -> Result<(), Error> {
-    #[cfg(feature = "no_libunwind")]
+    #[cfg(not(feature = "libunwind"))]
     {
         let unwinder = DwarfUnwinder::new(debugee);
         unwinder.restore_registers_at_frame(pid, registers, frame_num)
     }
-    #[cfg(not(feature = "no_libunwind"))]
+    #[cfg(feature = "libunwind")]
     libunwind::restore_registers_at_frame(pid, registers, frame_num)
 }
 
@@ -73,12 +73,12 @@ pub fn restore_registers_at_frame(
 /// * `pid`: thread for unwinding
 #[allow(unused)]
 pub fn return_addr(debugee: &Debugee, pid: Pid) -> Result<Option<RelocatedAddress>, Error> {
-    #[cfg(feature = "no_libunwind")]
+    #[cfg(not(feature = "libunwind"))]
     {
         let unwinder = DwarfUnwinder::new(debugee);
         unwinder.return_address(pid)
     }
-    #[cfg(not(feature = "no_libunwind"))]
+    #[cfg(feature = "libunwind")]
     libunwind::return_addr(pid)
 }
 
@@ -407,7 +407,7 @@ impl<'a> DwarfUnwinder<'a> {
     }
 }
 
-#[cfg(not(feature = "no_libunwind"))]
+#[cfg(feature = "libunwind")]
 mod libunwind {
     use super::FrameSpan;
     use crate::debugger::address::RelocatedAddress;

@@ -2,7 +2,7 @@ build:
 	cargo build
 
 build-test:
-	cargo build --features "int_test, no_libunwind"
+	cargo build --features "int_test"
 
 build-all: build
 	cargo build --bin calc
@@ -16,7 +16,7 @@ cargo-test:
 	cargo test --features "int_test"
 
 cargo-test-no-libunwind:
-	cargo test --features "int_test, no_libunwind"
+	cargo test --no-default-features --features "int_test"
 
 int-test: build-test
 	python3 -m unittest discover ./tests/integration/ -v

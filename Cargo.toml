@@ -56,9 +56,9 @@ sysinfo = "0.29.10"
 serial_test = "2.0.0"
 
 [features]
-default = ["unwind"]
+default = ["libunwind"]
+libunwind = ["unwind"]
 int_test = []
-no_libunwind = []
 
 [[bin]]
 name = "hello_world"

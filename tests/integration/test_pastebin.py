@@ -40,7 +40,7 @@ class PastebinTestCase(unittest.TestCase):
             # send `step over` command otherwise
             self.debugger.sendline('next')
             self.debugger.expect("next")
-            time.sleep(0.05)
+            time.sleep(0.1)
         time.sleep(0.2)
         thread.join()
         self.debugger.sendline('q')

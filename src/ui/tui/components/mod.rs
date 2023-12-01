@@ -1,3 +1,4 @@
+pub mod asm;
 pub mod breakpoint;
 pub mod control;
 pub mod input;
@@ -9,4 +10,3 @@ pub mod stub;
 pub mod tabs;
 pub mod threads;
 pub mod variables;
-pub mod asm;
