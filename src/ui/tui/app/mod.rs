@@ -13,6 +13,7 @@ use crate::ui::command::{r#break, run};
 use crate::ui::tui::app::port::{
     AsyncResponsesPort, DebuggerEventQueue, DebuggerEventsPort, OutputPort, UserEvent,
 };
+use crate::ui::tui::components::asm::Asm;
 use crate::ui::tui::components::breakpoint::Breakpoints;
 use crate::ui::tui::components::control::GlobalControl;
 use crate::ui::tui::components::input::{Input, InputStringType};
@@ -122,7 +123,8 @@ impl Model {
                         let id = match n {
                             0 => Id::Source,
                             1 => Id::Output,
-                            2 => Id::Logs,
+                            2 => Id::Asm,
+                            3 => Id::Logs,
                             _ => unreachable!(),
                         };
                         self.app.view(&id, f, window_chunks[1]);
@@ -205,8 +207,13 @@ impl Model {
 
         app.mount(
             Id::Source,
-            Box::new(Source::new(exchanger)?),
+            Box::new(Source::new(exchanger.clone())?),
             Source::subscriptions(),
+        )?;
+        app.mount(
+            Id::Asm,
+            Box::new(Asm::new(exchanger)?),
+            Asm::subscriptions(),
         )?;
 
         let output = output_buf.data.lock().unwrap().clone();
@@ -274,6 +281,9 @@ impl Model {
                 }
                 Msg::OutputInFocus => {
                     self.app.active(&Id::Output)?;
+                }
+                Msg::AsmInFocus => {
+                    self.app.active(&Id::Asm)?;
                 }
                 Msg::LogsInFocus => {
                     self.app.active(&Id::Logs)?;

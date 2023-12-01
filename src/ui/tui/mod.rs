@@ -30,6 +30,7 @@ pub enum Id {
 
     Breakpoints,
     Threads,
+    Asm,
     Variables,
     Output,
     Source,
@@ -71,6 +72,7 @@ pub enum Msg {
     SourceInFocus,
     OutputInFocus,
     LogsInFocus,
+    AsmInFocus,
 
     PopupConfirmDebuggerRestart,
     PopupBreakpoint(BreakpointViewOwned),

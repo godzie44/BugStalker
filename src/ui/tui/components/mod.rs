@@ -9,3 +9,4 @@ pub mod stub;
 pub mod tabs;
 pub mod threads;
 pub mod variables;
+pub mod asm;

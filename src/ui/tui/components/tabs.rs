@@ -78,7 +78,7 @@ impl Default for RightTab {
                 .foreground(Color::LightGreen)
                 .title("Select your ice cream flavour 🍦", Alignment::Center)
                 .rewind(true)
-                .choices(&["Source", "Output", "Logs"]),
+                .choices(&["Source", "Output", "Asm", "Logs"]),
         }
     }
 }
@@ -100,7 +100,8 @@ impl Component<Msg, UserEvent> for RightTab {
                     match idx {
                         0 => return Some(Msg::SourceInFocus),
                         1 => return Some(Msg::OutputInFocus),
-                        2 => return Some(Msg::LogsInFocus),
+                        2 => return Some(Msg::AsmInFocus),
+                        3 => return Some(Msg::LogsInFocus),
                         _ => unreachable!(),
                     }
                 }
