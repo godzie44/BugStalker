@@ -1,4 +1,3 @@
-use crate::debugger::ThreadSnapshot;
 use crate::ui::command;
 use crate::ui::command::thread::ExecutionResult as ThreadResult;
 use crate::ui::tui::app::port::UserEvent;
@@ -6,10 +5,10 @@ use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::{Id, Msg};
 use nix::sys::signal::Signal;
 use std::sync::Arc;
-use tui_realm_stdlib::List;
+use tui_realm_treeview::{Node, Tree, TreeView, TREE_CMD_CLOSE, TREE_CMD_OPEN, TREE_INITIAL_NODE};
 use tuirealm::command::{Cmd, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
-use tuirealm::props::{TableBuilder, TextSpan};
+use tuirealm::props::{BorderType, Borders, Style};
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::style::Color;
 use tuirealm::{
@@ -18,7 +17,7 @@ use tuirealm::{
 
 #[derive(MockComponent)]
 pub struct Threads {
-    component: List,
+    component: TreeView,
     exchanger: Arc<ClientExchanger>,
 }
 
@@ -36,42 +35,56 @@ impl Threads {
             threads
         });
 
-        let mut table_builder = TableBuilder::default();
-        for thread_info in threads.iter() {
-            table_builder.add_col(
-                TextSpan::from(thread_info.thread.number.to_string())
-                    .fg(Color::Cyan)
-                    .italic(),
-            );
-
-            fn make_span(text: String, t_info: &ThreadSnapshot) -> TextSpan {
-                if t_info.in_focus {
-                    TextSpan::from(text).bold()
-                } else {
-                    TextSpan::from(text)
-                }
-            }
-
-            table_builder.add_col(make_span(
-                format!(" [{}] ", thread_info.thread.pid),
-                thread_info,
-            ));
-            let func_name = thread_info
+        let mut root = Node::new("root".to_string(), "threads".to_string());
+        for (i, thread_snap) in threads.iter().enumerate() {
+            let pid = thread_snap.thread.pid;
+            let func_name = thread_snap
                 .bt
                 .as_ref()
                 .and_then(|bt| bt[0].func_name.clone())
                 .unwrap_or("unknown".to_string());
-            let line = thread_info
+            let line = thread_snap
                 .place
                 .as_ref()
                 .map(|l| l.line_number.to_string())
                 .unwrap_or("???".to_string());
-            table_builder.add_col(make_span(format!("{func_name}(:{line})"), thread_info));
 
-            table_builder.add_row();
+            let value = if thread_snap.in_focus {
+                format!(" (CURRENT) [{pid}] {func_name}(:{line})")
+            } else {
+                format!(" [{pid}] {func_name}(:{line})")
+            };
+
+            let mut thread_node = Node::new(format!("thread_{i}"), value);
+
+            if let Some(ref bt) = thread_snap.bt {
+                for (frame_num, frame) in bt.iter().enumerate() {
+                    let fn_ip_or_zero = frame.fn_start_ip.unwrap_or_default();
+
+                    let frame_info = format!(
+                        "#{frame_num} {} ({} + {:#X})",
+                        frame.func_name.as_deref().unwrap_or("???"),
+                        frame
+                            .fn_start_ip
+                            .map(|addr| addr.to_string())
+                            .unwrap_or("???".to_string()),
+                        frame.ip.as_u64().saturating_sub(fn_ip_or_zero.as_u64()),
+                    );
+                    thread_node.add_child(Node::new(
+                        format!("thread_{i}_frame_{frame_num}"),
+                        frame_info,
+                    ));
+                }
+            }
+
+            root.add_child(thread_node);
         }
 
-        self.attr(Attribute::Content, AttrValue::Table(table_builder.build()))
+        self.component.set_tree(Tree::new(root));
+        self.component.attr(
+            Attribute::Custom(TREE_INITIAL_NODE),
+            AttrValue::String("thread_0".to_string()),
+        );
     }
 
     pub fn subscriptions() -> Vec<Sub<Id, UserEvent>> {
@@ -106,16 +119,22 @@ impl Threads {
     }
 
     pub fn new(exchanger: Arc<ClientExchanger>) -> Self {
-        let list = List::default()
-            .title("Trace", Alignment::Center)
-            .scroll(true)
+        let tree_view = TreeView::default()
+            .borders(
+                Borders::default()
+                    .color(Color::LightYellow)
+                    .modifiers(BorderType::Rounded),
+            )
+            .inactive(Style::default().fg(Color::Gray))
+            .indent_size(3)
+            .scroll_step(6)
+            .preserve_state(true)
+            .title("Variables", Alignment::Center)
             .highlighted_color(Color::LightYellow)
-            .highlighted_str("🚀")
-            .rewind(true)
-            .step(4);
+            .highlight_symbol("▶");
 
         let mut this = Self {
-            component: list,
+            component: tree_view,
             exchanger,
         };
         this.update_threads();
@@ -127,12 +146,14 @@ impl Component<Msg, UserEvent> for Threads {
     fn on(&mut self, ev: Event<UserEvent>) -> Option<Msg> {
         match ev {
             Event::Keyboard(KeyEvent {
-                code: Key::Down, ..
+                code: Key::Left, ..
             }) => {
-                self.perform(Cmd::Move(Direction::Down));
+                self.perform(Cmd::Custom(TREE_CMD_CLOSE));
             }
-            Event::Keyboard(KeyEvent { code: Key::Up, .. }) => {
-                self.perform(Cmd::Move(Direction::Up));
+            Event::Keyboard(KeyEvent {
+                code: Key::Right, ..
+            }) => {
+                self.perform(Cmd::Custom(TREE_CMD_OPEN));
             }
             Event::Keyboard(KeyEvent {
                 code: Key::PageDown,
@@ -146,12 +167,25 @@ impl Component<Msg, UserEvent> for Threads {
                 self.perform(Cmd::Scroll(Direction::Up));
             }
             Event::Keyboard(KeyEvent {
+                code: Key::Down, ..
+            }) => {
+                self.perform(Cmd::Move(Direction::Down));
+            }
+            Event::Keyboard(KeyEvent { code: Key::Up, .. }) => {
+                self.perform(Cmd::Move(Direction::Up));
+            }
+            Event::Keyboard(KeyEvent {
                 code: Key::Home, ..
             }) => {
                 self.perform(Cmd::GoTo(Position::Begin));
             }
             Event::Keyboard(KeyEvent { code: Key::End, .. }) => {
                 self.perform(Cmd::GoTo(Position::End));
+            }
+            Event::Keyboard(KeyEvent {
+                code: Key::Enter, ..
+            }) => {
+                self.perform(Cmd::Submit);
             }
             Event::User(_) => {
                 self.update_threads();
