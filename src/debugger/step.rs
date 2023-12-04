@@ -208,6 +208,12 @@ impl Debugger {
                 self.remove_breakpoint(Address::Relocated(ret_addr))?;
             }
         }
+
+        if self.debugee.is_exited() {
+            // todo add exit code here
+            return Err(ProcessExit(0));
+        }
+
         self.expl_ctx_update_location()?;
         Ok(())
     }
