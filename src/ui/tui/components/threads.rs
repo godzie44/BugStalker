@@ -129,7 +129,7 @@ impl Threads {
             .indent_size(3)
             .scroll_step(6)
             .preserve_state(true)
-            .title("Variables", Alignment::Center)
+            .title("Threads", Alignment::Center)
             .highlighted_color(Color::LightYellow)
             .highlight_symbol("▶");
 

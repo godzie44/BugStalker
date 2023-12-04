@@ -24,7 +24,7 @@ impl Default for LeftTab {
                         .color(Color::LightGreen),
                 )
                 .foreground(Color::LightGreen)
-                .title("Select your ice cream flavour 🍦", Alignment::Center)
+                .title("[1]", Alignment::Center)
                 .rewind(true)
                 .choices(&["Breakpoints", "Variables", "Threads"]),
         }
@@ -76,7 +76,7 @@ impl Default for RightTab {
                         .color(Color::LightGreen),
                 )
                 .foreground(Color::LightGreen)
-                .title("Select your ice cream flavour 🍦", Alignment::Center)
+                .title("[2]", Alignment::Center)
                 .rewind(true)
                 .choices(&["Source", "Output", "Asm", "Logs"]),
         }

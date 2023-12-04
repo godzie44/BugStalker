@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tui_realm_stdlib::List;
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
-use tuirealm::props::{TableBuilder, TextSpan};
+use tuirealm::props::{Style, TableBuilder, TextSpan};
 use tuirealm::tui::layout::{Alignment, Rect};
 use tuirealm::tui::style::Color;
 use tuirealm::{AttrValue, Attribute, Component, Event, Frame, MockComponent, State, StateValue};
@@ -137,6 +137,7 @@ impl Breakpoints {
         let list = List::default()
             .title("Breakpoints", Alignment::Center)
             .scroll(true)
+            .inactive(Style::default().fg(Color::Gray))
             .highlighted_color(Color::LightYellow)
             .highlighted_str("▶")
             .rewind(true)
