@@ -89,7 +89,7 @@ impl DwarfRegistry {
             &mut full_it
         };
 
-        iter.for_each(|(file, dwarf)| {
+        iter.for_each(|(file, _)| {
             let absolute_debugee_path_buf =
                 file.canonicalize().expect("canonicalize path must exists");
             let absolute_debugee_path = absolute_debugee_path_buf.as_path();
@@ -113,17 +113,10 @@ impl DwarfRegistry {
                 .expect("at least one mapping must exists");
 
             let mapping = lower_sect.start();
-            let range = dwarf.range();
 
-            let range = match range {
-                None => RegionRange {
-                    from: RelocatedAddress::from(lower_sect.start()),
-                    to: RelocatedAddress::from(higher_sect.start() + higher_sect.size()),
-                },
-                Some(range) => RegionRange {
-                    from: RelocatedAddress::from(range.begin as usize + mapping),
-                    to: RelocatedAddress::from(range.end as usize + mapping),
-                },
+            let range = RegionRange {
+                from: RelocatedAddress::from(lower_sect.start()),
+                to: RelocatedAddress::from(higher_sect.start() + higher_sect.size()),
             };
 
             mappings.insert(file.clone(), mapping);
