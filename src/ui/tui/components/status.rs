@@ -1,7 +1,7 @@
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::{Id, Msg};
 use nix::sys::signal::Signal;
-use tui_realm_stdlib::{Container, Label};
+use tui_realm_stdlib::Container;
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::props::{Borders, Layout, PropPayload, PropValue, TextSpan};
 use tuirealm::tui::layout::{Alignment, Rect};
@@ -21,8 +21,20 @@ impl Default for Status {
         let app_state = tui_realm_stdlib::Paragraph::default()
             .text(&[TextSpan::new("not running").fg(Color::Red)])
             .alignment(Alignment::Center)
-            .foreground(Color::Red)
             .title("App status", Alignment::Center)
+            .borders(
+                Borders::default()
+                    .color(Color::White)
+                    .modifiers(BorderType::Rounded),
+            );
+
+        let help = tui_realm_stdlib::Paragraph::default()
+            .text(&[TextSpan::new(
+                "F6 - step out, F7 - step, F8 - step over, F9/c - continue, F10/r - start/restart, ESC - go to console, q - quit",
+            )
+            .fg(Color::Green).bold()])
+            .alignment(Alignment::Center)
+            .title("Help", Alignment::Center)
             .borders(
                 Borders::default()
                     .color(Color::White)
@@ -42,10 +54,7 @@ impl Default for Status {
                             .as_ref(),
                         ),
                 )
-                .children(vec![
-                    Box::new(Label::default().text("")),
-                    Box::new(app_state),
-                ]),
+                .children(vec![Box::new(help), Box::new(app_state)]),
         }
     }
 }

@@ -71,6 +71,14 @@ impl GlobalControl {
                 SubClause::Always,
             ),
             Sub::new(
+                SubEventClause::Keyboard(KeyEvent::new(Key::Function(9), KeyModifiers::NONE)),
+                SubClause::Always,
+            ),
+            Sub::new(
+                SubEventClause::Keyboard(KeyEvent::new(Key::Function(10), KeyModifiers::NONE)),
+                SubClause::Always,
+            ),
+            Sub::new(
                 // concrete signal doesn't meter
                 SubEventClause::User(UserEvent::Signal(Signal::SIGUSR2)),
                 SubClause::Always,
@@ -96,10 +104,6 @@ impl Component<Msg, UserEvent> for GlobalControl {
                 modifiers: KeyModifiers::NONE,
             }) => Msg::RightTabsInFocus,
             Event::Keyboard(KeyEvent {
-                code: Key::Char('c'),
-                modifiers: KeyModifiers::ALT,
-            })
-            | Event::Keyboard(KeyEvent {
                 code: Key::Esc,
                 modifiers: KeyModifiers::NONE,
             }) => Msg::SwitchUI,
@@ -114,6 +118,10 @@ impl Component<Msg, UserEvent> for GlobalControl {
             Event::Keyboard(KeyEvent {
                 code: Key::Char('c'),
                 modifiers: KeyModifiers::NONE,
+            })
+            | Event::Keyboard(KeyEvent {
+                code: Key::Function(9),
+                ..
             }) => {
                 self.exchanger
                     .request_async(|dbg| Ok(command::r#continue::Handler::new(dbg).handle()?));
@@ -121,6 +129,10 @@ impl Component<Msg, UserEvent> for GlobalControl {
             }
             Event::Keyboard(KeyEvent {
                 code: Key::Char('r'),
+                ..
+            })
+            | Event::Keyboard(KeyEvent {
+                code: Key::Function(10),
                 ..
             }) => {
                 if self.already_run {
