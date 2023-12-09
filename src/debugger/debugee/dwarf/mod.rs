@@ -27,7 +27,7 @@ use crate::debugger::error::Error::{
 };
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::ExplorationContext;
-use crate::{bs_debug, bs_info, muted_error, resolve_unit_call, weak_error};
+use crate::{muted_error, resolve_unit_call, weak_error};
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;
@@ -36,6 +36,7 @@ use gimli::{
     Expression, LocationLists, Range, Reader, RunTimeEndian, Section, UnitOffset, UnwindContext,
     UnwindSection, UnwindTableRow,
 };
+use log::{debug, info};
 use memmap2::Mmap;
 use object::{Object, ObjectSection};
 use rayon::prelude::*;
@@ -607,18 +608,17 @@ impl DebugInformationBuilder {
 
         let debug_split_file_data;
         let debug_split_file;
-        let debug_info_file = if let Ok(Some((path, debug_file))) =
-            self.get_dwarf_from_separate_debug_file(file)
-        {
-            bs_debug!(target: "dwarf-loader", "{obj_path:?} has separate debug information file");
-            bs_debug!(target: "dwarf-loader", "load debug information from {path:?}");
-            debug_split_file_data = debug_file;
-            debug_split_file = object::File::parse(&*debug_split_file_data)?;
-            &debug_split_file
-        } else {
-            bs_debug!(target: "dwarf-loader", "load debug information from {obj_path:?}");
-            file
-        };
+        let debug_info_file =
+            if let Ok(Some((path, debug_file))) = self.get_dwarf_from_separate_debug_file(file) {
+                debug!(target: "dwarf-loader", "{obj_path:?} has separate debug information file");
+                debug!(target: "dwarf-loader", "load debug information from {path:?}");
+                debug_split_file_data = debug_file;
+                debug_split_file = object::File::parse(&*debug_split_file_data)?;
+                &debug_split_file
+            } else {
+                debug!(target: "dwarf-loader", "load debug information from {obj_path:?}");
+                file
+            };
 
         let dwarf = loader::load_par(debug_info_file, endian)?;
         let symbol_table = SymbolTab::new(debug_info_file);
@@ -638,7 +638,7 @@ impl DebugInformationBuilder {
 
         if headers.is_empty() {
             // no units means no debug info
-            bs_info!(target: "dwarf-loader", "no debug information for {obj_path:?}");
+            info!(target: "dwarf-loader", "no debug information for {obj_path:?}");
 
             return Ok(DebugInformation {
                 file: obj_path.to_path_buf(),

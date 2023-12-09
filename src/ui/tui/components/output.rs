@@ -36,6 +36,7 @@ impl Output {
                 )
                 .foreground(Color::LightBlue)
                 .title("Program output", Alignment::Center)
+                .highlighted_str("▶")
                 .step(4)
                 .text_rows(&rows),
         }
@@ -86,6 +87,7 @@ impl Component<Msg, UserEvent> for Output {
                         rows.iter().cloned().map(PropValue::TextSpan).collect(),
                     )),
                 );
+                self.component.states.list_index_at_last();
 
                 CmdResult::None
             }

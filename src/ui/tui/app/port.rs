@@ -2,6 +2,7 @@ use crate::debugger::address::RelocatedAddress;
 use crate::debugger::{EventHook, FunctionDie, PlaceDescriptor};
 use crate::ui::tui::output::OutputLine;
 use crate::ui::tui::proto::ClientExchanger;
+use crate::ui::tui::utils::logger::TuiLogLine;
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use std::sync::{Arc, Mutex};
@@ -27,6 +28,7 @@ pub enum UserEvent {
     Signal(Signal),
     Exit(i32),
     AsyncErrorResponse(String),
+    Logs(Vec<TuiLogLine>),
 }
 
 impl PartialEq for UserEvent {
@@ -45,6 +47,9 @@ impl PartialEq for UserEvent {
             }
             UserEvent::AsyncErrorResponse(_) => {
                 matches!(other, UserEvent::AsyncErrorResponse(_))
+            }
+            UserEvent::Logs(_) => {
+                matches!(other, UserEvent::Logs(_))
             }
         }
     }
@@ -173,5 +178,30 @@ impl Poll<UserEvent> for AsyncResponsesPort {
             .exchanger
             .poll_async_resp()
             .map(|err| Event::User(UserEvent::AsyncErrorResponse(format!("{:#}", err)))))
+    }
+}
+
+pub struct LoggerPort {
+    buffer: Arc<Mutex<Vec<TuiLogLine>>>,
+}
+
+impl LoggerPort {
+    pub fn new(buffer: Arc<Mutex<Vec<TuiLogLine>>>) -> Self {
+        Self { buffer }
+    }
+}
+
+impl Poll<UserEvent> for LoggerPort {
+    fn poll(&mut self) -> ListenerResult<Option<Event<UserEvent>>> {
+        let mut buffer = self.buffer.lock().unwrap();
+
+        let logs = buffer.clone();
+        buffer.clear();
+
+        if logs.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(Event::User(UserEvent::Logs(logs))))
+        }
     }
 }

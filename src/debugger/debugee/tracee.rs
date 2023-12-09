@@ -5,7 +5,7 @@ use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::{MultipleErrors, NoThreadDB, Ptrace, ThreadDB, Waitpid};
 use crate::debugger::register::{Register, RegisterMap};
-use crate::{bs_debug, bs_warn};
+use log::{debug, warn};
 use nix::errno::Errno;
 use nix::sys;
 use nix::sys::signal::Signal;
@@ -59,9 +59,9 @@ impl Tracee {
 
     /// Wait for change of tracee status.
     pub fn wait_one(&self) -> Result<WaitStatus, Error> {
-        bs_debug!(target: "tracer", "wait for tracee status, thread {pid}", pid = self.pid);
+        debug!(target: "tracer", "wait for tracee status, thread {pid}", pid = self.pid);
         let status = waitpid(self.pid, None).map_err(Waitpid)?;
-        bs_debug!(target: "tracer", "receive tracee status, thread {pid}, status: {status:?}", pid = self.pid);
+        debug!(target: "tracer", "receive tracee status, thread {pid}, status: {status:?}", pid = self.pid);
         Ok(status)
     }
 
@@ -71,7 +71,7 @@ impl Tracee {
     }
 
     fn update_status(&mut self, status: TraceeStatus) {
-        bs_debug!(
+        debug!(
             target: "tracer",
             "tracee accept new status ({status:?}), thread: {pid}",
             pid = self.pid
@@ -81,7 +81,7 @@ impl Tracee {
 
     /// Resume tracee with, if signal is some - inject signal or resuming.
     pub fn r#continue(&mut self, sig: Option<Signal>) -> Result<(), Error> {
-        bs_debug!(
+        debug!(
             target: "tracer",
             "continue tracee execution with signal {sig:?}, thread: {pid}",
             pid = self.pid,
@@ -169,7 +169,7 @@ impl TraceeCtl {
 
     /// Adds thread to control.
     pub fn add(&mut self, pid: Pid) -> &Tracee {
-        bs_debug!(target: "tracer", "add new tracee, thread: {pid}");
+        debug!(target: "tracer", "add new tracee, thread: {pid}");
         let new = Tracee::new_stopped(pid);
         self.threads_state.insert(pid, new);
         &self.threads_state[&pid]
@@ -177,7 +177,7 @@ impl TraceeCtl {
 
     /// Remove thread from budge.
     pub fn remove(&mut self, pid: Pid) -> Option<Tracee> {
-        bs_debug!(target: "tracer", "try to remove tracee, thread: {pid}");
+        debug!(target: "tracer", "try to remove tracee, thread: {pid}");
         self.threads_state.remove(&pid)
     }
 
@@ -239,7 +239,7 @@ impl TraceeCtl {
             if let Err(e) = tracee.r#continue(resume_sign) {
                 // if no such process - continue, it will be removed later, on PTRACE_EVENT_EXIT event.
                 if matches!(e, Ptrace(err) if err == Errno::ESRCH) {
-                    bs_warn!("thread {} not found, ESRCH", tracee.pid);
+                    warn!("thread {} not found, ESRCH", tracee.pid);
                     return;
                 }
 

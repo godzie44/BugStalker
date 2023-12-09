@@ -2,7 +2,7 @@ pub mod port;
 
 use std::borrow::Cow;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::style::Color;
@@ -11,21 +11,22 @@ use crate::ui::command;
 use crate::ui::command::r#break::BreakpointIdentity;
 use crate::ui::command::{r#break, run};
 use crate::ui::tui::app::port::{
-    AsyncResponsesPort, DebuggerEventQueue, DebuggerEventsPort, OutputPort, UserEvent,
+    AsyncResponsesPort, DebuggerEventQueue, DebuggerEventsPort, LoggerPort, OutputPort, UserEvent,
 };
 use crate::ui::tui::components::asm::Asm;
 use crate::ui::tui::components::breakpoint::Breakpoints;
 use crate::ui::tui::components::control::GlobalControl;
 use crate::ui::tui::components::input::{Input, InputStringType};
+use crate::ui::tui::components::logs::Logs;
 use crate::ui::tui::components::output::Output;
 use crate::ui::tui::components::popup::{Popup, YesNoLabels};
 use crate::ui::tui::components::source::Source;
 use crate::ui::tui::components::status::Status;
-use crate::ui::tui::components::stub::Stub;
 use crate::ui::tui::components::tabs::{LeftTab, RightTab};
 use crate::ui::tui::components::threads::Threads;
 use crate::ui::tui::components::variables::Variables;
 use crate::ui::tui::proto::ClientExchanger;
+use crate::ui::tui::utils::logger::TuiLogLine;
 use tuirealm::props::{PropPayload, PropValue, TextSpan};
 use tuirealm::terminal::TerminalBridge;
 use tuirealm::tui::layout::{Constraint, Direction, Layout};
@@ -51,11 +52,18 @@ impl Model {
         output_buf: DebugeeStreamBuffer,
         event_queue: DebuggerEventQueue,
         client_exchanger: ClientExchanger,
+        log_buffer: Arc<Mutex<Vec<TuiLogLine>>>,
         already_run: bool,
     ) -> anyhow::Result<Self> {
         let exchanger = Arc::new(client_exchanger);
         Ok(Self {
-            app: Self::init_app(output_buf, event_queue, exchanger.clone(), already_run)?,
+            app: Self::init_app(
+                output_buf,
+                event_queue,
+                exchanger.clone(),
+                log_buffer,
+                already_run,
+            )?,
             quit: false,
             redraw: true,
             terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
@@ -152,6 +160,7 @@ impl Model {
         output_buf: DebugeeStreamBuffer,
         event_queue: DebuggerEventQueue,
         exchanger: Arc<ClientExchanger>,
+        log_buffer: Arc<Mutex<Vec<TuiLogLine>>>,
         app_already_run: bool,
     ) -> anyhow::Result<Application<Id, Msg, UserEvent>> {
         let mut app: Application<Id, Msg, UserEvent> = Application::init(
@@ -167,6 +176,10 @@ impl Model {
                 )
                 .port(
                     Box::new(AsyncResponsesPort::new(exchanger.clone())),
+                    Duration::from_millis(10),
+                )
+                .port(
+                    Box::new(LoggerPort::new(log_buffer)),
                     Duration::from_millis(10),
                 )
                 .poll_timeout(Duration::from_millis(10))
@@ -222,7 +235,7 @@ impl Model {
             Box::new(Output::new(&output)),
             Output::subscriptions(),
         )?;
-        app.mount(Id::Logs, Box::new(Stub::new("Logs")), Vec::default())?;
+        app.mount(Id::Logs, Box::<Logs>::default(), Logs::subscriptions())?;
 
         app.active(&Id::LeftTabs)?;
 

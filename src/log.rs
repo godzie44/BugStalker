@@ -1,72 +1,59 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use log::{LevelFilter, Log, Metadata, Record};
+use once_cell::sync::Lazy;
+use std::sync::{Arc, RwLock};
 
-static ENABLED: AtomicBool = AtomicBool::new(true);
+struct NopLogger;
 
-#[inline(always)]
-pub fn is_enabled() -> bool {
-    ENABLED.load(Ordering::SeqCst)
+impl Log for NopLogger {
+    fn enabled(&self, _: &Metadata) -> bool {
+        false
+    }
+
+    fn log(&self, _: &Record) {}
+
+    fn flush(&self) {}
 }
 
-pub fn disable() {
-    ENABLED.store(false, Ordering::SeqCst)
+/// This logger proxy an underline logger and make available a logger switch possibility.
+#[derive(Clone)]
+pub struct ProxyLogger {
+    logger: Arc<RwLock<Box<dyn Log>>>,
 }
 
-pub fn enable() {
-    ENABLED.store(true, Ordering::SeqCst)
+pub static LOGGER_SWITCHER: Lazy<ProxyLogger> = Lazy::new(|| {
+    let logger = ProxyLogger {
+        logger: Arc::new(RwLock::new(Box::new(NopLogger))),
+    };
+
+    log::set_boxed_logger(Box::new(logger.clone())).expect("infallible");
+    log::set_max_level(log::LevelFilter::Debug);
+
+    logger
+});
+
+impl ProxyLogger {
+    /// Switch logger to new implementation and reset a global maximum log level.
+    ///
+    /// # Arguments
+    ///
+    /// * `logger`: a logger implementation.
+    /// * `level_filter`: a new maximum log level.
+    pub fn switch<L: Log + 'static>(&self, logger: L, level_filter: LevelFilter) {
+        *self.logger.write().unwrap() = Box::new(logger);
+        log::set_max_level(level_filter);
+    }
 }
 
-#[macro_export]
-macro_rules! bs_info {
-    (target: $target:expr, $($arg:tt)+) => {
-        if $crate::log::is_enabled() {
-            log::info!(target: $target, $($arg)+)
-        }
-    };
-    ($($arg:tt)+) => {
-        if $crate::log::is_enabled() {
-            log::info!($($arg)+)
-        }
-    };
-}
+impl Log for ProxyLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        self.logger.read().unwrap().enabled(metadata)
+    }
 
-#[macro_export]
-macro_rules! bs_warn {
-    (target: $target:expr, $($arg:tt)+) => {
-        if $crate::log::is_enabled() {
-            log::warn!(target: $target, $($arg)+)
-        }
-    };
-    ($($arg:tt)+) => {
-        if $crate::log::is_enabled() {
-            log::warn!($($arg)+)
-        }
-    };
-}
+    fn log(&self, record: &Record) {
+        self.logger.read().unwrap().log(record)
+    }
 
-#[macro_export]
-macro_rules! bs_error {
-    (target: $target:expr, $($arg:tt)+) => {
-        if $crate::log::is_enabled() {
-            log::error!(target: $target, $($arg)+)
-        }
-    };
-    ($($arg:tt)+) => {
-        if $crate::log::is_enabled() {
-            log::error!($($arg)+)
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! bs_debug {
-    (target: $target:expr, $($arg:tt)+) => {
-        if $crate::log::is_enabled() {
-            log::debug!(target: $target, $($arg)+)
-        }
-    };
-    ($($arg:tt)+) => {
-        if $crate::log::is_enabled() {
-            log::debug!($($arg)+)
-        }
-    };
+    fn flush(&self) {
+        self.logger.read().unwrap().flush()
+    }
 }

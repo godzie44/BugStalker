@@ -1,6 +1,6 @@
-use crate::bs_warn;
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::{DefaultToolchainNotFound, UnrecognizedRustupOut};
+use log::warn;
 use once_cell::sync::OnceCell;
 use std::path::PathBuf;
 use std::process::Command;
@@ -21,7 +21,7 @@ impl Environment {
     pub fn init(std_lib_path: Option<PathBuf>) {
         let toolchain = default_toolchain();
         if let Err(ref e) = toolchain {
-            bs_warn!(target: "debugger", "detect toolchain: {e}")
+            warn!(target: "debugger", "detect toolchain: {e}")
         }
         if ENVIRONMENT
             .set(Environment {
@@ -31,7 +31,7 @@ impl Environment {
             })
             .is_err()
         {
-            bs_warn!(target: "debugger", "rust env already set")
+            warn!(target: "debugger", "rust env already set")
         }
     }
 }

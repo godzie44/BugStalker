@@ -174,14 +174,13 @@ pub struct TerminalApplication {
     already_run: bool,
 }
 
-pub static LOGGER_ONCE: Once = Once::new();
 pub static HELLO_ONCE: Once = Once::new();
 
 impl TerminalApplication {
     pub fn run(mut self) -> anyhow::Result<()> {
-        LOGGER_ONCE.call_once(|| {
-            env_logger::init();
-        });
+        let logger = env_logger::Logger::from_default_env();
+        let filter = logger.filter();
+        crate::log::LOGGER_SWITCHER.switch(logger, filter);
 
         macro_rules! print_out {
             ($stream: expr, $format: tt, $printer: expr, $cancel: expr) => {{

@@ -7,9 +7,10 @@ use crate::debugger::debugee::dwarf::unit::{
 use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::error::Error;
 use crate::debugger::ExplorationContext;
-use crate::{bs_warn, ctx_resolve_unit_call, weak_error};
+use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::{AttributeValue, DwAte, Expression};
+use log::warn;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem;
@@ -511,7 +512,7 @@ impl TypeParser {
                 die,
             })),
             _ => {
-                bs_warn!("unsupported type die: {:?}", entry.die);
+                warn!("unsupported type die: {:?}", entry.die);
                 None
             }
         });

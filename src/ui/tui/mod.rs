@@ -145,8 +145,10 @@ impl TuiApplication {
     }
 
     pub fn run(mut self) -> anyhow::Result<()> {
-        // disable default logger
-        crate::log::disable();
+        let log_buffer = Arc::new(Mutex::default());
+        let logger = utils::logger::TuiLogger::new(log_buffer.clone());
+        let filter = logger.filter();
+        crate::log::LOGGER_SWITCHER.switch(logger, filter);
 
         let debugger_event_queue = DebuggerEventQueue::default();
         self.debugger
@@ -173,6 +175,7 @@ impl TuiApplication {
                 stream_buf,
                 debugger_event_queue,
                 client_exchanger,
+                log_buffer,
                 already_run,
             )?;
             model.terminal.enter_alternate_screen()?;
@@ -262,7 +265,6 @@ impl TuiApplication {
 
         drop(std_out_handle);
         drop(std_err_handle);
-        crate::log::enable();
 
         match exit_type {
             ExitType::Exit => {}

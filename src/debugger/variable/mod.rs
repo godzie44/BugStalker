@@ -5,12 +5,13 @@ use crate::debugger::debugee::dwarf::r#type::{ComplexType, TypeDeclaration};
 use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef, NamespaceHierarchy};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::specialization::VariableParserExtension;
-use crate::{bs_warn, debugger, weak_error};
+use crate::{debugger, weak_error};
 use bytes::Bytes;
 use gimli::{
     DW_ATE_address, DW_ATE_boolean, DW_ATE_float, DW_ATE_signed, DW_ATE_signed_char,
     DW_ATE_unsigned, DW_ATE_unsigned_char, DW_ATE_ASCII, DW_ATE_UTF,
 };
+use log::warn;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Display, Formatter};
 use std::string::FromUtf8Error;
@@ -627,7 +628,7 @@ impl<'a> VariableParser<'a> {
                 }
                 16 => render_scalar::<i128>(value).map(SupportedScalar::I128),
                 _ => {
-                    bs_warn!(
+                    warn!(
                         "parse scalar: unexpected signed size: {size:?}",
                         size = r#type.byte_size
                     );
@@ -648,7 +649,7 @@ impl<'a> VariableParser<'a> {
                 }
                 16 => render_scalar::<u128>(value).map(SupportedScalar::U128),
                 _ => {
-                    bs_warn!(
+                    warn!(
                         "parse scalar: unexpected unsigned size: {size:?}",
                         size = r#type.byte_size
                     );
@@ -659,7 +660,7 @@ impl<'a> VariableParser<'a> {
                 4 => render_scalar::<f32>(value).map(SupportedScalar::F32),
                 8 => render_scalar::<f64>(value).map(SupportedScalar::F64),
                 _ => {
-                    bs_warn!(
+                    warn!(
                         "parse scalar: unexpected float size: {size:?}",
                         size = r#type.byte_size
                     );
@@ -670,7 +671,7 @@ impl<'a> VariableParser<'a> {
             DW_ATE_UTF => render_scalar::<char>(value).map(SupportedScalar::Char),
             DW_ATE_ASCII => render_scalar::<char>(value).map(SupportedScalar::Char),
             _ => {
-                bs_warn!("parse scalar: unexpected base type encoding: {encoding}");
+                warn!("parse scalar: unexpected base type encoding: {encoding}");
                 None
             }
         });
@@ -712,7 +713,7 @@ impl<'a> VariableParser<'a> {
     ) -> Option<VariableIR> {
         let name = member.name.clone();
         let Some(type_ref) = member.type_ref else {
-            bs_warn!(
+            warn!(
                 "parse structure: unknown type for member {}",
                 name.as_deref().unwrap_or_default()
             );
