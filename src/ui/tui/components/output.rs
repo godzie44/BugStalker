@@ -4,7 +4,7 @@ use crate::ui::tui::{Id, Msg};
 use tui_realm_stdlib::Textarea;
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
-use tuirealm::props::{Borders, PropPayload, PropValue, TextSpan};
+use tuirealm::props::{Borders, PropPayload, PropValue, Style, TextSpan};
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::prelude::Color;
 use tuirealm::tui::widgets::BorderType;
@@ -32,9 +32,9 @@ impl Output {
                 .borders(
                     Borders::default()
                         .modifiers(BorderType::Rounded)
-                        .color(Color::LightBlue),
+                        .color(Color::LightYellow),
                 )
-                .foreground(Color::LightBlue)
+                .inactive(Style::default().fg(Color::Gray))
                 .title("Program output", Alignment::Center)
                 .highlighted_str("▶")
                 .step(4)

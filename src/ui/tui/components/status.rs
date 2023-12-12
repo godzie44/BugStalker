@@ -16,10 +16,16 @@ pub struct Status {
     component: Container,
 }
 
-impl Default for Status {
-    fn default() -> Self {
+impl Status {
+    pub fn new(app_already_run: bool) -> Self {
+        let initial_state = if app_already_run {
+            TextSpan::new("stopped").fg(Color::Red)
+        } else {
+            TextSpan::new("not running").fg(Color::Red)
+        };
+
         let app_state = tui_realm_stdlib::Paragraph::default()
-            .text(&[TextSpan::new("not running").fg(Color::Red)])
+            .text(&[initial_state])
             .alignment(Alignment::Center)
             .title("App status", Alignment::Center)
             .borders(
@@ -32,7 +38,7 @@ impl Default for Status {
             .text(&[TextSpan::new(
                 "F6 - step out, F7 - step, F8 - step over, F9/c - continue, F10/r - start/restart, ESC - go to console, q - quit",
             )
-            .fg(Color::Green).bold()])
+                .fg(Color::Green).bold()])
             .alignment(Alignment::Center)
             .title("Help", Alignment::Center)
             .borders(
@@ -57,9 +63,7 @@ impl Default for Status {
                 .children(vec![Box::new(help), Box::new(app_state)]),
         }
     }
-}
 
-impl Status {
     pub fn subscriptions() -> Vec<Sub<Id, UserEvent>> {
         vec![
             Sub::new(

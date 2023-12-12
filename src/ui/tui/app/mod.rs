@@ -196,7 +196,7 @@ impl Model {
         app.mount(Id::Input, Box::<Input>::default(), vec![])?;
         app.mount(
             Id::Status,
-            Box::<Status>::default(),
+            Box::new(Status::new(app_already_run)),
             Status::subscriptions(),
         )?;
         app.mount(Id::LeftTabs, Box::<LeftTab>::default(), vec![])?;

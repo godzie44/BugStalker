@@ -5,7 +5,7 @@ use crate::ui::tui::{Id, Msg};
 use std::sync::Arc;
 use tuirealm::command::{Cmd, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
-use tuirealm::props::{Borders, TextSpan};
+use tuirealm::props::{Borders, Style, TextSpan};
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::prelude::Color;
 use tuirealm::tui::widgets::BorderType;
@@ -25,9 +25,9 @@ impl Asm {
             .borders(
                 Borders::default()
                     .modifiers(BorderType::Rounded)
-                    .color(Color::LightBlue),
+                    .color(Color::LightYellow),
             )
-            .foreground(Color::LightBlue)
+            .inactive(Style::default().fg(Color::Gray))
             .title("Assembler code for function", Alignment::Center)
             .step(4)
             .highlighted_str("▶");

@@ -26,7 +26,7 @@ impl Default for LeftTab {
                 .foreground(Color::LightGreen)
                 .title("[1]", Alignment::Center)
                 .rewind(true)
-                .choices(&["Breakpoints", "Variables", "Threads"]),
+                .choices(&["🔴 Breakpoints", "🧩 Variables", "🧵 Threads"]),
         }
     }
 }
@@ -78,7 +78,7 @@ impl Default for RightTab {
                 .foreground(Color::LightGreen)
                 .title("[2]", Alignment::Center)
                 .rewind(true)
-                .choices(&["Source", "Output", "Asm", "Logs"]),
+                .choices(&["</> Source", "📃 Output", "🤖 Asm", "✏️ Logs"]),
         }
     }
 }

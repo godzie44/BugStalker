@@ -86,7 +86,7 @@ impl Breakpoints {
 
         let mut table_builder = TableBuilder::default();
         table_builder.add_col(TextSpan::from(" "));
-        table_builder.add_col(TextSpan::from("🚀"));
+        table_builder.add_col(TextSpan::from(" "));
         table_builder.add_col(TextSpan::from("add new").fg(Color::Green).bold());
         table_builder.add_row();
 

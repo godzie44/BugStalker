@@ -15,7 +15,7 @@ use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 use tuirealm::command::{Cmd, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
-use tuirealm::props::{Borders, TextSpan};
+use tuirealm::props::{Borders, Style, TextSpan};
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::prelude::Color;
 use tuirealm::tui::widgets::BorderType;
@@ -95,11 +95,11 @@ impl Source {
             .borders(
                 Borders::default()
                     .modifiers(BorderType::Rounded)
-                    .color(Color::LightBlue),
+                    .color(Color::LightYellow),
             )
-            .foreground(Color::LightBlue)
             .title("Program source code", Alignment::Center)
             .step(4)
+            .inactive(Style::default().fg(Color::Gray))
             .highlighted_str("▶");
 
         let mut this = Self {
@@ -161,6 +161,7 @@ impl Source {
                 }),
                 SubClause::Always,
             ),
+            Sub::new(SubEventClause::User(UserEvent::Exit(0)), SubClause::Always),
         ]
     }
 }
@@ -200,6 +201,9 @@ impl Component<Msg, UserEvent> for Source {
                 if let Some(file) = file {
                     self.update_source_view(PathBuf::from(file).as_path(), line);
                 }
+            }
+            Event::User(UserEvent::Exit { .. }) => {
+                self.component.text_rows(vec![]);
             }
             _ => {}
         };

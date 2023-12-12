@@ -3,7 +3,7 @@ use crate::ui::tui::utils::mstextarea::MultiSpanTextarea;
 use crate::ui::tui::{Id, Msg};
 use tuirealm::command::{Cmd, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
-use tuirealm::props::{Borders, TextSpan};
+use tuirealm::props::{Borders, Style, TextSpan};
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::prelude::Color;
 use tuirealm::tui::widgets::BorderType;
@@ -23,9 +23,9 @@ impl Default for Logs {
                 .borders(
                     Borders::default()
                         .modifiers(BorderType::Rounded)
-                        .color(Color::LightBlue),
+                        .color(Color::LightYellow),
                 )
-                .foreground(Color::LightBlue)
+                .inactive(Style::default().fg(Color::Gray))
                 .highlighted_str("▶")
                 .title("Debugger logs", Alignment::Center)
                 .step(4),
