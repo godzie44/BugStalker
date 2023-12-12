@@ -10,9 +10,9 @@ use std::path::PathBuf;
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Debugger interface type
-    #[arg(long, default_value_t = String::from("console"))]
-    ui: String,
+    #[clap(long)]
+    #[arg(default_value_t = false)]
+    tui: bool,
 
     /// Executable file (debugee)
     debugee: String,
@@ -40,19 +40,14 @@ fn main() {
         .install()
         .expect("initial process instantiation fail");
 
-    match args.ui.as_str() {
-        "tui" => {
-            let debugger =
-                Debugger::new(process, DoNothingHook {}).expect("prepare application fail");
-            let app =
-                tui::AppBuilder::new(stdout_reader.into(), stderr_reader.into()).build(debugger);
-            app.run().expect("run application fail");
-        }
-        _ => {
-            let app = AppBuilder::new(stdout_reader.into(), stderr_reader.into())
-                .build_from_process(process)
-                .expect("build application fail");
-            app.run().expect("run application fail");
-        }
+    if args.tui {
+        let debugger = Debugger::new(process, DoNothingHook {}).expect("prepare application fail");
+        let app = tui::AppBuilder::new(stdout_reader.into(), stderr_reader.into()).build(debugger);
+        app.run().expect("run application fail");
+    } else {
+        let app = AppBuilder::new(stdout_reader.into(), stderr_reader.into())
+            .build_from_process(process)
+            .expect("build application fail");
+        app.run().expect("run application fail");
     }
 }
