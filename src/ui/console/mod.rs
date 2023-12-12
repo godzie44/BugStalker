@@ -527,6 +527,7 @@ impl AppLoop {
                 }
                 self.printer.print(help_for_command(command.as_deref()));
             }
+            Command::SkipInput => {}
             Command::PrintSymbol(symbol) => {
                 let symbols = SymbolHandler::new(&self.debugger).handle(&symbol)?;
                 for symbol in symbols {

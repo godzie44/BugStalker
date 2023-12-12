@@ -424,9 +424,15 @@ impl Command {
             command(THREAD_COMMAND, thread_parser),
             command(SHARED_LIB_COMMAND, shared_lib_parser),
             command(DISASM_COMMAND, disasm_parser),
-            cut(map(not_line_ending, |_| Command::Help {
-                command: None,
-                reason: Some("unknown command".to_string()),
+            cut(map(not_line_ending, |cmd: &str| {
+                if cmd.is_empty() {
+                    Command::SkipInput
+                } else {
+                    Command::Help {
+                        command: None,
+                        reason: Some("unknown command".to_string()),
+                    }
+                }
             })),
         ))(input)
     }

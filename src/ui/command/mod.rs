@@ -57,6 +57,7 @@ pub enum Command {
     Thread(thread::Command),
     SharedLib,
     DisAsm,
+    SkipInput,
     Help {
         command: Option<String>,
         reason: Option<String>,
