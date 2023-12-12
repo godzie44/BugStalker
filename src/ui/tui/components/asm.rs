@@ -56,6 +56,7 @@ impl Asm {
                 );
             }
 
+            let mut line_in_focus = None;
             let mut lines = vec![];
             for instr in asm.instructions.into_iter() {
                 let addr_span = TextSpan::new(format!("{} ", instr.address)).fg(Color::Blue);
@@ -68,6 +69,7 @@ impl Asm {
                 let mut line = vec![addr_span, mnemonic_span, operands_span];
 
                 if asm.addr_in_focus == instr.address {
+                    line_in_focus = Some(lines.len());
                     line.iter_mut().for_each(|text| text.fg = Color::LightRed)
                 }
 
@@ -75,6 +77,10 @@ impl Asm {
             }
 
             self.component.text_rows(lines);
+
+            if let Some(line) = line_in_focus {
+                self.component.states.list_index = line;
+            }
         }
     }
 
