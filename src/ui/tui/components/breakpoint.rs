@@ -106,16 +106,13 @@ impl Breakpoints {
         }
 
         for brkpt in breakpoints.iter() {
-            table_builder.add_col(
-                TextSpan::from(brkpt.number.to_string())
-                    .fg(Color::Cyan)
-                    .italic(),
-            );
+            table_builder.add_col(TextSpan::from(brkpt.number.to_string()).fg(Color::Cyan));
             table_builder.add_col(TextSpan::from(" "));
             if let Some(ref place) = brkpt.place {
                 table_builder.add_col(TextSpan::from(format!(
-                    "{:?}:{}",
-                    place.file, place.line_number
+                    "{}:{}",
+                    place.file.to_string_lossy(),
+                    place.line_number
                 )));
             } else {
                 table_builder.add_col(TextSpan::from(format!("{}", brkpt.number)));
