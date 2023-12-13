@@ -34,6 +34,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Stack frame information.
 #[derive(Debug, Default, Clone)]
@@ -98,7 +99,10 @@ pub struct Debugee {
     rendezvous: Option<Rendezvous>,
     /// Registry for dwarf information of program and shared libraries.
     dwarf_registry: DwarfRegistry,
+    /// Disassembler component.
     disassembly: Disassembler,
+    /// Loaded libthread_db.
+    libthread_db: Arc<thread_db::Lib>,
 }
 
 impl Debugee {
@@ -125,6 +129,7 @@ impl Debugee {
             tracer: Tracer::new(proc),
             dwarf_registry: registry,
             disassembly: Disassembler::new()?,
+            libthread_db: Arc::new(thread_db::Lib::try_load()?),
         })
     }
 
@@ -142,6 +147,7 @@ impl Debugee {
             tracer: Tracer::new(proc),
             dwarf_registry: self.dwarf_registry.extend(proc),
             disassembly: Disassembler::new().expect("infallible"),
+            libthread_db: self.libthread_db.clone(),
         }
     }
 
@@ -173,8 +179,10 @@ impl Debugee {
         &mut self.tracer
     }
 
-    fn init_libthread_db(&mut self) {
-        match self.tracer.tracee_ctl.init_thread_db() {
+    /// Attach libthread_db to this debugee.
+    fn attach_libthread_db(&mut self) {
+        let tracee_ctl = &mut self.tracer.tracee_ctl;
+        match tracee_ctl.attach_thread_db(self.libthread_db.clone()) {
             Ok(_) => {
                 info!(target: "loading", "libthread_db enabled")
             }
@@ -208,7 +216,7 @@ impl Debugee {
                             self.mapping_offset_for_file(main_dwarf)?,
                             &self.object_sections,
                         )?);
-                        self.init_libthread_db();
+                        self.attach_libthread_db();
                         self.update_debug_info_registry(true)?;
                     }
                     Some(BrkptType::LinkerMapFn) => {

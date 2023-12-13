@@ -14,11 +14,12 @@ use nix::unistd::Pid;
 use ouroboros::self_referencing;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use thread_db;
 
 #[self_referencing]
 struct ThreadDBProcess {
-    lib: thread_db::Lib,
+    lib: Arc<thread_db::Lib>,
     #[borrows(lib)]
     #[covariant]
     process: thread_db::Process<'this>,
@@ -257,12 +258,11 @@ impl TraceeCtl {
         self.threads_state.values().cloned().collect()
     }
 
-    /// Load libthread_db and init libthread_db process handle.
-    /// libthread_db must initialized after first thread created.
-    pub(super) fn init_thread_db(&mut self) -> Result<(), Error> {
-        let thread_db_lib = thread_db::Lib::try_load()?;
+    /// Attach libthread_db to process.
+    /// At least one thread must be created before process is attached to libthread_db.
+    pub(super) fn attach_thread_db(&mut self, lib: Arc<thread_db::Lib>) -> Result<(), Error> {
         let td_process = ThreadDBProcessTryBuilder {
-            lib: thread_db_lib,
+            lib,
             process_builder: |lib| lib.attach(self.process_pid),
         }
         .try_build()?;
