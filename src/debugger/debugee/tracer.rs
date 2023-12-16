@@ -13,9 +13,9 @@ use nix::unistd::Pid;
 use nix::{libc, sys};
 use std::collections::VecDeque;
 
-/// List of signals that dont interrupt debugging process and send
+/// List of signals that dont interrupt a debugging process and send
 /// to debugee directly on fire.
-static QUIET_SIGNALS: [Signal; 6] = [
+static QUIET_SIGNALS: &[Signal] = &[
     Signal::SIGALRM,
     Signal::SIGURG,
     Signal::SIGCHLD,
@@ -24,6 +24,9 @@ static QUIET_SIGNALS: [Signal; 6] = [
     Signal::SIGPROF,
     //Signal::SIGWINCH,
 ];
+
+/// List of signals that may interrupt a debugging process but debugger will not inject it into.
+static TRANSPARENT_SIGNALS: &[Signal] = &[Signal::SIGINT];
 
 #[derive(Debug)]
 pub enum StopReason {
@@ -54,7 +57,7 @@ impl<'a> TraceContext<'a> {
 pub struct Tracer {
     pub(super) tracee_ctl: TraceeCtl,
 
-    signal_queue: VecDeque<(Pid, Signal)>,
+    inject_signal_queue: VecDeque<(Pid, Signal)>,
     group_stop_guard: bool,
 }
 
@@ -62,7 +65,7 @@ impl Tracer {
     pub fn new(proc_pid: Pid) -> Self {
         Self {
             tracee_ctl: TraceeCtl::new(proc_pid),
-            signal_queue: VecDeque::new(),
+            inject_signal_queue: VecDeque::new(),
             group_stop_guard: false,
         }
     }
@@ -70,13 +73,16 @@ impl Tracer {
     /// Continue debugee execution until stop happened.
     pub fn resume(&mut self, ctx: TraceContext) -> Result<StopReason, Error> {
         loop {
-            if let Some(req) = self.signal_queue.pop_front() {
+            if let Some(req) = self.inject_signal_queue.pop_front() {
                 self.tracee_ctl.cont_stopped_ex(
                     Some(req),
-                    self.signal_queue.iter().map(|(pid, _)| *pid).collect(),
+                    self.inject_signal_queue
+                        .iter()
+                        .map(|(pid, _)| *pid)
+                        .collect(),
                 )?;
 
-                if let Some((pid, sign)) = self.signal_queue.front().copied() {
+                if let Some((pid, sign)) = self.inject_signal_queue.front().copied() {
                     // if there is more signal stop debugee again
                     self.group_stop_interrupt(ctx, Pid::from_raw(-1))?;
                     return Ok(StopReason::SignalStop(pid, sign));
@@ -383,7 +389,10 @@ impl Tracer {
                         }
                     },
                     _ => {
-                        self.signal_queue.push_back((pid, signal));
+                        if !TRANSPARENT_SIGNALS.contains(&signal) {
+                            self.inject_signal_queue.push_back((pid, signal));
+                        }
+
                         self.tracee_ctl
                             .tracee_ensure_mut(pid)
                             .set_stop(StopType::SignalStop(signal));

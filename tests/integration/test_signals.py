@@ -137,3 +137,20 @@ class SignalsTestCase(unittest.TestCase):
         self.debugger.sendline('next')
         self.debugger.expect_exact('10     let int64 = -2_i64;')
 
+    def test_transparent_signal(self):
+        """Send sigint to running process must return control to debugger"""
+        self.debugger = pexpect.spawn(
+            './target/debug/bugstalker ./target/debug/sleeper -- -s 5')
+        self.debugger.expect('BugStalker greets')
+
+        self.debugger.sendline('run')
+
+        time.sleep(3)
+
+        self.debugger.sendcontrol('c')
+
+        self.debugger.expect_exact('Signal SIGINT received, debugee stopped')
+
+        self.debugger.sendline('bt')
+        self.debugger.expect_exact('sleeper::main')
+

@@ -3,6 +3,7 @@ use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::mstextarea::MultiSpanTextarea;
 use crate::ui::tui::utils::syntect::into_text_span;
 use crate::ui::tui::{Id, Msg};
+use log::warn;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fs;
@@ -26,6 +27,7 @@ use tuirealm::{
 #[derive(Default)]
 struct FileLinesCache {
     files: HashMap<PathBuf, Vec<Vec<TextSpan>>>,
+    empty_file: Vec<Vec<TextSpan>>,
 }
 
 impl FileLinesCache {
@@ -35,7 +37,10 @@ impl FileLinesCache {
             Entry::Vacant(v) => {
                 let mut file = match fs::File::open(file) {
                     Ok(f) => f,
-                    Err(_) => panic!("Failed to open file"),
+                    Err(e) => {
+                        warn!("error while open {file:?}: {e}");
+                        return &self.empty_file;
+                    }
                 };
 
                 let mut source_code = String::new();

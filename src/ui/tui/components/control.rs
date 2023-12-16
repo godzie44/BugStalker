@@ -3,7 +3,9 @@ use crate::ui::command::run;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::{Id, Msg};
+use nix::sys::signal;
 use nix::sys::signal::Signal;
+use nix::unistd::Pid;
 use std::sync::Arc;
 use tuirealm::event::{Key, KeyEvent, KeyModifiers};
 use tuirealm::{Component, Event, MockComponent, Sub, SubClause, SubEventClause};
@@ -13,14 +15,16 @@ pub struct GlobalControl {
     component: tui_realm_stdlib::Phantom,
     exchanger: Arc<ClientExchanger>,
     already_run: bool,
+    last_seen_pid: Pid,
 }
 
 impl GlobalControl {
-    pub fn new(exchanger: Arc<ClientExchanger>, app_already_run: bool) -> Self {
+    pub fn new(exchanger: Arc<ClientExchanger>, pid: Pid, app_already_run: bool) -> Self {
         Self {
             component: tui_realm_stdlib::Phantom::default(),
             exchanger,
             already_run: app_already_run,
+            last_seen_pid: pid,
         }
     }
 
@@ -110,11 +114,14 @@ impl Component<Msg, UserEvent> for GlobalControl {
             Event::Keyboard(KeyEvent {
                 code: Key::Char('q'),
                 modifiers: KeyModifiers::NONE,
-            })
-            | Event::Keyboard(KeyEvent {
+            }) => Msg::AppClose,
+            Event::Keyboard(KeyEvent {
                 code: Key::Char('c'),
                 modifiers: KeyModifiers::CONTROL,
-            }) => Msg::AppClose,
+            }) => {
+                _ = signal::kill(self.last_seen_pid, Signal::SIGINT);
+                Msg::None
+            }
             Event::Keyboard(KeyEvent {
                 code: Key::Char('c'),
                 modifiers: KeyModifiers::NONE,
@@ -175,6 +182,10 @@ impl Component<Msg, UserEvent> for GlobalControl {
             }
             Event::User(UserEvent::AsyncErrorResponse(err)) => {
                 Msg::ShowOkPopup(Some("Error".to_string()), err)
+            }
+            Event::User(UserEvent::ProcessInstall(pid)) => {
+                self.last_seen_pid = pid;
+                Msg::None
             }
             _ => Msg::None,
         };

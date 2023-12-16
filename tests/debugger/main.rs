@@ -43,6 +43,7 @@ const VARS_APP: &str = "./target/debug/vars";
 const RECURSION_APP: &str = "./target/debug/recursion";
 const SIGNALS_APP: &str = "./target/debug/signals";
 const SHARED_LIB_APP: &str = "./examples/target/debug/calc_bin";
+const SLEEPER_APP: &str = "./target/debug/sleeper";
 
 #[test]
 #[serial]

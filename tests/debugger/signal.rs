@@ -1,9 +1,9 @@
 use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
-use crate::{assert_no_proc, prepare_debugee_process, SIGNALS_APP};
+use crate::{assert_no_proc, prepare_debugee_process, SIGNALS_APP, SLEEPER_APP};
 use bugstalker::debugger::Debugger;
 use nix::sys::signal;
-use nix::sys::signal::{SIGUSR1, SIGUSR2};
+use nix::sys::signal::{SIGINT, SIGUSR1, SIGUSR2};
 use serial_test::serial;
 use std::thread;
 use std::time::Duration;
@@ -86,5 +86,27 @@ fn test_signal_stop_multi_thread_multiple_signal() {
     assert_eq!(info.line.take(), Some(62));
     debugger.continue_debugee().unwrap();
 
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_transparent_signals() {
+    let process = prepare_debugee_process(SLEEPER_APP, &["-s", "1"]);
+    let debugee_pid = process.pid();
+    let info = DebugeeRunInfo::default();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(2));
+        signal::kill(debugee_pid, SIGINT).unwrap();
+    });
+
+    debugger.start_debugee().unwrap();
+
+    // debugger takeover control here, just check that debugee still alive
+    assert!(!debugger.thread_state().unwrap().is_empty());
+
+    drop(debugger);
     assert_no_proc!(debugee_pid);
 }

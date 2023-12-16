@@ -29,6 +29,7 @@ pub enum UserEvent {
     Exit(i32),
     AsyncErrorResponse(String),
     Logs(Vec<TuiLogLine>),
+    ProcessInstall(Pid),
 }
 
 impl PartialEq for UserEvent {
@@ -50,6 +51,9 @@ impl PartialEq for UserEvent {
             }
             UserEvent::Logs(_) => {
                 matches!(other, UserEvent::Logs(_))
+            }
+            UserEvent::ProcessInstall(_) => {
+                matches!(other, UserEvent::ProcessInstall(_))
             }
         }
     }
@@ -140,7 +144,12 @@ impl EventHook for TuiHook {
         self.event_queue.lock().unwrap().push(UserEvent::Exit(code));
     }
 
-    fn on_process_install(&self, _pid: Pid) {}
+    fn on_process_install(&self, pid: Pid) {
+        self.event_queue
+            .lock()
+            .unwrap()
+            .push(UserEvent::ProcessInstall(pid));
+    }
 }
 
 pub struct DebuggerEventsPort {

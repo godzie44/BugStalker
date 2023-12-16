@@ -186,9 +186,10 @@ impl Model {
                 .tick_interval(Duration::from_secs(1)),
         );
 
+        let pid = exchanger.request_sync(|dbg| dbg.process().pid());
         app.mount(
             Id::GlobalControl,
-            Box::new(GlobalControl::new(exchanger.clone(), app_already_run)),
+            Box::new(GlobalControl::new(exchanger.clone(), pid, app_already_run)),
             GlobalControl::subscriptions(),
         )?;
 

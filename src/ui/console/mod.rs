@@ -241,6 +241,7 @@ impl TerminalApplication {
             already_run: self.already_run,
         };
 
+        let error_printer = ExternalPrinter::new(&mut self.editor)?;
         let mut editor = self.editor;
         {
             let control_tx = self.control_tx.clone();
@@ -264,26 +265,23 @@ impl TerminalApplication {
                                 _ = control_tx.send(Control::Cmd(input));
                             }
                         }
-                        Err(err) => {
-                            let on_sign = |sign: Signal| {
+                        Err(err) => match err {
+                            ReadlineError::Interrupted => {
+                                _ = kill(*self.debugee_pid.lock().unwrap(), Signal::SIGINT);
+                            }
+                            ReadlineError::Eof => {
                                 if self.control_tx.try_send(Control::Terminate).is_err() {
-                                    _ = kill(*self.debugee_pid.lock().unwrap(), sign);
+                                    _ = kill(*self.debugee_pid.lock().unwrap(), Signal::SIGINT);
                                     _ = self.control_tx.send(Control::Terminate);
                                 }
-                            };
-
-                            match err {
-                                ReadlineError::Eof | ReadlineError::Interrupted => {
-                                    on_sign(Signal::SIGINT);
-                                    break;
-                                }
-                                _ => {
-                                    println!("error: {:#}", err);
-                                    _ = control_tx.send(Control::Terminate);
-                                    break;
-                                }
+                                break;
                             }
-                        }
+                            _ => {
+                                error_printer.print(ErrorView::from(err));
+                                _ = control_tx.send(Control::Terminate);
+                                break;
+                            }
+                        },
                     }
                 }
             });
