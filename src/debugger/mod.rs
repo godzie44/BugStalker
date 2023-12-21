@@ -110,9 +110,9 @@ pub trait EventHook {
     fn on_process_install(&self, pid: Pid);
 }
 
-pub struct DoNothingHook {}
+pub struct NopHook {}
 
-impl EventHook for DoNothingHook {
+impl EventHook for NopHook {
     fn on_breakpoint(
         &self,
         _: RelocatedAddress,
@@ -216,7 +216,7 @@ pub struct Debugger {
 
 impl Debugger {
     pub fn new(process: Child<Installed>, hooks: impl EventHook + 'static) -> anyhow::Result<Self> {
-        let program_path = Path::new(&process.program);
+        let program_path = Path::new(process.program());
 
         let file = fs::File::open(program_path)?;
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
@@ -233,8 +233,14 @@ impl Debugger {
         let process_id = process.pid();
         hooks.on_process_install(process_id);
 
+        let debugee = if process.is_external() {
+            Debugee::new_from_external_process(program_path, &process, &object)?
+        } else {
+            Debugee::new_non_running(program_path, &process, &object)?
+        };
+
         Ok(Self {
-            debugee: Debugee::new_non_running(program_path, process_id, &object)?,
+            debugee,
             process,
             breakpoints,
             hooks: Box::new(hooks),
@@ -741,6 +747,29 @@ impl Debugger {
 
 impl Drop for Debugger {
     fn drop(&mut self) {
+        if self.process.is_external() {
+            _ = self.breakpoints.disable_all_breakpoints(&self.debugee);
+
+            let current_tids: Vec<Pid> = self
+                .debugee
+                .tracee_ctl()
+                .snapshot()
+                .iter()
+                .map(|t| t.pid)
+                .collect();
+
+            if !current_tids.is_empty() {
+                current_tids.iter().for_each(|tid| {
+                    sys::ptrace::detach(*tid, None).expect("detach debugee");
+                });
+
+                signal::kill(self.debugee.tracee_ctl().proc_pid(), Signal::SIGCONT)
+                    .expect("kill debugee");
+            }
+
+            return;
+        }
+
         match self.debugee.execution_status() {
             ExecutionStatus::Unload => {
                 signal::kill(self.debugee.tracee_ctl().proc_pid(), Signal::SIGKILL)

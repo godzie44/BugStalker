@@ -2,6 +2,7 @@ use crate::debugger::address::GlobalAddress;
 use crate::debugger::debugee::dwarf::unit::DieRef;
 use crate::debugger::debugee::RendezvousError;
 use crate::debugger::variable::ParsingError;
+use nix::unistd::Pid;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 
@@ -128,6 +129,12 @@ pub enum Error {
     // --------------------------------- third party errors ----------------------------------------
     #[error("hook: {0}")]
     Hook(anyhow::Error),
+
+    // --------------------------------- attach debugee errors -------------------------------------
+    #[error("process pid {0} not found")]
+    AttachedProcessNotFound(Pid),
+    #[error("attach a running process: {0}")]
+    Attach(nix::Error),
 }
 
 impl Error {
@@ -184,6 +191,8 @@ impl Error {
             Error::Syscall(_, _) => true,
             Error::NoThreadDB => true,
             Error::DisAsmInit(_) => true,
+            Error::AttachedProcessNotFound(_) => true,
+            Error::Attach(_) => true,
         }
     }
 }

@@ -58,11 +58,13 @@ impl EventHook for TestHooks {
 #[macro_export]
 macro_rules! assert_no_proc {
     ($pid:expr) => {
-        let sys = <sysinfo::System as sysinfo::SystemExt>::new_all();
-        assert!(sysinfo::SystemExt::process(
-            &sys,
-            <sysinfo::Pid as sysinfo::PidExt>::from_u32($pid.as_raw() as u32)
+        let sys = sysinfo::System::new_with_specifics(
+            sysinfo::RefreshKind::everything()
+                .without_cpu()
+                .without_memory(),
+        );
+        assert!(
+            sysinfo::System::process(&sys, sysinfo::Pid::from_u32($pid.as_raw() as u32)).is_none()
         )
-        .is_none())
     };
 }

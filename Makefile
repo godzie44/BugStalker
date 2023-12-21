@@ -19,6 +19,11 @@ cargo-test-no-libunwind:
 	cargo test --no-default-features --features "int_test"
 
 int-test: build-test
-	python3 -m unittest discover ./tests/integration/ -v
+	python3 -m unittest discover ./tests/integration/ -v -p "*test_command*"
 
-test: build-all cargo-test int-test
+int-test-external: build-test
+	sudo python3 -m unittest discover ./tests/integration/ -v -p "*external*"
+
+# for local usage, because test_external.py requires a root privileges
+test: build-all cargo-test
+	sudo python3 -m unittest discover ./tests/integration/ -v

@@ -22,6 +22,7 @@ use crate::debugger::debugee::tracee::{Tracee, TraceeCtl};
 use crate::debugger::debugee::tracer::{StopReason, TraceContext, Tracer};
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::{FunctionNotFound, MappingOffsetNotFound, TraceeNotFound};
+use crate::debugger::process::{Child, Installed};
 use crate::debugger::register::DwarfRegisterMap;
 use crate::debugger::unwind::FrameSpan;
 use crate::debugger::ExplorationContext;
@@ -106,10 +107,14 @@ pub struct Debugee {
 }
 
 impl Debugee {
-    pub fn new_non_running(path: &Path, proc: Pid, object: &object::File) -> Result<Self, Error> {
+    pub fn new_non_running(
+        path: &Path,
+        process: &Child<Installed>,
+        object: &object::File,
+    ) -> Result<Self, Error> {
         let dwarf_builder = dwarf::DebugInformationBuilder;
         let dwarf = dwarf_builder.build(path, object)?;
-        let mut registry = DwarfRegistry::new(proc, path.to_path_buf(), dwarf);
+        let mut registry = DwarfRegistry::new(process.pid(), path.to_path_buf(), dwarf);
 
         // its ok if parse ldd output fail - shared libs will be parsed later - at rendezvous point
         let deps = muted_error!(
@@ -126,11 +131,59 @@ impl Debugee {
                 .filter_map(|section| Some((section.name().ok()?.to_string(), section.address())))
                 .collect(),
             rendezvous: None,
-            tracer: Tracer::new(proc),
+            tracer: Tracer::new(process.pid()),
             dwarf_registry: registry,
             disassembly: Disassembler::new()?,
             libthread_db: Arc::new(thread_db::Lib::try_load()?),
         })
+    }
+
+    pub fn new_from_external_process(
+        path: &Path,
+        process: &Child<Installed>,
+        object: &object::File,
+    ) -> Result<Self, Error> {
+        let dwarf_builder = dwarf::DebugInformationBuilder;
+        let dwarf = dwarf_builder.build(path, object)?;
+        let mut registry = DwarfRegistry::new(process.pid(), path.to_path_buf(), dwarf);
+        registry.update_mappings(false)?;
+
+        let main_dwarf = registry
+            .find_main_program_dwarf()
+            .ok_or(Error::NoDebugInformation("executable object"))?;
+        let main_dwarf_offset = registry
+            .find_mapping_offset_for_file(main_dwarf)
+            .ok_or(MappingOffsetNotFound("unknown segment"))?;
+        let object_sections = object
+            .sections()
+            .filter_map(|section| Some((section.name().ok()?.to_string(), section.address())))
+            .collect();
+
+        let mut debugee = Self {
+            execution_status: ExecutionStatus::InProgress,
+            path: path.into(),
+            rendezvous: Some(Rendezvous::new(
+                process.pid(),
+                main_dwarf_offset,
+                &object_sections,
+            )?),
+            object_sections,
+            tracer: Tracer::new_external(
+                process.pid(),
+                &process
+                    .external_info()
+                    .expect("process is not external")
+                    .threads,
+            ),
+            dwarf_registry: registry,
+            disassembly: Disassembler::new()?,
+            libthread_db: Arc::new(thread_db::Lib::try_load()?),
+        };
+
+        debugee.attach_libthread_db();
+        debugee.update_debug_info_registry(true)?;
+
+        Ok(debugee)
     }
 
     /// Create new [`Debugee`] with same dwarf context.

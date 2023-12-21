@@ -10,16 +10,24 @@ pub fn main() {
     let sleep_base_sec: u64 = args[2].parse().unwrap();
 
     let mut threads = vec![];
-    for i in 0..3 {
+    for i in 0..2 {
         let jh = thread::spawn(move || {
-            for _ in 0..100 {
+            for _ in 0..2 {
                 println!("thread {i} wakeup and sleep again");
-                sleep(Duration::from_secs(sleep_base_sec + 2 * i));
+                sleep(Duration::from_secs(sleep_base_sec));
             }
         });
-
         threads.push(jh);
     }
+    threads.into_iter().for_each(|t| t.join().unwrap());
 
+    let mut threads = vec![];
+    for i in 0..2 {
+        let jh = thread::spawn(move || {
+            println!("thread {i} created and sleep");
+            sleep(Duration::from_secs(sleep_base_sec));
+        });
+        threads.push(jh);
+    }
     threads.into_iter().for_each(|t| t.join().unwrap());
 }

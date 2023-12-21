@@ -147,6 +147,23 @@ impl TraceeCtl {
         }
     }
 
+    /// Create [`TraceeCtl`] for external process attached by pid.
+    ///
+    /// # Arguments
+    ///
+    /// * `proc_pid`: process id
+    /// * `threads`: id's of process threads
+    pub fn new_external(proc_pid: Pid, threads: &[Pid]) -> TraceeCtl {
+        Self {
+            process_pid: proc_pid,
+            threads_state: threads
+                .iter()
+                .map(|tid| (*tid, Tracee::new_stopped(*tid)))
+                .collect(),
+            thread_db_proc: None,
+        }
+    }
+
     pub(crate) fn tracee(&mut self, pid: Pid) -> Option<&Tracee> {
         self.threads_state.get(&pid)
     }

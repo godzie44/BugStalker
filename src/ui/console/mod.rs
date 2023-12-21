@@ -1,5 +1,4 @@
 use crate::debugger;
-use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::Debugger;
@@ -82,43 +81,6 @@ impl AppBuilder {
             already_run: true,
             ..self
         }
-    }
-
-    pub fn build_from_process(
-        self,
-        process: Child<Installed>,
-    ) -> anyhow::Result<TerminalApplication> {
-        let (control_tx, control_rx) = mpsc::sync_channel::<Control>(0);
-        let mut editor = create_editor(PROMT)?;
-
-        let debugee_pid = Arc::new(Mutex::new(Pid::from_raw(-1)));
-        let debugger = {
-            let debugee_pid = Arc::clone(&debugee_pid);
-            Debugger::new(
-                process,
-                TerminalHook::new(ExternalPrinter::new(&mut editor)?, move |pid| {
-                    *debugee_pid.lock().unwrap() = pid;
-                }),
-            )
-        }?;
-
-        if let Some(h) = editor.helper_mut() {
-            h.completer
-                .lock()
-                .unwrap()
-                .replace_file_hints(debugger.known_files().cloned())
-        }
-
-        Ok(TerminalApplication {
-            debugger,
-            debugee_pid,
-            editor,
-            debugee_out: self.debugee_out,
-            debugee_err: self.debugee_err,
-            control_tx,
-            control_rx,
-            already_run: self.already_run,
-        })
     }
 
     pub fn build(self, mut debugger: Debugger) -> anyhow::Result<TerminalApplication> {

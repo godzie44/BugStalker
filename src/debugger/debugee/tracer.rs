@@ -62,9 +62,28 @@ pub struct Tracer {
 }
 
 impl Tracer {
+    /// Create new [`Tracer`] for internally created debugee process.
+    ///
+    /// # Arguments
+    ///
+    /// * `proc_pid`: process id
     pub fn new(proc_pid: Pid) -> Self {
         Self {
             tracee_ctl: TraceeCtl::new(proc_pid),
+            inject_signal_queue: VecDeque::new(),
+            group_stop_guard: false,
+        }
+    }
+
+    /// Create [`Tracer`] for external process attached by pid.
+    ///
+    /// # Arguments
+    ///
+    /// * `proc_pid`: process id
+    /// * `threads`: id's of process threads
+    pub fn new_external(proc_pid: Pid, threads: &[Pid]) -> Self {
+        Self {
+            tracee_ctl: TraceeCtl::new_external(proc_pid, threads),
             inject_signal_queue: VecDeque::new(),
             group_stop_guard: false,
         }

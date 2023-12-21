@@ -51,9 +51,9 @@ tui-realm-treeview = "^1.1.0"
 capstone = "0.11.0"
 lru = "0.12.1"
 chrono = "0.4.31"
+sysinfo = "0.30.0"
 
 [dev-dependencies]
-sysinfo = "0.29.10"
 serial_test = "2.0.0"
 
 [features]
@@ -83,4 +83,8 @@ test = false
 
 [[bin]]
 name = "signals"
+test = false
+
+[[bin]]
+name = "sleeper"
 test = false
