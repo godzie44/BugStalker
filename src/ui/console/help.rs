@@ -21,7 +21,7 @@ reg, register read|write|info <addr>        -- read, write, or view debugged pro
 thread info|current|switch <number>         -- show list of threads or current (in focus) thread or set thread in focus
 sharedlib info                              -- show list of shared libraries
 disasm                                      -- show assembly instructions for current (in focus) function
-h, help |<command>                          -- show help
+h, help <>|<command>                        -- show help
 tui                                         -- change ui mode to tui
 q, quit                                     -- exit the BugStalker 
 "#;
