@@ -24,8 +24,8 @@ jobs:
           sudo apt-get install libunwind-dev libc6-dbg
       - name: Install test dependencies
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          sudo python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then sudo pip install -r requirements.txt; fi
       - name: Build debugger and test programs
         run: make build-all
       - name: Run functional tests on own stack unwind implementation
