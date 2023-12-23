@@ -76,9 +76,9 @@ impl AppBuilder {
         }
     }
 
-    pub fn app_already_run(self) -> Self {
+    pub fn with_already_run(self, already_run: bool) -> Self {
         Self {
-            already_run: true,
+            already_run,
             ..self
         }
     }
@@ -603,11 +603,9 @@ impl AppLoop {
                 }
                 Control::ChangeMode => {
                     self.cancel_output_flag.store(true, Ordering::SeqCst);
-                    let mut tui_builder =
-                        crate::ui::tui::AppBuilder::new(self.debugee_out, self.debugee_err);
-                    if self.already_run {
-                        tui_builder = tui_builder.app_already_run();
-                    }
+                    let tui_builder =
+                        crate::ui::tui::AppBuilder::new(self.debugee_out, self.debugee_err)
+                            .with_already_run(self.already_run);
                     let app = tui_builder.build(self.debugger);
                     app.run().expect("run application fail");
                     break;

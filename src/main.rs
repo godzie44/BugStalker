@@ -2,8 +2,7 @@
 
 use bugstalker::debugger::process::Child;
 use bugstalker::debugger::{rust, Debugger, NopHook};
-use bugstalker::ui::console::AppBuilder;
-use bugstalker::ui::tui;
+use bugstalker::ui::{console, tui};
 use clap::error::ErrorKind;
 use clap::{arg, CommandFactory, Parser};
 use nix::unistd::Pid;
@@ -61,17 +60,13 @@ fn main() {
     let debugger = Debugger::new(process, NopHook {}).expect("prepare application fail");
 
     if args.tui {
-        let mut app_builder = tui::AppBuilder::new(stdout_reader.into(), stderr_reader.into());
-        if process_is_external {
-            app_builder = app_builder.app_already_run();
-        }
+        let app_builder = tui::AppBuilder::new(stdout_reader.into(), stderr_reader.into())
+            .with_already_run(process_is_external);
         let app = app_builder.build(debugger);
         app.run().expect("run application fail");
     } else {
-        let mut app_builder = AppBuilder::new(stdout_reader.into(), stderr_reader.into());
-        if process_is_external {
-            app_builder = app_builder.app_already_run();
-        }
+        let app_builder = console::AppBuilder::new(stdout_reader.into(), stderr_reader.into())
+            .with_already_run(process_is_external);
         let app = app_builder.build(debugger).expect("build application fail");
         app.run().expect("run application fail");
     }
