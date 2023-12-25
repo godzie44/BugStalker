@@ -1003,17 +1003,21 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
 
 impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
     pub fn valid_at(&self, pc: GlobalAddress) -> bool {
-        self.die
-            .lexical_block_idx
-            .map(|lb_idx| {
-                let entry = ctx_resolve_unit_call!(self, entry, lb_idx);
-                let DieVariant::LexicalBlock(lb) = &entry.die else {
-                    unreachable!();
-                };
-
-                pc.in_ranges(&lb.base_attributes.ranges)
-            })
-            .unwrap_or(true)
+        if let Some(lb_idx) = self.die.lexical_block_idx {
+            let entry = ctx_resolve_unit_call!(self, entry, lb_idx);
+            let DieVariant::LexicalBlock(lb) = &entry.die else {
+                unreachable!();
+            };
+            pc.in_ranges(&lb.base_attributes.ranges)
+        } else if let Some(fn_idx) = self.die.fn_block_idx {
+            let entry = ctx_resolve_unit_call!(self, entry, fn_idx);
+            let DieVariant::Function(func) = &entry.die else {
+                unreachable!();
+            };
+            pc.in_ranges(&func.base_attributes.ranges)
+        } else {
+            true
+        }
     }
 
     pub fn assume_parent_function(&self) -> Option<ContextualDieRef<'_, FunctionDie>> {

@@ -135,6 +135,7 @@ pub struct VariableDie {
     pub type_ref: Option<DieRef>,
     pub location: Option<Attribute<EndianArcSlice>>,
     pub lexical_block_idx: Option<usize>,
+    pub fn_block_idx: Option<usize>,
 }
 
 #[derive(Debug, Clone)]

@@ -207,29 +207,49 @@ impl<'a> DwarfUnitParser<'a> {
                 }),
                 gimli::DW_TAG_variable => {
                     let mut lexical_block_idx = None;
+                    let mut fn_block_idx = None;
+
                     let mut mb_parent_idx = parent_idx;
                     while let Some(parent_idx) = mb_parent_idx {
                         if let DieVariant::LexicalBlock(_) = entries[parent_idx].die {
-                            lexical_block_idx = Some(parent_idx);
+                            if lexical_block_idx.is_none() {
+                                // save closest lexical block and ignore others
+                                lexical_block_idx = Some(parent_idx);
+                            }
+                        }
+                        if let DieVariant::Function(_) = entries[parent_idx].die {
+                            fn_block_idx = Some(parent_idx);
                             break;
                         }
                         mb_parent_idx = entries[parent_idx].node.parent;
                     }
+
+                    let mb_linkage_name = die
+                        .attr(DW_AT_linkage_name)?
+                        .and_then(|attr| self.dwarf.attr_string(&unit, attr.value()).ok());
+
+                    let variable_ns = match mb_linkage_name {
+                        Some(linkage_name) => {
+                            let linkage_name = linkage_name.to_string_lossy()?;
+                            let (ns, _) = NamespaceHierarchy::from_mangled(&linkage_name);
+                            ns
+                        }
+                        None => NamespaceHierarchy::for_node(
+                            &Node {
+                                parent: parent_idx,
+                                children: vec![],
+                            },
+                            &entries,
+                        ),
+                    };
 
                     let die = VariableDie {
                         base_attributes: base_attrs,
                         type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
                         location: die.attr(DW_AT_location)?,
                         lexical_block_idx,
+                        fn_block_idx,
                     };
-
-                    let variable_ns = NamespaceHierarchy::for_node(
-                        &Node {
-                            parent: parent_idx,
-                            children: vec![],
-                        },
-                        &entries,
-                    );
 
                     if let Some(ref name) = die.base_attributes.name {
                         variable_index

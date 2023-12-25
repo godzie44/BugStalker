@@ -430,6 +430,14 @@ fn zst() {
     let nop: Option<u8> = None;
 }
 
+fn inner_static() {
+    static mut INNER_STATIC: u32 = 0;
+
+    unsafe { INNER_STATIC += 1 };
+
+    let nop: Option<u8> = None;
+}
+
 fn shadowing() {
     let var1 = 0_i32;
     let var1 = 1_i32;
@@ -466,5 +474,6 @@ pub fn main() {
     ptr_to_array();
     shared_ptrs();
     zst();
+    inner_static();
     shadowing();
 }

@@ -1091,7 +1091,7 @@ fn test_read_closures() {
                 assert_pointer(member, "vtable", "&[usize; 3]");
                 let deref = read_single_var(&debugger, "*trait_once.vtable");
                 assert_array(&deref, "*vtable", "[usize]", |i, _| match i {
-                    0 | 1 | 2 => {}
+                    0..=2 => {}
                     _ => panic!("3 items expected"),
                 });
             }
@@ -1121,7 +1121,7 @@ fn test_read_closures() {
                 assert_pointer(member, "vtable", "&[usize; 3]");
                 let deref = read_single_var(&debugger, "*trait_mut.vtable");
                 assert_array(&deref, "*vtable", "[usize]", |i, _| match i {
-                    0 | 1 | 2 => {}
+                    0..=2 => {}
                     _ => panic!("3 items expected"),
                 });
             }
@@ -1151,7 +1151,7 @@ fn test_read_closures() {
                 assert_pointer(member, "vtable", "&[usize; 3]");
                 let deref = read_single_var(&debugger, "*trait_fn.vtable");
                 assert_array(&deref, "*vtable", "[usize]", |i, _| match i {
-                    0 | 1 | 2 => {}
+                    0..=2 => {}
                     _ => panic!("3 items expected"),
                 });
             }
@@ -2207,6 +2207,55 @@ fn test_zst_types() {
             assert_eq!(items.len(), 1);
             assert_scalar(&items[0], "k", "()", Some(SupportedScalar::Empty()));
         },
+    );
+
+    debugger.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_read_static_in_fn_variable() {
+    let process = prepare_debugee_process(VARS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = DebugeeRunInfo::default();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+
+    // brkpt in function where static is declared
+    debugger.set_breakpoint_at_line("vars.rs", 438).unwrap();
+    // brkpt outside function where static is declared
+    debugger.set_breakpoint_at_line("vars.rs", 478).unwrap();
+
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(438));
+
+    let vars = debugger
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "INNER_STATIC".to_string(),
+            local: false,
+        }))
+        .unwrap();
+    assert_scalar(
+        &vars[0],
+        "vars::inner_static::INNER_STATIC",
+        "u32",
+        Some(SupportedScalar::U32(1)),
+    );
+
+    debugger.continue_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(478));
+
+    let vars = debugger
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "INNER_STATIC".to_string(),
+            local: false,
+        }))
+        .unwrap();
+    assert_scalar(
+        &vars[0],
+        "vars::inner_static::INNER_STATIC",
+        "u32",
+        Some(SupportedScalar::U32(1)),
     );
 
     debugger.continue_debugee().unwrap();
