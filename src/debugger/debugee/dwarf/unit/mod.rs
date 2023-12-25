@@ -17,7 +17,6 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::path;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -120,6 +119,7 @@ pub struct DieAttributes {
 #[derive(Debug, PartialEq, Clone)]
 pub struct FunctionDie {
     pub namespace: NamespaceHierarchy,
+    pub decl_file_line: Option<(u64, u64)>,
     pub base_attributes: DieAttributes,
     pub fb_addr: Option<Attribute<EndianArcSlice>>,
 }
@@ -691,13 +691,7 @@ impl Unit {
                     }
                 });
 
-                Some((
-                    file.iter().filter_map(|s| {
-                        let s = s.to_string_lossy();
-                        (s != path::MAIN_SEPARATOR_STR).then_some(s)
-                    }),
-                    file_lines,
-                ))
+                Some((file.iter().map(|s| s.to_string_lossy()), file_lines))
             })
     }
 }

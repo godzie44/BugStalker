@@ -12,9 +12,10 @@ use crate::debugger::rust::Environment;
 use fallible_iterator::FallibleIterator;
 use gimli::{
     AttributeValue, DW_AT_address_class, DW_AT_byte_size, DW_AT_call_column, DW_AT_call_file,
-    DW_AT_call_line, DW_AT_const_value, DW_AT_count, DW_AT_data_member_location, DW_AT_discr,
-    DW_AT_discr_value, DW_AT_encoding, DW_AT_frame_base, DW_AT_location, DW_AT_lower_bound,
-    DW_AT_name, DW_AT_type, DW_AT_upper_bound, Range, Reader, UnitHeader, UnitOffset,
+    DW_AT_call_line, DW_AT_const_value, DW_AT_count, DW_AT_data_member_location, DW_AT_decl_file,
+    DW_AT_decl_line, DW_AT_discr, DW_AT_discr_value, DW_AT_encoding, DW_AT_frame_base,
+    DW_AT_linkage_name, DW_AT_location, DW_AT_lower_bound, DW_AT_name, DW_AT_type,
+    DW_AT_upper_bound, Range, Reader, UnitHeader, UnitOffset,
 };
 use once_cell::sync::OnceCell;
 use std::cell::RefCell;
@@ -131,7 +132,7 @@ impl<'a> DwarfUnitParser<'a> {
                 })
             });
 
-            let base_attrs = DieAttributes {
+            let mut base_attrs = DieAttributes {
                 _tag: die.tag(),
                 name: name
                     .map(|s| s.to_string_lossy().map(|s| s.to_string()))
@@ -141,17 +142,38 @@ impl<'a> DwarfUnitParser<'a> {
 
             let parsed_die = match die.tag() {
                 gimli::DW_TAG_subprogram => {
-                    let fn_ns = NamespaceHierarchy::for_node(
-                        &Node {
-                            parent: parent_idx,
-                            children: vec![],
-                        },
-                        &entries,
-                    );
+                    let mb_file = die
+                        .attr(DW_AT_decl_file)?
+                        .and_then(|attr| attr.udata_value());
+                    let mb_line = die
+                        .attr(DW_AT_decl_line)?
+                        .and_then(|attr| attr.udata_value());
+                    let decl_file_line = mb_file.and_then(|file_idx| Some((file_idx, mb_line?)));
+
+                    let mb_linkage_name = die
+                        .attr(DW_AT_linkage_name)?
+                        .and_then(|attr| self.dwarf.attr_string(&unit, attr.value()).ok());
+
+                    let fn_ns = match mb_linkage_name {
+                        Some(linkage_name) => {
+                            let linkage_name = linkage_name.to_string_lossy()?;
+                            let (ns, fn_name) = NamespaceHierarchy::from_mangled(&linkage_name);
+                            // assume that function name from linkage name is better
+                            base_attrs.name = Some(fn_name);
+                            ns
+                        }
+                        None => NamespaceHierarchy::for_node(
+                            &Node {
+                                parent: parent_idx,
+                                children: vec![],
+                            },
+                            &entries,
+                        ),
+                    };
 
                     if let Some(ref fn_name) = base_attrs.name {
-                        // function without range are useless for this index
-                        if !base_attrs.ranges.is_empty() {
+                        // subroutine without range or declaration line are useless for this index
+                        if !base_attrs.ranges.is_empty() || decl_file_line.is_some() {
                             function_index.insert_w_head(fn_ns.iter(), fn_name, current_idx);
                         }
                     }
@@ -160,6 +182,7 @@ impl<'a> DwarfUnitParser<'a> {
                         namespace: fn_ns,
                         base_attributes: base_attrs,
                         fb_addr: die.attr(DW_AT_frame_base)?,
+                        decl_file_line,
                     })
                 }
                 gimli::DW_TAG_subroutine_type => DieVariant::Subroutine(SubroutineDie {
@@ -338,7 +361,7 @@ fn parse_lines<R, Offset>(
     rows: &mut gimli::LineRows<R, gimli::IncompleteLineProgram<R, Offset>, Offset>,
 ) -> gimli::Result<Vec<LineRow>>
 where
-    R: gimli::Reader<Offset = Offset>,
+    R: Reader<Offset = Offset>,
     Offset: gimli::ReaderOffset,
 {
     let mut lines = vec![];
@@ -367,7 +390,7 @@ fn parse_files<R, Offset>(
     rows: &gimli::LineRows<R, gimli::IncompleteLineProgram<R, Offset>, Offset>,
 ) -> gimli::Result<Vec<PathBuf>>
 where
-    R: gimli::Reader<Offset = Offset>,
+    R: Reader<Offset = Offset>,
     Offset: gimli::ReaderOffset,
 {
     let mut files = vec![];

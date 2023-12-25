@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::iter;
 
 /// Index data structure. All (path, value) pair unfolds into this structure.
 /// For example fold a ("/one/two/three", 101) pair, head is "three", and tail is `["one", "two"]`
@@ -103,10 +104,19 @@ impl<T> PathSearchIndex<T> {
     ///
     /// * `needle`: one or more parts in the end of target path
     pub fn get(&self, needle: &str) -> Vec<&T> {
-        let mut split: Vec<_> = needle
-            .split(&self.delimiter)
-            .map(|part| part.to_string())
-            .collect();
+        let mut split: Vec<_> = if needle.starts_with(&self.delimiter) {
+            // if path start from (for example) '/' char that mean not delimiter, but root dir,
+            // we explicitly add this as index part
+            iter::once(self.delimiter.as_str())
+                .chain(needle.split(&self.delimiter).skip(1))
+                .map(|part| part.to_string())
+                .collect()
+        } else {
+            needle
+                .split(&self.delimiter)
+                .map(|part| part.to_string())
+                .collect()
+        };
 
         let Some(expected_head) = split.pop() else {
             return vec![];
@@ -196,5 +206,29 @@ mod test {
         assert_eq!(index.get("ns3::ns2::fn3"), vec![&6]);
         assert_eq!(index.get("ns3::ns2::fn6"), vec![&7]);
         assert_eq!(index.get("ns3::ns2::fn8"), vec![&9]);
+    }
+
+    #[test]
+    pub fn test_index_3() {
+        let mut index = PathSearchIndex::new("/");
+        index.insert(
+            [
+                "/",
+                "home",
+                "bs",
+                ".cargo",
+                "registry",
+                "src",
+                "index.crates.io-6f17d22bba15001f",
+                "tokio-1.28.1",
+                "src",
+                "runtime",
+                "task",
+                "raw.rs",
+            ],
+            1,
+        );
+
+        assert_eq!(index.get("/home/bs/.cargo/registry/src/index.crates.io-6f17d22bba15001f/tokio-1.28.1/src/runtime/task/raw.rs"), vec![&1]);
     }
 }

@@ -742,6 +742,12 @@ impl Deref for NamespaceHierarchy {
 }
 
 impl NamespaceHierarchy {
+    /// Create namespace for selected node.
+    ///
+    /// # Arguments
+    ///
+    /// * `node`: first node information
+    /// * `entries`: die list
     pub fn for_node(node: &Node, entries: &[Entry]) -> Self {
         let mut ns_chain = vec![];
 
@@ -759,8 +765,28 @@ impl NamespaceHierarchy {
         NamespaceHierarchy(ns_chain)
     }
 
+    /// Return `true` if namespace part contains in target namespace, `false` otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `needle`: searched part of the namespace
     pub fn contains(&self, needle: &[&str]) -> bool {
         self.0.windows(needle.len()).any(|slice| slice == needle)
+    }
+
+    /// Return (namespace, subroutine name) pair from mangled representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `linkage_name`: mangled subroutine name
+    #[inline(always)]
+    pub fn from_mangled(linkage_name: &str) -> (Self, String) {
+        let demangled = rustc_demangle::demangle(linkage_name);
+        let demangled = format!("{demangled:#}");
+        let mut parts: Vec<_> = demangled.split("::").map(ToString::to_string).collect();
+        debug_assert!(!parts.is_empty());
+        let fn_name = parts.pop().expect("function name must exists");
+        (NamespaceHierarchy(parts), fn_name)
     }
 }
 
@@ -894,14 +920,29 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         result
     }
 
+    /// Return function first address.
+    /// Address computed from function ranges or declaration info (file and line)
+    /// if ranges is empty.
     pub fn start_pc(&self) -> Result<GlobalAddress, Error> {
-        Ok(self
-            .ranges()
-            .iter()
-            .min_by(|r1, r2| r1.begin.cmp(&r2.begin))
-            .ok_or_else(|| NoFunctionRanges(self.full_name()))?
-            .begin
-            .into())
+        let ranges = self.ranges();
+        if !ranges.is_empty() {
+            return Ok(ranges
+                .iter()
+                .min_by(|r1, r2| r1.begin.cmp(&r2.begin))
+                .expect("infallible: iterator never empty")
+                .begin
+                .into());
+        } else if let Some((file_idx, line)) = self.die.decl_file_line {
+            let file = &self.unit().files()[file_idx as usize];
+            let places = self
+                .debug_info
+                .find_closest_place(&file.to_string_lossy(), line)?;
+            if let Some(place) = places.get(0) {
+                return Ok(place.address);
+            }
+        }
+
+        Err(NoFunctionRanges(self.full_name()))
     }
 
     pub fn end_pc(&self) -> Result<GlobalAddress, Error> {
@@ -1022,5 +1063,44 @@ impl<'ctx, D: AsAllocatedValue> ContextualDieRef<'ctx, D> {
                 )? as usize;
                 weak_error!(eval_result.into_raw_buffer(type_size, AddressKind::MemoryAddress))
             })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::debugger::debugee::dwarf::NamespaceHierarchy;
+
+    #[test]
+    fn test_namespace_from_mangled() {
+        struct TestCase {
+            mangled: &'static str,
+            expected_ns: NamespaceHierarchy,
+            expected_fn: &'static str,
+        }
+
+        let test_cases = vec![
+            TestCase {
+                mangled: "_ZN5tokio7runtime4task3raw7RawTask4poll17h7b89afb116da4cf2E",
+                expected_ns: NamespaceHierarchy(vec![
+                    "tokio".to_string(),
+                    "runtime".to_string(),
+                    "task".to_string(),
+                    "raw".to_string(),
+                    "RawTask".to_string(),
+                ]),
+                expected_fn: "poll",
+            },
+            TestCase {
+                mangled: "poll",
+                expected_ns: NamespaceHierarchy(vec![]),
+                expected_fn: "poll",
+            },
+        ];
+
+        for tc in test_cases {
+            let (ns, name) = NamespaceHierarchy::from_mangled(tc.mangled);
+            assert_eq!(ns, tc.expected_ns);
+            assert_eq!(name, tc.expected_fn);
+        }
     }
 }
