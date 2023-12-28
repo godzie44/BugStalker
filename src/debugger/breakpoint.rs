@@ -209,10 +209,7 @@ impl Debugger {
 
         dwarfs
             .iter()
-            .filter(|dwarf| {
-                let fn_name = tpl.split("::").last().expect("at least one exists");
-                dwarf.has_debug_info() && dwarf.in_pub_names(fn_name) != Some(false)
-            })
+            .filter(|dwarf| dwarf.has_debug_info() && dwarf.tpl_in_pub_names(tpl) != Some(false))
             .map(|&dwarf| {
                 let places = dwarf.search_places_for_fn_tpl(tpl)?;
                 Ok((dwarf, places))
@@ -254,6 +251,31 @@ impl Debugger {
         self.remove_breakpoints_at_addresses(addresses)
     }
 
+    fn search_lines_in_file(
+        &self,
+        debug_info: &DebugInformation,
+        fine_tpl: &str,
+        line: u64,
+    ) -> Result<Vec<PlaceDescriptorOwned>, Error> {
+        let places: Vec<PlaceDescriptor> = debug_info.find_closest_place(fine_tpl, line)?;
+
+        let mut places_by_file: HashMap<&Path, PlaceDescriptor> = HashMap::new();
+        // return one place for each unique file
+        places.into_iter().for_each(|p| {
+            // if place already exists for `p.file` - replace it if line distance is closer then existed
+            let mb_already_existed_place = places_by_file.get(p.file);
+            if let Some(exited_place) = mb_already_existed_place {
+                if exited_place.line_number - line > p.line_number - line {
+                    places_by_file.insert(p.file, p);
+                }
+            } else {
+                places_by_file.insert(p.file, p);
+            }
+        });
+
+        Ok(places_by_file.into_values().map(|p| p.to_owned()).collect())
+    }
+
     fn search_lines(
         &self,
         fine_tpl: &str,
@@ -265,29 +287,8 @@ impl Debugger {
             .iter()
             .filter(|dwarf| dwarf.has_debug_info())
             .map(|&dwarf| {
-                let places: Vec<PlaceDescriptor> = dwarf.find_closest_place(fine_tpl, line)?;
-
-                let mut places_by_file: HashMap<&Path, PlaceDescriptor> = HashMap::new();
-                // return one place for each unique file
-                places.into_iter().for_each(|p| {
-                    // if place already exists for `p.file` - replace it if line distance is closer then existed
-                    let mb_already_existed_place = places_by_file.get(p.file);
-                    if let Some(exited_place) = mb_already_existed_place {
-                        if exited_place.line_number - line > p.line_number - line {
-                            places_by_file.insert(p.file, p);
-                        }
-                    } else {
-                        places_by_file.insert(p.file, p);
-                    }
-                });
-
-                Ok((
-                    dwarf,
-                    places_by_file
-                        .into_values()
-                        .map(|place| place.to_owned())
-                        .collect(),
-                ))
+                let places = self.search_lines_in_file(dwarf, fine_tpl, line)?;
+                Ok((dwarf, places))
             })
             .collect()
     }

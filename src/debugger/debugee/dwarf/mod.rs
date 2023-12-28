@@ -150,9 +150,9 @@ impl DebugInformation {
             .unwrap_or_default()
     }
 
-    /// Return `Some(true)` if .debug_pubnames section contains needle,
-    /// `Some(false)` if not contains and `None` if no .debug_pubnames section in
-    /// debug information file.
+    /// Return `Some(true)` if .debug_pubnames section contains template last part (for example
+    /// this may be a function name), `Some(false)` if not contains and `None` if no .debug_pubnames
+    /// section in debug information file.
     ///
     /// This function is useful, for example, to determine the presence of a function in a file. The
     /// result is false positive, means that if result is `Some(false)` than function not exists, but
@@ -160,8 +160,10 @@ impl DebugInformation {
     ///
     /// # Arguments
     ///
-    /// * `needle`: object or function name.
-    pub fn in_pub_names(&self, needle: &str) -> Option<bool> {
+    /// * `tpl`: template for object or function name.
+    pub fn tpl_in_pub_names(&self, tpl: &str) -> Option<bool> {
+        debug_assert!(tpl.split("::").count() > 0);
+        let needle = tpl.split("::").last().expect("at least one exists");
         self.pub_names
             .as_ref()
             .map(|pub_names| pub_names.contains(needle))
@@ -307,17 +309,15 @@ impl DebugInformation {
         &self,
         template: &str,
     ) -> Result<Vec<ContextualDieRef<FunctionDie>>, Error> {
-        Ok(self
-            .get_units()?
-            .iter()
+        let units = self.get_units()?;
+        let result: Vec<_> = units
+            .par_iter()
             .flat_map(|unit| {
                 let entries = resolve_unit_call!(self.dwarf(), unit, search_functions, template);
                 entries
                     .iter()
                     .map(|entry| {
-                        let DieVariant::Function(func) = &entry.die else {
-                            unreachable!()
-                        };
+                        let func = entry.die.unwrap_function();
                         ContextualDieRef {
                             debug_info: self,
                             unit_idx: unit.idx(),
@@ -327,7 +327,9 @@ impl DebugInformation {
                     })
                     .collect::<Vec<_>>()
             })
-            .collect())
+            .collect();
+
+        Ok(result)
     }
 
     /// Return closest [`PlaceDescriptor`] for given file and line.
@@ -1005,15 +1007,11 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
     pub fn valid_at(&self, pc: GlobalAddress) -> bool {
         if let Some(lb_idx) = self.die.lexical_block_idx {
             let entry = ctx_resolve_unit_call!(self, entry, lb_idx);
-            let DieVariant::LexicalBlock(lb) = &entry.die else {
-                unreachable!();
-            };
+            let lb = entry.die.unwrap_lexical_block();
             pc.in_ranges(&lb.base_attributes.ranges)
         } else if let Some(fn_idx) = self.die.fn_block_idx {
             let entry = ctx_resolve_unit_call!(self, entry, fn_idx);
-            let DieVariant::Function(func) = &entry.die else {
-                unreachable!();
-            };
+            let func = entry.die.unwrap_function();
             pc.in_ranges(&func.base_attributes.ranges)
         } else {
             true

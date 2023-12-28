@@ -13,11 +13,11 @@ use gimli::{
     Encoding, Range, UnitHeader, UnitOffset,
 };
 use once_cell::sync::OnceCell;
-use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use uuid::Uuid;
 
 /// A row in the line number program's resulting matrix.
@@ -307,6 +307,22 @@ pub enum DieVariant {
     Restrict(RestrictDie),
 }
 
+impl DieVariant {
+    pub fn unwrap_function(&self) -> &FunctionDie {
+        let DieVariant::Function(func) = self else {
+            panic!("function die expected");
+        };
+        func
+    }
+
+    pub fn unwrap_lexical_block(&self) -> &LexicalBlockDie {
+        let DieVariant::LexicalBlock(lb) = self else {
+            panic!("lexical block die expected");
+        };
+        lb
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Node {
     pub parent: Option<usize>,
@@ -416,13 +432,13 @@ impl<T> UnitResult<T> {
 /// DWARF compilation unit representation.
 /// In bugstalker any unit load from obj file with partial data on debugee start.
 /// Later, if necessary, the data will be loaded additionally.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Unit {
     pub id: Uuid,
     #[allow(unused)]
     pub name: Option<String>,
     /// DWARF unit header, must exists if unit is partial, but contains None if unit is fully load.
-    header: RefCell<Option<UnitHeader<EndianArcSlice>>>,
+    header: Mutex<Option<UnitHeader<EndianArcSlice>>>,
     /// Index in unit registry, may be usize::MAX if the unit is not yet placed in the register
     idx: usize,
     properties: UnitProperties,
@@ -432,12 +448,34 @@ pub struct Unit {
     lazy_part: OnceCell<UnitLazyPart>,
 }
 
+impl Clone for Unit {
+    fn clone(&self) -> Self {
+        let header = self.header.lock().unwrap().clone();
+        Self {
+            id: self.id,
+            name: self.name.clone(),
+            header: Mutex::new(header),
+            idx: self.idx,
+            properties: self.properties.clone(),
+            files: self.files.clone(),
+            lines: self.lines.clone(),
+            ranges: self.ranges.clone(),
+            lazy_part: self.lazy_part.clone(),
+        }
+    }
+}
+
 impl Unit {
     /// Update unit to full state.
     /// Note: this method will panic if called twice.
     pub fn reload(&self, parser: DwarfUnitParser) -> Result<(), Error> {
-        let additional = parser
-            .parse_additional(self.header.take().expect("unreachable: header must exists"))?;
+        let additional = parser.parse_additional(
+            self.header
+                .lock()
+                .unwrap()
+                .take()
+                .expect("unreachable: header must exists"),
+        )?;
         self.lazy_part
             .set(additional)
             .expect("unreachable: lazy part must be empty");

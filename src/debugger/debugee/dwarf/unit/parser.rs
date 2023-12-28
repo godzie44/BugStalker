@@ -18,10 +18,10 @@ use gimli::{
     DW_AT_upper_bound, Range, Reader, UnitHeader, UnitOffset,
 };
 use once_cell::sync::OnceCell;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use uuid::Uuid;
 
 pub struct DwarfUnitParser<'a> {
@@ -54,7 +54,7 @@ impl<'a> DwarfUnitParser<'a> {
         ranges.sort_unstable_by_key(|r| r.begin);
 
         Ok(Unit {
-            header: RefCell::new(Some(header)),
+            header: Mutex::new(Some(header)),
             idx: usize::MAX,
             properties: UnitProperties {
                 encoding: unit.encoding(),
@@ -377,6 +377,7 @@ impl<'a> DwarfUnitParser<'a> {
     }
 }
 
+#[inline(always)]
 fn parse_lines<R, Offset>(
     rows: &mut gimli::LineRows<R, gimli::IncompleteLineProgram<R, Offset>, Offset>,
 ) -> gimli::Result<Vec<LineRow>>
@@ -404,6 +405,7 @@ where
     Ok(lines)
 }
 
+#[inline(always)]
 fn parse_files<R, Offset>(
     dwarf: &gimli::Dwarf<R>,
     unit: &gimli::Unit<R>,
@@ -428,6 +430,7 @@ where
     Ok(files)
 }
 
+#[inline(always)]
 fn render_file_path<R: Reader>(
     dw_unit: &gimli::Unit<R>,
     file: &gimli::FileEntry<R, R::Offset>,
