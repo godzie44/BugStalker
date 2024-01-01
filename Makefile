@@ -10,6 +10,9 @@ build-all: build
 	cargo build --bin mt
 	cargo build --bin vars
 	cargo build --bin recursion
+	cargo build --bin signals
+	cargo build --bin sleeper
+	cargo build --bin fizzbuzz
 	cd examples ; cargo build -p calc_lib ; cargo build
 
 cargo-test:

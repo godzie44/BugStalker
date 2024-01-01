@@ -55,10 +55,10 @@ impl Disassembler {
         function: ContextualDieRef<FunctionDie>,
         breakpoints: &[&Breakpoint],
     ) -> Result<Vec<Instruction>, Error> {
-        let fn_glob_pc_start = function.start_pc()?;
+        let fn_glob_pc_start = function.start_instruction()?;
         let fn_reloc_pc_start = fn_glob_pc_start.relocate_to_segment(debugee, debug_info)?;
         let fn_reloc_pc_end = function
-            .end_pc()?
+            .end_instruction()?
             .relocate_to_segment(debugee, debug_info)?;
 
         let cache_key = (fn_reloc_pc_start, fn_reloc_pc_end);

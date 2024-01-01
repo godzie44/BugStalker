@@ -25,7 +25,7 @@ class PastebinTestCase(unittest.TestCase):
         """Runs a pastebin application and set breakpoint at http handler. Makes http request, and do `step over` command while http response not returning"""
         self.debugger.sendline('b main.rs:21')
 
-        time.sleep(5)
+        time.sleep(3)
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('Configured for debug.')
@@ -33,14 +33,13 @@ class PastebinTestCase(unittest.TestCase):
         event = threading.Event()
         thread = threading.Thread(target=make_http_request, args=(event,))
         thread.start()
-        time.sleep(1)
+        time.sleep(3)
 
         # check that response returns at this point
-        while not event.is_set():
+        while not event.wait(0.2):
             # send `step over` command otherwise
             self.debugger.sendline('next')
             self.debugger.expect("next")
-            time.sleep(0.1)
         time.sleep(0.2)
         thread.join()
         self.debugger.sendline('q')
@@ -49,7 +48,7 @@ class PastebinTestCase(unittest.TestCase):
         """Runs a pastebin application and set breakpoint at http handler. Makes http request, do `continue` command and wait until http response not returning"""
         self.debugger.sendline('b main.rs:21')
 
-        time.sleep(5)
+        time.sleep(3)
 
         self.debugger.sendline('run')
         self.debugger.expect_exact('Configured for debug.')
@@ -57,7 +56,7 @@ class PastebinTestCase(unittest.TestCase):
         event = threading.Event()
         thread = threading.Thread(target=make_http_request, args=(event,))
         thread.start()
-        time.sleep(1)
+        time.sleep(2)
 
         self.debugger.expect_exact('21     let id = PasteId::new(ID_LENGTH);')
         self.debugger.sendline('next')

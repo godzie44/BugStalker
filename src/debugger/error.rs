@@ -2,6 +2,7 @@ use crate::debugger::address::GlobalAddress;
 use crate::debugger::debugee::dwarf::unit::DieRef;
 use crate::debugger::debugee::RendezvousError;
 use crate::debugger::variable::ParsingError;
+use gimli::UnitOffset;
 use nix::unistd::Pid;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
@@ -71,6 +72,8 @@ pub enum Error {
     ObjParsing(#[from] object::Error),
     #[error(transparent)]
     VariableParsing(#[from] ParsingError),
+    #[error("function specification ({0:?}) reference to unseen declaration")]
+    InvalidSpecification(UnitOffset),
 
     // --------------------------------- unwind errors ---------------------------------------------
     #[error("unwind: no unwind context")]
@@ -184,6 +187,7 @@ impl Error {
             Error::Hook(_) => false,
             Error::SectionNotFound(_) => false,
             Error::DisAsm(_) => false,
+            Error::InvalidSpecification(_) => false,
 
             // currently fatal errors
             Error::DwarfParsing(_) => true,

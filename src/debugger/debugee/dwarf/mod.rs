@@ -27,14 +27,14 @@ use crate::debugger::error::Error::{
 };
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::ExplorationContext;
-use crate::{muted_error, resolve_unit_call, weak_error};
+use crate::{resolve_unit_call, weak_error};
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;
 use gimli::{
-    Attribute, BaseAddresses, CfaRule, DebugAddr, DebugInfoOffset, DebugPubNames, Dwarf, EhFrame,
-    Expression, LocationLists, Range, Reader, RunTimeEndian, Section, UnitOffset, UnwindContext,
-    UnwindSection, UnwindTableRow,
+    Attribute, BaseAddresses, CfaRule, DebugAddr, DebugInfoOffset, Dwarf, EhFrame, Expression,
+    LocationLists, Range, RunTimeEndian, Section, UnitOffset, UnwindContext, UnwindSection,
+    UnwindTableRow,
 };
 use log::{debug, info};
 use memmap2::Mmap;
@@ -46,6 +46,7 @@ use std::ops::{Add, Deref};
 use std::path::{Path, PathBuf};
 use std::{fs, path};
 pub use symbol::Symbol;
+use trie_rs::Trie;
 use unit::PlaceDescriptor;
 use walkdir::WalkDir;
 
@@ -58,7 +59,7 @@ pub struct DebugInformation<R: gimli::Reader = EndianArcSlice> {
     bases: BaseAddresses,
     units: Option<Vec<Unit>>,
     symbol_table: Option<SymbolTab>,
-    pub_names: Option<HashSet<String>>,
+    pub_names: Option<Trie<u8>>,
     /// Index for fast search files by full path or part of file path. Contains unit index and
     /// indexes of lines in [`Unit::lines`] vector that belongs to a file, indexes are ordered by
     /// line number, column number and address.
@@ -89,7 +90,8 @@ impl Clone for DebugInformation {
             bases: self.bases.clone(),
             units: self.units.clone(),
             symbol_table: self.symbol_table.clone(),
-            pub_names: self.pub_names.clone(),
+            // it's ok cause pub_names currently unused, maybe it will be changed in future
+            pub_names: None,
             files_index: self.files_index.clone(),
         }
     }
@@ -164,9 +166,10 @@ impl DebugInformation {
     pub fn tpl_in_pub_names(&self, tpl: &str) -> Option<bool> {
         debug_assert!(tpl.split("::").count() > 0);
         let needle = tpl.split("::").last().expect("at least one exists");
-        self.pub_names
-            .as_ref()
-            .map(|pub_names| pub_names.contains(needle))
+        self.pub_names.as_ref().map(|pub_names| {
+            let found = pub_names.predictive_search(needle);
+            !found.is_empty()
+        })
     }
 
     fn evaluate_cfa(
@@ -347,27 +350,72 @@ impl DebugInformation {
     ) -> Result<Vec<PlaceDescriptor<'_>>, Error> {
         let files = self.files_index.get(file_tpl);
 
+        let mut unique_subprograms = HashSet::new();
         let mut result = vec![];
-        for (unit_idx, file_lines) in files {
-            let unit = self.unit_ensure(*unit_idx);
-            for line_idx in file_lines {
-                let line_row = unit.line(*line_idx);
-                if line_row.line < line {
-                    continue;
-                }
-                if !line_row.is_stmt {
-                    continue;
-                }
-                if line_row.line > line + 1 {
-                    break;
+
+        let possible_lines = &[line, line + 1];
+
+        for &needle_line in possible_lines {
+            if !result.is_empty() {
+                break;
+            }
+
+            for (unit_idx, file_lines) in &files {
+                let unit = self.unit_ensure(*unit_idx);
+
+                let mut suitable_places_in_unit = vec![];
+
+                for &line_idx in file_lines {
+                    let next_line_row = unit.line(line_idx);
+
+                    if suitable_places_in_unit.is_empty() {
+                        // no places found, try to find closest place to a target line
+                        if next_line_row.line != needle_line || !next_line_row.is_stmt {
+                            continue;
+                        }
+
+                        if let Some(place) = unit.find_place_by_idx(line_idx) {
+                            suitable_places_in_unit.push(place);
+                        }
+                    } else {
+                        // at least one line is found, now try to find lines with a same col and row
+                        // as in found place in source code (this cover a case when compiler
+                        // generate multiple representations of a single line, for example when
+                        // source code line in a part of template function)
+                        let line = suitable_places_in_unit[0].line_number;
+                        let col = suitable_places_in_unit[0].column_number;
+                        let pe = suitable_places_in_unit[0].prolog_end;
+
+                        if next_line_row.line != line
+                            || next_line_row.column != col
+                            || next_line_row.prolog_end != pe
+                            || !next_line_row.is_stmt
+                        {
+                            continue;
+                        }
+
+                        if let Some(place) = unit.find_place_by_idx(line_idx) {
+                            suitable_places_in_unit.push(place);
+                        }
+                    }
                 }
 
-                if let Some(place) = unit.find_place_by_idx(*line_idx) {
-                    result.push(place);
-                    break;
+                for suitable_place in suitable_places_in_unit {
+                    // only one place for single unique subprogram is allowed
+                    // apply this rule as a filter for all places
+                    if let Some(func) = self.find_function_by_pc(suitable_place.address)? {
+                        if !unique_subprograms.contains(&func.die.base_attributes) {
+                            unique_subprograms.insert(&func.die.base_attributes);
+                            result.push(suitable_place);
+                        }
+                    } else {
+                        // do we need place if we cant find a function?
+                        result.push(suitable_place);
+                    }
                 }
             }
         }
+
         Ok(result)
     }
 
@@ -625,15 +673,24 @@ impl DebugInformationBuilder {
         let dwarf = loader::load_par(debug_info_file, endian)?;
         let symbol_table = SymbolTab::new(debug_info_file);
 
-        let mb_pub_names_sect = muted_error!(DebugPubNames::load(|id| {
-            loader::load_section(id, debug_info_file, endian)
-        }));
-        let pub_names = mb_pub_names_sect.and_then(|pub_names_sect| {
-            muted_error!(pub_names_sect
-                .items()
-                .map(|pub_name| pub_name.name().to_string_lossy().map(|s| s.to_string()))
-                .collect::<HashSet<_>>())
-        });
+        // let mb_pubb_names_sect = muted_error!(DebugPubNames::load(|id| {
+        //     loader::load_section(id, debug_info_file, endian)
+        // }));
+        // let pub_names = mb_pub_names_sect.and_then(|pub_names_sect| {
+        //     let mut names_trie = TrieBuilder::new();
+        //     muted_error!(pub_names_sect.items().for_each(|pub_name| {
+        //         let name = pub_name.name().to_string_lossy()?;
+        //         names_trie.push(name.as_bytes());
+        //         Ok(())
+        //     }))?;
+        //     Some(names_trie.build())
+        // });
+
+        // Currently pub_names section is not used because current function-search algorithm anyway
+        // will load all dwarf DIE information after name was found in .debug_pubnames section.
+        // May be this will be changed in future, when debugger will load only DIE that points by
+        // name from .debug_pubnames section.
+        let pub_names = None;
 
         let parser = DwarfUnitParser::new(&dwarf);
         let headers = dwarf.units().collect::<Vec<_>>()?;
@@ -732,7 +789,7 @@ impl AsAllocatedValue for ParameterDie {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct NamespaceHierarchy(Vec<String>);
 
 impl Deref for NamespaceHierarchy {
@@ -922,32 +979,19 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         result
     }
 
-    /// Return function first address.
-    /// Address computed from function ranges or declaration info (file and line)
-    /// if ranges is empty.
-    pub fn start_pc(&self) -> Result<GlobalAddress, Error> {
-        let ranges = self.ranges();
-        if !ranges.is_empty() {
-            return Ok(ranges
-                .iter()
-                .min_by(|r1, r2| r1.begin.cmp(&r2.begin))
-                .expect("infallible: iterator never empty")
-                .begin
-                .into());
-        } else if let Some((file_idx, line)) = self.die.decl_file_line {
-            let file = &self.unit().files()[file_idx as usize];
-            let places = self
-                .debug_info
-                .find_closest_place(&file.to_string_lossy(), line)?;
-            if let Some(place) = places.get(0) {
-                return Ok(place.address);
-            }
-        }
-
-        Err(NoFunctionRanges(self.full_name()))
+    /// Return function first instruction address.
+    /// Address computed from function ranges if ranges is empty.
+    pub fn start_instruction(&self) -> Result<GlobalAddress, Error> {
+        Ok(self
+            .ranges()
+            .iter()
+            .min_by(|r1, r2| r1.begin.cmp(&r2.begin))
+            .ok_or_else(|| NoFunctionRanges(self.full_name()))?
+            .begin
+            .into())
     }
 
-    pub fn end_pc(&self) -> Result<GlobalAddress, Error> {
+    pub fn end_instruction(&self) -> Result<GlobalAddress, Error> {
         Ok(self
             .ranges()
             .iter()
@@ -958,7 +1002,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
     }
 
     pub fn prolog_start_place(&self) -> Result<PlaceDescriptor, Error> {
-        let low_pc = self.start_pc()?;
+        let low_pc = self.start_instruction()?;
 
         debug_info_exists!(self.debug_info.find_place_from_pc(low_pc))
             .ok_or(FunctionNotFound(low_pc))

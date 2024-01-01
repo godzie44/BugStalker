@@ -88,3 +88,7 @@ test = false
 [[bin]]
 name = "sleeper"
 test = false
+
+[[bin]]
+name = "fizzbuzz"
+test = false

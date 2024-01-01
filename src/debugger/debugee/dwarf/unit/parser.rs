@@ -9,14 +9,16 @@ use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::error::Error;
 use crate::debugger::rust::Environment;
+use crate::weak_error;
 use fallible_iterator::FallibleIterator;
 use gimli::{
     AttributeValue, DW_AT_address_class, DW_AT_byte_size, DW_AT_call_column, DW_AT_call_file,
     DW_AT_call_line, DW_AT_const_value, DW_AT_count, DW_AT_data_member_location, DW_AT_decl_file,
-    DW_AT_decl_line, DW_AT_discr, DW_AT_discr_value, DW_AT_encoding, DW_AT_frame_base,
-    DW_AT_linkage_name, DW_AT_location, DW_AT_lower_bound, DW_AT_name, DW_AT_type,
-    DW_AT_upper_bound, Range, Reader, UnitHeader, UnitOffset,
+    DW_AT_decl_line, DW_AT_declaration, DW_AT_discr, DW_AT_discr_value, DW_AT_encoding,
+    DW_AT_frame_base, DW_AT_linkage_name, DW_AT_location, DW_AT_lower_bound, DW_AT_name,
+    DW_AT_specification, DW_AT_type, DW_AT_upper_bound, Range, Reader, UnitHeader, UnitOffset,
 };
+use log::warn;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::num::NonZeroU64;
@@ -84,6 +86,7 @@ impl<'a> DwarfUnitParser<'a> {
         let mut variable_index: HashMap<String, Vec<(NamespaceHierarchy, usize)>> = HashMap::new();
         let mut die_offsets_index: HashMap<UnitOffset, usize> = HashMap::new();
         let mut function_index = PathSearchIndex::new("::");
+        let mut fn_declarations = HashMap::new();
 
         let mut cursor = unit.entries();
         while let Some((delta_depth, die)) = cursor.next_dfs()? {
@@ -132,7 +135,7 @@ impl<'a> DwarfUnitParser<'a> {
                 })
             });
 
-            let mut base_attrs = DieAttributes {
+            let base_attrs = DieAttributes {
                 _tag: die.tag(),
                 name: name
                     .map(|s| s.to_string_lossy().map(|s| s.to_string()))
@@ -142,6 +145,18 @@ impl<'a> DwarfUnitParser<'a> {
 
             let parsed_die = match die.tag() {
                 gimli::DW_TAG_subprogram => {
+                    let is_declaration = die.attr(DW_AT_declaration)?.and_then(|attr| {
+                        if let AttributeValue::Flag(f) = attr.value() {
+                            return Some(f);
+                        }
+                        None
+                    });
+                    if is_declaration == Some(true) {
+                        // add declaration in special map, this die's may be used later, when
+                        // parse implementation
+                        fn_declarations.insert(die.offset(), current_idx);
+                    }
+
                     let mb_file = die
                         .attr(DW_AT_decl_file)?
                         .and_then(|attr| attr.udata_value());
@@ -154,36 +169,62 @@ impl<'a> DwarfUnitParser<'a> {
                         .attr(DW_AT_linkage_name)?
                         .and_then(|attr| self.dwarf.attr_string(&unit, attr.value()).ok());
 
-                    let fn_ns = match mb_linkage_name {
+                    let (fn_ns, linkage_name) = match mb_linkage_name {
                         Some(linkage_name) => {
                             let linkage_name = linkage_name.to_string_lossy()?;
                             let (ns, fn_name) = NamespaceHierarchy::from_mangled(&linkage_name);
-                            // assume that function name from linkage name is better
-                            base_attrs.name = Some(fn_name);
-                            ns
+                            (ns, Some(fn_name))
                         }
-                        None => NamespaceHierarchy::for_node(
-                            &Node {
-                                parent: parent_idx,
-                                children: vec![],
-                            },
-                            &entries,
+                        None => (
+                            NamespaceHierarchy::for_node(&Node::new_leaf(parent_idx), &entries),
+                            None,
                         ),
                     };
 
-                    if let Some(ref fn_name) = base_attrs.name {
-                        // subroutine without range or declaration line are useless for this index
-                        if !base_attrs.ranges.is_empty() || decl_file_line.is_some() {
-                            function_index.insert_w_head(fn_ns.iter(), fn_name, current_idx);
-                        }
-                    }
-
-                    DieVariant::Function(FunctionDie {
+                    let mut fn_die = FunctionDie {
                         namespace: fn_ns,
                         base_attributes: base_attrs,
                         fb_addr: die.attr(DW_AT_frame_base)?,
                         decl_file_line,
-                    })
+                        linkage_name,
+                    };
+
+                    let specification = die.attr(DW_AT_specification)?.and_then(|attr| {
+                        if let AttributeValue::UnitRef(r) = attr.value() {
+                            return Some(r);
+                        }
+                        warn!(target: "parser", "unexpected non-local (unit) reference to function declaration");
+                        None
+                    });
+                    if let Some(decl_ref) = specification {
+                        let declaration_idx = weak_error!(fn_declarations
+                            .get(&decl_ref)
+                            .ok_or(Error::InvalidSpecification(decl_ref)));
+                        debug_assert!(declaration_idx.is_some(), "reference to unseen declaration");
+
+                        if let Some(&idx) = declaration_idx {
+                            let declaration = &entries[idx];
+                            let declaration = declaration.die.unwrap_function();
+                            fn_die.complete_from_decl(declaration);
+                        }
+                    }
+
+                    let any_name = fn_die
+                        .linkage_name
+                        .as_ref()
+                        .or(fn_die.base_attributes.name.as_ref());
+                    if let Some(fn_name) = any_name {
+                        // subprograms without range are useless for this index
+                        if !fn_die.base_attributes.ranges.is_empty() {
+                            function_index.insert_w_head(
+                                fn_die.namespace.iter(),
+                                fn_name,
+                                current_idx,
+                            );
+                        }
+                    }
+
+                    DieVariant::Function(fn_die)
                 }
                 gimli::DW_TAG_subroutine_type => DieVariant::Subroutine(SubroutineDie {
                     base_attributes: base_attrs,
@@ -234,13 +275,7 @@ impl<'a> DwarfUnitParser<'a> {
                             let (ns, _) = NamespaceHierarchy::from_mangled(&linkage_name);
                             ns
                         }
-                        None => NamespaceHierarchy::for_node(
-                            &Node {
-                                parent: parent_idx,
-                                children: vec![],
-                            },
-                            &entries,
-                        ),
+                        None => NamespaceHierarchy::for_node(&Node::new_leaf(parent_idx), &entries),
                     };
 
                     let die = VariableDie {

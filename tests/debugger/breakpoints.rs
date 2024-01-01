@@ -1,6 +1,6 @@
 use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
-use crate::{assert_no_proc, HW_APP, SHARED_LIB_APP, VARS_APP};
+use crate::{assert_no_proc, FIZZBUZZ_APP, HW_APP, SHARED_LIB_APP, VARS_APP};
 use crate::{prepare_debugee_process, CALC_APP};
 use bugstalker::debugger::Debugger;
 use serial_test::serial;
@@ -221,4 +221,58 @@ fn test_deferred_breakpoint() {
     debugger.start_debugee().unwrap();
 
     assert!(info.line.take().is_some());
+}
+
+#[test]
+#[serial]
+fn test_breakpoint_at_fn_with_monomorphization() {
+    let process = prepare_debugee_process(FIZZBUZZ_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = DebugeeRunInfo::default();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+
+    let brkpts = debugger.set_breakpoint_at_fn("solve").unwrap();
+    assert_eq!(brkpts.len(), 3);
+    let brkpts = debugger
+        .set_breakpoint_at_fn("FizzBuzzSolver<P,CMP>::new")
+        .unwrap();
+    assert_eq!(brkpts.len(), 3);
+
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(80));
+    debugger.continue_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(83));
+    debugger.continue_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(80));
+    debugger.continue_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(83));
+    debugger.continue_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(80));
+    debugger.continue_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(83));
+
+    debugger.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_breakpoint_at_line_with_monomorphization() {
+    let process = prepare_debugee_process(FIZZBUZZ_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = DebugeeRunInfo::default();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+
+    let brkpts = debugger.set_breakpoint_at_line("fizzbuzz.rs", 83).unwrap();
+    assert_eq!(brkpts.len(), 3);
+
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(83));
+    debugger.continue_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(83));
+    debugger.continue_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(83));
+
+    debugger.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
 }

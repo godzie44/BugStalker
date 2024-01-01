@@ -82,6 +82,22 @@ pub fn rust_identifier(input: &str) -> IResult<&str, &str, ErrorTree<&str>> {
     ))(input)
 }
 
+pub fn rust_type_parameter(input: &str) -> IResult<&str, &str, ErrorTree<&str>> {
+    recognize(pair(
+        tag("<"),
+        pair(
+            many1(alt((
+                alphanumeric1,
+                tag(" "),
+                tag("_"),
+                tag(","),
+                tag("::"),
+            ))),
+            tag(">"),
+        ),
+    ))(input)
+}
+
 pub fn brkpt_at_addr_parser(input: &str) -> IResult<&str, BreakpointIdentity, ErrorTree<&str>> {
     map_res(
         hexadecimal,
@@ -106,7 +122,10 @@ pub fn brkpt_at_line_parser(input: &str) -> IResult<&str, BreakpointIdentity, Er
 
 pub fn brkpt_at_fn(input: &str) -> IResult<&str, BreakpointIdentity, ErrorTree<&str>> {
     map_res(
-        rust_identifier,
+        recognize(many1(pair(
+            rust_identifier,
+            opt(pair(rust_type_parameter, opt(tag("::")))),
+        ))),
         |fn_name: &str| -> Result<BreakpointIdentity, ParseIntError> {
             Ok(BreakpointIdentity::Function(fn_name.to_string()))
         },
@@ -575,6 +594,24 @@ mod test {
                     assert!(matches!(
                         result.unwrap(),
                         Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Function(f))) if f == "some_func"
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec!["b some_func<T1,T2>"],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Function(f))) if f == "some_func<T1,T2>"
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec!["b some_struct<T1,T2>::some_func<T3,T4>"],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Function(f))) if f == "some_struct<T1,T2>::some_func<T3,T4>"
                     ));
                 },
             },

@@ -13,7 +13,6 @@ use gimli::{
     Encoding, Range, UnitHeader, UnitOffset,
 };
 use once_cell::sync::OnceCell;
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::path::{Path, PathBuf};
@@ -109,19 +108,40 @@ impl<'a> PartialEq for PlaceDescriptor<'a> {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub struct DieAttributes {
     pub _tag: DwTag,
     pub name: Option<String>,
     pub ranges: Box<[Range]>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub struct FunctionDie {
     pub namespace: NamespaceHierarchy,
+    pub linkage_name: Option<String>,
     pub decl_file_line: Option<(u64, u64)>,
     pub base_attributes: DieAttributes,
     pub fb_addr: Option<Attribute<EndianArcSlice>>,
+}
+
+impl FunctionDie {
+    /// If subprogram die contains a `DW_AT_specification` attribute than this subprogram have
+    /// a declaration part in another die. This function will complete complete subprogram with
+    /// information from it declaration (typically this is a name and linkage_name).
+    pub fn complete_from_decl(&mut self, declaration: &FunctionDie) {
+        if self.linkage_name.is_none() {
+            self.namespace = declaration.namespace.clone();
+            self.linkage_name = declaration.linkage_name.clone();
+        }
+
+        if self.base_attributes.name.is_none() {
+            self.base_attributes.name = declaration.base_attributes.name.clone();
+        }
+
+        if self.decl_file_line.is_none() {
+            self.decl_file_line = declaration.decl_file_line;
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -329,6 +349,15 @@ pub struct Node {
     pub children: Vec<usize>,
 }
 
+impl Node {
+    pub fn new_leaf(parent: Option<usize>) -> Node {
+        Self {
+            parent,
+            children: vec![],
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub die: DieVariant,
@@ -339,10 +368,7 @@ impl Entry {
     pub(super) fn new(die: DieVariant, parent_idx: Option<usize>) -> Self {
         Self {
             die,
-            node: Node {
-                parent: parent_idx,
-                children: vec![],
-            },
+            node: Node::new_leaf(parent_idx),
         }
     }
 }
@@ -697,6 +723,7 @@ impl Unit {
     pub(super) fn file_path_with_lines_pairs(
         &self,
     ) -> impl Iterator<Item = (impl IntoIterator<Item = impl ToString + '_>, Vec<usize>)> {
+        //todo use vector instead of hashmap here
         let mut grouped_by_file_lines = HashMap::new();
         for (line_idx, line) in self.lines.iter().enumerate() {
             let file_idx = line.file_index as usize;
@@ -708,27 +735,11 @@ impl Unit {
             .iter()
             .enumerate()
             .filter_map(move |(idx, file)| {
-                let mut file_lines = grouped_by_file_lines.get(&idx).cloned().unwrap_or_default();
+                let file_lines = grouped_by_file_lines.remove(&idx).unwrap_or_default();
                 // skip files without lines
                 if file_lines.is_empty() {
                     return None;
                 }
-
-                file_lines.sort_unstable_by(|&line1, &line2| {
-                    match self.lines[line1].line.cmp(&self.lines[line2].line) {
-                        Ordering::Less => Ordering::Less,
-                        Ordering::Greater => Ordering::Greater,
-                        Ordering::Equal => {
-                            match self.lines[line1].column.cmp(&self.lines[line2].column) {
-                                Ordering::Less => Ordering::Less,
-                                Ordering::Greater => Ordering::Greater,
-                                Ordering::Equal => {
-                                    self.lines[line1].address.cmp(&self.lines[line2].address)
-                                }
-                            }
-                        }
-                    }
-                });
 
                 Some((file.iter().map(|s| s.to_string_lossy()), file_lines))
             })
