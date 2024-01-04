@@ -13,7 +13,7 @@ use std::ffi::OsStr;
 fn test_multithreaded_app_running() {
     let process = prepare_debugee_process(MT_APP, &[]);
     let debugee_pid = process.pid();
-    let mut debugger = Debugger::new(process, TestHooks::default()).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::default(), vec![]).unwrap();
     debugger.start_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
@@ -24,7 +24,7 @@ fn test_multithreaded_breakpoints() {
     let process = prepare_debugee_process(MT_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     // set breakpoint at program start.
     debugger.set_breakpoint_at_line("mt.rs", 6).unwrap();
@@ -64,7 +64,7 @@ fn test_multithreaded_backtrace() {
     let process = prepare_debugee_process(MT_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     debugger.set_breakpoint_at_line("mt.rs", 24).unwrap();
 
@@ -92,7 +92,7 @@ fn test_multithreaded_trace() {
     let process = prepare_debugee_process(MT_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     debugger.set_breakpoint_at_line("mt.rs", 23).unwrap();
 

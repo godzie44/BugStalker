@@ -58,6 +58,7 @@ pub enum Command {
     SharedLib,
     DisAsm,
     SkipInput,
+    Oracle(String, Option<String>),
     Help {
         command: Option<String>,
         reason: Option<String>,

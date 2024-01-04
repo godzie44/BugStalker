@@ -14,7 +14,7 @@ fn test_step_into() {
     let process = prepare_debugee_process(CALC_APP, &["1", "2", "3", "--description", "result"]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     debugger.set_breakpoint_at_line("calc.rs", 10).unwrap();
 
@@ -53,7 +53,7 @@ fn test_step_into_recursion() {
     let process = prepare_debugee_process(RECURSION_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     debugger.set_breakpoint_at_fn("infinite_inc").unwrap();
 
@@ -92,7 +92,7 @@ fn test_step_out() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     debugger.set_breakpoint_at_fn("main").unwrap();
 
@@ -118,7 +118,7 @@ fn test_step_over() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     debugger.set_breakpoint_at_fn("main").unwrap();
 
@@ -142,7 +142,7 @@ fn test_step_over_inline_code() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 442).unwrap();
 
@@ -161,7 +161,7 @@ fn test_step_over_on_fn_decl() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     debugger
         .set_breakpoint_at_line("hello_world.rs", 14)

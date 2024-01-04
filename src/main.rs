@@ -2,11 +2,15 @@
 
 use bugstalker::debugger::process::Child;
 use bugstalker::debugger::{rust, Debugger, NopHook};
+use bugstalker::log::LOGGER_SWITCHER;
+use bugstalker::oracle::{builtin, Oracle};
 use bugstalker::ui::{console, tui};
 use clap::error::ErrorKind;
 use clap::{arg, CommandFactory, Parser};
+use log::info;
 use nix::unistd::Pid;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -27,12 +31,20 @@ struct Args {
     #[clap(short, long)]
     std_lib_path: Option<String>,
 
+    /// Discover a specific oracle (may be more than one)
+    #[clap(short, long)]
+    oracle: Vec<String>,
+
     /// Arguments are passed to debugee
     #[arg(raw(true))]
     args: Vec<String>,
 }
 
 fn main() {
+    let logger = env_logger::Logger::from_default_env();
+    let filter = logger.filter();
+    LOGGER_SWITCHER.switch(logger, filter);
+
     let args = Args::parse();
 
     rust::Environment::init(args.std_lib_path.map(PathBuf::from));
@@ -57,7 +69,17 @@ fn main() {
 
     let process_is_external = process.is_external();
 
-    let debugger = Debugger::new(process, NopHook {}).expect("prepare application fail");
+    let oracles: Vec<Rc<dyn Oracle>> = args
+        .oracle
+        .into_iter()
+        .filter_map(|name| {
+            let oracle = builtin::create_builtin(&name)?.into();
+            info!(target: "debugger", "oracle `{name}` discovered");
+            Some(oracle)
+        })
+        .collect();
+
+    let debugger = Debugger::new(process, NopHook {}, oracles).expect("prepare application fail");
 
     if args.tui {
         let app_builder = tui::AppBuilder::new(stdout_reader.into(), stderr_reader.into())

@@ -9,7 +9,7 @@ use nix::libc::uintptr_t;
 use nom::branch::alt;
 use nom::bytes::complete::is_not;
 use nom::character::complete::{
-    alpha1, alphanumeric1, char, digit1, multispace1, not_line_ending, one_of,
+    alpha1, alphanumeric1, char, digit1, multispace0, multispace1, not_line_ending, one_of,
 };
 use nom::combinator::{cut, eof, map, map_res, not, opt, recognize};
 use nom::error::context;
@@ -62,6 +62,7 @@ pub const THREAD_COMMAND_CURRENT_SUBCOMMAND: &str = "current";
 pub const SHARED_LIB_COMMAND: &str = "sharedlib";
 pub const SHARED_LIB_COMMAND_INFO_SUBCOMMAND: &str = "info";
 pub const DISASM_COMMAND: &str = "disasm";
+pub const ORACLE_COMMAND: &str = "oracle";
 pub const HELP_COMMAND: &str = "help";
 pub const HELP_COMMAND_SHORT: &str = "h";
 
@@ -424,6 +425,18 @@ impl Command {
             )(input)
         }
 
+        fn oracle_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
+            preceded(
+                pair(tag(ORACLE_COMMAND), multispace1),
+                map(
+                    separated_pair(alphanumeric1, multispace0, opt(alphanumeric1)),
+                    |(name, subcmd): (&str, Option<&str>)| {
+                        Command::Oracle(name.to_string(), subcmd.map(ToString::to_string))
+                    },
+                ),
+            )(input)
+        }
+
         alt((
             command(VAR_COMMAND, print_var_parser),
             command(ARG_COMMAND, print_argument_parser),
@@ -443,6 +456,7 @@ impl Command {
             command(THREAD_COMMAND, thread_parser),
             command(SHARED_LIB_COMMAND, shared_lib_parser),
             command(DISASM_COMMAND, disasm_parser),
+            command(ORACLE_COMMAND, oracle_parser),
             cut(map(not_line_ending, |cmd: &str| {
                 if cmd.is_empty() {
                     Command::SkipInput
@@ -793,6 +807,24 @@ mod test {
                 inputs: vec!["disasm", " disasm  "],
                 command_matcher: |result| {
                     assert!(matches!(result.unwrap(), Command::DisAsm));
+                },
+            },
+            TestCase {
+                inputs: vec!["oracle tokio", " oracle  tokio   "],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Oracle(name, None) if name == "tokio"
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec!["oracle tokio all ", " oracle  tokio   all"],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::Oracle(name, Some(subcmd)) if name == "tokio" && subcmd == "all"
+                    ));
                 },
             },
         ];

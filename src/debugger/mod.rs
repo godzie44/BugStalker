@@ -12,6 +12,7 @@ pub mod variable;
 
 pub use breakpoint::BreakpointView;
 pub use breakpoint::BreakpointViewOwned;
+pub use breakpoint::CreateTransparentBreakpointRequest;
 pub use debugee::dwarf::r#type::TypeDeclaration;
 pub use debugee::dwarf::unit::FunctionDie;
 pub use debugee::dwarf::unit::PlaceDescriptor;
@@ -41,7 +42,9 @@ use crate::debugger::step::StepResult;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::variable::VariableIR;
 use crate::debugger::Error::Syscall;
+use crate::oracle::Oracle;
 use crate::{print_warns, weak_error};
+use log::debug;
 use nix::libc::{c_void, uintptr_t};
 use nix::sys;
 use nix::sys::signal;
@@ -51,8 +54,10 @@ use nix::unistd::Pid;
 use object::Object;
 use regex::Regex;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::c_long;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::str::FromStr;
 use std::{fs, mem, u64};
 
@@ -212,10 +217,16 @@ pub struct Debugger {
     hooks: Box<dyn EventHook>,
     /// Current exploration context.
     expl_context: ExplorationContext,
+    /// Map of name->(oracle, installed) pairs.
+    oracles: HashMap<&'static str, (Rc<dyn Oracle>, bool)>,
 }
 
 impl Debugger {
-    pub fn new(process: Child<Installed>, hooks: impl EventHook + 'static) -> anyhow::Result<Self> {
+    pub fn new(
+        process: Child<Installed>,
+        hooks: impl EventHook + 'static,
+        oracles: impl IntoIterator<Item = Rc<dyn Oracle>>,
+    ) -> anyhow::Result<Self> {
         let program_path = Path::new(process.program());
 
         let file = fs::File::open(program_path)?;
@@ -246,7 +257,27 @@ impl Debugger {
             hooks: Box::new(hooks),
             type_cache: RefCell::default(),
             expl_context: ExplorationContext::new_non_running(process_id),
+            oracles: oracles
+                .into_iter()
+                .map(|oracle| (oracle.name(), (oracle, false)))
+                .collect(),
         })
+    }
+
+    /// Return installed oracle, or `None` if oracle not found or not installed.
+    ///
+    /// # Arguments
+    ///
+    /// * `name`: oracle name
+    pub fn get_oracle(&self, name: &str) -> Option<&dyn Oracle> {
+        self.oracles
+            .get(name)
+            .and_then(|(oracle, install)| install.then_some(oracle.as_ref()))
+    }
+
+    /// Return all oracles.
+    pub fn all_oracles(&self) -> impl Iterator<Item = &dyn Oracle> {
+        self.oracles.values().map(|(oracle, _)| oracle.as_ref())
     }
 
     pub fn process(&self) -> &Child<Installed> {
@@ -340,6 +371,26 @@ impl Debugger {
                                     self.process.pid(),
                                 ))?;
 
+                                // check oracles is ready
+                                let oracles = self.oracles.clone();
+                                self.oracles = oracles.into_iter().map(|(key, (oracle, _))| {
+                                    let ready = oracle.ready_for_install(self);
+                                    if !ready {
+                                        debug!(target: "oracle", "oracle `{}` is disabled", oracle.name());
+                                    }
+
+                                    (key, (oracle, ready))
+                                }).collect();
+
+                                let oracles = self.oracles.clone();
+                                let ready_oracles = oracles.into_values().filter(|(_, a)| *a);
+                                for (oracle, _) in ready_oracles {
+                                    let watch_points = oracle.watch_points();
+                                    for request in watch_points {
+                                        weak_error!(self.set_transparent_breakpoint(request));
+                                    }
+                                }
+
                                 // ignore possible signals
                                 while self.step_over_breakpoint()?.is_some() {}
                                 continue;
@@ -366,6 +417,18 @@ impl Debugger {
                             }
                             BrkptType::Temporary => {
                                 break event;
+                            }
+                            BrkptType::Transparent(callback) => {
+                                callback.clone()(self);
+
+                                if let Some(StopReason::SignalStop(pid, sign)) =
+                                    self.step_over_breakpoint()?
+                                {
+                                    self.hooks.on_signal(sign);
+                                    return Ok(StopReason::SignalStop(pid, sign));
+                                }
+
+                                continue;
                             }
                         }
                     }

@@ -28,6 +28,13 @@ pub enum Expression {
     Deref(Box<Expression>),
 }
 
+impl Expression {
+    /// Return boxed expression.
+    pub fn boxed(self) -> Box<Self> {
+        Box::new(self)
+    }
+}
+
 /// Evaluate `Expression` at current breakpoint (for current debugee location).
 pub struct SelectExpressionEvaluator<'a> {
     debugger: &'a Debugger,

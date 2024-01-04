@@ -52,7 +52,7 @@ fn test_debugger_graceful_shutdown() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let pid = process.pid();
 
-    let mut debugger = Debugger::new(process, TestHooks::default()).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::default(), vec![]).unwrap();
     debugger
         .set_breakpoint_at_line("hello_world.rs", 5)
         .unwrap();
@@ -68,7 +68,7 @@ fn test_debugger_graceful_shutdown_multithread() {
     let process = prepare_debugee_process(MT_APP, &[]);
     let pid = process.pid();
 
-    let mut debugger = Debugger::new(process, TestHooks::default()).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::default(), vec![]).unwrap();
     debugger.set_breakpoint_at_line("mt.rs", 31).unwrap();
     debugger.start_debugee().unwrap();
     drop(debugger);
@@ -83,7 +83,7 @@ fn test_frame_cfa() {
     let debugee_pid = process.pid();
 
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
     debugger
         .set_breakpoint_at_line("hello_world.rs", 5)
         .unwrap();
@@ -115,7 +115,7 @@ fn test_registers() {
     let debugee_pid = process.pid();
 
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
     debugger
         .set_breakpoint_at_line("hello_world.rs", 5)
         .unwrap();
@@ -143,7 +143,7 @@ fn test_debugger_disassembler() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let pid = process.pid();
 
-    let mut debugger = Debugger::new(process, TestHooks::default()).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::default(), vec![]).unwrap();
     debugger.set_breakpoint_at_fn("main").unwrap();
     debugger.start_debugee().unwrap();
 

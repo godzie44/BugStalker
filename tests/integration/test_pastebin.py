@@ -40,8 +40,10 @@ class PastebinTestCase(unittest.TestCase):
             # send `step over` command otherwise
             self.debugger.sendline('next')
             self.debugger.expect("next")
+            time.sleep(0.1)
         time.sleep(0.2)
         thread.join()
+        self.debugger.sendcontrol('c')
         self.debugger.sendline('q')
 
     def test_continue_until_response(self):
@@ -75,4 +77,5 @@ class PastebinTestCase(unittest.TestCase):
         # check that response returns at this point
         self.debugger.sendline('c')
         thread.join()
+        self.debugger.sendcontrol('c')
         self.debugger.sendline('q')

@@ -14,7 +14,7 @@ fn test_signal_stop_single_thread() {
     let process = prepare_debugee_process(SIGNALS_APP, &["single_thread"]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     debugger.set_breakpoint_at_line("signals.rs", 12).unwrap();
 
@@ -41,7 +41,7 @@ fn test_signal_stop_multi_thread() {
     let process = prepare_debugee_process(SIGNALS_APP, &["multi_thread"]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     debugger.set_breakpoint_at_line("signals.rs", 42).unwrap();
 
@@ -66,7 +66,7 @@ fn test_signal_stop_multi_thread_multiple_signal() {
     let process = prepare_debugee_process(SIGNALS_APP, &["multi_thread_multi_signal"]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     debugger.set_breakpoint_at_line("signals.rs", 62).unwrap();
 
@@ -95,7 +95,7 @@ fn test_transparent_signals() {
     let process = prepare_debugee_process(SLEEPER_APP, &["-s", "1"]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     thread::spawn(move || {
         thread::sleep(Duration::from_secs(2));

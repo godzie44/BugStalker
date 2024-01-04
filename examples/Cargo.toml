@@ -2,6 +2,7 @@
 members = [
   "pastebin",
   "todos",
+  "tokiotiker",
   "shlib/calc_lib",
   "shlib/calc_bin",
   "shlib/printer_lib",

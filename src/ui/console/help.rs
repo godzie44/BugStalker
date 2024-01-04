@@ -1,3 +1,4 @@
+use crate::debugger::Debugger;
 use crate::ui::command;
 use command::parser;
 
@@ -21,6 +22,7 @@ reg, register read|write|info <addr>        -- read, write, or view debugged pro
 thread info|current|switch <number>         -- show list of threads or current (in focus) thread or set thread in focus
 sharedlib info                              -- show list of shared libraries
 disasm                                      -- show assembly instructions for current (in focus) function
+oracle <oracle> <>|<subcommand>             -- execute a specific oracle
 h, help <>|<command>                        -- show help
 tui                                         -- change ui mode to tui
 q, quit                                     -- exit the BugStalker 
@@ -211,34 +213,60 @@ pub const HELP_TUI: &str = "\
 Change ui mode to terminal ui.
 ";
 
+pub const HELP_ORACLE: &str = "\
+\x1b[32;1moracle\x1b[0m
+Execute a specific oracle.
+
+List of available oracles:
+";
+
 pub const HELP_QUIT: &str = "\
 \x1b[32;1mq, quit\x1b[0m
 Exit the BugStalker, kill debugee before it.
 ";
 
-pub fn help_for_command(command: Option<&str>) -> &str {
-    match command {
-        None => HELP,
-        Some("data_query") => DATA_QUERY_DESCRIPTION,
-        Some(parser::VAR_COMMAND) => HELP_VAR,
-        Some(parser::ARG_COMMAND) => HELP_ARG,
-        Some(parser::BACKTRACE_COMMAND) | Some(parser::BACKTRACE_COMMAND_SHORT) => HELP_BACKTRACE,
-        Some(parser::FRAME_COMMAND) | Some(parser::FRAME_COMMAND_SHORT) => HELP_FRAME,
-        Some(parser::CONTINUE_COMMAND) | Some(parser::CONTINUE_COMMAND_SHORT) => HELP_CONTINUE,
-        Some(parser::RUN_COMMAND) | Some(parser::RUN_COMMAND_SHORT) => HELP_RUN,
-        Some(parser::STEP_INSTRUCTION_COMMAND) => HELP_STEPI,
-        Some(parser::STEP_INTO_COMMAND) | Some(parser::STEP_INTO_COMMAND_SHORT) => HELP_STEPINTO,
-        Some(parser::STEP_OUT_COMMAND) | Some(parser::STEP_OUT_COMMAND_SHORT) => HELP_STEPOUT,
-        Some(parser::STEP_OVER_COMMAND) | Some(parser::STEP_OVER_COMMAND_SHORT) => HELP_STEPOVER,
-        Some(parser::BREAK_COMMAND) | Some(parser::BREAK_COMMAND_SHORT) => HELP_BREAK,
-        Some(parser::SYMBOL_COMMAND) => HELP_SYMBOL,
-        Some(parser::MEMORY_COMMAND) | Some(parser::MEMORY_COMMAND_SHORT) => HELP_MEMORY,
-        Some(parser::REGISTER_COMMAND) | Some(parser::REGISTER_COMMAND_SHORT) => HELP_REGISTER,
-        Some(parser::THREAD_COMMAND) => HELP_THREAD,
-        Some(parser::SHARED_LIB_COMMAND) => HELP_SHARED_LIB,
-        Some(parser::DISASM_COMMAND) => HELP_DISASM,
-        Some("tui") => HELP_TUI,
-        Some("q") | Some("quit") => HELP_QUIT,
-        _ => "unknown command",
+#[derive(Default)]
+pub struct Helper {
+    oracle_help: Option<String>,
+}
+
+impl Helper {
+    pub fn help_for_command(&mut self, debugger: &Debugger, command: Option<&str>) -> &str {
+        match command {
+            None => HELP,
+            Some("data_query") => DATA_QUERY_DESCRIPTION,
+            Some(parser::VAR_COMMAND) => HELP_VAR,
+            Some(parser::ARG_COMMAND) => HELP_ARG,
+            Some(parser::BACKTRACE_COMMAND) | Some(parser::BACKTRACE_COMMAND_SHORT) => {
+                HELP_BACKTRACE
+            }
+            Some(parser::FRAME_COMMAND) | Some(parser::FRAME_COMMAND_SHORT) => HELP_FRAME,
+            Some(parser::CONTINUE_COMMAND) | Some(parser::CONTINUE_COMMAND_SHORT) => HELP_CONTINUE,
+            Some(parser::RUN_COMMAND) | Some(parser::RUN_COMMAND_SHORT) => HELP_RUN,
+            Some(parser::STEP_INSTRUCTION_COMMAND) => HELP_STEPI,
+            Some(parser::STEP_INTO_COMMAND) | Some(parser::STEP_INTO_COMMAND_SHORT) => {
+                HELP_STEPINTO
+            }
+            Some(parser::STEP_OUT_COMMAND) | Some(parser::STEP_OUT_COMMAND_SHORT) => HELP_STEPOUT,
+            Some(parser::STEP_OVER_COMMAND) | Some(parser::STEP_OVER_COMMAND_SHORT) => {
+                HELP_STEPOVER
+            }
+            Some(parser::BREAK_COMMAND) | Some(parser::BREAK_COMMAND_SHORT) => HELP_BREAK,
+            Some(parser::SYMBOL_COMMAND) => HELP_SYMBOL,
+            Some(parser::MEMORY_COMMAND) | Some(parser::MEMORY_COMMAND_SHORT) => HELP_MEMORY,
+            Some(parser::REGISTER_COMMAND) | Some(parser::REGISTER_COMMAND_SHORT) => HELP_REGISTER,
+            Some(parser::THREAD_COMMAND) => HELP_THREAD,
+            Some(parser::SHARED_LIB_COMMAND) => HELP_SHARED_LIB,
+            Some(parser::DISASM_COMMAND) => HELP_DISASM,
+            Some(parser::ORACLE_COMMAND) => self.oracle_help.get_or_insert_with(|| {
+                let mut help = HELP_ORACLE.to_string();
+                let oracles = debugger.all_oracles();
+                oracles.for_each(|oracle| help = format!("{help}{}\n", oracle.help()));
+                help
+            }),
+            Some("tui") => HELP_TUI,
+            Some("q") | Some("quit") => HELP_QUIT,
+            _ => "unknown command",
+        }
     }
 }

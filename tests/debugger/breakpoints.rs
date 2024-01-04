@@ -10,7 +10,7 @@ use serial_test::serial;
 fn test_debugee_run() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
-    let mut debugger = Debugger::new(process, TestHooks::default()).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::default(), vec![]).unwrap();
     debugger.start_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
@@ -21,7 +21,7 @@ fn test_multiple_brkpt_on_addr() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let atempt_1_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut dbg = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut dbg = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
     dbg.set_breakpoint_at_line("hello_world.rs", 5).unwrap();
     dbg.set_breakpoint_at_line("hello_world.rs", 9).unwrap();
 
@@ -63,7 +63,7 @@ fn test_brkpt_on_function() {
     let process = prepare_debugee_process(CALC_APP, &["1", "2", "3", "--description", "result"]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
     debugger.set_breakpoint_at_fn("sum2").unwrap();
 
     debugger.start_debugee().unwrap();
@@ -85,7 +85,7 @@ fn test_brkpt_on_function() {
 fn test_brkpt_on_function_name_collision() {
     let process = prepare_debugee_process(CALC_APP, &[]);
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info)).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info), vec![]).unwrap();
 
     // assert that two breakpoints is set
     assert_eq!(debugger.set_breakpoint_at_fn("sum2").unwrap().len(), 2);
@@ -116,7 +116,7 @@ fn test_brkpt_on_function_name_collision() {
 fn test_brkpt_on_line_collision() {
     let process = prepare_debugee_process(SHARED_LIB_APP, &[]);
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
     debugger.set_breakpoint_at_line("main.rs", 14).unwrap();
     debugger.start_debugee().unwrap();
     assert_eq!(info.line.take(), Some(14));
@@ -145,7 +145,7 @@ fn test_brkpt_on_line() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
     debugger
         .set_breakpoint_at_line("hello_world.rs", 15)
         .unwrap();
@@ -170,7 +170,7 @@ fn test_brkpt_on_line2() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
     debugger.set_breakpoint_at_line("vars.rs", 144).unwrap();
     debugger.set_breakpoint_at_line("vars.rs", 310).unwrap();
 
@@ -190,7 +190,7 @@ fn test_set_breakpoint_idempotence() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
     debugger
         .set_breakpoint_at_line("hello_world.rs", 15)
         .unwrap();
@@ -215,7 +215,7 @@ fn test_set_breakpoint_idempotence() {
 fn test_deferred_breakpoint() {
     let process = prepare_debugee_process(SHARED_LIB_APP, &[]);
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
     assert!(debugger.set_breakpoint_at_fn("print_sum").is_err());
     debugger.add_deferred_at_function("print_sum");
     debugger.start_debugee().unwrap();
@@ -229,7 +229,7 @@ fn test_breakpoint_at_fn_with_monomorphization() {
     let process = prepare_debugee_process(FIZZBUZZ_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     let brkpts = debugger.set_breakpoint_at_fn("solve").unwrap();
     assert_eq!(brkpts.len(), 3);
@@ -261,7 +261,7 @@ fn test_breakpoint_at_line_with_monomorphization() {
     let process = prepare_debugee_process(FIZZBUZZ_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone())).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
 
     let brkpts = debugger.set_breakpoint_at_line("fizzbuzz.rs", 83).unwrap();
     assert_eq!(brkpts.len(), 3);

@@ -56,9 +56,9 @@ class TodosTestCase(unittest.TestCase):
         # get breakpoint
         self.debugger.sendline('b main.rs:99')
 
-        time.sleep(5)
+        time.sleep(3)
         self.debugger.sendline('run')
-        time.sleep(1)
+        time.sleep(3)
 
         event = threading.Event()
         thread = threading.Thread(target=send_create_todo_request,

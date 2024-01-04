@@ -10,7 +10,7 @@ use serial_test::serial;
 fn test_symbol() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
-    let mut debugger = Debugger::new(process, TestHooks::default()).unwrap();
+    let mut debugger = Debugger::new(process, TestHooks::default(), vec![]).unwrap();
 
     let main_sym = debugger.get_symbols("^main$").unwrap()[0];
     assert_eq!(SymbolKind::Text, main_sym.kind);

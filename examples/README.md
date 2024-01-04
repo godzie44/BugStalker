@@ -13,3 +13,7 @@ Example application from [axum](https://github.com/tokio-rs/axum) web framework.
 ### Shlib
 
 Example of shared library with C interface and a consumer of this lib.
+
+### Tokioticker
+
+Tick 5 seconds and exit. Useful for tokio oracle testing.

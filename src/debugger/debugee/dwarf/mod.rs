@@ -36,7 +36,7 @@ use gimli::{
     LocationLists, Range, RunTimeEndian, Section, UnitOffset, UnwindContext, UnwindSection,
     UnwindTableRow,
 };
-use log::{debug, info};
+use log::debug;
 use memmap2::Mmap;
 use object::{Object, ObjectSection};
 use rayon::prelude::*;
@@ -697,7 +697,7 @@ impl DebugInformationBuilder {
 
         if headers.is_empty() {
             // no units means no debug info
-            info!(target: "dwarf-loader", "no debug information for {obj_path:?}");
+            debug!(target: "dwarf-loader", "no debug information for {obj_path:?}");
 
             return Ok(DebugInformation {
                 file: obj_path.to_path_buf(),

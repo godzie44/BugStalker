@@ -85,7 +85,8 @@ impl AppBuilder {
 
     pub fn build(self, mut debugger: Debugger) -> anyhow::Result<TerminalApplication> {
         let (control_tx, control_rx) = mpsc::sync_channel::<Control>(0);
-        let mut editor = create_editor(PROMT)?;
+        let oracles = debugger.all_oracles().map(|o| o.name()).collect::<Vec<_>>();
+        let mut editor = create_editor(PROMT, &oracles)?;
 
         if let Some(h) = editor.helper_mut() {
             h.completer
@@ -200,6 +201,7 @@ impl TerminalApplication {
             debugee_out: self.debugee_out.clone(),
             debugee_err: self.debugee_err.clone(),
             cancel_output_flag: cancel,
+            helper: Default::default(),
             already_run: self.already_run,
         };
 
@@ -263,6 +265,7 @@ struct AppLoop {
     debugee_out: DebugeeOutReader,
     debugee_err: DebugeeOutReader,
     cancel_output_flag: Arc<AtomicBool>,
+    helper: Helper,
     already_run: bool,
 }
 
@@ -485,7 +488,10 @@ impl AppLoop {
                 if let Some(reason) = reason {
                     self.printer.print(reason);
                 }
-                self.printer.print(help_for_command(command.as_deref()));
+                self.printer.print(
+                    self.helper
+                        .help_for_command(&self.debugger, command.as_deref()),
+                );
             }
             Command::SkipInput => {}
             Command::PrintSymbol(symbol) => {
@@ -566,6 +572,12 @@ impl AppLoop {
                     }
                 }
             }
+            Command::Oracle(name, subcmd) => match self.debugger.get_oracle(&name) {
+                None => self
+                    .printer
+                    .print(ErrorView::from("oracle not found or not ready")),
+                Some(oracle) => oracle.print(&self.printer, subcmd.as_deref()),
+            },
         }
 
         Ok(())

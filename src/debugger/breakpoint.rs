@@ -11,13 +11,52 @@ use nix::unistd::Pid;
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use std::mem;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 enum BrkptsToAddRequest {
     Init(Vec<Breakpoint>),
     Uninit(Vec<UninitBreakpoint>),
+}
+
+/// Parameters for construct a transparent breakpoint.
+pub enum CreateTransparentBreakpointRequest {
+    Line(String, u64, Rc<dyn Fn(&mut Debugger)>),
+    Function(String, Rc<dyn Fn(&mut Debugger)>),
+}
+
+impl CreateTransparentBreakpointRequest {
+    /// Create request for transparent breakpoint at function in source code.
+    ///
+    /// # Arguments
+    ///
+    /// * `f`: function search template
+    /// * `cb`: callback that invoked when breakpoint is heat
+    pub fn function(f: impl ToString, cb: impl Fn(&mut Debugger) + 'static) -> Self {
+        Self::Function(f.to_string(), Rc::new(cb))
+    }
+
+    /// Create request for transparent breakpoint at file:line in source code.
+    ///
+    /// # Arguments
+    ///
+    /// * `file`: file search template
+    /// * `line`: source code line
+    /// * `cb`: callback that invoked when breakpoint is heat
+    pub fn line(file: impl ToString, line: u64, cb: impl Fn(&mut Debugger) + 'static) -> Self {
+        Self::Line(file.to_string(), line, Rc::new(cb))
+    }
+
+    /// Return underline callback.
+    fn callback(&self) -> Rc<dyn Fn(&mut Debugger)> {
+        match self {
+            CreateTransparentBreakpointRequest::Line(_, _, cb) => cb.clone(),
+            CreateTransparentBreakpointRequest::Function(_, cb) => cb.clone(),
+        }
+    }
 }
 
 impl Debugger {
@@ -324,6 +363,59 @@ impl Debugger {
         self.remove_breakpoints_at_addresses(addresses)
     }
 
+    /// Create and enable transparent breakpoint.
+    ///
+    /// # Arguments
+    ///
+    /// * `request`: transparent breakpoint parameters
+    pub fn set_transparent_breakpoint(
+        &mut self,
+        request: CreateTransparentBreakpointRequest,
+    ) -> Result<(), Error> {
+        // transparent breakpoint currently may be set only at main object file instructions
+        let debug_info = self.debugee.program_debug_info()?;
+
+        let places: Vec<_> = match &request {
+            CreateTransparentBreakpointRequest::Line(file, line, _) => {
+                self.search_lines_in_file(debug_info, file, *line)?
+            }
+            CreateTransparentBreakpointRequest::Function(tpl, _) => {
+                if debug_info.has_debug_info() && debug_info.tpl_in_pub_names(tpl) != Some(false) {
+                    debug_info.search_places_for_fn_tpl(tpl)?
+                } else {
+                    vec![]
+                }
+            }
+        };
+
+        if places.is_empty() {
+            return Err(NoSuitablePlace);
+        }
+
+        let callback = request.callback();
+        let breakpoints: Vec<_> = places
+            .into_iter()
+            .flat_map(|place| {
+                let addr = place
+                    .address
+                    .relocate_to_segment(&self.debugee, debug_info)
+                    .ok()?;
+                Some(Breakpoint::new_transparent(
+                    debug_info.pathname(),
+                    addr,
+                    self.process.pid(),
+                    callback.clone(),
+                ))
+            })
+            .collect();
+
+        for brkpt in breakpoints {
+            self.breakpoints.add_and_enable(brkpt)?;
+        }
+
+        Ok(())
+    }
+
     /// Return list of breakpoints.
     pub fn breakpoints_snapshot(&self) -> Vec<BreakpointView> {
         self.breakpoints.snapshot()
@@ -380,7 +472,7 @@ impl Debugger {
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(Clone)]
 pub enum BrkptType {
     /// Breakpoint to program entry point
     EntryPoint,
@@ -391,6 +483,43 @@ pub enum BrkptType {
     /// Breakpoint at linker internal function that will always be called when the linker
     /// begins to map in a library or unmap it, and again when the mapping change is complete.
     LinkerMapFn,
+    /// Transparent breakpoints are transparent for debugger user and using by inner mechanisms
+    /// like oracles.
+    Transparent(Rc<dyn Fn(&mut Debugger)>),
+}
+
+impl Debug for BrkptType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BrkptType::EntryPoint => f.write_str("entry-point"),
+            BrkptType::UserDefined => f.write_str("user-defined"),
+            BrkptType::Temporary => f.write_str("temporary"),
+            BrkptType::LinkerMapFn => f.write_str("linker-map"),
+            BrkptType::Transparent(_) => f.write_str("transparent"),
+        }
+    }
+}
+
+impl PartialEq for BrkptType {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            BrkptType::EntryPoint => {
+                matches!(other, BrkptType::EntryPoint)
+            }
+            BrkptType::UserDefined => {
+                matches!(other, BrkptType::UserDefined)
+            }
+            BrkptType::Temporary => {
+                matches!(other, BrkptType::Temporary)
+            }
+            BrkptType::LinkerMapFn => {
+                matches!(other, BrkptType::LinkerMapFn)
+            }
+            BrkptType::Transparent(_) => {
+                matches!(other, BrkptType::Transparent(_))
+            }
+        }
+    }
 }
 
 static GLOBAL_BP_COUNTER: AtomicU32 = AtomicU32::new(1);
@@ -496,6 +625,23 @@ impl Breakpoint {
         )
     }
 
+    pub fn new_transparent(
+        debug_info_file: impl Into<PathBuf>,
+        addr: RelocatedAddress,
+        pid: Pid,
+        callback: Rc<dyn Fn(&mut Debugger)>,
+    ) -> Self {
+        Self::new_inner(
+            addr,
+            pid,
+            0,
+            None,
+            BrkptType::Transparent(callback),
+            debug_info_file.into(),
+        )
+    }
+
+    #[inline(always)]
     pub fn number(&self) -> u32 {
         self.number
     }
@@ -508,7 +654,10 @@ impl Breakpoint {
     pub fn place(&self) -> Option<&PlaceDescriptorOwned> {
         match self.r#type {
             BrkptType::UserDefined => self.place.as_ref(),
-            BrkptType::EntryPoint | BrkptType::Temporary | BrkptType::LinkerMapFn => {
+            BrkptType::EntryPoint
+            | BrkptType::Temporary
+            | BrkptType::LinkerMapFn
+            | BrkptType::Transparent(_) => {
                 panic!("only user defined breakpoint has a place attribute")
             }
         }
@@ -518,10 +667,12 @@ impl Breakpoint {
         self.r#type == BrkptType::EntryPoint
     }
 
-    pub fn r#type(&self) -> BrkptType {
-        self.r#type
+    #[inline(always)]
+    pub fn r#type(&self) -> &BrkptType {
+        &self.r#type
     }
 
+    #[inline(always)]
     pub fn is_temporary(&self) -> bool {
         matches!(self.r#type, BrkptType::Temporary)
     }
@@ -894,7 +1045,7 @@ impl BreakpointRegistry {
                         brkpt.place,
                     ));
                 }
-                BrkptType::Temporary | BrkptType::LinkerMapFn => {}
+                BrkptType::Temporary | BrkptType::LinkerMapFn | BrkptType::Transparent(_) => {}
             }
         }
         Ok(errors)
@@ -920,7 +1071,7 @@ impl BreakpointRegistry {
         let active_bps = self
             .breakpoints
             .values()
-            .filter(|&bp| bp.r#type() == BrkptType::UserDefined)
+            .filter(|&bp| bp.r#type() == &BrkptType::UserDefined)
             .map(BreakpointView::from);
         let disabled_brkpts = self
             .disabled_breakpoints
