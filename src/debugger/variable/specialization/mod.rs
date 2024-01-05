@@ -749,7 +749,7 @@ impl<'a> VariableParserExtension<'a> {
         let unsafe_cell = ir.assume_field_as_struct("value")?;
         let value = unsafe_cell
             .members
-            .get(0)
+            .first()
             .ok_or(IncompleteInterp("UnsafeCell"))?;
         Ok(value.clone())
     }
@@ -787,7 +787,7 @@ impl<'a> VariableParserExtension<'a> {
         let unsafe_cell = ir.assume_field_as_struct("value")?;
         let value = unsafe_cell
             .members
-            .get(0)
+            .first()
             .ok_or(IncompleteInterp("UnsafeCell"))?;
 
         Ok(VariableIR::Struct(StructVariable {

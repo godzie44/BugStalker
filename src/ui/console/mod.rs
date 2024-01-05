@@ -328,7 +328,7 @@ impl AppLoop {
                     let ip = thread
                         .bt
                         .as_ref()
-                        .and_then(|bt| bt.get(0).map(|f| f.ip.to_string()));
+                        .and_then(|bt| bt.first().map(|f| f.ip.to_string()));
 
                     self.printer.print(format!(
                         "thread #{}, {} - {}",

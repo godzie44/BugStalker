@@ -1,7 +1,7 @@
 //! Sure this debugee little bit overengineering, this was done intentionally
 //! for test the debugger work with code with type polymorphism in it
 
-enum FizzBuzz {
+enum FizzBuzzAnswer {
     Fizz,
     Buzz,
     FizzBuzz,
@@ -9,18 +9,18 @@ enum FizzBuzz {
 }
 
 trait Printer {
-    fn print(&self, fizzbuzz: FizzBuzz);
+    fn print(&self, fizzbuzz: FizzBuzzAnswer);
 }
 
 struct PrettyPrinter {}
 
 impl Printer for PrettyPrinter {
-    fn print(&self, fizzbuzz: FizzBuzz) {
+    fn print(&self, fizzbuzz: FizzBuzzAnswer) {
         match fizzbuzz {
-            FizzBuzz::Fizz => println!("fizz"),
-            FizzBuzz::Buzz => println!("buzz"),
-            FizzBuzz::FizzBuzz => println!("fizzbuzz"),
-            FizzBuzz::None => {}
+            FizzBuzzAnswer::Fizz => println!("fizz"),
+            FizzBuzzAnswer::Buzz => println!("buzz"),
+            FizzBuzzAnswer::FizzBuzz => println!("fizzbuzz"),
+            FizzBuzzAnswer::None => {}
         }
     }
 }
@@ -28,32 +28,32 @@ impl Printer for PrettyPrinter {
 struct BrokenPrinter {}
 
 impl Printer for BrokenPrinter {
-    fn print(&self, fizzbuzz: FizzBuzz) {
+    fn print(&self, fizzbuzz: FizzBuzzAnswer) {
         match fizzbuzz {
-            FizzBuzz::Fizz => println!("???"),
-            FizzBuzz::Buzz => println!("???"),
-            FizzBuzz::FizzBuzz => println!("???"),
-            FizzBuzz::None => println!("i'm broken :("),
+            FizzBuzzAnswer::Fizz => println!("???"),
+            FizzBuzzAnswer::Buzz => println!("???"),
+            FizzBuzzAnswer::FizzBuzz => println!("???"),
+            FizzBuzzAnswer::None => println!("i'm broken :("),
         }
     }
 }
 
 trait Comparator {
-    fn divisible(&self, number: u32) -> FizzBuzz;
+    fn divisible(&self, number: u32) -> FizzBuzzAnswer;
 }
 
 struct GoodComparator {}
 
 impl Comparator for GoodComparator {
-    fn divisible(&self, number: u32) -> FizzBuzz {
+    fn divisible(&self, number: u32) -> FizzBuzzAnswer {
         if number % 3 == 0 && number % 5 == 0 {
-            FizzBuzz::FizzBuzz
+            FizzBuzzAnswer::FizzBuzz
         } else if number % 5 == 0 {
-            FizzBuzz::Buzz
+            FizzBuzzAnswer::Buzz
         } else if number % 3 == 0 {
-            FizzBuzz::Fizz
+            FizzBuzzAnswer::Fizz
         } else {
-            FizzBuzz::None
+            FizzBuzzAnswer::None
         }
     }
 }
@@ -61,8 +61,8 @@ impl Comparator for GoodComparator {
 struct BadComparator {}
 
 impl Comparator for BadComparator {
-    fn divisible(&self, _number: u32) -> FizzBuzz {
-        FizzBuzz::None
+    fn divisible(&self, _number: u32) -> FizzBuzzAnswer {
+        FizzBuzzAnswer::None
     }
 }
 

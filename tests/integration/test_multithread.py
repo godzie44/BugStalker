@@ -137,6 +137,7 @@ class MultithreadTestCase(unittest.TestCase):
 
         self.debugger.sendline('step')
         self.debugger.sendline('step')
+        self.debugger.sendline('step')
         self.debugger.expect_exact('24     let mut sum = 0;')
         self.debugger.sendline('step')
 
