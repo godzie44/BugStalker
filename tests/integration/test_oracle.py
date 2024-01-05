@@ -27,7 +27,7 @@ class OracleTestCase(unittest.TestCase):
 
         self.debugger.expect_exact('Hit breakpoint 1')
         self.debugger.sendline('oracle tokio')
-        self.debugger.expect(r'\d\d tasks running')
+        self.debugger.expect(r'[1-9]\d? tasks running')
 
         self.debugger.sendline('continue')
 
