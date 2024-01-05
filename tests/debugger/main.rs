@@ -11,7 +11,7 @@ mod variables;
 use crate::common::{DebugeeRunInfo, TestHooks};
 use bugstalker::debugger::process::{Child, Installed};
 use bugstalker::debugger::register::{Register, RegisterMap};
-use bugstalker::debugger::{rust, Debugger};
+use bugstalker::debugger::{rust, DebuggerBuilder};
 use serial_test::serial;
 use std::io::{BufRead, BufReader};
 use std::thread;
@@ -52,7 +52,8 @@ fn test_debugger_graceful_shutdown() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let pid = process.pid();
 
-    let mut debugger = Debugger::new(process, TestHooks::default(), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::default());
+    let mut debugger = builder.build(process).unwrap();
     debugger
         .set_breakpoint_at_line("hello_world.rs", 5)
         .unwrap();
@@ -68,7 +69,8 @@ fn test_debugger_graceful_shutdown_multithread() {
     let process = prepare_debugee_process(MT_APP, &[]);
     let pid = process.pid();
 
-    let mut debugger = Debugger::new(process, TestHooks::default(), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::default());
+    let mut debugger = builder.build(process).unwrap();
     debugger.set_breakpoint_at_line("mt.rs", 31).unwrap();
     debugger.start_debugee().unwrap();
     drop(debugger);
@@ -83,7 +85,8 @@ fn test_frame_cfa() {
     let debugee_pid = process.pid();
 
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
     debugger
         .set_breakpoint_at_line("hello_world.rs", 5)
         .unwrap();
@@ -115,7 +118,8 @@ fn test_registers() {
     let debugee_pid = process.pid();
 
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
     debugger
         .set_breakpoint_at_line("hello_world.rs", 5)
         .unwrap();
@@ -143,7 +147,8 @@ fn test_debugger_disassembler() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let pid = process.pid();
 
-    let mut debugger = Debugger::new(process, TestHooks::default(), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::default());
+    let mut debugger = builder.build(process).unwrap();
     debugger.set_breakpoint_at_fn("main").unwrap();
     debugger.start_debugee().unwrap();
 

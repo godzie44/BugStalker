@@ -6,7 +6,7 @@ use bugstalker::debugger;
 use bugstalker::debugger::variable::render::RenderRepr;
 use bugstalker::debugger::variable::select::{Expression, VariableSelector};
 use bugstalker::debugger::variable::{select, VariableIR};
-use bugstalker::debugger::{variable, Debugger};
+use bugstalker::debugger::{variable, Debugger, DebuggerBuilder};
 use bugstalker::ui::command::parser::expression;
 use debugger::variable::SupportedScalar;
 use serial_test::serial;
@@ -329,7 +329,8 @@ fn test_read_scalar_variables() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 30).unwrap();
 
@@ -386,7 +387,8 @@ fn test_read_scalar_variables_at_place() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 11).unwrap();
 
@@ -409,7 +411,8 @@ fn test_read_struct() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 53).unwrap();
 
@@ -465,7 +468,8 @@ fn test_read_array() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 61).unwrap();
 
@@ -519,7 +523,8 @@ fn test_read_enum() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 93).unwrap();
 
@@ -611,7 +616,8 @@ fn test_read_pointers() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 119).unwrap();
 
@@ -697,7 +703,8 @@ fn test_read_type_alias() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 126).unwrap();
 
@@ -717,7 +724,8 @@ fn test_type_parameters() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 135).unwrap();
 
@@ -740,7 +748,8 @@ fn test_read_vec_and_slice() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 151).unwrap();
 
@@ -859,7 +868,8 @@ fn test_read_strings() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 159).unwrap();
 
@@ -881,7 +891,8 @@ fn test_read_static_variables() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 168).unwrap();
 
@@ -921,7 +932,8 @@ fn test_read_only_local_variables() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 168).unwrap();
 
@@ -946,7 +958,8 @@ fn test_read_static_variables_different_modules() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 179).unwrap();
 
@@ -980,7 +993,8 @@ fn test_read_tls_variables() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 194).unwrap();
 
@@ -1051,7 +1065,8 @@ fn test_read_closures() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 223).unwrap();
 
@@ -1170,7 +1185,8 @@ fn test_arguments() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 232).unwrap();
 
@@ -1218,7 +1234,8 @@ fn test_read_union() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 244).unwrap();
 
@@ -1243,7 +1260,8 @@ fn test_read_hashmap() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 261).unwrap();
 
@@ -1399,7 +1417,8 @@ fn test_read_hashset() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 274).unwrap();
 
@@ -1464,7 +1483,8 @@ fn test_circular_ref_types() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 301).unwrap();
 
@@ -1530,7 +1550,8 @@ fn test_lexical_blocks() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 307).unwrap();
     debugger.start_debugee().unwrap();
@@ -1581,7 +1602,8 @@ fn test_btree_map() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 334).unwrap();
     debugger.start_debugee().unwrap();
@@ -1714,7 +1736,8 @@ fn test_read_btree_set() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 347).unwrap();
 
@@ -1778,7 +1801,8 @@ fn test_read_vec_deque() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 365).unwrap();
 
@@ -1848,7 +1872,8 @@ fn test_read_atomic() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 375).unwrap();
 
@@ -1890,7 +1915,8 @@ fn test_cell() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 387).unwrap();
 
@@ -1929,7 +1955,8 @@ fn test_shared_ptr() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 409).unwrap();
 
@@ -2039,7 +2066,8 @@ fn test_zst_types() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 430).unwrap();
 
@@ -2219,7 +2247,8 @@ fn test_read_static_in_fn_variable() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     // brkpt in function where static is declared
     debugger.set_breakpoint_at_line("vars.rs", 438).unwrap();

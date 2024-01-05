@@ -203,6 +203,59 @@ impl ExplorationContext {
     }
 }
 
+/// Debugger structure builder.
+#[derive(Default)]
+pub struct DebuggerBuilder<H: EventHook + 'static = NopHook> {
+    oracles: Vec<Rc<dyn Oracle>>,
+    hooks: Option<H>,
+}
+
+impl<H: EventHook + 'static> DebuggerBuilder<H> {
+    /// Create a new builder.
+    pub fn new() -> Self {
+        Self {
+            oracles: vec![],
+            hooks: None,
+        }
+    }
+
+    /// Add oracle.
+    ///
+    /// # Arguments
+    ///
+    /// * `oracle`: oracle to add
+    pub fn with_oracle<T: Oracle + 'static>(self, oracle: T) -> Self {
+        let mut oracles = self.oracles;
+        oracles.push(Rc::new(oracle));
+        Self { oracles, ..self }
+    }
+
+    /// Add event hooks implementation
+    ///
+    /// # Arguments
+    ///
+    /// * `hooks`: hooks implementation
+    pub fn with_hooks(self, hooks: H) -> Self {
+        Self {
+            hooks: Some(hooks),
+            ..self
+        }
+    }
+
+    /// Create a debugger.
+    ///
+    /// # Arguments
+    ///
+    /// * `process`: debugee process
+    pub fn build(self, process: Child<Installed>) -> Result<Debugger, Error> {
+        if let Some(hooks) = self.hooks {
+            Debugger::new(process, hooks, self.oracles)
+        } else {
+            Debugger::new(process, NopHook {}, self.oracles)
+        }
+    }
+}
+
 /// Main structure of bug-stalker, control debugee state and provides application functionality.
 pub struct Debugger {
     /// Child process where debugee is running.
@@ -222,11 +275,11 @@ pub struct Debugger {
 }
 
 impl Debugger {
-    pub fn new(
+    fn new(
         process: Child<Installed>,
         hooks: impl EventHook + 'static,
         oracles: impl IntoIterator<Item = Rc<dyn Oracle>>,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, Error> {
         let program_path = Path::new(process.program());
 
         let file = fs::File::open(program_path)?;

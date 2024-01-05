@@ -3,7 +3,7 @@ use crate::common::TestHooks;
 use crate::HW_APP;
 use crate::{assert_no_proc, prepare_debugee_process, CALC_APP};
 use bugstalker::debugger::variable::render::{RenderRepr, ValueLayout};
-use bugstalker::debugger::Debugger;
+use bugstalker::debugger::DebuggerBuilder;
 use serial_test::serial;
 use std::borrow::Cow;
 use std::mem;
@@ -13,7 +13,9 @@ use std::mem;
 fn test_read_register_write() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
-    let mut debugger = Debugger::new(process, TestHooks::default(), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::default());
+    let mut debugger = builder.build(process).unwrap();
+
     debugger
         .set_breakpoint_at_line("hello_world.rs", 10)
         .unwrap();
@@ -35,7 +37,9 @@ fn test_backtrace() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
+
     debugger
         .set_breakpoint_at_line("hello_world.rs", 15)
         .unwrap();
@@ -63,7 +67,8 @@ fn test_read_value_u64() {
     let process = prepare_debugee_process(CALC_APP, &["1", "2", "3", "--description", "result"]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
     debugger.set_breakpoint_at_line("calc.rs", 15).unwrap();
 
     debugger.start_debugee().unwrap();

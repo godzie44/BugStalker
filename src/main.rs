@@ -1,16 +1,15 @@
 //! Debugger application entry point.
 
 use bugstalker::debugger::process::Child;
-use bugstalker::debugger::{rust, Debugger, NopHook};
+use bugstalker::debugger::{rust, DebuggerBuilder, NopHook};
 use bugstalker::log::LOGGER_SWITCHER;
-use bugstalker::oracle::{builtin, Oracle};
+use bugstalker::oracle::builtin;
 use bugstalker::ui::{console, tui};
 use clap::error::ErrorKind;
 use clap::{arg, CommandFactory, Parser};
 use log::info;
 use nix::unistd::Pid;
 use std::path::PathBuf;
-use std::rc::Rc;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -67,19 +66,20 @@ fn main() {
         return;
     };
 
+    let mut debugger_builder: DebuggerBuilder<NopHook> = DebuggerBuilder::new();
+
+    for name in args.oracle {
+        if let Some(oracle) = builtin::create_builtin(&name) {
+            info!(target: "debugger", "oracle `{name}` discovered");
+            debugger_builder = debugger_builder.with_oracle(oracle);
+        }
+    }
+
     let process_is_external = process.is_external();
 
-    let oracles: Vec<Rc<dyn Oracle>> = args
-        .oracle
-        .into_iter()
-        .filter_map(|name| {
-            let oracle = builtin::create_builtin(&name)?.into();
-            info!(target: "debugger", "oracle `{name}` discovered");
-            Some(oracle)
-        })
-        .collect();
-
-    let debugger = Debugger::new(process, NopHook {}, oracles).expect("prepare application fail");
+    let debugger = debugger_builder
+        .build(process)
+        .expect("prepare application fail");
 
     if args.tui {
         let app_builder = tui::AppBuilder::new(stdout_reader.into(), stderr_reader.into())

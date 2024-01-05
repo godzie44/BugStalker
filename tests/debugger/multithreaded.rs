@@ -3,7 +3,7 @@ use crate::common::TestHooks;
 use crate::prepare_debugee_process;
 use crate::{assert_no_proc, MT_APP};
 use bugstalker::debugger::unwind::Backtrace;
-use bugstalker::debugger::Debugger;
+use bugstalker::debugger::DebuggerBuilder;
 use itertools::Itertools;
 use serial_test::serial;
 use std::ffi::OsStr;
@@ -13,7 +13,9 @@ use std::ffi::OsStr;
 fn test_multithreaded_app_running() {
     let process = prepare_debugee_process(MT_APP, &[]);
     let debugee_pid = process.pid();
-    let mut debugger = Debugger::new(process, TestHooks::default(), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::default());
+    let mut debugger = builder.build(process).unwrap();
+
     debugger.start_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
@@ -24,7 +26,8 @@ fn test_multithreaded_breakpoints() {
     let process = prepare_debugee_process(MT_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     // set breakpoint at program start.
     debugger.set_breakpoint_at_line("mt.rs", 6).unwrap();
@@ -64,7 +67,8 @@ fn test_multithreaded_backtrace() {
     let process = prepare_debugee_process(MT_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("mt.rs", 24).unwrap();
 
@@ -92,7 +96,8 @@ fn test_multithreaded_trace() {
     let process = prepare_debugee_process(MT_APP, &[]);
     let debugee_pid = process.pid();
     let info = DebugeeRunInfo::default();
-    let mut debugger = Debugger::new(process, TestHooks::new(info.clone()), vec![]).unwrap();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
 
     debugger.set_breakpoint_at_line("mt.rs", 23).unwrap();
 
