@@ -17,7 +17,7 @@ fn main() {
     runtime.spawn(new_ticker_task("task_2", 2));
     runtime.spawn(new_ticker_task("task_3", 3));
 
-    std::thread::sleep(Duration::from_secs(5));
+    std::thread::sleep(Duration::from_secs(15));
 
     drop(runtime);
 

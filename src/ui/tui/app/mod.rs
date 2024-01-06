@@ -2,6 +2,7 @@ pub mod port;
 
 use std::borrow::Cow;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tuirealm::tui::layout::Alignment;
@@ -45,6 +46,7 @@ pub struct Model {
     pub terminal: TerminalBridge,
 
     exchanger: Arc<ClientExchanger>,
+    already_run: Arc<AtomicBool>,
 }
 
 impl Model {
@@ -53,7 +55,7 @@ impl Model {
         event_queue: DebuggerEventQueue,
         client_exchanger: ClientExchanger,
         log_buffer: Arc<Mutex<Vec<TuiLogLine>>>,
-        already_run: bool,
+        already_run: Arc<AtomicBool>,
     ) -> anyhow::Result<Self> {
         let exchanger = Arc::new(client_exchanger);
         Ok(Self {
@@ -62,12 +64,13 @@ impl Model {
                 event_queue,
                 exchanger.clone(),
                 log_buffer,
-                already_run,
+                already_run.load(Ordering::Acquire),
             )?,
             quit: false,
             redraw: true,
             terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
             exchanger,
+            already_run: already_run.clone(),
         })
     }
 }
@@ -263,6 +266,7 @@ impl Model {
                             TextSpan::new("running").fg(Color::Red),
                         )])),
                     )?;
+                    self.already_run.store(true, Ordering::Release);
                 }
                 Msg::SwitchUI => {
                     self.exchanger.send_switch_ui();

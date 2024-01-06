@@ -1,6 +1,7 @@
 use rustyline::history::History;
 use rustyline::{Editor, ExternalPrinter as RLExternalPrinter, Helper};
 use std::cell::RefCell;
+use std::fmt::Display;
 
 /// [`ExternalPrinter`] safe print messages to stdout
 ///
@@ -26,7 +27,7 @@ impl ExternalPrinter {
         Ok(Self { printer: None })
     }
 
-    pub fn print(&self, msg: impl ToString) {
+    pub fn print(&self, msg: impl Display) {
         let msg = msg.to_string();
         match &self.printer {
             None => {
@@ -39,6 +40,11 @@ impl ExternalPrinter {
                     .expect("external printer error");
             }
         }
+    }
+
+    pub fn println(&self, msg: impl Display) {
+        let msg = format!("{msg}\n");
+        self.print(msg)
     }
 }
 

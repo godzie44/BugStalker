@@ -92,6 +92,11 @@ impl GlobalControl {
                 SubEventClause::User(UserEvent::AsyncErrorResponse(String::default())),
                 SubClause::Always,
             ),
+            Sub::new(
+                // concrete pid doesn't meter
+                SubEventClause::User(UserEvent::ProcessInstall(Pid::from_raw(0))),
+                SubClause::Always,
+            ),
         ]
     }
 }

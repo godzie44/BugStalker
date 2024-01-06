@@ -136,10 +136,15 @@ class MultithreadTestCase(unittest.TestCase):
             self.debugger.expect_exact('/linux/nanosleep.c')
 
         self.debugger.sendline('step')
+        time.sleep(0.2)
         self.debugger.sendline('step')
+        time.sleep(0.2)
         self.debugger.sendline('step')
+        time.sleep(0.2)
+
         self.debugger.expect_exact('24     let mut sum = 0;')
         self.debugger.sendline('step')
+        time.sleep(0.2)
 
         # try to view variables from a new in focus thread
         self.debugger.sendline('var locals')

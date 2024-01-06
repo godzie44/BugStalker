@@ -42,14 +42,14 @@ impl EventHook for TerminalHook {
     ) -> anyhow::Result<()> {
         let msg = format!("Hit breakpoint {num} at {}:", AddressView::from(pc));
         if let Some(place) = mb_place {
-            self.printer.print(format!(
+            self.printer.println(format!(
                 "{msg} {}:{}",
                 FilePathView::from(place.file.to_string_lossy()),
                 place.line_number
             ));
             self.printer.print(self.file_view.render_source(&place, 0)?);
         } else {
-            self.printer.print(format!("{msg} undefined place"));
+            self.printer.println(format!("{msg} undefined place"));
         }
 
         self.context.borrow_mut().prev_func = mb_func.cloned();
@@ -74,31 +74,30 @@ impl EventHook for TerminalHook {
                         .add(f.base_attributes.name.as_deref().unwrap_or_default())
                 });
 
-                self.printer.print(format!(
+                self.printer.println(format!(
                     "{} at {}:{}",
                     FunctionNameView::from(func_name),
                     FilePathView::from(place.file.to_string_lossy()),
                     place.line_number,
                 ));
             }
-
             self.printer.print(self.file_view.render_source(&place, 0)?);
         } else {
-            self.printer.print("undefined place, go to next");
+            self.printer.println("undefined place, go to next");
         }
 
         Ok(())
     }
 
     fn on_signal(&self, signal: Signal) {
-        self.printer.print(format!(
+        self.printer.println(format!(
             "Signal {} received, debugee stopped",
             KeywordView::from(signal)
         ));
     }
 
     fn on_exit(&self, code: i32) {
-        self.printer.print(format!(
+        self.printer.println(format!(
             "Program exit with code: {}",
             KeywordView::from(code)
         ));

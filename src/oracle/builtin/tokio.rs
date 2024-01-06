@@ -102,15 +102,15 @@ impl Oracle for TokioOracle {
 impl ConsolePlugin for TokioOracle {
     fn print(&self, printer: &ExternalPrinter, _: Option<&str>) {
         let tasks = self.tasks.borrow();
-        printer.print(format!(
-            "{} tasks running\n\n",
+        printer.println(format!(
+            "{} tasks running\n",
             KeywordView::from(tasks.len())
         ));
 
         if !tasks.is_empty() {
-            printer.print("task    poll count");
+            printer.println("task    poll count");
             for (task_id, poll_cnt) in tasks.iter() {
-                printer.print(format!("{task_id:<5}   {poll_cnt}"));
+                printer.println(format!("{task_id:<5}   {poll_cnt}"));
             }
         }
     }

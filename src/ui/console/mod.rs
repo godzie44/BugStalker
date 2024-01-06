@@ -30,7 +30,7 @@ use crate::ui::console::print::style::{
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::variable::render_variable_ir;
 use crate::ui::DebugeeOutReader;
-use crossterm::style::Stylize;
+use crossterm::style::{Color, Stylize};
 use debugger::Error;
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
@@ -40,7 +40,7 @@ use rustyline::history::MemHistory;
 use rustyline::Editor;
 use std::io::{BufRead, BufReader};
 use std::process::exit;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{mpsc, Arc, Mutex, Once};
 use std::thread;
@@ -58,8 +58,12 @@ const WELCOME_TEXT: &str = r#"
 BugStalker greets
 "#;
 const PROMT: &str = "(bs) ";
+const PROMT_YES_NO: &str = "(bs y/n) ";
 
 type BSEditor = Editor<RLHelper, MemHistory>;
+
+/// Shared debugee process pid, installed by hook or at console ui creation
+static DEBUGEE_PID: AtomicI32 = AtomicI32::new(-1);
 
 pub struct AppBuilder {
     debugee_out: DebugeeOutReader,
@@ -84,7 +88,7 @@ impl AppBuilder {
     }
 
     pub fn build(self, mut debugger: Debugger) -> anyhow::Result<TerminalApplication> {
-        let (control_tx, control_rx) = mpsc::sync_channel::<Control>(0);
+        let (user_cmd_tx, user_cmd_rx) = mpsc::sync_channel::<UserAction>(0);
         let oracles = debugger.all_oracles().map(|o| o.name()).collect::<Vec<_>>();
         let mut editor = create_editor(PROMT, &oracles)?;
 
@@ -95,28 +99,25 @@ impl AppBuilder {
                 .replace_file_hints(debugger.known_files().cloned())
         }
 
-        let debugee_pid = Arc::new(Mutex::new(debugger.process().pid()));
+        DEBUGEE_PID.store(debugger.process().pid().as_raw(), Ordering::Release);
         debugger.set_hook(TerminalHook::new(
             ExternalPrinter::new(&mut editor)?,
-            move |pid| {
-                *debugee_pid.lock().unwrap() = pid;
-            },
+            move |pid| DEBUGEE_PID.store(pid.as_raw(), Ordering::Release),
         ));
 
         Ok(TerminalApplication {
-            debugee_pid: Arc::new(Mutex::new(debugger.process().pid())),
             debugger,
             editor,
             debugee_out: self.debugee_out,
             debugee_err: self.debugee_err,
-            control_tx,
-            control_rx,
+            user_act_tx: user_cmd_tx,
+            user_act_rx: user_cmd_rx,
             already_run: self.already_run,
         })
     }
 }
 
-enum Control {
+enum UserAction {
     /// New command from user received
     Cmd(String),
     /// Terminate application
@@ -125,15 +126,18 @@ enum Control {
     ChangeMode,
 }
 
+enum EditorMode {
+    Default,
+    YesNo,
+}
+
 pub struct TerminalApplication {
     debugger: Debugger,
-    /// shared debugee process pid, installed by hook
-    debugee_pid: Arc<Mutex<Pid>>,
     editor: BSEditor,
     debugee_out: DebugeeOutReader,
     debugee_err: DebugeeOutReader,
-    control_tx: SyncSender<Control>,
-    control_rx: Receiver<Control>,
+    user_act_tx: SyncSender<UserAction>,
+    user_act_rx: Receiver<UserAction>,
     already_run: bool,
 }
 
@@ -187,9 +191,11 @@ impl TerminalApplication {
             thread::spawn(move || print_out!(stderr, "\x1b[31m{}", stderr_printer, cancel2));
         };
 
+        let (ready_to_next_command_tx, ready_to_next_command_rx) = mpsc::channel();
+
         let app_loop = AppLoop {
             debugger: self.debugger,
-            control_rx: self.control_rx,
+            user_input_rx: self.user_act_rx,
             completer: Arc::clone(
                 &self
                     .editor
@@ -201,48 +207,70 @@ impl TerminalApplication {
             debugee_out: self.debugee_out.clone(),
             debugee_err: self.debugee_err.clone(),
             cancel_output_flag: cancel,
+            ready_to_next_command_tx,
             helper: Default::default(),
             already_run: self.already_run,
         };
 
+        static CTRLC_ONCE: Once = Once::new();
+        CTRLC_ONCE.call_once(|| {
+            ctrlc::set_handler(move || {
+                let pid = Pid::from_raw(DEBUGEE_PID.load(Ordering::Acquire));
+                _ = kill(pid, Signal::SIGINT);
+            })
+            .expect("error setting Ctrl-C handler")
+        });
+
         let error_printer = ExternalPrinter::new(&mut self.editor)?;
         let mut editor = self.editor;
         {
-            let control_tx = self.control_tx.clone();
+            let control_tx = self.user_act_tx.clone();
             thread::spawn(move || {
                 HELLO_ONCE.call_once(|| {
                     println!("{WELCOME_TEXT}");
                 });
 
                 loop {
-                    let line = editor.readline(PROMT);
+                    let promt = match ready_to_next_command_rx.recv() {
+                        Ok(EditorMode::Default) => PROMT,
+                        Ok(EditorMode::YesNo) => PROMT_YES_NO,
+                        Err(_) => return,
+                    };
+
+                    if let Some(editor_helper) = editor.helper_mut() {
+                        editor_helper.colored_prompt = format!("{}", promt.with(Color::DarkGreen));
+                    }
+
+                    let line = editor.readline(promt);
                     match line {
                         Ok(input) => {
                             if input == "q" || input == "quit" {
-                                _ = control_tx.send(Control::Terminate);
+                                _ = control_tx.send(UserAction::Terminate);
                                 break;
                             } else if input == "tui" {
-                                _ = control_tx.send(Control::ChangeMode);
+                                _ = control_tx.send(UserAction::ChangeMode);
                                 break;
                             } else {
                                 _ = editor.add_history_entry(&input);
-                                _ = control_tx.send(Control::Cmd(input));
+                                _ = control_tx.send(UserAction::Cmd(input));
                             }
                         }
                         Err(err) => match err {
                             ReadlineError::Interrupted => {
-                                _ = kill(*self.debugee_pid.lock().unwrap(), Signal::SIGINT);
+                                let pid = Pid::from_raw(DEBUGEE_PID.load(Ordering::Acquire));
+                                _ = kill(pid, Signal::SIGINT);
                             }
                             ReadlineError::Eof => {
-                                if self.control_tx.try_send(Control::Terminate).is_err() {
-                                    _ = kill(*self.debugee_pid.lock().unwrap(), Signal::SIGINT);
-                                    _ = self.control_tx.send(Control::Terminate);
+                                if self.user_act_tx.try_send(UserAction::Terminate).is_err() {
+                                    let pid = Pid::from_raw(DEBUGEE_PID.load(Ordering::Acquire));
+                                    _ = kill(pid, Signal::SIGINT);
+                                    _ = self.user_act_tx.send(UserAction::Terminate);
                                 }
                                 break;
                             }
                             _ => {
-                                error_printer.print(ErrorView::from(err));
-                                _ = control_tx.send(Control::Terminate);
+                                error_printer.println(ErrorView::from(err));
+                                _ = control_tx.send(UserAction::Terminate);
                                 break;
                             }
                         },
@@ -259,30 +287,35 @@ impl TerminalApplication {
 
 struct AppLoop {
     debugger: Debugger,
-    control_rx: Receiver<Control>,
+    user_input_rx: Receiver<UserAction>,
     printer: ExternalPrinter,
     completer: Arc<Mutex<CommandCompleter>>,
     debugee_out: DebugeeOutReader,
     debugee_err: DebugeeOutReader,
     cancel_output_flag: Arc<AtomicBool>,
     helper: Helper,
+    ready_to_next_command_tx: mpsc::Sender<EditorMode>,
     already_run: bool,
 }
 
 impl AppLoop {
     fn yes(&self, question: &str) -> bool {
-        self.printer.print(question);
+        self.printer.println(question);
 
-        let act = self
-            .control_rx
-            .recv()
-            .expect("unexpected sender disconnect");
-        match act {
-            Control::Cmd(cmd) => {
-                let cmd = cmd.to_lowercase();
-                cmd == "y" || cmd == "yes"
-            }
-            Control::Terminate | Control::ChangeMode => false,
+        loop {
+            _ = self.ready_to_next_command_tx.send(EditorMode::YesNo);
+            let act = self
+                .user_input_rx
+                .recv()
+                .expect("unexpected sender disconnect");
+            return match act {
+                UserAction::Cmd(cmd) => match cmd.to_lowercase().as_str() {
+                    "y" | "yes" => true,
+                    "n" | "no" => false,
+                    _ => continue,
+                },
+                UserAction::Terminate | UserAction::ChangeMode => false,
+            };
         }
     }
 
@@ -306,7 +339,7 @@ impl AppLoop {
                 .handle(print_var_command)?
                 .into_iter()
                 .for_each(|var| {
-                    self.printer.print(format!(
+                    self.printer.println(format!(
                         "{} = {}",
                         KeywordView::from(var.name()),
                         render_variable_ir(&var, 0)
@@ -316,7 +349,7 @@ impl AppLoop {
                 .handle(print_arg_command)?
                 .into_iter()
                 .for_each(|arg| {
-                    self.printer.print(format!(
+                    self.printer.println(format!(
                         "{} = {}",
                         KeywordView::from(arg.name()),
                         render_variable_ir(&arg, 0)
@@ -330,7 +363,7 @@ impl AppLoop {
                         .as_ref()
                         .and_then(|bt| bt.first().map(|f| f.ip.to_string()));
 
-                    self.printer.print(format!(
+                    self.printer.println(format!(
                         "thread #{}, {} - {}",
                         thread.thread.number,
                         thread.thread.pid,
@@ -358,7 +391,7 @@ impl AppLoop {
                                 frame_info = frame_info.bold().to_string();
                             }
 
-                            self.printer.print(frame_info);
+                            self.printer.println(frame_info);
                             if user_bt_end {
                                 break;
                             }
@@ -374,24 +407,24 @@ impl AppLoop {
                 let result = FrameHandler::new(&mut self.debugger).handle(cmd)?;
                 match result {
                     FrameResult::FrameInfo(frame) => {
-                        self.printer.print(format!(
+                        self.printer.println(format!(
                             "frame #{} ({})",
                             frame.num,
                             FunctionNameView::from(frame.frame.func_name),
                         ));
                         let cfa = AddressView::from(frame.cfa);
-                        self.printer.print(format!("cfa: {cfa}"));
+                        self.printer.println(format!("cfa: {cfa}"));
                         let ret_addr = AddressView::from(frame.return_addr);
-                        self.printer.print(format!("return address: {ret_addr}"));
+                        self.printer.println(format!("return address: {ret_addr}"));
                     }
                     FrameResult::BroughtIntoFocus(num) => {
-                        self.printer.print(format!("switch to #{num}"));
+                        self.printer.println(format!("switch to #{num}"));
                     }
                 }
             }
             Command::Run => {
                 if self.already_run {
-                    if self.yes("Restart a program? (y or n)") {
+                    if self.yes("Restart a program?") {
                         RunHandler::new(&mut self.debugger).handle(run::Command::Restart)?
                     }
                 } else {
@@ -419,14 +452,14 @@ impl AppLoop {
             Command::Breakpoint(mut brkpt_cmd) => {
                 let print_bp = |action: &str, bp: &debugger::BreakpointView| match &bp.place {
                     None => {
-                        self.printer.print(format!(
+                        self.printer.println(format!(
                             "{action} {} at {}",
                             bp.number,
                             AddressView::from(bp.addr),
                         ));
                     }
                     Some(place) => {
-                        self.printer.print(format!(
+                        self.printer.println(format!(
                             "{action} {} at {}: {}:{} ",
                             bp.number,
                             AddressView::from(place.address),
@@ -452,9 +485,7 @@ impl AppLoop {
                             .iter()
                             .for_each(|brkpt| print_bp("- Breakpoint", brkpt)),
                         Err(Error::NoSuitablePlace) => {
-                            if self.yes(
-                                "Add deferred breakpoint for future shared library load? (y or n)",
-                            ) {
+                            if self.yes("Add deferred breakpoint for future shared library load?") {
                                 brkpt_cmd = BreakpointCommand::AddDeferred(
                                         brkpt_cmd
                                             .identity()
@@ -463,22 +494,22 @@ impl AppLoop {
                                 continue;
                             }
                         }
-                        Err(e) => return Err(e.into()),
                         Ok(ExecutionResult::AddDeferred) => {
-                            self.printer.print("Add deferred endpoint")
+                            self.printer.println("Add deferred endpoint")
                         }
+                        Err(e) => return Err(e.into()),
                     }
                     break;
                 }
             }
             Command::Memory(mem_cmd) => {
                 let read = MemoryHandler::new(&self.debugger).handle(mem_cmd)?;
-                self.printer.print(format!("{:#016X}", read));
+                self.printer.println(format!("{:#016X}", read));
             }
             Command::Register(reg_cmd) => {
                 let response = RegisterHandler::new(&self.debugger).handle(&reg_cmd)?;
                 response.iter().for_each(|register| {
-                    self.printer.print(format!(
+                    self.printer.println(format!(
                         "{:10} {:#016X}",
                         register.register_name, register.value
                     ));
@@ -486,9 +517,9 @@ impl AppLoop {
             }
             Command::Help { reason, command } => {
                 if let Some(reason) = reason {
-                    self.printer.print(reason);
+                    self.printer.println(reason);
                 }
-                self.printer.print(
+                self.printer.println(
                     self.helper
                         .help_for_command(&self.debugger, command.as_deref()),
                 );
@@ -497,7 +528,7 @@ impl AppLoop {
             Command::PrintSymbol(symbol) => {
                 let symbols = SymbolHandler::new(&self.debugger).handle(&symbol)?;
                 for symbol in symbols {
-                    self.printer.print(format!(
+                    self.printer.println(format!(
                         "{} - {:?} {}",
                         symbol.name,
                         symbol.kind,
@@ -524,15 +555,15 @@ impl AppLoop {
                             );
 
                             if thread.in_focus {
-                                self.printer.print(format!("{}", view.bold()))
+                                self.printer.println(format!("{}", view.bold()))
                             } else {
-                                self.printer.print(view)
+                                self.printer.println(view)
                             }
                         }
                     }
                     ThreadResult::BroughtIntoFocus(thread) => self
                         .printer
-                        .print(format!("Thread #{} brought into focus", thread.number)),
+                        .println(format!("Thread #{} brought into focus", thread.number)),
                 }
             }
             Command::SharedLib => {
@@ -542,7 +573,7 @@ impl AppLoop {
                         .range
                         .map(|range| format!("{} - {}", range.from, range.to));
 
-                    self.printer.print(format!(
+                    self.printer.println(format!(
                         "{}  {}  {}",
                         AddressView::from(mb_range),
                         if !lib.has_debug_info { "*" } else { " " },
@@ -553,7 +584,7 @@ impl AppLoop {
             Command::DisAsm => {
                 let handler = DisAsmHandler::new(&self.debugger);
                 let assembly = handler.handle()?;
-                self.printer.print(format!(
+                self.printer.println(format!(
                     "Assembler code for function {}",
                     FunctionNameView::from(assembly.name)
                 ));
@@ -566,16 +597,16 @@ impl AppLoop {
                     );
 
                     if ins.address == assembly.addr_in_focus {
-                        self.printer.print(format!("{}", instruction_view.bold()));
+                        self.printer.println(format!("{}", instruction_view.bold()));
                     } else {
-                        self.printer.print(instruction_view);
+                        self.printer.println(instruction_view);
                     }
                 }
             }
             Command::Oracle(name, subcmd) => match self.debugger.get_oracle(&name) {
                 None => self
                     .printer
-                    .print(ErrorView::from("oracle not found or not ready")),
+                    .println(ErrorView::from("oracle not found or not ready")),
                 Some(oracle) => oracle.print(&self.printer, subcmd.as_deref()),
             },
         }
@@ -585,35 +616,37 @@ impl AppLoop {
 
     fn run(mut self) {
         loop {
-            let Ok(action) = self.control_rx.recv() else {
+            _ = self.ready_to_next_command_tx.send(EditorMode::Default);
+
+            let Ok(action) = self.user_input_rx.recv() else {
                 break;
             };
 
             match action {
-                Control::Cmd(command) => {
-                    thread::sleep(Duration::from_millis(1));
+                UserAction::Cmd(command) => {
                     if let Err(e) = self.handle_command(&command) {
                         match e {
                             CommandError::Parsing(_) => {
-                                self.printer.print(ErrorView::from(e));
+                                self.printer.println(ErrorView::from(e));
                             }
                             CommandError::Handle(ref err) if err.is_fatal() => {
-                                self.printer.print(ErrorView::from("shutdown debugger"));
-                                self.printer
-                                    .print(ErrorView::from(format!("fatal debugger error: {e:#}")));
+                                self.printer.println(ErrorView::from("shutdown debugger"));
+                                self.printer.println(ErrorView::from(format!(
+                                    "fatal debugger error: {e:#}"
+                                )));
                                 exit(0);
                             }
                             CommandError::Handle(_) => {
                                 self.printer
-                                    .print(ErrorView::from(format!("debugger error: {e:#}")));
+                                    .println(ErrorView::from(format!("debugger error: {e:#}")));
                             }
                         }
                     }
                 }
-                Control::Terminate => {
+                UserAction::Terminate => {
                     break;
                 }
-                Control::ChangeMode => {
+                UserAction::ChangeMode => {
                     self.cancel_output_flag.store(true, Ordering::SeqCst);
                     let tui_builder =
                         crate::ui::tui::AppBuilder::new(self.debugee_out, self.debugee_err)

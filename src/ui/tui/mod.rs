@@ -6,6 +6,7 @@ use crate::ui::tui::proto::{exchanger, Request};
 use crate::ui::{console, DebugeeOutReader};
 use anyhow::anyhow;
 use log::error;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -123,7 +124,7 @@ impl AppBuilder {
 }
 
 pub struct TuiApplication {
-    already_run: bool,
+    already_run: Arc<AtomicBool>,
     debugger: Debugger,
     debugee_out: DebugeeOutReader,
     debugee_err: DebugeeOutReader,
@@ -140,7 +141,7 @@ impl TuiApplication {
             debugger,
             debugee_out,
             debugee_err,
-            already_run,
+            already_run: Arc::new(AtomicBool::new(already_run)),
         }
     }
 
@@ -169,7 +170,7 @@ impl TuiApplication {
         let (srv_exchanger, client_exchanger) = exchanger();
 
         // tui thread
-        let already_run = self.already_run;
+        let already_run = self.already_run.clone();
         let ui_jh = thread::spawn(move || -> anyhow::Result<()> {
             let mut model = Model::new(
                 stream_buf,
@@ -280,7 +281,7 @@ impl TuiApplication {
             ExitType::SwitchUi => {
                 _ = ui_jh.join();
                 let builder = console::AppBuilder::new(self.debugee_out, self.debugee_err)
-                    .with_already_run(self.already_run);
+                    .with_already_run(self.already_run.load(Ordering::Acquire));
                 let app = builder
                     .build(self.debugger)
                     .expect("build application fail");
