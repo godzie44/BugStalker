@@ -288,6 +288,17 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.sendline('continue')
         self.debugger.expect('bye!')
 
+    def test_breakpoint_remove_by_number(self):
+        """Remove breakpoint by its number"""
+        self.debugger.sendline('break main')
+        self.debugger.expect('New breakpoint')
+
+        self.debugger.sendline('break remove 1')
+        self.debugger.expect('Remove breakpoint')
+
+        self.debugger.sendline('run')
+        self.debugger.expect('bye!')
+
     def test_breakpoint_info(self):
         """View breakpoints list"""
         self.debugger.sendline('break hello_world.rs:9')

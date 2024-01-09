@@ -156,6 +156,7 @@ all matching functions). Examples:
     * break fn1 
     * break module1::fn1
 - at code line. Example: break hello_world.rs:15
+- a breakpoint number (only for `remove` subcommand)
 ";
 
 pub const HELP_SYMBOL: &str = "\

@@ -19,6 +19,7 @@ use nom::{IResult, Parser};
 use nom_supreme::error::ErrorTree;
 use nom_supreme::final_parser::Location;
 use nom_supreme::tag::complete::tag;
+use std::convert::Infallible;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
@@ -127,8 +128,17 @@ pub fn brkpt_at_fn(input: &str) -> IResult<&str, BreakpointIdentity, ErrorTree<&
             rust_identifier,
             opt(pair(rust_type_parameter, opt(tag("::")))),
         ))),
-        |fn_name: &str| -> Result<BreakpointIdentity, ParseIntError> {
+        |fn_name: &str| -> Result<BreakpointIdentity, Infallible> {
             Ok(BreakpointIdentity::Function(fn_name.to_string()))
+        },
+    )(input)
+}
+
+pub fn brkpt_number(input: &str) -> IResult<&str, BreakpointIdentity, ErrorTree<&str>> {
+    map_res(
+        digit1,
+        |number: &str| -> Result<BreakpointIdentity, ParseIntError> {
+            Ok(BreakpointIdentity::Number(number.parse()?))
         },
     )(input)
 }
@@ -280,7 +290,12 @@ impl Command {
                             pair(tag("remove"), multispace1),
                         )),
                         map(
-                            alt((brkpt_at_addr_parser, brkpt_at_line_parser, brkpt_at_fn)),
+                            alt((
+                                brkpt_at_addr_parser,
+                                brkpt_at_line_parser,
+                                brkpt_at_fn,
+                                brkpt_number,
+                            )),
                             |brkpt| Command::Breakpoint(r#break::Command::Remove(brkpt)),
                         ),
                     ),

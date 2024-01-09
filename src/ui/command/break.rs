@@ -61,7 +61,7 @@ impl<'a> Handler<'a> {
                         self.dbg.set_breakpoint_at_fn(func_name)?
                     }
                     BreakpointIdentity::Number(_) => {
-                        unimplemented!()
+                        unreachable!()
                     }
                 };
                 ExecutionResult::New(res)
@@ -100,7 +100,7 @@ impl<'a> Handler<'a> {
                         self.dbg.add_deferred_at_function(function)
                     }
                     BreakpointIdentity::Number(_) => {
-                        unimplemented!()
+                        unreachable!()
                     }
                 };
                 ExecutionResult::AddDeferred

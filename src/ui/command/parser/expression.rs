@@ -1,3 +1,5 @@
+//! data query expressions parser.
+
 use super::rust_identifier;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use nom::character::complete::{digit1, multispace0};
