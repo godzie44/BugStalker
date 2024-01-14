@@ -23,7 +23,7 @@ pub enum Expression {
     Variable(VariableSelector),
     Field(Box<Expression>, String),
     Index(Box<Expression>, u64),
-    Slice(Box<Expression>, u64),
+    Slice(Box<Expression>, Option<usize>, Option<usize>),
     Parentheses(Box<Expression>),
     Deref(Box<Expression>),
 }
@@ -160,7 +160,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
             }
             Expression::Field(expr, _)
             | Expression::Index(expr, _)
-            | Expression::Slice(expr, _)
+            | Expression::Slice(expr, _, _)
             | Expression::Parentheses(expr)
             | Expression::Deref(expr) => self.evaluate_inner(expr),
         }
@@ -236,7 +236,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
             }
             Expression::Field(expr, _)
             | Expression::Index(expr, _)
-            | Expression::Slice(expr, _)
+            | Expression::Slice(expr, _, _)
             | Expression::Parentheses(expr)
             | Expression::Deref(expr) => self.evaluate_on_arguments_inner(expr),
         }
@@ -274,9 +274,9 @@ impl<'a> SelectExpressionEvaluator<'a> {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
                 var.index(*idx as usize)
             }
-            Expression::Slice(expr, len) => {
+            Expression::Slice(expr, left, right) => {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
-                var.slice(evaluation_context, &parser, *len as usize)
+                var.slice(evaluation_context, &parser, *left, *right)
             }
             Expression::Parentheses(expr) => {
                 self.evaluate_single_variable(expr, variable_die, r#type)

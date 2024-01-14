@@ -196,6 +196,20 @@ pub struct ArrayVariable {
     pub items: Option<Vec<VariableIR>>,
 }
 
+impl ArrayVariable {
+    fn slice(&mut self, left: Option<usize>, right: Option<usize>) {
+        if let Some(items) = self.items.as_mut() {
+            if let Some(left) = left {
+                items.drain(..left);
+            }
+
+            if let Some(right) = right {
+                items.drain(right - left.unwrap_or_default()..);
+            }
+        }
+    }
+}
+
 /// Simple c-style enums (each option in which does not contain the underlying values).
 #[derive(Clone)]
 pub struct CEnumVariable {
@@ -264,18 +278,18 @@ impl PointerVariable {
         &self,
         eval_ctx: &EvaluationContext,
         parser: &VariableParser,
-        len: usize,
+        left: Option<usize>,
+        right: usize,
     ) -> Option<VariableIR> {
-        let deref_size =
-            self.target_type
-                .and_then(|t| parser.r#type.type_size_in_bytes(eval_ctx, t))? as usize;
         let target_type = self.target_type?;
+        let deref_size = parser.r#type.type_size_in_bytes(eval_ctx, target_type)? as usize;
 
         self.value.and_then(|ptr| {
+            let left = left.unwrap_or_default();
             let val = weak_error!(debugger::read_memory_by_pid(
                 eval_ctx.expl_ctx.pid_on_focus(),
-                ptr as usize,
-                deref_size * len
+                ptr as usize + deref_size * left,
+                deref_size * (right - left)
             ))?;
             let val = bytes::Bytes::from(val);
             let mut identity = self.identity.clone();
@@ -567,17 +581,48 @@ impl VariableIR {
     }
 
     fn slice(
-        self,
+        mut self,
         eval_ctx: &EvaluationContext,
         variable_parser: &VariableParser,
-        len: usize,
+        left: Option<usize>,
+        right: Option<usize>,
     ) -> Option<Self> {
-        match self {
-            VariableIR::Pointer(ptr) => ptr.slice(eval_ctx, variable_parser, len),
-            VariableIR::Specialized(SpecializedVariableIR::Rc { value, .. })
-            | VariableIR::Specialized(SpecializedVariableIR::Arc { value, .. }) => {
-                value.and_then(|var| var.slice(eval_ctx, variable_parser, len))
+        match &mut self {
+            VariableIR::Array(ref mut array) => {
+                array.slice(left, right);
+                Some(self)
             }
+            VariableIR::Pointer(ptr) => {
+                // for pointer the right bound must always be specified
+                let right = right?;
+                ptr.slice(eval_ctx, variable_parser, left, right)
+            }
+            VariableIR::Specialized(spec) => match spec {
+                SpecializedVariableIR::Rc { value, .. }
+                | SpecializedVariableIR::Arc { value, .. } => {
+                    let ptr = value.as_ref()?;
+                    // for pointer the right bound must always be specified
+                    let right = right?;
+                    ptr.slice(eval_ctx, variable_parser, left, right)
+                }
+                SpecializedVariableIR::Vector { vec, .. }
+                | SpecializedVariableIR::VecDeque { vec, .. } => {
+                    let vec = vec.as_mut()?;
+                    vec.slice(left, right);
+                    Some(self)
+                }
+                SpecializedVariableIR::Tls { tls_var, .. } => {
+                    let tls_var = tls_var.take()?;
+                    let inner = tls_var.inner_value?;
+                    inner.slice(eval_ctx, variable_parser, left, right)
+                }
+                SpecializedVariableIR::Cell { value, .. }
+                | SpecializedVariableIR::RefCell { value, .. } => {
+                    let inner = value.take()?;
+                    inner.slice(eval_ctx, variable_parser, left, right)
+                }
+                _ => None,
+            },
             _ => None,
         }
     }

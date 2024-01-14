@@ -58,6 +58,19 @@ pub struct VecVariable {
     pub structure: StructVariable,
 }
 
+impl VecVariable {
+    pub fn slice(&mut self, left: Option<usize>, right: Option<usize>) {
+        debug_assert!(matches!(
+            self.structure.members.get_mut(0),
+            Some(VariableIR::Array(_))
+        ));
+
+        if let Some(VariableIR::Array(array)) = self.structure.members.get_mut(0) {
+            array.slice(left, right);
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct StringVariable {
     pub identity: VariableIdentity,

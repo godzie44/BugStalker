@@ -3,10 +3,10 @@
 use super::rust_identifier;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use nom::character::complete::{digit1, multispace0};
-use nom::combinator::{cut, eof, peek};
+use nom::combinator::{cut, eof, opt, peek};
 use nom::error::context;
 use nom::multi::many_till;
-use nom::sequence::terminated;
+use nom::sequence::{separated_pair, terminated};
 use nom::{
     branch::alt,
     combinator::map,
@@ -18,10 +18,10 @@ use nom_supreme::tag::complete::tag;
 use std::fmt::Debug;
 
 #[derive(Debug)]
-pub enum Operation {
-    Field,
-    Index,
-    Slice,
+pub enum StrOp<'a> {
+    Field(&'a str),
+    Index(&'a str),
+    Slice(Option<&'a str>, Option<&'a str>),
 }
 
 fn parens(i: &str) -> IResult<&str, Expression, ErrorTree<&str>> {
@@ -45,13 +45,14 @@ fn variable(i: &str) -> IResult<&str, Expression, ErrorTree<&str>> {
     })(i)
 }
 
-fn fold_expressions(initial: Expression, remainder: Vec<(Operation, &str)>) -> Expression {
-    remainder.into_iter().fold(initial, |acc, pair| {
-        let (operation, expr) = pair;
-        match operation {
-            Operation::Field => Expression::Field(Box::new(acc), expr.to_string()),
-            Operation::Index => Expression::Index(Box::new(acc), expr.parse().unwrap()),
-            Operation::Slice => Expression::Slice(Box::new(acc), expr.parse().unwrap()),
+fn fold_expressions(initial: Expression, remainder: Vec<StrOp>) -> Expression {
+    remainder.into_iter().fold(initial, |acc, op| match op {
+        StrOp::Field(field) => Expression::Field(Box::new(acc), field.to_string()),
+        StrOp::Index(idx) => Expression::Index(Box::new(acc), idx.parse().unwrap_or_default()),
+        StrOp::Slice(left, right) => {
+            let left = left.and_then(|s| s.parse().ok());
+            let right = right.and_then(|s| s.parse().ok());
+            Expression::Slice(Box::new(acc), left, right)
         }
     })
 }
@@ -62,15 +63,21 @@ fn r_op(i: &str) -> IResult<&str, Expression, ErrorTree<&str>> {
         alt((
             context("field lookup", |i| {
                 let (i, field) = preceded(tag("."), cut(alt((rust_identifier, digit1))))(i)?;
-                Ok((i, (Operation::Field, field)))
-            }),
-            context("slice operator", |i| {
-                let (i, len) = preceded(tag("[.."), cut(terminated(digit1, tag("]"))))(i)?;
-                Ok((i, (Operation::Slice, len)))
+                Ok((i, StrOp::Field(field)))
             }),
             context("index operator", |i| {
-                let (i, index) = preceded(tag("["), cut(terminated(digit1, tag("]"))))(i)?;
-                Ok((i, (Operation::Index, index)))
+                let (i, index) = preceded(tag("["), terminated(digit1, tag("]")))(i)?;
+                Ok((i, StrOp::Index(index)))
+            }),
+            context("slice operator", |i| {
+                let (i, (left, right)) = preceded(
+                    tag("["),
+                    terminated(
+                        cut(separated_pair(opt(digit1), tag(".."), opt(digit1))),
+                        tag("]"),
+                    ),
+                )(i)?;
+                Ok((i, StrOp::Slice(left, right)))
             }),
         )),
         alt((eof, peek(tag(")")))),
@@ -201,6 +208,20 @@ mod test {
                 ))),
             },
             TestCase {
+                string: "var1.field1[5..]",
+                expr: Expression::Slice(
+                    Box::new(Expression::Field(
+                        Box::new(Expression::Variable(VariableSelector::Name {
+                            var_name: "var1".to_string(),
+                            local: false,
+                        })),
+                        "field1".to_string(),
+                    )),
+                    Some(5),
+                    None,
+                ),
+            },
+            TestCase {
                 string: "var1.field1[..5]",
                 expr: Expression::Slice(
                     Box::new(Expression::Field(
@@ -210,7 +231,36 @@ mod test {
                         })),
                         "field1".to_string(),
                     )),
-                    5,
+                    None,
+                    Some(5),
+                ),
+            },
+            TestCase {
+                string: "var1.field1[5..5]",
+                expr: Expression::Slice(
+                    Box::new(Expression::Field(
+                        Box::new(Expression::Variable(VariableSelector::Name {
+                            var_name: "var1".to_string(),
+                            local: false,
+                        })),
+                        "field1".to_string(),
+                    )),
+                    Some(5),
+                    Some(5),
+                ),
+            },
+            TestCase {
+                string: "var1.field1[..]",
+                expr: Expression::Slice(
+                    Box::new(Expression::Field(
+                        Box::new(Expression::Variable(VariableSelector::Name {
+                            var_name: "var1".to_string(),
+                            local: false,
+                        })),
+                        "field1".to_string(),
+                    )),
+                    None,
+                    None,
                 ),
             },
             TestCase {
@@ -247,9 +297,9 @@ mod test {
 one of:
   in section "field lookup" at line 1, column 6,
   expected "." at line 1, column 6, or
-  in section "slice operator" at line 1, column 6,
-  expected "[.." at line 1, column 6, or
   in section "index operator" at line 1, column 6,
+  expected "[" at line 1, column 6, or
+  in section "slice operator" at line 1, column 6,
   expected "[" at line 1, column 6"#,
             },
             TestCase {
@@ -257,19 +307,21 @@ one of:
                 err_text: r#"in section "field lookup" at line 1, column 5,
 one of:
   expected an ascii letter at line 1, column 6, or
-  expected "_" at line 1, column 6"#,
+  expected "_" at line 1, column 6, or
+  expected an ascii digit at line 1, column 6"#,
             },
             TestCase {
                 string: "var1[]",
-                err_text: r#"in section "index operator" at line 1, column 5,
-expected an ascii digit at line 1, column 6"#,
+                err_text: r#"in section "slice operator" at line 1, column 5,
+expected ".." at line 1, column 6"#,
             },
             TestCase {
                 string: "(var1.)field1",
                 err_text: r#"in section "field lookup" at line 1, column 6,
 one of:
   expected an ascii letter at line 1, column 7, or
-  expected "_" at line 1, column 7"#,
+  expected "_" at line 1, column 7, or
+  expected an ascii digit at line 1, column 7"#,
             },
             TestCase {
                 string: "((var1)",

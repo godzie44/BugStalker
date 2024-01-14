@@ -416,6 +416,38 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('var arr_2[0][2]')
         self.debugger.expect_exact('2 = i32(2)')
 
+        self.debugger.sendline('var arr_1[2..4]')
+        self.debugger.expect_exact('arr_1 = [i32] {')
+        self.debugger.expect_exact('2: i32(2)')
+        self.debugger.expect_exact('3: i32(-2)')
+        self.debugger.expect_exact('}')
+
+        self.debugger.sendline('var arr_1[..]')
+        self.debugger.expect_exact('arr_1 = [i32] {')
+        self.debugger.expect_exact('0: i32(1)')
+        self.debugger.expect_exact('1: i32(-1)')
+        self.debugger.expect_exact('2: i32(2)')
+        self.debugger.expect_exact('3: i32(-2)')
+        self.debugger.expect_exact('4: i32(3)')
+        self.debugger.expect_exact('}')
+
+        self.debugger.sendline('var arr_1[..2]')
+        self.debugger.expect_exact('arr_1 = [i32] {')
+        self.debugger.expect_exact('0: i32(1)')
+        self.debugger.expect_exact('1: i32(-1)')
+        self.debugger.expect_exact('}')
+
+        self.debugger.sendline('var arr_1[3..]')
+        self.debugger.expect_exact('arr_1 = [i32] {')
+        self.debugger.expect_exact('3: i32(-2)')
+        self.debugger.expect_exact('4: i32(3)')
+        self.debugger.expect_exact('}')
+
+        self.debugger.sendline('var arr_1[2..4][1..]')
+        self.debugger.expect_exact('arr_1 = [i32] {')
+        self.debugger.expect_exact('3: i32(-2)')
+        self.debugger.expect_exact('}')
+
         self.debugger.sendline('break vars.rs:93')
         self.debugger.expect_exact('New breakpoint')
         self.debugger.sendline('continue')

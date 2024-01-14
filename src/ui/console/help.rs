@@ -37,7 +37,7 @@ query expressions as such a tool.
 Available operators:
 `*` - dereference, available for references, pointers and smart pointers (Rc and Arc)
 `[{digit}]` - index operator, available for arrays, enums, vectors and veqdequeues
-`[..{digit}]` - slice operator, available for pointers
+`[{left}..{right}]` - slice operator, available for pointers
 `.` - get field, available for structs, enums and hashmaps (with string keys)
 `(` and `)` - parentheses to prioritize operations
 
@@ -63,6 +63,7 @@ var locals - print current stack frame local variables
 var some_variable - print all variables with given name, variables can be in local or global scope 
 var *some_variable - dereference and print value if `some_variable` is a pointer or RC/ARC
 var some_array[0] - print first element if `some_array` is a vector, array, vecdeque or enum
+var some_array[2..5] - print 3 elements, starts from index 2
 var *some_array[0] - print dereferenced value of some_array[0]
 var (*some_array)[0] - print first element of *some_array
 ";

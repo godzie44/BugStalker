@@ -2290,3 +2290,93 @@ fn test_read_static_in_fn_variable() {
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
+
+#[test]
+#[serial]
+fn test_slice_operator() {
+    let process = prepare_debugee_process(VARS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = DebugeeRunInfo::default();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
+
+    debugger.set_breakpoint_at_line("vars.rs", 61).unwrap();
+
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(61));
+
+    let vars = debugger
+        .read_variable(Expression::Slice(
+            Expression::Variable(VariableSelector::Name {
+                var_name: "arr_1".to_string(),
+                local: true,
+            })
+            .boxed(),
+            None,
+            None,
+        ))
+        .unwrap();
+    assert_array(&vars[0], "arr_1", "[i32]", |i, item| match i {
+        0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+        1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(-1))),
+        2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(2))),
+        3 => assert_scalar(item, "3", "i32", Some(SupportedScalar::I32(-2))),
+        4 => assert_scalar(item, "4", "i32", Some(SupportedScalar::I32(3))),
+        _ => panic!("5 items expected"),
+    });
+
+    let vars = debugger
+        .read_variable(Expression::Slice(
+            Expression::Variable(VariableSelector::Name {
+                var_name: "arr_1".to_string(),
+                local: true,
+            })
+            .boxed(),
+            Some(3),
+            None,
+        ))
+        .unwrap();
+    assert_array(&vars[0], "arr_1", "[i32]", |i, item| match i {
+        0 => assert_scalar(item, "3", "i32", Some(SupportedScalar::I32(-2))),
+        1 => assert_scalar(item, "4", "i32", Some(SupportedScalar::I32(3))),
+        _ => panic!("2 items expected"),
+    });
+
+    let vars = debugger
+        .read_variable(Expression::Slice(
+            Expression::Variable(VariableSelector::Name {
+                var_name: "arr_1".to_string(),
+                local: true,
+            })
+            .boxed(),
+            None,
+            Some(2),
+        ))
+        .unwrap();
+    assert_array(&vars[0], "arr_1", "[i32]", |i, item| match i {
+        0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+        1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(-1))),
+        _ => panic!("2 items expected"),
+    });
+
+    let vars = debugger
+        .read_variable(Expression::Slice(
+            Expression::Variable(VariableSelector::Name {
+                var_name: "arr_1".to_string(),
+                local: true,
+            })
+            .boxed(),
+            Some(1),
+            Some(4),
+        ))
+        .unwrap();
+    assert_array(&vars[0], "arr_1", "[i32]", |i, item| match i {
+        0 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(-1))),
+        1 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(2))),
+        2 => assert_scalar(item, "3", "i32", Some(SupportedScalar::I32(-2))),
+        _ => panic!("3 items expected"),
+    });
+
+    debugger.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
