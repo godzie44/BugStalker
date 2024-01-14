@@ -950,11 +950,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
                     die: var,
                 };
 
-                if var_ref.valid_at(pc) {
-                    continue;
-                }
-
-                if var_ref.die.name() == Some(needle) {
+                if var_ref.die.name() == Some(needle) && var_ref.valid_at(pc) {
                     return Some(var_ref);
                 }
             }
