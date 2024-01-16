@@ -136,7 +136,6 @@ impl<'a> DwarfUnitParser<'a> {
             });
 
             let base_attrs = DieAttributes {
-                _tag: die.tag(),
                 name: name
                     .map(|s| s.to_string_lossy().map(|s| s.to_string()))
                     .transpose()?,
@@ -363,7 +362,9 @@ impl<'a> DwarfUnitParser<'a> {
                 gimli::DW_TAG_pointer_type => DieVariant::PointerType(PointerType {
                     base_attributes: base_attrs,
                     type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                    address_class: die.attr(DW_AT_address_class)?.and_then(|v| v.udata_value()),
+                    address_class: die
+                        .attr(DW_AT_address_class)?
+                        .and_then(|v| v.udata_value().map(|u| u as u8)),
                 }),
                 gimli::DW_TAG_template_type_parameter => {
                     DieVariant::TemplateType(TemplateTypeParameter {
@@ -437,6 +438,8 @@ where
             epilog_begin: line_row.epilogue_begin(),
         })
     }
+
+    lines.shrink_to_fit();
     Ok(lines)
 }
 
@@ -462,6 +465,7 @@ where
         index += 1;
     }
 
+    files.shrink_to_fit();
     Ok(files)
 }
 

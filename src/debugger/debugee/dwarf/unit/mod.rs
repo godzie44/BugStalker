@@ -9,8 +9,8 @@ use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::debugee::Debugee;
 use crate::debugger::error::Error;
 use gimli::{
-    Attribute, AttributeValue, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DwAte, DwTag,
-    Encoding, Range, UnitHeader, UnitOffset,
+    Attribute, AttributeValue, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DwAte, Encoding,
+    Range, UnitHeader, UnitOffset,
 };
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
@@ -21,6 +21,7 @@ use uuid::Uuid;
 
 /// A row in the line number program's resulting matrix.
 #[derive(PartialEq, Debug, Clone)]
+#[repr(packed)]
 pub(super) struct LineRow {
     pub(super) address: u64,
     pub(super) file_index: u64,
@@ -110,7 +111,6 @@ impl<'a> PartialEq for PlaceDescriptor<'a> {
 
 #[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub struct DieAttributes {
-    pub _tag: DwTag,
     pub name: Option<String>,
     pub ranges: Box<[Range]>,
 }
@@ -161,7 +161,6 @@ pub struct VariableDie {
 #[derive(Debug, Clone)]
 pub struct BaseTypeDie {
     pub base_attributes: DieAttributes,
-    #[allow(unused)]
     pub encoding: Option<DwAte>,
     pub byte_size: Option<u64>,
 }
@@ -227,7 +226,7 @@ pub struct PointerType {
     pub base_attributes: DieAttributes,
     pub type_ref: Option<DieRef>,
     #[allow(unused)]
-    pub address_class: Option<u64>,
+    pub address_class: Option<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -723,8 +722,7 @@ impl Unit {
     pub(super) fn file_path_with_lines_pairs(
         &self,
     ) -> impl Iterator<Item = (impl IntoIterator<Item = impl ToString + '_>, Vec<usize>)> {
-        //todo use vector instead of hashmap here
-        let mut grouped_by_file_lines = HashMap::new();
+        let mut grouped_by_file_lines = HashMap::with_capacity(self.files.len());
         for (line_idx, line) in self.lines.iter().enumerate() {
             let file_idx = line.file_index as usize;
             let entry = grouped_by_file_lines.entry(file_idx).or_insert(vec![]);
