@@ -8,7 +8,7 @@ pub mod tokio;
 /// # Arguments
 ///
 /// * `name`: oracle name
-pub fn create_builtin(name: &str) -> Option<impl Oracle> {
+pub fn make_builtin(name: &str) -> Option<impl Oracle> {
     match name {
         "tokio" => Some(TokioOracle::new()),
         _ => None,

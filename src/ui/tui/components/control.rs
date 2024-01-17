@@ -1,5 +1,6 @@
+use crate::debugger::Error;
 use crate::ui::command;
-use crate::ui::command::run;
+use crate::ui::command::{run, CommandError};
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::{Id, Msg};
@@ -14,16 +15,14 @@ use tuirealm::{Component, Event, MockComponent, Sub, SubClause, SubEventClause};
 pub struct GlobalControl {
     component: tui_realm_stdlib::Phantom,
     exchanger: Arc<ClientExchanger>,
-    already_run: bool,
     last_seen_pid: Pid,
 }
 
 impl GlobalControl {
-    pub fn new(exchanger: Arc<ClientExchanger>, pid: Pid, app_already_run: bool) -> Self {
+    pub fn new(exchanger: Arc<ClientExchanger>, pid: Pid) -> Self {
         Self {
             component: tui_realm_stdlib::Phantom::default(),
             exchanger,
-            already_run: app_already_run,
             last_seen_pid: pid,
         }
     }
@@ -147,13 +146,19 @@ impl Component<Msg, UserEvent> for GlobalControl {
                 code: Key::Function(10),
                 ..
             }) => {
-                if self.already_run {
+                let mb_err = self
+                    .exchanger
+                    .request_sync(|dbg| run::Handler::new(dbg).handle(run::Command::DryStart));
+
+                let already_run =
+                    matches!(mb_err.err(), Some(CommandError::Handle(Error::AlreadyRun)));
+
+                if already_run {
                     Msg::PopupConfirmDebuggerRestart
                 } else {
                     self.exchanger.request_async(|dbg| {
                         Ok(run::Handler::new(dbg).handle(run::Command::Start)?)
                     });
-                    self.already_run = true;
                     Msg::AppRunning
                 }
             }

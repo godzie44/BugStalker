@@ -2,15 +2,15 @@ pub mod port;
 
 use std::borrow::Cow;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::style::Color;
 
+use crate::debugger::Error;
 use crate::ui::command;
 use crate::ui::command::r#break::BreakpointIdentity;
-use crate::ui::command::{r#break, run};
+use crate::ui::command::{r#break, run, CommandError};
 use crate::ui::tui::app::port::{
     AsyncResponsesPort, DebuggerEventQueue, DebuggerEventsPort, LoggerPort, OutputPort, UserEvent,
 };
@@ -46,7 +46,6 @@ pub struct Model {
     pub terminal: TerminalBridge,
 
     exchanger: Arc<ClientExchanger>,
-    already_run: Arc<AtomicBool>,
 }
 
 impl Model {
@@ -55,22 +54,14 @@ impl Model {
         event_queue: DebuggerEventQueue,
         client_exchanger: ClientExchanger,
         log_buffer: Arc<Mutex<Vec<TuiLogLine>>>,
-        already_run: Arc<AtomicBool>,
     ) -> anyhow::Result<Self> {
         let exchanger = Arc::new(client_exchanger);
         Ok(Self {
-            app: Self::init_app(
-                output_buf,
-                event_queue,
-                exchanger.clone(),
-                log_buffer,
-                already_run.load(Ordering::Acquire),
-            )?,
+            app: Self::init_app(output_buf, event_queue, exchanger.clone(), log_buffer)?,
             quit: false,
             redraw: true,
             terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
             exchanger,
-            already_run: already_run.clone(),
         })
     }
 }
@@ -164,7 +155,6 @@ impl Model {
         event_queue: DebuggerEventQueue,
         exchanger: Arc<ClientExchanger>,
         log_buffer: Arc<Mutex<Vec<TuiLogLine>>>,
-        app_already_run: bool,
     ) -> anyhow::Result<Application<Id, Msg, UserEvent>> {
         let mut app: Application<Id, Msg, UserEvent> = Application::init(
             EventListenerCfg::default()
@@ -192,15 +182,20 @@ impl Model {
         let pid = exchanger.request_sync(|dbg| dbg.process().pid());
         app.mount(
             Id::GlobalControl,
-            Box::new(GlobalControl::new(exchanger.clone(), pid, app_already_run)),
+            Box::new(GlobalControl::new(exchanger.clone(), pid)),
             GlobalControl::subscriptions(),
         )?;
 
         app.mount(Id::Popup, Box::<Popup>::default(), vec![])?;
         app.mount(Id::Input, Box::<Input>::default(), vec![])?;
+
+        let mb_err =
+            exchanger.request_sync(|dbg| run::Handler::new(dbg).handle(run::Command::DryStart));
+        let already_run = matches!(mb_err.err(), Some(CommandError::Handle(Error::AlreadyRun)));
+
         app.mount(
             Id::Status,
-            Box::new(Status::new(app_already_run)),
+            Box::new(Status::new(already_run)),
             Status::subscriptions(),
         )?;
         app.mount(Id::LeftTabs, Box::<LeftTab>::default(), vec![])?;
@@ -266,7 +261,6 @@ impl Model {
                             TextSpan::new("running").fg(Color::Red),
                         )])),
                     )?;
-                    self.already_run.store(true, Ordering::Release);
                 }
                 Msg::SwitchUI => {
                     self.exchanger.send_switch_ui();

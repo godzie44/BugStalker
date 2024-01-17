@@ -10,6 +10,8 @@ use std::string::FromUtf8Error;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     // --------------------------------- generic errors --------------------------------------------
+    #[error("debugee already run")]
+    AlreadyRun,
     #[error(transparent)]
     IO(#[from] std::io::Error),
     #[error(transparent)]
@@ -144,6 +146,7 @@ impl Error {
     /// Return a hint to an interface - continue debugging after error or stop whole process.
     pub fn is_fatal(&self) -> bool {
         match self {
+            Error::AlreadyRun => false,
             Error::IO(_) => false,
             Error::Utf8(_) => false,
             Error::FromUtf8(_) => false,

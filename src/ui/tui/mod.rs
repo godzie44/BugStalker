@@ -6,7 +6,6 @@ use crate::ui::tui::proto::{exchanger, Request};
 use crate::ui::{console, DebugeeOutReader};
 use anyhow::anyhow;
 use log::error;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -94,7 +93,6 @@ pub struct DebugeeStreamBuffer {
 pub struct AppBuilder {
     debugee_out: DebugeeOutReader,
     debugee_err: DebugeeOutReader,
-    already_run: bool,
 }
 
 impl AppBuilder {
@@ -102,29 +100,15 @@ impl AppBuilder {
         Self {
             debugee_out,
             debugee_err,
-            already_run: false,
-        }
-    }
-
-    pub fn with_already_run(self, already_run: bool) -> Self {
-        Self {
-            already_run,
-            ..self
         }
     }
 
     pub fn build(self, debugger: Debugger) -> TuiApplication {
-        TuiApplication::new(
-            debugger,
-            self.debugee_out,
-            self.debugee_err,
-            self.already_run,
-        )
+        TuiApplication::new(debugger, self.debugee_out, self.debugee_err)
     }
 }
 
 pub struct TuiApplication {
-    already_run: Arc<AtomicBool>,
     debugger: Debugger,
     debugee_out: DebugeeOutReader,
     debugee_err: DebugeeOutReader,
@@ -135,13 +119,11 @@ impl TuiApplication {
         debugger: Debugger,
         debugee_out: DebugeeOutReader,
         debugee_err: DebugeeOutReader,
-        already_run: bool,
     ) -> Self {
         Self {
             debugger,
             debugee_out,
             debugee_err,
-            already_run: Arc::new(AtomicBool::new(already_run)),
         }
     }
 
@@ -170,14 +152,12 @@ impl TuiApplication {
         let (srv_exchanger, client_exchanger) = exchanger();
 
         // tui thread
-        let already_run = self.already_run.clone();
         let ui_jh = thread::spawn(move || -> anyhow::Result<()> {
             let mut model = Model::new(
                 stream_buf,
                 debugger_event_queue,
                 client_exchanger,
                 log_buffer,
-                already_run,
             )?;
             model.terminal.enter_alternate_screen()?;
             model.terminal.enable_raw_mode()?;
@@ -280,8 +260,7 @@ impl TuiApplication {
             }
             ExitType::SwitchUi => {
                 _ = ui_jh.join();
-                let builder = console::AppBuilder::new(self.debugee_out, self.debugee_err)
-                    .with_already_run(self.already_run.load(Ordering::Acquire));
+                let builder = console::AppBuilder::new(self.debugee_out, self.debugee_err);
                 let app = builder
                     .build(self.debugger)
                     .expect("build application fail");

@@ -69,27 +69,25 @@ fn main() {
     let mut debugger_builder: DebuggerBuilder<NopHook> = DebuggerBuilder::new();
 
     for name in args.oracle {
-        if let Some(oracle) = builtin::create_builtin(&name) {
+        if let Some(oracle) = builtin::make_builtin(&name) {
             info!(target: "debugger", "oracle `{name}` discovered");
             debugger_builder = debugger_builder.with_oracle(oracle);
         }
     }
 
-    let process_is_external = process.is_external();
-
     let debugger = debugger_builder
         .build(process)
-        .expect("prepare application fail");
+        .expect("prepare application error");
 
     if args.tui {
-        let app_builder = tui::AppBuilder::new(stdout_reader.into(), stderr_reader.into())
-            .with_already_run(process_is_external);
+        let app_builder = tui::AppBuilder::new(stdout_reader.into(), stderr_reader.into());
         let app = app_builder.build(debugger);
-        app.run().expect("run application fail");
+        app.run().expect("application run error");
     } else {
-        let app_builder = console::AppBuilder::new(stdout_reader.into(), stderr_reader.into())
-            .with_already_run(process_is_external);
-        let app = app_builder.build(debugger).expect("build application fail");
-        app.run().expect("run application fail");
+        let app_builder = console::AppBuilder::new(stdout_reader.into(), stderr_reader.into());
+        let app = app_builder
+            .build(debugger)
+            .expect("application build error");
+        app.run().expect("application run error");
     }
 }

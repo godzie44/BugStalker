@@ -3,6 +3,7 @@ use crate::ui::command;
 
 pub enum Command {
     Start,
+    DryStart,
     Restart,
 }
 
@@ -21,9 +22,10 @@ impl<'a> Handler<'a> {
         match cmd {
             Command::Start => Ok(self.dbg.start_debugee()?),
             Command::Restart => {
-                self.dbg.restart_debugee()?;
+                self.dbg.start_debugee_force()?;
                 Ok(())
             }
+            Command::DryStart => Ok(self.dbg.dry_start_debugee()?),
         }
     }
 }

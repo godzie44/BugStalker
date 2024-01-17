@@ -68,7 +68,6 @@ static DEBUGEE_PID: AtomicI32 = AtomicI32::new(-1);
 pub struct AppBuilder {
     debugee_out: DebugeeOutReader,
     debugee_err: DebugeeOutReader,
-    already_run: bool,
 }
 
 impl AppBuilder {
@@ -76,14 +75,6 @@ impl AppBuilder {
         Self {
             debugee_out,
             debugee_err,
-            already_run: false,
-        }
-    }
-
-    pub fn with_already_run(self, already_run: bool) -> Self {
-        Self {
-            already_run,
-            ..self
         }
     }
 
@@ -112,7 +103,6 @@ impl AppBuilder {
             debugee_err: self.debugee_err,
             user_act_tx: user_cmd_tx,
             user_act_rx: user_cmd_rx,
-            already_run: self.already_run,
         })
     }
 }
@@ -138,7 +128,6 @@ pub struct TerminalApplication {
     debugee_err: DebugeeOutReader,
     user_act_tx: SyncSender<UserAction>,
     user_act_rx: Receiver<UserAction>,
-    already_run: bool,
 }
 
 pub static HELLO_ONCE: Once = Once::new();
@@ -209,7 +198,6 @@ impl TerminalApplication {
             cancel_output_flag: cancel,
             ready_to_next_command_tx,
             helper: Default::default(),
-            already_run: self.already_run,
         };
 
         static CTRLC_ONCE: Once = Once::new();
@@ -295,7 +283,6 @@ struct AppLoop {
     cancel_output_flag: Arc<AtomicBool>,
     helper: Helper,
     ready_to_next_command_tx: mpsc::Sender<EditorMode>,
-    already_run: bool,
 }
 
 impl AppLoop {
@@ -422,17 +409,17 @@ impl AppLoop {
                     }
                 }
             }
-            Command::Run => {
-                if self.already_run {
+            Command::Run => match RunHandler::new(&mut self.debugger).handle(run::Command::Start) {
+                Err(CommandError::Handle(Error::AlreadyRun)) => {
                     if self.yes("Restart a program?") {
                         RunHandler::new(&mut self.debugger).handle(run::Command::Restart)?
                     }
-                } else {
-                    RunHandler::new(&mut self.debugger).handle(run::Command::Start)?;
-                    self.already_run = true;
+                }
+                Err(e) => return Err(e),
+                _ => {
                     _ = self.update_completer_variables();
                 }
-            }
+            },
             Command::StepInstruction => {
                 step_instruction::Handler::new(&mut self.debugger).handle()?;
                 _ = self.update_completer_variables();
@@ -649,8 +636,7 @@ impl AppLoop {
                 UserAction::ChangeMode => {
                     self.cancel_output_flag.store(true, Ordering::SeqCst);
                     let tui_builder =
-                        crate::ui::tui::AppBuilder::new(self.debugee_out, self.debugee_err)
-                            .with_already_run(self.already_run);
+                        crate::ui::tui::AppBuilder::new(self.debugee_out, self.debugee_err);
                     let app = tui_builder.build(self.debugger);
                     app.run().expect("run application fail");
                     break;

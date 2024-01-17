@@ -538,13 +538,50 @@ impl Debugger {
         Ok(self.process.pid())
     }
 
-    /// Start debugee.
-    /// Return when debugee stopped or ends.
-    pub fn start_debugee(&mut self) -> Result<(), Error> {
-        if !self.debugee.is_in_progress() {
-            self.continue_execution()?;
+    fn start_debugee_inner(&mut self, force: bool, dry_start: bool) -> Result<(), Error> {
+        if dry_start {
+            if (self.debugee.is_in_progress() || self.debugee.is_exited()) && !force {
+                return Err(Error::AlreadyRun);
+            }
+            return Ok(());
         }
+
+        match self.debugee.execution_status() {
+            ExecutionStatus::Unload => {
+                self.continue_execution()?;
+            }
+            ExecutionStatus::InProgress | ExecutionStatus::Exited if force => {
+                self.restart_debugee()?;
+            }
+            ExecutionStatus::InProgress | ExecutionStatus::Exited => return Err(Error::AlreadyRun),
+        };
+
         Ok(())
+    }
+
+    /// Start and execute debugee.
+    /// Return when debugee stopped or ends.
+    ///
+    /// # Errors
+    ///
+    /// Return error if debugee already run or execution fail.
+    pub fn start_debugee(&mut self) -> Result<(), Error> {
+        self.start_debugee_inner(false, false)
+    }
+
+    /// Start and execute debugee. Restart if debugee already started.
+    /// Return when debugee stopped or ends.
+    pub fn start_debugee_force(&mut self) -> Result<(), Error> {
+        self.start_debugee_inner(true, false)
+    }
+
+    /// Dry start debugee. Return immediately.
+    ///
+    /// # Errors
+    ///
+    /// Return error if debugee already run.
+    pub fn dry_start_debugee(&mut self) -> Result<(), Error> {
+        self.start_debugee_inner(false, true)
     }
 
     /// Continue debugee execution.
