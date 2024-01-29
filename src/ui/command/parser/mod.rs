@@ -9,7 +9,7 @@ use nix::libc::uintptr_t;
 use nom::branch::alt;
 use nom::bytes::complete::is_not;
 use nom::character::complete::{
-    alpha1, alphanumeric1, char, digit1, multispace0, multispace1, not_line_ending, one_of,
+    alpha1, alphanumeric1, char, digit1, multispace0, multispace1, not_line_ending, one_of, space1,
 };
 use nom::combinator::{cut, eof, map, map_res, not, opt, recognize};
 use nom::error::context;
@@ -81,6 +81,20 @@ pub fn rust_identifier(input: &str) -> IResult<&str, &str, ErrorTree<&str>> {
     recognize(pair(
         alt((alpha1, tag("_"))),
         many0_count(alt((alphanumeric1, tag("_"), tag("::")))),
+    ))(input)
+}
+
+pub fn rust_type(input: &str) -> IResult<&str, &str, ErrorTree<&str>> {
+    recognize(pair(
+        alt((alpha1, tag("_"), tag("&"), tag("*"))),
+        many0_count(alt((
+            alphanumeric1,
+            tag("_"),
+            tag("::"),
+            space1,
+            tag("&"),
+            tag("*"),
+        ))),
     ))(input)
 }
 

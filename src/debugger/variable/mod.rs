@@ -2,7 +2,7 @@ use crate::debugger::debugee::dwarf::r#type::{
     ArrayType, CModifier, EvaluationContext, ScalarType, StructureMember, TypeIdentity,
 };
 use crate::debugger::debugee::dwarf::r#type::{ComplexType, TypeDeclaration};
-use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef, NamespaceHierarchy};
+use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, NamespaceHierarchy};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::specialization::VariableParserExtension;
 use crate::{debugger, weak_error};
@@ -69,7 +69,7 @@ impl VariableIdentity {
         Self { namespace, name }
     }
 
-    pub fn from_variable_die(var: &ContextualDieRef<impl AsAllocatedValue>) -> Self {
+    pub fn from_variable_die(var: &ContextualDieRef<impl AsAllocatedData>) -> Self {
         Self::new(var.namespaces(), var.die.name().map(String::from))
     }
 

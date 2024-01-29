@@ -36,6 +36,8 @@ pub enum Error {
     UnitNotFound(GlobalAddress),
     #[error("function not found at address {0}")]
     FunctionNotFound(GlobalAddress),
+    #[error("type not found")]
+    TypeNotFound,
     #[error("frame number {0} not found")]
     FrameNotFound(u32),
     #[error("tracee number {0} not found")]
@@ -158,6 +160,7 @@ impl Error {
             Error::NoSuitablePlace => false,
             Error::UnitNotFound(_) => false,
             Error::FunctionNotFound(_) => false,
+            Error::TypeNotFound => false,
             Error::FrameNotFound(_) => false,
             Error::TraceeNotFound(_) => false,
             Error::DieNotFound(_) => false,

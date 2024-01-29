@@ -40,11 +40,13 @@ Available operators:
 `[{left}..{right}]` - slice operator, available for pointers
 `.` - get field, available for structs, enums and hashmaps (with string keys)
 `(` and `)` - parentheses to prioritize operations
+`({ptr/ref type})` - cast constant address to typed pointer or reference
 
 Examples:
 `**var1` - print the value pointed to by the pointer `*var1`
 `**var1.field1` - print the value pointed to by the pointer `*var1.field1`
 `(**var1).field1` - print field `field1` in struct pointed to by the pointer `*var1`
+`*(*const i32)0x1234AA332` - cast memory address to `*const i32` pointer, then dereference it 
 `*(*(var1.field1)).field2[1][2]` - get `field1` from struct `var1`, dereference it, 
 then get `field2` from dereference result, then get element by index 1, and get element 2 from it,
 finally print dereference of this value

@@ -588,4 +588,25 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('vec = Vec<u8, alloc::alloc::Global> {')
         self.debugger.expect_exact('box_arr = alloc::boxed::Box<[u8], alloc::alloc::Global> {')
 
+    def test_ptr_cast(self):
+        """Cast const address to typed pointer"""
+        self.debugger.sendline('break vars.rs:119')
+        self.debugger.expect('New breakpoint')
+
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('let nop: Option<u8> = None;')
+
+        self.debugger.sendline('var ref_a')
+
+        addr = ""
+        for x in range(10):
+            line = self.debugger.readline().decode("utf-8")
+            result = re.search(r'ref_a = &i32 \[0x(.*)\]', line)
+            if result:
+                addr = result.group(1)
+                addr = "0x"+addr[:14]
+                break
+
+        self.debugger.sendline('var *(*const i32)'+addr)
+        self.debugger.expect_exact('{unknown} = i32(2)')
 

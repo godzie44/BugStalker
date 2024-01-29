@@ -1,9 +1,9 @@
 //! data query expressions parser.
 
-use super::rust_identifier;
+use super::{hexadecimal, rust_identifier, rust_type};
 use crate::debugger::variable::select::{Expression, VariableSelector};
-use nom::character::complete::{digit1, multispace0};
-use nom::combinator::{cut, eof, opt, peek};
+use nom::character::complete::{digit1, multispace0, space0};
+use nom::combinator::{cut, eof, map_res, opt, peek};
 use nom::error::context;
 use nom::multi::many_till;
 use nom::sequence::{separated_pair, terminated};
@@ -16,6 +16,7 @@ use nom::{
 use nom_supreme::error::ErrorTree;
 use nom_supreme::tag::complete::tag;
 use std::fmt::Debug;
+use std::num::ParseIntError;
 
 #[derive(Debug)]
 pub enum StrOp<'a> {
@@ -92,6 +93,17 @@ pub fn expr(input: &str) -> IResult<&str, Expression, ErrorTree<&str>> {
         map(preceded(tag("*"), expr), |expr| {
             Expression::Deref(Box::new(expr))
         }),
+        map_res(
+            separated_pair(
+                delimited(tag("("), rust_type, tag(")")),
+                space0,
+                hexadecimal,
+            ),
+            |(type_name, addr)| -> Result<Expression, ParseIntError> {
+                let addr = usize::from_str_radix(addr, 16)?;
+                Ok(Expression::PtrCast(addr, type_name.to_string()))
+            },
+        ),
         cut(r_op),
     ))(input)
 }
@@ -274,6 +286,28 @@ mod test {
                         "0".to_string(),
                     )),
                     "a".to_string(),
+                ),
+            },
+            TestCase {
+                string: "(*mut SomeType)0x123AABCD",
+                expr: Expression::PtrCast(0x123AABCD, "*mut SomeType".to_string()),
+            },
+            TestCase {
+                string: "(&abc::def::SomeType)0x123AABCD",
+                expr: Expression::PtrCast(0x123AABCD, "&abc::def::SomeType".to_string()),
+            },
+            TestCase {
+                string: "(*const abc::def::SomeType)  0x123AABCD",
+                expr: Expression::PtrCast(0x123AABCD, "*const abc::def::SomeType".to_string()),
+            },
+            TestCase {
+                string: "*((*const abc::def::SomeType) 0x123AABCD)",
+                expr: Expression::Deref(
+                    Expression::Parentheses(
+                        Expression::PtrCast(0x123AABCD, "*const abc::def::SomeType".to_string())
+                            .boxed(),
+                    )
+                    .boxed(),
                 ),
             },
         ];

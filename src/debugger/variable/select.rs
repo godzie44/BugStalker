@@ -1,13 +1,48 @@
 use crate::debugger::debugee::dwarf;
 use crate::debugger::debugee::dwarf::r#type::ComplexType;
-use crate::debugger::debugee::dwarf::unit::VariableDie;
-use crate::debugger::debugee::dwarf::{AsAllocatedValue, ContextualDieRef};
+use crate::debugger::debugee::dwarf::unit::{DieRef, Node, VariableDie};
+use crate::debugger::debugee::dwarf::{
+    AsAllocatedData, ContextualDieRef, EndianArcSlice, NamespaceHierarchy,
+};
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::FunctionNotFound;
-use crate::debugger::variable::{AssumeError, ParsingError, VariableIR};
+use crate::debugger::variable::{
+    AssumeError, ParsingError, PointerVariable, VariableIR, VariableIdentity,
+};
+use crate::debugger::Error::TypeNotFound;
 use crate::debugger::{variable, Debugger};
 use crate::{ctx_resolve_unit_call, weak_error};
+use bytes::Bytes;
+use gimli::{Attribute, DebugInfoOffset, UnitOffset};
 use std::collections::hash_map::Entry;
+
+/// This die not exists in debug information. It may be used for represent
+/// variables that declared by user, for example, using pointer cast operator.
+struct VirtualVariableDie {
+    type_ref: DieRef,
+}
+
+impl VirtualVariableDie {
+    fn of_unknown_type() -> Self {
+        Self {
+            type_ref: DieRef::Unit(UnitOffset(0)),
+        }
+    }
+}
+
+impl AsAllocatedData for VirtualVariableDie {
+    fn name(&self) -> Option<&str> {
+        None
+    }
+
+    fn type_ref(&self) -> Option<DieRef> {
+        Some(self.type_ref)
+    }
+
+    fn location(&self) -> Option<&Attribute<EndianArcSlice>> {
+        None
+    }
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum VariableSelector {
@@ -22,6 +57,7 @@ pub enum VariableSelector {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     Variable(VariableSelector),
+    PtrCast(usize, String),
     Field(Box<Expression>, String),
     Index(Box<Expression>, u64),
     Slice(Box<Expression>, Option<usize>, Option<usize>),
@@ -102,6 +138,36 @@ impl<'a> SelectExpressionEvaluator<'a> {
         Ok(vars)
     }
 
+    fn fill_virtual_ptr_variable(
+        &self,
+        vv: &'a mut VirtualVariableDie,
+        node: &'a Node,
+        type_name: &str,
+    ) -> Result<ContextualDieRef<'a, VirtualVariableDie>, Error> {
+        let debugee = &self.debugger.debugee;
+        let (debug_info, offset_of_unit, offset_of_die) = debugee
+            .debug_info_all()
+            .iter()
+            .find_map(|&debug_info| {
+                let (offset_of_unit, offset_of_die) = debug_info.find_type_die_ref(type_name)?;
+                Some((debug_info, offset_of_unit, offset_of_die))
+            })
+            .ok_or(TypeNotFound)?;
+        let unit = debug_info
+            .find_unit(DebugInfoOffset(offset_of_unit.0 + offset_of_die.0))
+            .ok_or(TypeNotFound)?;
+
+        vv.type_ref = DieRef::Unit(offset_of_die);
+        let var = ContextualDieRef {
+            debug_info,
+            unit_idx: unit.idx(),
+            node,
+            die: vv,
+        };
+
+        Ok(var)
+    }
+
     /// Evaluate only variable names.
     /// Only filter expression supported.
     ///
@@ -136,12 +202,32 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     })
                     .collect())
             }
+            Expression::PtrCast(_, target_type_name) => {
+                self.evaluate_from_ptr_cast(target_type_name)
+            }
             Expression::Field(expr, _)
             | Expression::Index(expr, _)
             | Expression::Slice(expr, _, _)
             | Expression::Parentheses(expr)
             | Expression::Deref(expr) => self.evaluate_inner(expr),
         }
+    }
+
+    /// Create virtual DIE from type name and constant address. Evaluate expression then on this DIE.
+    fn evaluate_from_ptr_cast(&self, type_name: &str) -> Result<Vec<VariableIR>, Error> {
+        let any_node = Node::new_leaf(None);
+        let mut var_die = VirtualVariableDie::of_unknown_type();
+        let var_die_ref = self.fill_virtual_ptr_variable(&mut var_die, &any_node, type_name)?;
+
+        let mut type_cache = self.debugger.type_cache.borrow_mut();
+        let r#type = weak_error!(type_from_cache!(var_die_ref, type_cache));
+
+        if let Some(r#type) = r#type {
+            if let Some(v) = self.evaluate_single_variable(&self.expression, &var_die_ref, r#type) {
+                return Ok(vec![v]);
+            }
+        }
+        Ok(vec![])
     }
 
     /// Evaluate select expression and returns list of matched variables.
@@ -216,6 +302,9 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     })
                     .collect())
             }
+            Expression::PtrCast(_, target_type_name) => {
+                self.evaluate_from_ptr_cast(target_type_name)
+            }
             Expression::Field(expr, _)
             | Expression::Index(expr, _)
             | Expression::Slice(expr, _, _)
@@ -227,7 +316,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
     fn evaluate_single_variable(
         &self,
         expression: &Expression,
-        variable_die: &ContextualDieRef<impl AsAllocatedValue>,
+        variable_die: &ContextualDieRef<impl AsAllocatedData>,
         r#type: &ComplexType,
     ) -> Option<VariableIR> {
         let parser = variable::VariableParser::new(r#type);
@@ -241,13 +330,21 @@ impl<'a> SelectExpressionEvaluator<'a> {
         match expression {
             Expression::Variable(_) => Some(parser.parse(
                 evaluation_context,
-                variable::VariableIdentity::from_variable_die(variable_die),
+                VariableIdentity::from_variable_die(variable_die),
                 variable_die.read_value(
                     self.debugger.exploration_ctx(),
                     &self.debugger.debugee,
                     r#type,
                 ),
             )),
+            Expression::PtrCast(addr, ..) => {
+                let value = Bytes::copy_from_slice(&(*addr).to_le_bytes());
+                Some(parser.parse(
+                    evaluation_context,
+                    VariableIdentity::new(NamespaceHierarchy::default(), None),
+                    Some(value),
+                ))
+            }
             Expression::Field(expr, field) => {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
                 var.field(field)

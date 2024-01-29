@@ -27,21 +27,21 @@ use crate::debugger::error::Error::{
 };
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::ExplorationContext;
-use crate::{resolve_unit_call, weak_error};
+use crate::{muted_error, resolve_unit_call, weak_error};
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;
 use gimli::{
-    Attribute, BaseAddresses, CfaRule, DebugAddr, DebugInfoOffset, Dwarf, EhFrame, Expression,
-    LocationLists, Range, RunTimeEndian, Section, UnitOffset, UnwindContext, UnwindSection,
-    UnwindTableRow,
+    Attribute, BaseAddresses, CfaRule, DebugAddr, DebugInfoOffset, DebugPubTypes, Dwarf, EhFrame,
+    Expression, LocationLists, Range, Reader, RunTimeEndian, Section, UnitOffset, UnwindContext,
+    UnwindSection, UnwindTableRow,
 };
 use log::debug;
 use memmap2::Mmap;
 use object::{Object, ObjectSection};
 use rayon::prelude::*;
 use regex::Regex;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::{Add, Deref};
 use std::path::{Path, PathBuf};
 use std::{fs, path};
@@ -60,6 +60,7 @@ pub struct DebugInformation<R: gimli::Reader = EndianArcSlice> {
     units: Option<Vec<Unit>>,
     symbol_table: Option<SymbolTab>,
     pub_names: Option<Trie<u8>>,
+    pub_types: HashMap<String, (DebugInfoOffset, UnitOffset)>,
     /// Index for fast search files by full path or part of file path. Contains unit index and
     /// indexes of lines in [`Unit::lines`] vector that belongs to a file, indexes are ordered by
     /// line number, column number and address.
@@ -92,6 +93,7 @@ impl Clone for DebugInformation {
             symbol_table: self.symbol_table.clone(),
             // it's ok cause pub_names currently unused, maybe it will be changed in future
             pub_names: None,
+            pub_types: self.pub_types.clone(),
             files_index: self.files_index.clone(),
         }
     }
@@ -462,12 +464,7 @@ impl DebugInformation {
                 entry.map(|e| (e, default_unit))
             }
             DieRef::Global(offset) => {
-                let mb_unit = debug_info_exists!(self.get_units())
-                    .binary_search_by_key(&Some(offset), |u| u.offset());
-                let unit = match mb_unit {
-                    Ok(_) | Err(0) => return None,
-                    Err(pos) => self.unit_ensure(pos - 1),
-                };
+                let unit = self.find_unit(offset)?;
                 let offset = UnitOffset(offset.0 - unit.offset().unwrap_or(DebugInfoOffset(0)).0);
                 let entry = resolve_unit_call!(&self.inner, unit, find_entry, offset);
                 entry.map(|e| (e, unit))
@@ -528,6 +525,23 @@ impl DebugInformation {
         }
 
         Ok(found)
+    }
+
+    /// Return reference (unit and die offsets) to type die by type name.
+    /// Currently search only in `pub_types` section.
+    pub fn find_type_die_ref(&self, name: &str) -> Option<(DebugInfoOffset, UnitOffset)> {
+        self.pub_types.get(name).copied()
+    }
+
+    /// Return unit found at offset.
+    #[inline(always)]
+    pub fn find_unit(&self, offset: DebugInfoOffset) -> Option<&Unit> {
+        let mb_unit = debug_info_exists!(self.get_units())
+            .binary_search_by_key(&Some(offset), |u| u.offset());
+        match mb_unit {
+            Ok(_) | Err(0) => None,
+            Err(pos) => Some(self.unit_ensure(pos - 1)),
+        }
     }
 
     pub fn dwarf(&self) -> &Dwarf<EndianArcSlice> {
@@ -673,7 +687,7 @@ impl DebugInformationBuilder {
         let dwarf = loader::load_par(debug_info_file, endian)?;
         let symbol_table = SymbolTab::new(debug_info_file);
 
-        // let mb_pubb_names_sect = muted_error!(DebugPubNames::load(|id| {
+        // let mb_pub_names_sect = muted_error!(DebugPubNames::load(|id| {
         //     loader::load_section(id, debug_info_file, endian)
         // }));
         // let pub_names = mb_pub_names_sect.and_then(|pub_names_sect| {
@@ -692,6 +706,21 @@ impl DebugInformationBuilder {
         // name from .debug_pubnames section.
         let pub_names = None;
 
+        let mb_pub_types_sect = muted_error!(DebugPubTypes::load(|id| {
+            loader::load_section(id, debug_info_file, endian)
+        }));
+        let pub_types = mb_pub_types_sect.and_then(|pub_types_sect| {
+            pub_types_sect
+                .items()
+                .map(|e| {
+                    let type_name = e.name().to_string_lossy()?.to_string();
+                    let unit_offset = e.unit_header_offset();
+                    Ok((type_name, (unit_offset, e.die_offset())))
+                })
+                .collect()
+                .ok()
+        });
+
         let parser = DwarfUnitParser::new(&dwarf);
         let headers = dwarf.units().collect::<Vec<_>>()?;
 
@@ -707,6 +736,7 @@ impl DebugInformationBuilder {
                 units: None,
                 symbol_table,
                 pub_names,
+                pub_types: pub_types.unwrap_or_default(),
                 files_index: PathSearchIndex::new(""),
             });
         }
@@ -738,12 +768,13 @@ impl DebugInformationBuilder {
             units: Some(units),
             symbol_table,
             pub_names,
+            pub_types: pub_types.unwrap_or_default(),
             files_index,
         })
     }
 }
 
-pub trait AsAllocatedValue {
+pub trait AsAllocatedData {
     fn name(&self) -> Option<&str>;
 
     fn type_ref(&self) -> Option<DieRef>;
@@ -761,7 +792,7 @@ pub trait AsAllocatedValue {
     }
 }
 
-impl AsAllocatedValue for VariableDie {
+impl AsAllocatedData for VariableDie {
     fn name(&self) -> Option<&str> {
         self.base_attributes.name.as_deref()
     }
@@ -775,7 +806,7 @@ impl AsAllocatedValue for VariableDie {
     }
 }
 
-impl AsAllocatedValue for ParameterDie {
+impl AsAllocatedData for ParameterDie {
     fn name(&self) -> Option<&str> {
         self.base_attributes.name.as_deref()
     }
@@ -1079,7 +1110,7 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
     }
 }
 
-impl<'ctx, D: AsAllocatedValue> ContextualDieRef<'ctx, D> {
+impl<'ctx, D: AsAllocatedData> ContextualDieRef<'ctx, D> {
     pub fn r#type(&self) -> Option<ComplexType> {
         let parser = r#type::TypeParser::new();
         Some(parser.parse(*self, self.die.type_ref()?))

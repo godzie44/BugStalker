@@ -2380,3 +2380,37 @@ fn test_slice_operator() {
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
+
+#[test]
+#[serial]
+fn test_cast_pointers() {
+    let process = prepare_debugee_process(VARS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = DebugeeRunInfo::default();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
+
+    debugger.set_breakpoint_at_line("vars.rs", 119).unwrap();
+
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(119));
+
+    let vars = debugger.read_local_variables().unwrap();
+    assert_scalar(&vars[0], "a", "i32", Some(SupportedScalar::I32(2)));
+
+    let VariableIR::Pointer(pointer) = &vars[1] else {
+        panic!("expect a pointer");
+    };
+
+    let raw_ptr = pointer.value.unwrap();
+
+    let var = debugger
+        .read_variable(Expression::Deref(
+            Expression::PtrCast(raw_ptr as usize, "*const i32".to_string()).boxed(),
+        ))
+        .unwrap();
+    assert_scalar(&var[0], "{unknown}", "i32", Some(SupportedScalar::I32(2)));
+
+    debugger.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
