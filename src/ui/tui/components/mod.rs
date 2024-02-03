@@ -3,6 +3,7 @@ pub mod breakpoint;
 pub mod control;
 pub mod input;
 pub mod logs;
+pub mod oracle;
 pub mod output;
 pub mod popup;
 pub mod source;

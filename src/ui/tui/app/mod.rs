@@ -19,6 +19,7 @@ use crate::ui::tui::components::breakpoint::Breakpoints;
 use crate::ui::tui::components::control::GlobalControl;
 use crate::ui::tui::components::input::{Input, InputStringType};
 use crate::ui::tui::components::logs::Logs;
+use crate::ui::tui::components::oracle::Oracles;
 use crate::ui::tui::components::output::Output;
 use crate::ui::tui::components::popup::{Popup, YesNoLabels};
 use crate::ui::tui::components::source::Source;
@@ -31,7 +32,10 @@ use crate::ui::tui::utils::logger::TuiLogLine;
 use tuirealm::props::{PropPayload, PropValue, TextSpan};
 use tuirealm::terminal::TerminalBridge;
 use tuirealm::tui::layout::{Constraint, Direction, Layout};
-use tuirealm::{props, Application, AttrValue, Attribute, EventListenerCfg, State, StateValue};
+use tuirealm::{
+    props, Application, AttrValue, Attribute, EventListenerCfg, State, StateValue, Sub, SubClause,
+    SubEventClause,
+};
 
 use super::{BreakpointsAddType, ConfirmedAction, DebugeeStreamBuffer, Id, Msg};
 
@@ -126,7 +130,8 @@ impl Model {
                             0 => Id::Source,
                             1 => Id::Output,
                             2 => Id::Asm,
-                            3 => Id::Logs,
+                            3 => Id::Oracles,
+                            4 => Id::Logs,
                             _ => unreachable!(),
                         };
                         self.app.view(&id, f, window_chunks[1]);
@@ -224,7 +229,7 @@ impl Model {
         )?;
         app.mount(
             Id::Asm,
-            Box::new(Asm::new(exchanger)?),
+            Box::new(Asm::new(exchanger.clone())?),
             Asm::subscriptions(),
         )?;
 
@@ -237,6 +242,13 @@ impl Model {
         app.mount(Id::Logs, Box::<Logs>::default(), Logs::subscriptions())?;
 
         app.active(&Id::LeftTabs)?;
+
+        let oracles: Vec<_> = exchanger.request_sync(|dbg| dbg.all_oracles_arc().collect());
+        app.mount(
+            Id::Oracles,
+            Box::new(Oracles::new(&oracles)),
+            vec![Sub::new(SubEventClause::Tick, SubClause::Always)],
+        )?;
 
         Ok(app)
     }
@@ -296,6 +308,9 @@ impl Model {
                 }
                 Msg::AsmInFocus => {
                     self.app.active(&Id::Asm)?;
+                }
+                Msg::OraclesInFocus => {
+                    self.app.active(&Id::Oracles)?;
                 }
                 Msg::LogsInFocus => {
                     self.app.active(&Id::Logs)?;

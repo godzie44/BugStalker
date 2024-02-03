@@ -78,7 +78,7 @@ impl Default for RightTab {
                 .foreground(Color::LightGreen)
                 .title("[2]", Alignment::Center)
                 .rewind(true)
-                .choices(&["</> Source", "📃 Output", "🤖 Asm", "✏️ Logs"]),
+                .choices(&["</> Source", "📃 Output", "🤖 Asm", "🔮 Oracles", "💾 Logs"]),
         }
     }
 }
@@ -101,7 +101,8 @@ impl Component<Msg, UserEvent> for RightTab {
                         0 => return Some(Msg::SourceInFocus),
                         1 => return Some(Msg::OutputInFocus),
                         2 => return Some(Msg::AsmInFocus),
-                        3 => return Some(Msg::LogsInFocus),
+                        3 => return Some(Msg::OraclesInFocus),
+                        4 => return Some(Msg::LogsInFocus),
                         _ => unreachable!(),
                     }
                 }

@@ -6,9 +6,7 @@ use crate::debugger::debugee::dwarf::{
 };
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::FunctionNotFound;
-use crate::debugger::variable::{
-    AssumeError, ParsingError, PointerVariable, VariableIR, VariableIdentity,
-};
+use crate::debugger::variable::{AssumeError, ParsingError, VariableIR, VariableIdentity};
 use crate::debugger::Error::TypeNotFound;
 use crate::debugger::{variable, Debugger};
 use crate::{ctx_resolve_unit_call, weak_error};
@@ -122,8 +120,8 @@ impl<'a> SelectExpressionEvaluator<'a> {
 
                 let local = *local;
 
-                // local variables is in priority anyway, if there is no local variables and
-                // selector allow non-locals then try to search in whole object
+                // local variables is in priority anyway, if there are no local variables and
+                // selector allow non-locals then try to search in a whole object
                 if !local && local_variants.is_empty() {
                     debugee
                         .debug_info(ctx.location().pc)?

@@ -44,6 +44,7 @@ use crate::debugger::variable::VariableIR;
 use crate::debugger::Error::Syscall;
 use crate::oracle::Oracle;
 use crate::{print_warns, weak_error};
+use indexmap::IndexMap;
 use log::debug;
 use nix::libc::{c_void, uintptr_t};
 use nix::sys;
@@ -54,11 +55,10 @@ use nix::unistd::Pid;
 use object::Object;
 use regex::Regex;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::ffi::c_long;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::{fs, mem, u64};
 
 /// Trait for the reverse interaction between the debugger and the user interface.
@@ -206,7 +206,7 @@ impl ExplorationContext {
 /// Debugger structure builder.
 #[derive(Default)]
 pub struct DebuggerBuilder<H: EventHook + 'static = NopHook> {
-    oracles: Vec<Rc<dyn Oracle>>,
+    oracles: Vec<Arc<dyn Oracle>>,
     hooks: Option<H>,
 }
 
@@ -224,9 +224,9 @@ impl<H: EventHook + 'static> DebuggerBuilder<H> {
     /// # Arguments
     ///
     /// * `oracle`: oracle to add
-    pub fn with_oracle<T: Oracle + 'static>(self, oracle: T) -> Self {
+    pub fn with_oracle(self, oracle: Arc<dyn Oracle>) -> Self {
         let mut oracles = self.oracles;
-        oracles.push(Rc::new(oracle));
+        oracles.push(oracle);
         Self { oracles, ..self }
     }
 
@@ -270,15 +270,15 @@ pub struct Debugger {
     hooks: Box<dyn EventHook>,
     /// Current exploration context.
     expl_context: ExplorationContext,
-    /// Map of name->(oracle, installed) pairs.
-    oracles: HashMap<&'static str, (Rc<dyn Oracle>, bool)>,
+    /// Map of name -> (oracle, installed flag) pairs.
+    oracles: IndexMap<&'static str, (Arc<dyn Oracle>, bool)>,
 }
 
 impl Debugger {
     fn new(
         process: Child<Installed>,
         hooks: impl EventHook + 'static,
-        oracles: impl IntoIterator<Item = Rc<dyn Oracle>>,
+        oracles: impl IntoIterator<Item = Arc<dyn Oracle>>,
     ) -> Result<Self, Error> {
         let program_path = Path::new(process.program());
 
@@ -328,9 +328,21 @@ impl Debugger {
             .and_then(|(oracle, install)| install.then_some(oracle.as_ref()))
     }
 
+    /// Same as `get_oracle` but return an `Arc<dyn Oracle>`
+    pub fn get_oracle_arc(&self, name: &str) -> Option<Arc<dyn Oracle>> {
+        self.oracles
+            .get(name)
+            .and_then(|(oracle, install)| install.then_some(oracle.clone()))
+    }
+
     /// Return all oracles.
     pub fn all_oracles(&self) -> impl Iterator<Item = &dyn Oracle> {
         self.oracles.values().map(|(oracle, _)| oracle.as_ref())
+    }
+
+    /// Same as `all_oracles` but return iterator over `Arc<dyn Oracle>`
+    pub fn all_oracles_arc(&self) -> impl Iterator<Item = Arc<dyn Oracle>> + '_ {
+        self.oracles.values().map(|(oracle, _)| oracle.clone())
     }
 
     pub fn process(&self) -> &Child<Installed> {

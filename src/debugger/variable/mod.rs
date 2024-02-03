@@ -350,7 +350,7 @@ pub enum VariableIR {
     CModifiedVariable(CModifiedVariable),
 }
 
-// SAFETY: this enum may contains a raw pointers on memory in debugee process,
+// SAFETY: this enum may contain a raw pointers on memory in a debugee process,
 // it is safe to dereference it using public API of *Variable structures.
 unsafe impl Send for VariableIR {}
 

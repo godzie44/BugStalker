@@ -13,7 +13,7 @@ use strum_macros::{Display, EnumString};
 use timeout_readwrite::TimeoutReader;
 use tuirealm::{AttrValue, Attribute, PollStrategy};
 
-mod app;
+pub mod app;
 pub mod components;
 mod output;
 mod proto;
@@ -41,6 +41,8 @@ pub enum Id {
 
     Input,
     Popup,
+
+    Oracles,
 }
 
 #[derive(Debug, PartialEq, EnumString, Display)]
@@ -73,6 +75,7 @@ pub enum Msg {
     OutputInFocus,
     LogsInFocus,
     AsmInFocus,
+    OraclesInFocus,
 
     PopupConfirmDebuggerRestart,
     PopupBreakpoint(BreakpointViewOwned),
@@ -185,13 +188,9 @@ impl TuiApplication {
                         for msg in messages.into_iter() {
                             let mut msg = Some(msg);
                             while msg.is_some() {
-                                msg = match model.update(msg) {
-                                    Ok(msg) => msg,
-                                    Err(e) => Some(Msg::ShowOkPopup(
-                                        Some("Error".to_string()),
-                                        e.to_string(),
-                                    )),
-                                };
+                                msg = model.update(msg).unwrap_or_else(|e| {
+                                    Some(Msg::ShowOkPopup(Some("Error".to_string()), e.to_string()))
+                                });
                             }
                         }
                     }

@@ -72,10 +72,10 @@ impl Breakpoints {
         });
 
         let skip = if self.state == Some(AddState::SelectType) {
-            // skip first 4 rows cause it is an add buttons
+            // skip the first 4 rows because it is an added buttons
             4
         } else {
-            // skip zero row cause it is an add button
+            // skip zero row because it is an add button
             1
         };
         self.row_to_brkpt_map = breakpoints

@@ -8,7 +8,10 @@ pub mod builtin;
 use crate::debugger::CreateTransparentBreakpointRequest;
 use crate::debugger::Debugger;
 use crate::ui::console::print::ExternalPrinter;
-use std::rc::Rc;
+use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::Msg;
+use std::sync::Arc;
+use tuirealm::Component;
 
 pub trait ConsolePlugin {
     /// Print information into console.
@@ -23,7 +26,12 @@ pub trait ConsolePlugin {
     fn help(&self) -> &str;
 }
 
-pub trait Oracle: ConsolePlugin {
+pub trait TuiPlugin: Send + Sync {
+    /// Return tui component for visualize oracle information.
+    fn make_tui_component(self: Arc<Self>) -> Box<dyn Component<Msg, UserEvent>>;
+}
+
+pub trait Oracle: ConsolePlugin + TuiPlugin {
     /// Return oracle name.
     fn name(&self) -> &'static str;
 
@@ -38,5 +46,5 @@ pub trait Oracle: ConsolePlugin {
 
     /// A list of watch_point using by oracle. In debugger watch point implement by transparent
     /// breakpoints.
-    fn watch_points(self: Rc<Self>) -> Vec<CreateTransparentBreakpointRequest>;
+    fn watch_points(self: Arc<Self>) -> Vec<CreateTransparentBreakpointRequest>;
 }
