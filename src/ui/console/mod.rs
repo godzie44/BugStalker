@@ -114,6 +114,8 @@ enum UserAction {
     Terminate,
     /// Switch to TUI mode
     ChangeMode,
+    /// Do nothing
+    Nop,
 }
 
 enum EditorMode {
@@ -202,6 +204,8 @@ impl TerminalApplication {
 
         static CTRLC_ONCE: Once = Once::new();
         CTRLC_ONCE.call_once(|| {
+            // this handler called only if debugee running, otherwise
+            // ctrl+c will handle by `readline`
             ctrlc::set_handler(move || {
                 let pid = Pid::from_raw(DEBUGEE_PID.load(Ordering::Acquire));
                 _ = kill(pid, Signal::SIGINT);
@@ -245,8 +249,12 @@ impl TerminalApplication {
                         }
                         Err(err) => match err {
                             ReadlineError::Interrupted => {
-                                let pid = Pid::from_raw(DEBUGEE_PID.load(Ordering::Acquire));
-                                _ = kill(pid, Signal::SIGINT);
+                                // this branch chosen if SIGINT coming
+                                // when debugee stopped
+                                // (at breakpoint, for example),
+                                // finished,
+                                // or not even running
+                                _ = control_tx.send(UserAction::Nop);
                             }
                             ReadlineError::Eof => {
                                 if self.user_act_tx.try_send(UserAction::Terminate).is_err() {
@@ -301,7 +309,7 @@ impl AppLoop {
                     "n" | "no" => false,
                     _ => continue,
                 },
-                UserAction::Terminate | UserAction::ChangeMode => false,
+                UserAction::Terminate | UserAction::ChangeMode | UserAction::Nop => false,
             };
         }
     }
@@ -630,6 +638,7 @@ impl AppLoop {
                         }
                     }
                 }
+                UserAction::Nop => {}
                 UserAction::Terminate => {
                     break;
                 }
