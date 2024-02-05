@@ -116,7 +116,8 @@ impl Debugee {
         let dwarf = dwarf_builder.build(path, object)?;
         let mut registry = DwarfRegistry::new(process.pid(), path.to_path_buf(), dwarf);
 
-        // its ok if parse ldd output fail - shared libs will be parsed later - at rendezvous point
+        // it is ok if parse ldd output fail -
+        // shared libs will be parsed later - at rendezvous point
         let deps = muted_error!(
             ldd::find_dependencies(path),
             "unsuccessful attempt to use ldd"
@@ -532,7 +533,7 @@ impl Debugee {
 fn parse_dependency(dep_file: impl Into<PathBuf>) -> Result<Option<DebugInformation>, Error> {
     let dep_file = dep_file.into();
 
-    // empty string represent a program executable that must already parsed
+    // empty string represents a program executable that must already parse
     // libvdso should also be skipped
     if dep_file.is_empty() || dep_file.to_string_lossy().contains("vdso") {
         return Ok(None);

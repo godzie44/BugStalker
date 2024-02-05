@@ -69,7 +69,7 @@ impl Debugger {
     /// # Errors
     ///
     /// Return [`SetupError::PlaceNotFound`] if no place found for address,
-    /// return [`BreakpointError::DebugInformation`] if errors occurs while fetching debug information.
+    /// return [`BreakpointError::DebugInformation`] if errors occur while fetching debug information.
     pub fn set_breakpoint_at_addr(
         &mut self,
         addr: RelocatedAddress,
@@ -270,7 +270,7 @@ impl Debugger {
     /// # Errors
     ///
     /// Return [`SetupError::PlaceNotFound`] if function not found,
-    /// return [`BreakpointError::DebugInformation`] if errors occurs while fetching debug information.
+    /// return [`BreakpointError::DebugInformation`] if errors occur while fetching debug information.
     pub fn set_breakpoint_at_fn(&mut self, template: &str) -> Result<Vec<BreakpointView>, Error> {
         let places = self.search_functions(template)?;
         if places.iter().all(|(_, places)| places.is_empty()) {
@@ -331,8 +331,8 @@ impl Debugger {
     ///
     /// # Errors
     ///
-    /// Return [`SetupError::PlaceNotFound`] if line or file not exists,
-    /// return [`BreakpointError::DebugInformation`] if errors occurs while fetching debug information.
+    /// Return [`SetupError::PlaceNotFound`] if line or file not exist,
+    /// return [`BreakpointError::DebugInformation`] if errors occur while fetching debug information.
     pub fn set_breakpoint_at_line(
         &mut self,
         fine_path_tpl: &str,
@@ -442,8 +442,8 @@ impl Debugger {
             .push(DeferredBreakpoint::at_line(file, line));
     }
 
-    /// Refresh deferred breakpoints. Trying to set breakpoint, if success - remove
-    /// breakpoint from deferred list.
+    /// Refresh deferred breakpoints. Trying to set breakpoint if success - remove
+    /// breakpoint from a deferred list.
     pub fn refresh_deferred(&mut self) -> Vec<Error> {
         let mut errors = vec![];
 
@@ -483,7 +483,7 @@ pub enum BrkptType {
     /// Breakpoint at linker internal function that will always be called when the linker
     /// begins to map in a library or unmap it, and again when the mapping change is complete.
     LinkerMapFn,
-    /// Transparent breakpoints are transparent for debugger user and using by inner mechanisms
+    /// Transparent breakpoints are transparent for debugger user and using it by inner mechanisms
     /// like oracles.
     Transparent(Rc<dyn Fn(&mut Debugger)>),
 }
@@ -531,7 +531,7 @@ pub struct Breakpoint {
     pub pid: Pid,
     /// Breakpoint number, > 0 for user defined breakpoints have a number, 0 for others
     number: u32,
-    /// Place information, None if brkpt is temporary or entry point
+    /// Place information, None if brkpt is a temporary or entry point
     place: Option<PlaceDescriptorOwned>,
     pub saved_data: Cell<u8>,
     enabled: Cell<bool>,
@@ -649,8 +649,8 @@ impl Breakpoint {
     /// Return breakpoint place information.
     ///
     /// # Panics
-    /// Panic if a breakpoint not a user defined.
-    /// It is the caller responsibility to check that the type is [`BrkptType::UserDefined`].
+    /// Panic if a breakpoint is not a user defined.
+    /// It is the caller's responsibility to check that the type is [`BrkptType::UserDefined`].
     pub fn place(&self) -> Option<&PlaceDescriptorOwned> {
         match self.r#type {
             BrkptType::UserDefined => self.place.as_ref(),
@@ -705,8 +705,8 @@ impl Breakpoint {
 }
 
 /// User defined breakpoint template,
-/// may created if debugee program not running and
-/// there is no and there is no way to determine the relocated address.
+/// may create if debugee program not running and
+/// there is no, and there is no way to determine the relocated address.
 #[derive(Debug, Clone)]
 pub struct UninitBreakpoint {
     addr: Address,
@@ -878,7 +878,7 @@ impl<'a> BreakpointView<'a> {
     }
 }
 
-/// User breakpoint deferred until shared library with target place will be loaded.
+/// User breakpoint deferred until a shared library with target place will be loaded.
 pub enum DeferredBreakpoint {
     Address(RelocatedAddress),
     Line(String, u64),
@@ -912,7 +912,7 @@ pub struct BreakpointRegistry {
 }
 
 impl BreakpointRegistry {
-    /// Add new breakpoint to registry and enable it.
+    /// Add a new breakpoint to registry and enable it.
     pub fn add_and_enable(&mut self, brkpt: Breakpoint) -> Result<BreakpointView, Error> {
         if let Some(existed) = self.breakpoints.get(&brkpt.addr) {
             existed.disable()?;
@@ -1066,7 +1066,7 @@ impl BreakpointRegistry {
         self.breakpoints.values().collect()
     }
 
-    /// Return view for all user defined breakpoints.
+    /// Return view for all user-defined breakpoints.
     pub fn snapshot(&self) -> Vec<BreakpointView> {
         let active_bps = self
             .breakpoints

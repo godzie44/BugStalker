@@ -240,7 +240,7 @@ impl Tracer {
                         }
                     }
 
-                    // reload tracee, it state must be change after handle signal
+                    // reload tracee, it states must be changed after handle signal
                     tracee = match self.tracee_ctl.tracee(tracee.pid).cloned() {
                         None => break,
                         Some(t) => t,
@@ -298,7 +298,8 @@ impl Tracer {
                 match code {
                     libc::PTRACE_EVENT_EXEC => {
                         // fire just before debugee start
-                        // cause currently `fork()` in debugee is unsupported we expect this code calling once
+                        // cause currently `fork()`
+                        // in debugee is unsupported we expect this code to call once
                         self.tracee_ctl.add(pid);
                         return Ok(Some(StopReason::DebugeeStart));
                     }
@@ -455,13 +456,14 @@ impl Tracer {
             let status = tracee.wait_one()?;
             let info = sys::ptrace::getsiginfo(pid).map_err(Ptrace)?;
 
-            // check that debugee step into expected trap (breakpoints ignored and are also considered as a trap)
+            // check that debugee step into an expected trap
+            // (breakpoints ignored and are also considered as a trap)
             let in_trap = matches!(status, WaitStatus::Stopped(_, Signal::SIGTRAP))
                 && (info.si_code == code::TRAP_TRACE
                     || info.si_code == code::TRAP_BRKPT
                     || info.si_code == code::SI_KERNEL);
             if in_trap {
-                // check that we are not on original pc value
+                // check that we aren't on original pc value
                 if tracee.pc()? == initial_pc {
                     tracee.step(None)?;
                     continue;

@@ -215,7 +215,7 @@ impl RenderRepr for VariableIR {
                 },
             },
             VariableIR::Subroutine(_) => {
-                // currently this line is unreachable cause dereference fn pointer is forbidden
+                // currently this line is unreachable a cause dereference fn pointer is forbidden
                 return None;
             }
             VariableIR::CModifiedVariable(v) => ValueLayout::Wrapped(v.value.as_ref()?),

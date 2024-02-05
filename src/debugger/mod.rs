@@ -93,7 +93,7 @@ pub trait EventHook {
         function: Option<&FunctionDie>,
     ) -> anyhow::Result<()>;
 
-    /// Called when debugee receive a OS signal. Debugee is in signal-stop at this moment.
+    /// Called when debugee receive an OS signal. Debugee is in signal-stop at this moment.
     ///
     /// # Arguments
     ///
@@ -153,7 +153,7 @@ macro_rules! disable_when_not_stared {
 }
 
 /// Exploration context. Contains current explored thread and program counter.
-/// May changed by user (by `thread` or `frame` command)
+/// May be changed by user (by `thread` or `frame` command)
 /// or by debugger (at breakpoints, after steps, etc.).
 #[derive(Clone, Debug)]
 pub struct ExplorationContext {
@@ -162,8 +162,8 @@ pub struct ExplorationContext {
 }
 
 impl ExplorationContext {
-    /// Create new context with known thread but without known program counter value.
-    /// It is useful when debugee not started yet or restarted.
+    /// Create a new context with known thread but without known program counter-value.
+    /// It is useful when debugee is not started yet or restarted.
     ///
     /// # Arguments
     ///
@@ -513,7 +513,7 @@ impl Debugger {
         Ok(stop_reason)
     }
 
-    /// Restart debugee by recreating debugee process, save all user defined breakpoints.
+    /// Restart debugee by recreating debugee process, save all user-defined breakpoints.
     /// Return when new debugee stopped or ends.
     ///
     /// **! change exploration context**
@@ -576,7 +576,7 @@ impl Debugger {
     ///
     /// # Errors
     ///
-    /// Return error if debugee already run or execution fail.
+    /// Return error if debugee already run or execution fails.
     pub fn start_debugee(&mut self) -> Result<(), Error> {
         self.start_debugee_inner(false, false)
     }
@@ -591,7 +591,7 @@ impl Debugger {
     ///
     /// # Errors
     ///
-    /// Return error if debugee already run.
+    /// Return error if debugee already runs.
     pub fn dry_start_debugee(&mut self) -> Result<(), Error> {
         self.start_debugee_inner(false, true)
     }
@@ -659,7 +659,7 @@ impl Debugger {
         self.hooks.on_step(pc, place, func).map_err(Hook)
     }
 
-    /// Do single step (until debugee reaches a different source line).
+    /// Do a single step (until debugee reaches a different source line).
     ///
     /// **! change exploration context**
     pub fn step_into(&mut self) -> Result<(), Error> {
@@ -677,7 +677,7 @@ impl Debugger {
         }
     }
 
-    /// Move in focus thread to next instruction.
+    /// Move in focus thread to the next instruction.
     ///
     /// **! change exploration context**
     pub fn stepi(&mut self) -> Result<(), Error> {
@@ -720,7 +720,7 @@ impl Debugger {
         self.debugee.unwind(pid)
     }
 
-    /// Read N bytes from debugee process.
+    /// Read N bytes from a debugee process.
     ///
     /// # Arguments
     ///
@@ -861,7 +861,8 @@ impl Debugger {
             pid: self.exploration_ctx().pid_on_focus(),
         };
         Ok(unwinder
-            // there is no chance to determine frame number, cause pc may owned by code outside backtrace
+            // there is no chance to determine frame number,
+            // cause pc may have owned by code outside backtrace,
             // so set frame num to 0 is ok
             .context_for(&ExplorationContext::new(location, 0))?
             .ok_or(UnwindNoContext)?

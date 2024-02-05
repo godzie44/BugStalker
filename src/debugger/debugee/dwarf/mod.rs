@@ -371,7 +371,7 @@ impl DebugInformation {
                     let next_line_row = unit.line(line_idx);
 
                     if suitable_places_in_unit.is_empty() {
-                        // no places found, try to find closest place to a target line
+                        // no places found, try to find the closest place to a target line
                         if next_line_row.line != needle_line || !next_line_row.is_stmt {
                             continue;
                         }
@@ -380,10 +380,12 @@ impl DebugInformation {
                             suitable_places_in_unit.push(place);
                         }
                     } else {
-                        // at least one line is found, now try to find lines with a same col and row
-                        // as in found place in source code (this cover a case when compiler
-                        // generate multiple representations of a single line, for example when
-                        // source code line in a part of template function)
+                        // At least one line is found,
+                        // now try to find lines with the same col and row
+                        // as in found place in source code.
+                        // This covers a case when compiler
+                        // generates multiple representations of a single line, for example, when
+                        // source code line in a part of a template function.
                         let line = suitable_places_in_unit[0].line_number;
                         let col = suitable_places_in_unit[0].column_number;
                         let pe = suitable_places_in_unit[0].prolog_end;
@@ -403,8 +405,8 @@ impl DebugInformation {
                 }
 
                 for suitable_place in suitable_places_in_unit {
-                    // only one place for single unique subprogram is allowed
-                    // apply this rule as a filter for all places
+                    // only one place for a single unique subprogram is allowed
+                    // to apply this rule as a filter for all places
                     if let Some(func) = self.find_function_by_pc(suitable_place.address)? {
                         if !unique_subprograms.contains(&func.die.base_attributes) {
                             unique_subprograms.insert(&func.die.base_attributes);
@@ -700,9 +702,10 @@ impl DebugInformationBuilder {
         //     Some(names_trie.build())
         // });
 
-        // Currently pub_names section is not used because current function-search algorithm anyway
+        // Currently pub_names section is not used
+        // because the current function-search algorithm anyway
         // will load all dwarf DIE information after name was found in .debug_pubnames section.
-        // May be this will be changed in future, when debugger will load only DIE that points by
+        // Maybe this will be changed in the future, when debugger loads only DIE that points by
         // name from .debug_pubnames section.
         let pub_names = None;
 

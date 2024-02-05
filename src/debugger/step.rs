@@ -42,9 +42,9 @@ impl Debugger {
             Signal(Signal),
         }
 
-        // make instruction step but ignoring functions prolog
-        // initial function must exists (do instruction steps until it's not)
-        // returns stop place or signal if step is undone
+        // make an instruction step but ignoring functions prolog
+        // initial function must exist (do instruction steps until it's not)
+        // returns stop place or signal if a step is undone
         fn step_over_prolog(debugger: &mut Debugger) -> Result<PlaceOrSignal, Error> {
             loop {
                 // initial step
@@ -56,7 +56,7 @@ impl Debugger {
                 // determine current function, if no debug information for function - step until function found
                 let func = loop {
                     let dwarf = debugger.debugee.debug_info(location.pc)?;
-                    // step's stop only if there is a debug information for PC and current function can be determined
+                    // step's stop only if there is debug information for PC and current function can be determined
                     if let Ok(Some(func)) = dwarf.find_function_by_pc(location.global_pc) {
                         break func;
                     }
@@ -230,7 +230,7 @@ impl Debugger {
         // determine current function, if no debug information for function - step until function found
         let func = loop {
             let dwarf = &self.debugee.debug_info(current_location.pc)?;
-            // step's stop only if there is a debug information for PC and current function can be determined
+            // step's stop only if there is debug information for PC and current function can be determined
             if let Ok(Some(func)) = dwarf.find_function_by_pc(current_location.global_pc) {
                 break func;
             }
@@ -268,7 +268,7 @@ impl Debugger {
                     continue;
                 }
 
-                // guard from step at inlined function body
+                // guard against a step at inlined function body
                 let in_inline_range = place.address.in_ranges(&inline_ranges);
 
                 if !in_inline_range
@@ -327,9 +327,9 @@ impl Debugger {
             return Ok(StepResult::signal_interrupt_quiet(signal));
         }
 
-        // if a step is taken outside and new location pc not equals to place pc
-        // then we then we stopped at the place of the previous function call, and got into an assignment operation or similar
-        // in this case do a single step
+        // if a step is taken outside and new location pc not equals to place pc,
+        // then we stopped at the place of the previous function call,
+        // and got into an assignment operation or similar in this case do a single step
         let new_location = self.exploration_ctx().location();
         if Some(new_location.pc) == return_addr {
             let place = self

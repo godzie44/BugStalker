@@ -30,7 +30,7 @@ struct Args {
     #[clap(short, long)]
     std_lib_path: Option<String>,
 
-    /// Discover a specific oracle (may be more than one)
+    /// Discover a specific oracle (maybe more than one)
     #[clap(short, long)]
     oracle: Vec<String>,
 

@@ -291,7 +291,7 @@ impl<'a> VariableParserExtension<'a> {
             bytes_chunks = data.chunks(el_type_size as usize).enumerate();
             &mut bytes_chunks
         } else {
-            // if items type is zst
+            // if an item type is zst
             let v: Vec<&[u8]> = vec![&[]; len as usize];
             empty_chunks = v.into_iter().enumerate();
             &mut empty_chunks
@@ -351,7 +351,7 @@ impl<'a> VariableParserExtension<'a> {
         ir: VariableIR,
         type_params: &HashMap<String, Option<TypeIdentity>>,
     ) -> Result<TlsVariable, ParsingError> {
-        // we assume that tls variable name represent in dwarf
+        // we assume that tls variable name represents in dwarf
         // as namespace flowed before "__getit" namespace
         let namespace = &ir.identity().namespace;
         let name = namespace
