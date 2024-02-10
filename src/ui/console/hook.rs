@@ -8,6 +8,7 @@ use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use std::cell::RefCell;
 use std::ops::Add;
+use std::rc::Rc;
 
 #[derive(Default)]
 struct Context {
@@ -15,16 +16,20 @@ struct Context {
 }
 
 pub struct TerminalHook {
-    file_view: FileView,
+    file_view: Rc<FileView>,
     on_install_proc: Box<dyn Fn(Pid)>,
     printer: ExternalPrinter,
     context: RefCell<Context>,
 }
 
 impl TerminalHook {
-    pub fn new(printer: ExternalPrinter, on_install_proc: impl Fn(Pid) + 'static) -> Self {
+    pub fn new(
+        printer: ExternalPrinter,
+        fv: Rc<FileView>,
+        on_install_proc: impl Fn(Pid) + 'static,
+    ) -> Self {
         Self {
-            file_view: FileView::new(),
+            file_view: fv,
             on_install_proc: Box::new(on_install_proc),
             printer,
             context: RefCell::new(Context::default()),

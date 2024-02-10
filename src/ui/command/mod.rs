@@ -9,13 +9,13 @@ pub mod arguments;
 pub mod backtrace;
 pub mod r#break;
 pub mod r#continue;
-pub mod disasm;
 pub mod frame;
 pub mod memory;
 pub mod parser;
 pub mod register;
 pub mod run;
 pub mod sharedlib;
+pub mod source_code;
 pub mod step_instruction;
 pub mod step_into;
 pub mod step_out;
@@ -31,6 +31,8 @@ use crate::debugger::Error;
 pub enum CommandError {
     #[error("malformed command (try `help command`):\n{0}")]
     Parsing(anyhow::Error),
+    #[error("render error: \n{0}")]
+    Render(anyhow::Error),
     #[error(transparent)]
     Handle(#[from] Error),
 }
@@ -56,7 +58,7 @@ pub enum Command {
     Register(register::Command),
     Thread(thread::Command),
     SharedLib,
-    DisAsm,
+    SourceCode(source_code::Command),
     SkipInput,
     Oracle(String, Option<String>),
     Help {

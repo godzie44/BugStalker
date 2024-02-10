@@ -22,6 +22,7 @@ pub use debugee::dwarf::Symbol;
 pub use debugee::tracee::Tracee;
 pub use debugee::FrameInfo;
 pub use debugee::FunctionAssembly;
+pub use debugee::FunctionRange;
 pub use debugee::RegionInfo;
 pub use debugee::ThreadSnapshot;
 pub use error::Error;
@@ -908,6 +909,11 @@ impl Debugger {
             self.exploration_ctx(),
             &self.breakpoints.active_breakpoints(),
         )
+    }
+
+    /// Return two place descriptors, at the start and at the end of the current function.
+    pub fn current_function_range(&self) -> Result<FunctionRange, Error> {
+        self.debugee.function_range(self.exploration_ctx())
     }
 }
 

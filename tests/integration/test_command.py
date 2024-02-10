@@ -403,7 +403,7 @@ class CommandTestCase(unittest.TestCase):
 
         self.debugger.sendline('run')
 
-        self.debugger.sendline('disasm')
+        self.debugger.sendline('source asm')
         self.debugger.expect_exact('Assembler code for function hello_world::main')
         self.debugger.expect_exact('mov')
 
@@ -411,6 +411,32 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect('New breakpoint')
         self.debugger.sendline('continue')
 
-        self.debugger.sendline('disasm')
+        self.debugger.sendline('source asm')
         self.debugger.expect_exact('Assembler code for function hello_world::myprint')
         self.debugger.expect_exact('mov')
+
+    def test_source_fn(self):
+        """View function source code"""
+        self.debugger.sendline('break main')
+        self.debugger.expect('New breakpoint')
+
+        self.debugger.sendline('run')
+
+        self.debugger.sendline('source fn')
+        self.debugger.expect_exact('hello_world::main at')
+        self.debugger.expect_exact('4 fn main() {')
+        self.debugger.expect_exact('7     sleep(Duration::from_secs(1));')
+        self.debugger.expect_exact('10 }')
+
+    def test_source_bounds(self):
+        """View source code"""
+        self.debugger.sendline('break main')
+        self.debugger.expect('New breakpoint')
+
+        self.debugger.sendline('run')
+
+        self.debugger.sendline('source 4')
+        self.debugger.expect_exact('1 use std::thread::sleep;')
+        self.debugger.expect_exact('4 fn main() {')
+        self.debugger.expect_exact('9     myprint("bye!")')
+

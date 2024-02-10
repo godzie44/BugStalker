@@ -5,7 +5,6 @@ use crate::debugger::Debugger;
 use crate::ui::command;
 use crate::ui::command::arguments::Handler as ArgumentsHandler;
 use crate::ui::command::backtrace::Handler as BacktraceHandler;
-use crate::ui::command::disasm::Handler as DisAsmHandler;
 use crate::ui::command::frame::ExecutionResult as FrameResult;
 use crate::ui::command::frame::Handler as FrameHandler;
 use crate::ui::command::memory::Handler as MemoryHandler;
@@ -15,10 +14,13 @@ use crate::ui::command::r#continue::Handler as ContinueHandler;
 use crate::ui::command::register::Handler as RegisterHandler;
 use crate::ui::command::run::Handler as RunHandler;
 use crate::ui::command::sharedlib::Handler as SharedlibHandler;
+use crate::ui::command::source_code::{DisAsmHandler, FunctionLineRangeHandler};
 use crate::ui::command::symbol::Handler as SymbolHandler;
 use crate::ui::command::thread::ExecutionResult as ThreadResult;
 use crate::ui::command::variables::Handler as VariablesHandler;
-use crate::ui::command::{r#break, step_instruction, step_into, step_out, step_over, CommandError};
+use crate::ui::command::{
+    r#break, source_code, step_instruction, step_into, step_out, step_over, CommandError,
+};
 use crate::ui::command::{run, Command};
 use crate::ui::console::editor::{create_editor, CommandCompleter, RLHelper};
 use crate::ui::console::help::*;
@@ -29,6 +31,7 @@ use crate::ui::console::print::style::{
 };
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::variable::render_variable_ir;
+use crate::ui::console::view::FileView;
 use crate::ui::DebugeeOutReader;
 use crossterm::style::{Color, Stylize};
 use debugger::Error;
@@ -40,6 +43,7 @@ use rustyline::history::MemHistory;
 use rustyline::Editor;
 use std::io::{BufRead, BufReader};
 use std::process::exit;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{mpsc, Arc, Mutex, Once};
@@ -91,14 +95,17 @@ impl AppBuilder {
         }
 
         DEBUGEE_PID.store(debugger.process().pid().as_raw(), Ordering::Release);
+        let file_view = Rc::new(FileView::new());
         debugger.set_hook(TerminalHook::new(
             ExternalPrinter::new(&mut editor)?,
+            file_view.clone(),
             move |pid| DEBUGEE_PID.store(pid.as_raw(), Ordering::Release),
         ));
 
         Ok(TerminalApplication {
             debugger,
             editor,
+            file_view,
             debugee_out: self.debugee_out,
             debugee_err: self.debugee_err,
             user_act_tx: user_cmd_tx,
@@ -126,6 +133,7 @@ enum EditorMode {
 pub struct TerminalApplication {
     debugger: Debugger,
     editor: BSEditor,
+    file_view: Rc<FileView>,
     debugee_out: DebugeeOutReader,
     debugee_err: DebugeeOutReader,
     user_act_tx: SyncSender<UserAction>,
@@ -186,6 +194,7 @@ impl TerminalApplication {
 
         let app_loop = AppLoop {
             debugger: self.debugger,
+            file_view: self.file_view,
             user_input_rx: self.user_act_rx,
             completer: Arc::clone(
                 &self
@@ -283,6 +292,7 @@ impl TerminalApplication {
 
 struct AppLoop {
     debugger: Debugger,
+    file_view: Rc<FileView>,
     user_input_rx: Receiver<UserAction>,
     printer: ExternalPrinter,
     completer: Arc<Mutex<CommandCompleter>>,
@@ -576,28 +586,64 @@ impl AppLoop {
                     ))
                 }
             }
-            Command::DisAsm => {
-                let handler = DisAsmHandler::new(&self.debugger);
-                let assembly = handler.handle()?;
-                self.printer.println(format!(
-                    "Assembler code for function {}",
-                    FunctionNameView::from(assembly.name)
-                ));
-                for ins in assembly.instructions {
-                    let instruction_view = format!(
-                        "{} {} {}",
-                        AddressView::from(ins.address),
-                        AsmInstructionView::from(ins.mnemonic),
-                        AsmOperandsView::from(ins.operands),
-                    );
+            Command::SourceCode(inner_cmd) => match inner_cmd {
+                source_code::Command::Range(bounds) => {
+                    let handler = FunctionLineRangeHandler::new(&self.debugger);
+                    let range = handler.handle()?;
 
-                    if ins.address == assembly.addr_in_focus {
-                        self.printer.println(format!("{}", instruction_view.bold()));
-                    } else {
-                        self.printer.println(instruction_view);
+                    self.printer.println(format!(
+                        "{} at {}:{}",
+                        FunctionNameView::from(range.name),
+                        FilePathView::from(range.stop_place.file.to_string_lossy()),
+                        range.stop_place.line_number,
+                    ));
+
+                    self.printer.print(
+                        self.file_view
+                            .render_source(&range.stop_place, bounds)
+                            .map_err(CommandError::Render)?,
+                    );
+                }
+                source_code::Command::Function => {
+                    let handler = FunctionLineRangeHandler::new(&self.debugger);
+                    let range = handler.handle()?;
+
+                    self.printer.println(format!(
+                        "{} at {}:{}",
+                        FunctionNameView::from(range.name),
+                        FilePathView::from(range.stop_place.file.to_string_lossy()),
+                        range.stop_place.line_number,
+                    ));
+
+                    self.printer.print(
+                        self.file_view
+                            .render_source_range(&range.start, &range.end)
+                            .map_err(CommandError::Render)?,
+                    );
+                }
+                source_code::Command::Asm => {
+                    let handler = DisAsmHandler::new(&self.debugger);
+                    let assembly = handler.handle()?;
+                    self.printer.println(format!(
+                        "Assembler code for function {}",
+                        FunctionNameView::from(assembly.name)
+                    ));
+                    for ins in assembly.instructions {
+                        let instruction_view = format!(
+                            "{} {} {}",
+                            AddressView::from(ins.address),
+                            AsmInstructionView::from(ins.mnemonic),
+                            AsmOperandsView::from(ins.operands),
+                        );
+
+                        if ins.address == assembly.addr_in_focus {
+                            self.printer.println(format!("{}", instruction_view.bold()));
+                        } else {
+                            self.printer.println(instruction_view);
+                        }
                     }
                 }
-            }
+            },
             Command::Oracle(name, subcmd) => match self.debugger.get_oracle(&name) {
                 None => self
                     .printer
@@ -622,6 +668,9 @@ impl AppLoop {
                     if let Err(e) = self.handle_command(&command) {
                         match e {
                             CommandError::Parsing(_) => {
+                                self.printer.println(ErrorView::from(e));
+                            }
+                            CommandError::Render(_) => {
                                 self.printer.println(ErrorView::from(e));
                             }
                             CommandError::Handle(ref err) if err.is_fatal() => {

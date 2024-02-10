@@ -21,7 +21,7 @@ mem, memory read|write <addr>               -- read or write into debugged progr
 reg, register read|write|info <addr>        -- read, write, or view debugged program registers
 thread info|current|switch <number>         -- show list of threads or current (in focus) thread or set thread in focus
 sharedlib info                              -- show list of shared libraries
-disasm                                      -- show assembly instructions for current (in focus) function
+source asm|fn|<bounds>                      -- show source code or assembly instructions for current (in focus) function
 oracle <oracle> <>|<subcommand>             -- execute a specific oracle
 h, help <>|<command>                        -- show help
 tui                                         -- change ui mode to tui
@@ -207,9 +207,14 @@ Available subcomands:
 sharedlib info - print list of loaded shared libraries and their mapping addresses
 ";
 
-pub const HELP_DISASM: &str = "\
-\x1b[32;1mdisasm\x1b[0m
-Show assembly instructions for current (in focus) function.
+pub const HELP_SOURCE: &str = "\
+\x1b[32;1msource\x1b[0m
+Show source code or assembly instructions for current (in focus) function.
+
+Available subcomands:
+source fn - show code of function in focus 
+source asm - show assembly of function in focus 
+source <bounds> - show line in focus with <bounds> lines up and down of this line
 ";
 
 pub const HELP_TUI: &str = "\
@@ -261,7 +266,7 @@ impl Helper {
             Some(parser::REGISTER_COMMAND) | Some(parser::REGISTER_COMMAND_SHORT) => HELP_REGISTER,
             Some(parser::THREAD_COMMAND) => HELP_THREAD,
             Some(parser::SHARED_LIB_COMMAND) => HELP_SHARED_LIB,
-            Some(parser::DISASM_COMMAND) => HELP_DISASM,
+            Some(parser::SOURCE_COMMAND) => HELP_SOURCE,
             Some(parser::ORACLE_COMMAND) => self.oracle_help.get_or_insert_with(|| {
                 let mut help = HELP_ORACLE.to_string();
                 let oracles = debugger.all_oracles();

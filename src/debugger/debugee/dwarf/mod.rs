@@ -91,7 +91,7 @@ impl Clone for DebugInformation {
             bases: self.bases.clone(),
             units: self.units.clone(),
             symbol_table: self.symbol_table.clone(),
-            // it's ok cause pub_names currently unused, maybe it will be changed in future
+            // it is ok cause pub_names currently unused, maybe it will be changed in future
             pub_names: None,
             pub_types: self.pub_types.clone(),
             files_index: self.files_index.clone(),
@@ -1021,6 +1021,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
             .into())
     }
 
+    /// Return address of the first location past the last instruction associated with the function.
     pub fn end_instruction(&self) -> Result<GlobalAddress, Error> {
         Ok(self
             .ranges()

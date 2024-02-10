@@ -25,7 +25,8 @@ use crate::debugger::error::Error::{FunctionNotFound, MappingOffsetNotFound, Tra
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::register::DwarfRegisterMap;
 use crate::debugger::unwind::FrameSpan;
-use crate::debugger::ExplorationContext;
+use crate::debugger::Error::FunctionRangeNotFound;
+use crate::debugger::{ExplorationContext, PlaceDescriptor};
 use crate::{muted_error, print_warns, weak_error};
 use log::{info, warn};
 use nix::unistd::Pid;
@@ -84,6 +85,13 @@ pub struct FunctionAssembly {
     pub name: Option<String>,
     pub addr_in_focus: GlobalAddress,
     pub instructions: Vec<disasm::Instruction>,
+}
+
+pub struct FunctionRange<'a> {
+    pub name: Option<String>,
+    pub stop_place: PlaceDescriptor<'a>,
+    pub start: PlaceDescriptor<'a>,
+    pub end: PlaceDescriptor<'a>,
 }
 
 /// Debugee - represent static and runtime debugee information.
@@ -525,6 +533,36 @@ impl Debugee {
             name: function.full_name(),
             addr_in_focus: ctx.location().global_pc,
             instructions,
+        })
+    }
+
+    /// Return two place descriptors, at the start and at the end of the current function.
+    pub fn function_range(&self, ctx: &ExplorationContext) -> Result<FunctionRange, Error> {
+        let debug_information = self.debug_info(ctx.location().pc)?;
+        let function = debug_information
+            .find_function_by_pc(ctx.location().global_pc)?
+            .ok_or(FunctionNotFound(ctx.location().global_pc))?;
+        let unit = function.unit();
+
+        let stop_place = debug_information
+            .find_place_from_pc(ctx.location().global_pc)?
+            .ok_or(Error::PlaceNotFound(ctx.location().global_pc))?;
+
+        let (file, line) = function.die.decl_file_line.ok_or(FunctionRangeNotFound)?;
+        let start = unit
+            .find_place_by_line(file, line)
+            .ok_or(FunctionRangeNotFound)?;
+
+        let ei = GlobalAddress::from(usize::from(function.end_instruction()?).saturating_sub(1));
+        let end = unit.find_place_by_pc(ei).ok_or(FunctionRangeNotFound)?;
+
+        debug_assert!(start.file == end.file);
+
+        Ok(FunctionRange {
+            name: function.full_name(),
+            stop_place,
+            start,
+            end,
         })
     }
 }

@@ -132,6 +132,8 @@ pub enum Error {
     DisAsmInit(capstone::Error),
     #[error("instructions disassembly error: {0}")]
     DisAsm(capstone::Error),
+    #[error("error to determine current function start/end place")]
+    FunctionRangeNotFound,
 
     // --------------------------------- third party errors ----------------------------------------
     #[error("hook: {0}")]
@@ -194,6 +196,7 @@ impl Error {
             Error::SectionNotFound(_) => false,
             Error::DisAsm(_) => false,
             Error::InvalidSpecification(_) => false,
+            Error::FunctionRangeNotFound => false,
 
             // currently fatal errors
             Error::DwarfParsing(_) => true,

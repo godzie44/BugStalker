@@ -40,7 +40,7 @@ pub struct DieRange {
     pub die_idx: usize,
 }
 
-/// Represent an place in program text identified by file name
+/// Represent a place in program text identified by file name
 /// line number and column number.
 pub struct PlaceDescriptor<'a> {
     pub file: &'a Path,
@@ -558,9 +558,32 @@ impl Unit {
         &self.ranges
     }
 
-    /// Return [`PlaceDescriptor`] by index for lines vector in unit.
+    /// Return [`PlaceDescriptor`] by index for line vector in unit.
     pub(super) fn find_place_by_idx(&self, line_pos: usize) -> Option<PlaceDescriptor> {
         let line = self.lines.get(line_pos)?;
+        Some(PlaceDescriptor {
+            file: self
+                .files
+                .get(line.file_index as usize)
+                .expect("unreachable: file must exists"),
+            address: line.address.into(),
+            line_number: line.line,
+            column_number: line.column,
+            pos_in_unit: line_pos,
+            is_stmt: line.is_stmt,
+            prolog_end: line.prolog_end,
+            epilog_begin: line.epilog_begin,
+            unit: self,
+        })
+    }
+
+    /// Return first [`PlaceDescriptor`] matching the file index and line number.
+    pub fn find_place_by_line(&self, file_idx: u64, line: u64) -> Option<PlaceDescriptor> {
+        let (line_pos, line) = self
+            .lines
+            .iter()
+            .enumerate()
+            .find(|(_, l)| l.file_index == file_idx && l.line == line)?;
         Some(PlaceDescriptor {
             file: self
                 .files

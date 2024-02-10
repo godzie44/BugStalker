@@ -1,7 +1,7 @@
 pub mod expression;
 
 use super::r#break::BreakpointIdentity;
-use super::{frame, memory, register, thread, Command, CommandError};
+use super::{frame, memory, register, source_code, thread, Command, CommandError};
 use super::{r#break, CommandResult};
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use anyhow::anyhow;
@@ -22,6 +22,7 @@ use nom_supreme::tag::complete::tag;
 use std::convert::Infallible;
 use std::num::ParseIntError;
 use std::str::FromStr;
+use std::u64;
 
 pub const VAR_COMMAND: &str = "var";
 pub const VAR_LOCAL_KEY: &str = "locals";
@@ -62,7 +63,9 @@ pub const THREAD_COMMAND_SWITCH_SUBCOMMAND: &str = "switch";
 pub const THREAD_COMMAND_CURRENT_SUBCOMMAND: &str = "current";
 pub const SHARED_LIB_COMMAND: &str = "sharedlib";
 pub const SHARED_LIB_COMMAND_INFO_SUBCOMMAND: &str = "info";
-pub const DISASM_COMMAND: &str = "disasm";
+pub const SOURCE_COMMAND: &str = "source";
+pub const SOURCE_COMMAND_DISASM_SUBCOMMAND: &str = "asm";
+pub const SOURCE_COMMAND_FUNCTION_SUBCOMMAND: &str = "fn";
 pub const ORACLE_COMMAND: &str = "oracle";
 pub const HELP_COMMAND: &str = "help";
 pub const HELP_COMMAND_SHORT: &str = "h";
@@ -250,7 +253,33 @@ impl Command {
             STEP_OVER_COMMAND,
             Command::StepOver
         );
-        let disasm_parser = parser1_no_args!(DISASM_COMMAND, Command::DisAsm);
+
+        fn source_code_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
+            alt((
+                map(
+                    preceded(
+                        tag(SOURCE_COMMAND),
+                        preceded(multispace1, tag(SOURCE_COMMAND_DISASM_SUBCOMMAND)),
+                    ),
+                    |_| Command::SourceCode(source_code::Command::Asm),
+                ),
+                map(
+                    preceded(
+                        tag(SOURCE_COMMAND),
+                        preceded(multispace1, tag(SOURCE_COMMAND_FUNCTION_SUBCOMMAND)),
+                    ),
+                    |_| Command::SourceCode(source_code::Command::Function),
+                ),
+                map_res(
+                    preceded(tag(SOURCE_COMMAND), preceded(multispace1, cut(digit1))),
+                    |digit| -> Result<Command, ParseIntError> {
+                        Ok(Command::SourceCode(source_code::Command::Range(
+                            u64::from_str(digit)?,
+                        )))
+                    },
+                ),
+            ))(input)
+        }
 
         fn help_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
             map(
@@ -484,7 +513,7 @@ impl Command {
             command(HELP_COMMAND, help_parser),
             command(THREAD_COMMAND, thread_parser),
             command(SHARED_LIB_COMMAND, shared_lib_parser),
-            command(DISASM_COMMAND, disasm_parser),
+            command(SOURCE_COMMAND, source_code_parser),
             command(ORACLE_COMMAND, oracle_parser),
             cut(map(not_line_ending, |cmd: &str| {
                 if cmd.is_empty() {
@@ -833,9 +862,30 @@ mod test {
                 },
             },
             TestCase {
-                inputs: vec!["disasm", " disasm  "],
+                inputs: vec!["source asm", " source   asm  "],
                 command_matcher: |result| {
-                    assert!(matches!(result.unwrap(), Command::DisAsm));
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::SourceCode(source_code::Command::Asm)
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec!["source fn", " source   fn  "],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::SourceCode(source_code::Command::Function)
+                    ));
+                },
+            },
+            TestCase {
+                inputs: vec!["source 12", " source   12  "],
+                command_matcher: |result| {
+                    assert!(matches!(
+                        result.unwrap(),
+                        Command::SourceCode(source_code::Command::Range(r)) if r == 12
+                    ));
                 },
             },
             TestCase {
