@@ -8,6 +8,7 @@ use bugstalker::debugger::variable::select::{Expression, VariableSelector};
 use bugstalker::debugger::variable::{select, VariableIR};
 use bugstalker::debugger::{variable, Debugger, DebuggerBuilder};
 use bugstalker::ui::command::parser::expression;
+use chumsky::Parser;
 use debugger::variable::SupportedScalar;
 use serial_test::serial;
 
@@ -590,8 +591,7 @@ fn test_read_enum() {
 }
 
 fn make_select_plan(expr: &str) -> Expression {
-    let (_, expr) = expression::expr(expr).unwrap();
-    expr
+    expression::parser().parse(expr).unwrap()
 }
 
 fn read_single_var(debugger: &Debugger, expr: &str) -> VariableIR {
@@ -902,7 +902,7 @@ fn test_read_static_variables() {
     let vars = debugger
         .read_variable(Expression::Variable(VariableSelector::Name {
             var_name: "GLOB_1".to_string(),
-            local: false,
+            only_local: false,
         }))
         .unwrap();
     assert_eq!(vars.len(), 1);
@@ -911,7 +911,7 @@ fn test_read_static_variables() {
     let vars = debugger
         .read_variable(Expression::Variable(VariableSelector::Name {
             var_name: "GLOB_2".to_string(),
-            local: false,
+            only_local: false,
         }))
         .unwrap();
     assert_eq!(vars.len(), 1);
@@ -943,7 +943,7 @@ fn test_read_only_local_variables() {
     let vars = debugger
         .read_variable(Expression::Variable(VariableSelector::Name {
             var_name: "GLOB_1".to_string(),
-            local: true,
+            only_local: true,
         }))
         .unwrap();
     assert_eq!(vars.len(), 0);
@@ -969,7 +969,7 @@ fn test_read_static_variables_different_modules() {
     let mut vars = debugger
         .read_variable(Expression::Variable(VariableSelector::Name {
             var_name: "GLOB_3".to_string(),
-            local: false,
+            only_local: false,
         }))
         .unwrap();
     assert_eq!(vars.len(), 2);
@@ -1004,7 +1004,7 @@ fn test_read_tls_variables() {
     let vars = debugger
         .read_variable(Expression::Variable(VariableSelector::Name {
             var_name: "THREAD_LOCAL_VAR_1".to_string(),
-            local: false,
+            only_local: false,
         }))
         .unwrap();
     assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>", |inner| {
@@ -1016,7 +1016,7 @@ fn test_read_tls_variables() {
     let vars = debugger
         .read_variable(Expression::Variable(VariableSelector::Name {
             var_name: "THREAD_LOCAL_VAR_2".to_string(),
-            local: false,
+            only_local: false,
         }))
         .unwrap();
     assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_2", "Cell<&str>", |inner| {
@@ -1033,7 +1033,7 @@ fn test_read_tls_variables() {
     let vars = debugger
         .read_variable(Expression::Variable(VariableSelector::Name {
             var_name: "THREAD_LOCAL_VAR_1".to_string(),
-            local: false,
+            only_local: false,
         }))
         .unwrap();
     assert_uninit_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>");
@@ -1046,7 +1046,7 @@ fn test_read_tls_variables() {
     let vars = debugger
         .read_variable(Expression::Variable(VariableSelector::Name {
             var_name: "THREAD_LOCAL_VAR_1".to_string(),
-            local: false,
+            only_local: false,
         }))
         .unwrap();
     assert_init_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>", |inner| {
@@ -2261,7 +2261,7 @@ fn test_read_static_in_fn_variable() {
     let vars = debugger
         .read_variable(Expression::Variable(VariableSelector::Name {
             var_name: "INNER_STATIC".to_string(),
-            local: false,
+            only_local: false,
         }))
         .unwrap();
     assert_scalar(
@@ -2277,7 +2277,7 @@ fn test_read_static_in_fn_variable() {
     let vars = debugger
         .read_variable(Expression::Variable(VariableSelector::Name {
             var_name: "INNER_STATIC".to_string(),
-            local: false,
+            only_local: false,
         }))
         .unwrap();
     assert_scalar(
@@ -2309,7 +2309,7 @@ fn test_slice_operator() {
         .read_variable(Expression::Slice(
             Expression::Variable(VariableSelector::Name {
                 var_name: "arr_1".to_string(),
-                local: true,
+                only_local: true,
             })
             .boxed(),
             None,
@@ -2329,7 +2329,7 @@ fn test_slice_operator() {
         .read_variable(Expression::Slice(
             Expression::Variable(VariableSelector::Name {
                 var_name: "arr_1".to_string(),
-                local: true,
+                only_local: true,
             })
             .boxed(),
             Some(3),
@@ -2346,7 +2346,7 @@ fn test_slice_operator() {
         .read_variable(Expression::Slice(
             Expression::Variable(VariableSelector::Name {
                 var_name: "arr_1".to_string(),
-                local: true,
+                only_local: true,
             })
             .boxed(),
             None,
@@ -2363,7 +2363,7 @@ fn test_slice_operator() {
         .read_variable(Expression::Slice(
             Expression::Variable(VariableSelector::Name {
                 var_name: "arr_1".to_string(),
-                local: true,
+                only_local: true,
             })
             .boxed(),
             Some(1),

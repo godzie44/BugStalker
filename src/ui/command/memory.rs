@@ -4,7 +4,7 @@ use crate::ui::command;
 use nix::libc::uintptr_t;
 use std::mem;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Command {
     Read(usize),
     Write(usize, uintptr_t),

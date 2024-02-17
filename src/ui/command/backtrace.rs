@@ -1,7 +1,7 @@
 use crate::debugger::{Debugger, ThreadSnapshot};
 use crate::ui::command;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Command {
     CurrentThread,
     All,

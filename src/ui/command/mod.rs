@@ -40,7 +40,7 @@ pub enum CommandError {
 pub type CommandResult<T> = Result<T, CommandError>;
 
 /// External commands that can be processed by the debugger.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Command {
     PrintVariables(Expression),
     PrintArguments(Expression),

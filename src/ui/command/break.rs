@@ -11,7 +11,7 @@ pub enum BreakpointIdentity {
     Number(u32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Command {
     Add(BreakpointIdentity),
     Remove(BreakpointIdentity),

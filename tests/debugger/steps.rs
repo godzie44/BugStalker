@@ -5,6 +5,7 @@ use crate::{assert_no_proc, prepare_debugee_process, HW_APP, RECURSION_APP, VARS
 use bugstalker::debugger::variable::{SupportedScalar, VariableIR};
 use bugstalker::debugger::{Debugger, DebuggerBuilder};
 use bugstalker::ui::command::parser::expression;
+use chumsky::Parser;
 use serial_test::serial;
 use std::mem;
 
@@ -60,7 +61,7 @@ fn test_step_into_recursion() {
     debugger.set_breakpoint_at_fn("infinite_inc").unwrap();
 
     fn assert_arg(debugger: &Debugger, expected: u64) {
-        let (_, get_i_expr) = expression::expr("i").unwrap();
+        let get_i_expr = expression::parser().parse("i").unwrap();
         let i_arg = debugger.read_argument(get_i_expr).unwrap().pop().unwrap();
         let VariableIR::Scalar(scalar) = i_arg else {
             panic!("not a scalar");

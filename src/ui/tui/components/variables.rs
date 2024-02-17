@@ -185,7 +185,7 @@ impl Variables {
                 arg,
                 Some(Expression::Variable(VariableSelector::Name {
                     var_name: arg.name(),
-                    local: false,
+                    only_local: false,
                 })),
             );
             args_node.add_child(var_node);
@@ -201,7 +201,7 @@ impl Variables {
                 var,
                 Some(Expression::Variable(VariableSelector::Name {
                     var_name: var.name(),
-                    local: true,
+                    only_local: true,
                 })),
             );
             vars_node.add_child(var_node);

@@ -4,7 +4,7 @@ use crate::ui::command;
 use crate::ui::command::CommandError;
 use register::Register as Reg;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Command {
     Info,
     Read(String),

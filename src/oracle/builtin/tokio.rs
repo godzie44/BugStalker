@@ -11,7 +11,6 @@ use crate::ui::tui::Msg;
 use chrono::Duration;
 use indexmap::IndexMap;
 use log::warn;
-use nom::InputTake;
 use std::borrow::Cow;
 use std::mem::size_of;
 use std::sync::Arc;
@@ -261,7 +260,7 @@ impl ConsolePlugin for TokioOracle {
 
                 fn max_n_symbols(s: &str, n: usize) -> Cow<'_, str> {
                     if s.len() > n {
-                        Cow::Owned(s.take(n - 3).to_string() + "...")
+                        Cow::Owned(s[..n - 3].to_string() + "...")
                     } else {
                         Cow::Borrowed(s)
                     }
@@ -346,7 +345,7 @@ impl TokioOracle {
             Expression::Field(
                 Expression::Variable(VariableSelector::Name {
                     var_name: "self".to_string(),
-                    local: true,
+                    only_local: true,
                 })
                 .boxed(),
                 "ptr".to_string(),
@@ -414,7 +413,7 @@ impl TokioOracle {
         let id_args = debugger.read_argument(Expression::Field(
             Box::new(Expression::Variable(VariableSelector::Name {
                 var_name: "id".to_string(),
-                local: true,
+                only_local: true,
             })),
             "0".to_string(),
         ))?;

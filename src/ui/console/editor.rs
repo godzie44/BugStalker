@@ -12,14 +12,10 @@ use crate::ui::command::parser::{
     STEP_OVER_COMMAND_SHORT, SYMBOL_COMMAND, THREAD_COMMAND, THREAD_COMMAND_CURRENT_SUBCOMMAND,
     THREAD_COMMAND_INFO_SUBCOMMAND, THREAD_COMMAND_SWITCH_SUBCOMMAND, VAR_COMMAND, VAR_LOCAL_KEY,
 };
+use chumsky::prelude::{any, choice, just};
+use chumsky::text::whitespace;
+use chumsky::{extra, text, Parser};
 use crossterm::style::{Color, Stylize};
-use nom::branch::alt;
-use nom::character::complete::{alpha1, multispace1, not_line_ending};
-use nom::combinator::{map, opt};
-use nom::sequence::{preceded, separated_pair};
-use nom_supreme::error::ErrorTree;
-use nom_supreme::final_parser::Location;
-use nom_supreme::tag::complete::tag;
 use rustyline::completion::{Completer, Pair};
 use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
 use rustyline::hint::HistoryHinter;
@@ -152,6 +148,7 @@ impl CommandCompleter {
     }
 }
 
+#[derive(Debug)]
 enum CompletableCommand<'a> {
     Breakpoint(&'a str),
     PrintVariables(&'a str),
@@ -160,41 +157,33 @@ enum CompletableCommand<'a> {
 }
 
 impl<'a> CompletableCommand<'a> {
-    fn recognize(line: &'a str) -> anyhow::Result<CompletableCommand> {
-        let bp_parser = map(
-            preceded(
-                alt((tag(BREAK_COMMAND), tag(BREAK_COMMAND_SHORT))),
-                preceded(multispace1, not_line_ending),
-            ),
-            CompletableCommand::Breakpoint,
-        );
+    fn recognize(line: &'a str) -> Option<CompletableCommand> {
+        let op = just::<_, _, extra::Default>;
 
-        let var_parser = map(
-            preceded(tag(VAR_COMMAND), preceded(multispace1, not_line_ending)),
-            CompletableCommand::PrintVariables,
-        );
+        let bp = op(BREAK_COMMAND)
+            .or(op(BREAK_COMMAND_SHORT))
+            .then(whitespace().at_least(1))
+            .ignore_then(any().repeated().to_slice())
+            .map(CompletableCommand::Breakpoint);
 
-        let arg_parser = map(
-            preceded(tag(ARG_COMMAND), preceded(multispace1, not_line_ending)),
-            CompletableCommand::PrintArguments,
-        );
+        let var = op(VAR_COMMAND)
+            .then(whitespace().at_least(1))
+            .ignore_then(any().repeated().to_slice())
+            .map(CompletableCommand::PrintVariables);
 
-        let other_parser = map(
-            separated_pair(alpha1, multispace1, opt(alpha1)),
-            |(s1, s2)| CompletableCommand::Unrecognized(s1, s2),
-        );
+        let arg = op(ARG_COMMAND)
+            .then(whitespace().at_least(1))
+            .ignore_then(any().repeated().to_slice())
+            .map(CompletableCommand::PrintArguments);
 
-        Ok(nom_supreme::final_parser::final_parser::<
-            _,
-            _,
-            ErrorTree<&str>,
-            ErrorTree<Location>,
-        >(alt((
-            bp_parser,
-            var_parser,
-            arg_parser,
-            other_parser,
-        )))(line)?)
+        let other = text::ident()
+            .then_ignore(whitespace().at_least(1))
+            .then(text::ident().or_not())
+            .map(|(s1, s2): (&str, Option<&str>)| CompletableCommand::Unrecognized(s1.trim(), s2))
+            .padded();
+
+        let r = choice((bp, var, arg, other)).parse(line);
+        r.into_result().ok()
     }
 }
 
@@ -222,7 +211,7 @@ impl Completer for CommandCompleter {
         }
 
         match CompletableCommand::recognize(line) {
-            Ok(CompletableCommand::Breakpoint(maybe_file)) => {
+            Some(CompletableCommand::Breakpoint(maybe_file)) => {
                 if maybe_file.trim().is_empty() {
                     return Ok((0, vec![]));
                 }
@@ -235,7 +224,7 @@ impl Completer for CommandCompleter {
                     return Ok(pairs_from_variants(variants_iter, line, maybe_file, ":"));
                 }
             }
-            Ok(CompletableCommand::PrintVariables(maybe_var)) => {
+            Some(CompletableCommand::PrintVariables(maybe_var)) => {
                 if maybe_var.trim().is_empty() {
                     return Ok(pairs_from_variants(self.vars.iter(), line, maybe_var, ""));
                 }
@@ -248,7 +237,7 @@ impl Completer for CommandCompleter {
                     return Ok(pairs_from_variants(variants_iter, line, maybe_var, ""));
                 }
             }
-            Ok(CompletableCommand::PrintArguments(maybe_arg)) => {
+            Some(CompletableCommand::PrintArguments(maybe_arg)) => {
                 if maybe_arg.trim().is_empty() {
                     return Ok(pairs_from_variants(self.args.iter(), line, maybe_arg, ""));
                 }
@@ -261,7 +250,7 @@ impl Completer for CommandCompleter {
                     return Ok(pairs_from_variants(variants_iter, line, maybe_arg, ""));
                 }
             }
-            Ok(CompletableCommand::Unrecognized(cmd, mb_subcmd_part)) => {
+            Some(CompletableCommand::Unrecognized(cmd, mb_subcmd_part)) => {
                 if let Some(subcommands) = self.subcommand_hints.get(cmd) {
                     let pos = cmd.len() + 1;
                     let subcmd_part = mb_subcmd_part.unwrap_or_default();

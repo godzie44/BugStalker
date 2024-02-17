@@ -339,6 +339,10 @@ impl AppLoop {
     }
 
     fn handle_command(&mut self, cmd: &str) -> Result<(), CommandError> {
+        if cmd.is_empty() {
+            return Ok(());
+        }
+
         match Command::parse(cmd)? {
             Command::PrintVariables(print_var_command) => VariablesHandler::new(&self.debugger)
                 .handle(print_var_command)?

@@ -589,7 +589,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('box_arr = alloc::boxed::Box<[u8], alloc::alloc::Global> {')
 
     def test_ptr_cast(self):
-        """Cast const address to typed pointer"""
+        """Cast const address to a typed pointer"""
         self.debugger.sendline('break vars.rs:119')
         self.debugger.expect('New breakpoint')
 

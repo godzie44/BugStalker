@@ -1,6 +1,6 @@
 use crate::debugger::{Debugger, Error, FunctionAssembly, FunctionRange};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Command {
     Range(u64),
     Function,

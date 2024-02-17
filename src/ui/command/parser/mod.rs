@@ -5,23 +5,6 @@ use super::{frame, memory, register, source_code, thread, Command, CommandError}
 use super::{r#break, CommandResult};
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use anyhow::anyhow;
-use nix::libc::uintptr_t;
-use nom::branch::alt;
-use nom::bytes::complete::is_not;
-use nom::character::complete::{
-    alpha1, alphanumeric1, char, digit1, multispace0, multispace1, not_line_ending, one_of, space1,
-};
-use nom::combinator::{cut, eof, map, map_res, not, opt, recognize};
-use nom::error::context;
-use nom::multi::{many0, many0_count, many1};
-use nom::sequence::{delimited, pair, preceded, separated_pair, terminated};
-use nom::{IResult, Parser};
-use nom_supreme::error::ErrorTree;
-use nom_supreme::final_parser::Location;
-use nom_supreme::tag::complete::tag;
-use std::convert::Infallible;
-use std::num::ParseIntError;
-use std::str::FromStr;
 use std::u64;
 
 pub const VAR_COMMAND: &str = "var";
@@ -70,849 +53,777 @@ pub const ORACLE_COMMAND: &str = "oracle";
 pub const HELP_COMMAND: &str = "help";
 pub const HELP_COMMAND_SHORT: &str = "h";
 
-fn hexadecimal(input: &str) -> IResult<&str, &str, ErrorTree<&str>> {
-    preceded(
-        alt((tag("0x"), tag("0X"))),
-        recognize(many1(terminated(
-            one_of("0123456789abcdefABCDEF"),
-            many0(char('_')),
-        ))),
-    )(input)
+use chumsky::error::Rich;
+use chumsky::prelude::{any, choice, end, just};
+use chumsky::text::Char;
+use chumsky::{extra, text, Boxed, Parser};
+
+type Err<'a> = extra::Err<Rich<'a, char>>;
+
+pub fn hex<'a>() -> impl chumsky::Parser<'a, &'a str, usize, Err<'a>> + Clone {
+    let prefix = just("0x").or(just("0X"));
+    prefix
+        .ignore_then(
+            text::digits(16)
+                .at_least(1)
+                .to_slice()
+                .map(|s: &str| usize::from_str_radix(s, 16).unwrap()),
+        )
+        .padded()
+        .labelled("hexidecimal number")
 }
 
-pub fn rust_identifier(input: &str) -> IResult<&str, &str, ErrorTree<&str>> {
-    recognize(pair(
-        alt((alpha1, tag("_"))),
-        many0_count(alt((alphanumeric1, tag("_"), tag("::")))),
-    ))(input)
+pub fn rust_identifier<'a>() -> impl chumsky::Parser<'a, &'a str, &'a str, Err<'a>> + Clone {
+    text::ascii::ident()
+        .separated_by(just("::"))
+        .allow_leading()
+        .at_least(1)
+        .to_slice()
+        .padded()
+        .labelled("rust identifier")
 }
 
-pub fn rust_type(input: &str) -> IResult<&str, &str, ErrorTree<&str>> {
-    recognize(pair(
-        alt((alpha1, tag("_"), tag("&"), tag("*"))),
-        many0_count(alt((
-            alphanumeric1,
-            tag("_"),
-            tag("::"),
-            space1,
-            tag("&"),
-            tag("*"),
-        ))),
-    ))(input)
-}
-
-pub fn rust_type_parameter(input: &str) -> IResult<&str, &str, ErrorTree<&str>> {
-    recognize(pair(
-        tag("<"),
-        pair(
-            many1(alt((
-                alphanumeric1,
-                tag(" "),
-                tag("_"),
-                tag(","),
-                tag("::"),
-            ))),
-            tag(">"),
-        ),
-    ))(input)
-}
-
-pub fn brkpt_at_addr_parser(input: &str) -> IResult<&str, BreakpointIdentity, ErrorTree<&str>> {
-    map_res(
-        hexadecimal,
-        |hex| -> Result<BreakpointIdentity, ParseIntError> {
-            let addr = usize::from_str_radix(hex, 16)?;
-            Ok(BreakpointIdentity::Address(addr))
-        },
-    )(input)
-}
-
-pub fn brkpt_at_line_parser(input: &str) -> IResult<&str, BreakpointIdentity, ErrorTree<&str>> {
-    map_res(
-        separated_pair(is_not(":"), tag(":"), digit1),
-        |(file, line): (&str, &str)| -> Result<BreakpointIdentity, ParseIntError> {
-            Ok(BreakpointIdentity::Line(
-                file.trim().to_string(),
-                u64::from_str(line.trim())?,
-            ))
-        },
-    )(input)
-}
-
-pub fn brkpt_at_fn(input: &str) -> IResult<&str, BreakpointIdentity, ErrorTree<&str>> {
-    map_res(
-        recognize(many1(pair(
-            rust_identifier,
-            opt(pair(rust_type_parameter, opt(tag("::")))),
-        ))),
-        |fn_name: &str| -> Result<BreakpointIdentity, Infallible> {
-            Ok(BreakpointIdentity::Function(fn_name.to_string()))
-        },
-    )(input)
-}
-
-pub fn brkpt_number(input: &str) -> IResult<&str, BreakpointIdentity, ErrorTree<&str>> {
-    map_res(
-        digit1,
-        |number: &str| -> Result<BreakpointIdentity, ParseIntError> {
-            Ok(BreakpointIdentity::Number(number.parse()?))
-        },
-    )(input)
-}
-
-fn command<'a, F>(
-    ctx: &'static str,
-    inner: F,
-) -> impl FnMut(&'a str) -> IResult<&'a str, Command, ErrorTree<&'a str>>
-where
-    F: Parser<&'a str, Command, ErrorTree<&'a str>>,
+pub fn brkpt_at_addr_parser<'a>() -> impl chumsky::Parser<'a, &'a str, BreakpointIdentity, Err<'a>>
 {
-    context(
-        ctx,
-        delimited(
-            many0(one_of(" \t\r\n")),
-            inner,
-            cut(preceded(many0(one_of(" \t\r\n")), eof)),
-        ),
-    )
+    hex().map(BreakpointIdentity::Address)
+}
+
+pub fn brkpt_at_line_parser<'a>() -> impl chumsky::Parser<'a, &'a str, BreakpointIdentity, Err<'a>>
+{
+    any()
+        .filter(|c: &char| c.to_char() != ':')
+        .repeated()
+        .to_slice()
+        .then_ignore(just(':'))
+        .then(text::int(10).from_str().unwrapped())
+        .map(|(file, line): (&str, u64)| BreakpointIdentity::Line(file.trim().to_string(), line))
+        .padded()
+}
+
+pub fn brkpt_number<'a>() -> impl chumsky::Parser<'a, &'a str, BreakpointIdentity, Err<'a>> {
+    text::int(10)
+        .from_str()
+        .unwrapped()
+        .map(|number: u32| BreakpointIdentity::Number(number))
+        .padded()
+}
+
+pub fn brkpt_at_fn<'a>() -> impl chumsky::Parser<'a, &'a str, BreakpointIdentity, Err<'a>> {
+    any()
+        .repeated()
+        .to_slice()
+        .map(|fn_name: &str| BreakpointIdentity::Function(fn_name.trim().to_string()))
+}
+
+fn command<'a, I>(ctx: &'static str, inner: I) -> Boxed<'a, 'a, &'a str, Command, Err<'a>>
+where
+    I: chumsky::Parser<'a, &'a str, Command, Err<'a>> + 'a,
+{
+    inner.then_ignore(end()).labelled(ctx).boxed()
 }
 
 impl Command {
     /// Parse input string into command.
     pub fn parse(input: &str) -> CommandResult<Command> {
-        nom_supreme::final_parser::final_parser::<_, _, _, ErrorTree<Location>>(Self::parse_inner)(
-            input,
-        )
-        .map_err(|e| CommandError::Parsing(anyhow!("{}", e)))
+        Self::parser()
+            .parse(input)
+            .into_result()
+            .map_err(|e| CommandError::Parsing(anyhow!("{}", e[0])))
     }
 
-    fn parse_inner(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-        fn print_var_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            alt((
-                map(
-                    preceded(tag(VAR_COMMAND), preceded(multispace1, tag(VAR_LOCAL_KEY))),
-                    |_| Command::PrintVariables(Expression::Variable(VariableSelector::Any)),
-                ),
-                map(
-                    preceded(
-                        tag(VAR_COMMAND),
-                        preceded(multispace1, cut(expression::expr)),
-                    ),
-                    Command::PrintVariables,
-                ),
-            ))(input)
-        }
+    fn parser<'a>() -> impl chumsky::Parser<'a, &'a str, Command, Err<'a>> {
+        let op = |sym| just(sym).padded();
 
-        fn print_argument_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            alt((
-                map(
-                    preceded(tag(ARG_COMMAND), preceded(multispace1, tag(ARG_ALL_KEY))),
-                    |_| Command::PrintArguments(Expression::Variable(VariableSelector::Any)),
-                ),
-                map(
-                    preceded(
-                        tag(ARG_COMMAND),
-                        preceded(multispace1, cut(expression::expr)),
-                    ),
-                    Command::PrintArguments,
-                ),
-            ))(input)
-        }
+        let print_local_vars = op(VAR_COMMAND)
+            .then(op(VAR_LOCAL_KEY))
+            .map(|_| Command::PrintVariables(Expression::Variable(VariableSelector::Any)));
+        let print_var = op(VAR_COMMAND)
+            .ignore_then(expression::parser())
+            .map(Command::PrintVariables);
 
-        macro_rules! parser1_no_args {
-            ($tag: expr, $command: expr) => {
-                map(preceded(tag($tag), not(alphanumeric1)), |_| $command)
-            };
-        }
+        let print_variables = choice((print_local_vars, print_var)).boxed();
 
-        macro_rules! parser2_no_args {
-            ($tag1: expr, $tag2: expr, $command: expr) => {
-                map(
-                    alt((
-                        preceded(tag($tag1), not(alphanumeric1)),
-                        preceded(tag($tag2), cut(not(alphanumeric1))),
-                    )),
-                    |_| $command,
-                )
-            };
-        }
+        let print_all_args = op(ARG_COMMAND)
+            .then(op(ARG_ALL_KEY))
+            .map(|_| Command::PrintArguments(Expression::Variable(VariableSelector::Any)));
+        let print_arg = op(ARG_COMMAND)
+            .ignore_then(expression::parser())
+            .map(Command::PrintArguments);
 
-        let continue_parser =
-            parser2_no_args!(CONTINUE_COMMAND_SHORT, CONTINUE_COMMAND, Command::Continue);
-        let run_parser = parser2_no_args!(RUN_COMMAND_SHORT, RUN_COMMAND, Command::Run);
-        let stepi_parser = parser1_no_args!(STEP_INSTRUCTION_COMMAND, Command::StepInstruction);
-        let step_into_parser = parser2_no_args!(
-            STEP_INTO_COMMAND_SHORT,
-            STEP_INTO_COMMAND,
-            Command::StepInto
-        );
-        let step_out_parser =
-            parser2_no_args!(STEP_OUT_COMMAND_SHORT, STEP_OUT_COMMAND, Command::StepOut);
-        let step_over_parser = parser2_no_args!(
-            STEP_OVER_COMMAND_SHORT,
-            STEP_OVER_COMMAND,
-            Command::StepOver
-        );
+        let print_arguments = choice((print_all_args, print_arg)).boxed();
 
-        fn source_code_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            alt((
-                map(
-                    preceded(
-                        tag(SOURCE_COMMAND),
-                        preceded(multispace1, tag(SOURCE_COMMAND_DISASM_SUBCOMMAND)),
-                    ),
-                    |_| Command::SourceCode(source_code::Command::Asm),
-                ),
-                map(
-                    preceded(
-                        tag(SOURCE_COMMAND),
-                        preceded(multispace1, tag(SOURCE_COMMAND_FUNCTION_SUBCOMMAND)),
-                    ),
-                    |_| Command::SourceCode(source_code::Command::Function),
-                ),
-                map_res(
-                    preceded(tag(SOURCE_COMMAND), preceded(multispace1, cut(digit1))),
-                    |digit| -> Result<Command, ParseIntError> {
-                        Ok(Command::SourceCode(source_code::Command::Range(
-                            u64::from_str(digit)?,
-                        )))
-                    },
-                ),
-            ))(input)
-        }
+        let op2 = |full, short| op(full).or(op(short));
 
-        fn help_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            map(
-                preceded(
-                    alt((tag(HELP_COMMAND), tag(HELP_COMMAND_SHORT))),
-                    opt(preceded(multispace1, not_line_ending)),
-                ),
-                |s: Option<&str>| Command::Help {
-                    command: s.map(ToOwned::to_owned),
-                    reason: None,
-                },
-            )(input)
-        }
+        let r#continue = op2(CONTINUE_COMMAND, CONTINUE_COMMAND_SHORT).to(Command::Continue);
+        let run = op2(RUN_COMMAND, RUN_COMMAND_SHORT).to(Command::Run);
+        let stepi = op(STEP_INSTRUCTION_COMMAND).to(Command::StepInstruction);
+        let step_into = op2(STEP_INTO_COMMAND, STEP_INTO_COMMAND_SHORT).to(Command::StepInto);
+        let step_out = op2(STEP_OUT_COMMAND, STEP_OUT_COMMAND_SHORT).to(Command::StepOut);
+        let step_over = op2(STEP_OVER_COMMAND, STEP_OVER_COMMAND_SHORT).to(Command::StepOver);
 
-        fn backtrace_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            alt((
-                map(
-                    preceded(
-                        alt((tag(BACKTRACE_COMMAND_SHORT), tag(BACKTRACE_COMMAND))),
-                        preceded(multispace1, tag("all")),
-                    ),
-                    |_| Command::PrintBacktrace(super::backtrace::Command::All),
-                ),
-                map(
-                    preceded(
-                        alt((tag(BACKTRACE_COMMAND_SHORT), tag(BACKTRACE_COMMAND))),
-                        cut(not(alphanumeric1)),
-                    ),
-                    |_| Command::PrintBacktrace(super::backtrace::Command::CurrentThread),
-                ),
-            ))(input)
-        }
+        let source_code = op(SOURCE_COMMAND)
+            .ignore_then(choice((
+                op(SOURCE_COMMAND_DISASM_SUBCOMMAND)
+                    .to(Command::SourceCode(source_code::Command::Asm)),
+                op(SOURCE_COMMAND_FUNCTION_SUBCOMMAND)
+                    .to(Command::SourceCode(source_code::Command::Function)),
+                text::int(10)
+                    .from_str()
+                    .unwrapped()
+                    .map(|num| Command::SourceCode(source_code::Command::Range(num)))
+                    .padded(),
+            )))
+            .boxed();
 
-        fn symbol_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            map(
-                preceded(tag(SYMBOL_COMMAND), preceded(multispace1, not_line_ending)),
-                |s: &str| Command::PrintSymbol(s.trim().to_string()),
-            )(input)
-        }
+        let help = op2(HELP_COMMAND, HELP_COMMAND_SHORT)
+            .ignore_then(text::ident().or_not())
+            .map(|s| Command::Help {
+                command: s.map(ToOwned::to_owned),
+                reason: None,
+            })
+            .padded()
+            .boxed();
 
-        fn break_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            preceded(
-                alt((
-                    pair(tag(BREAK_COMMAND_SHORT), multispace1),
-                    pair(tag(BREAK_COMMAND), multispace1),
-                )),
-                cut(alt((
-                    preceded(
-                        alt((
-                            pair(tag("r"), multispace1),
-                            pair(tag("remove"), multispace1),
-                        )),
-                        map(
-                            alt((
-                                brkpt_at_addr_parser,
-                                brkpt_at_line_parser,
-                                brkpt_at_fn,
-                                brkpt_number,
-                            )),
-                            |brkpt| Command::Breakpoint(r#break::Command::Remove(brkpt)),
-                        ),
-                    ),
-                    map(tag("info"), |_| Command::Breakpoint(r#break::Command::Info)),
-                    map(
-                        alt((brkpt_at_addr_parser, brkpt_at_line_parser, brkpt_at_fn)),
-                        |brkpt| Command::Breakpoint(r#break::Command::Add(brkpt)),
-                    ),
-                ))),
-            )(input)
-        }
-
-        fn memory_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            preceded(
-                alt((
-                    pair(tag(MEMORY_COMMAND_SHORT), multispace1),
-                    pair(tag(MEMORY_COMMAND), multispace1),
-                )),
-                cut(alt((
-                    map_res(
-                        preceded(
-                            tag(MEMORY_COMMAND_READ_SUBCOMMAND),
-                            preceded(multispace1, hexadecimal),
-                        ),
-                        |hex| -> Result<Command, ParseIntError> {
-                            let addr = usize::from_str_radix(hex, 16)?;
-                            Ok(Command::Memory(memory::Command::Read(addr)))
-                        },
-                    ),
-                    map_res(
-                        preceded(
-                            tag(MEMORY_COMMAND_WRITE_SUBCOMMAND),
-                            preceded(
-                                multispace1,
-                                separated_pair(hexadecimal, multispace1, hexadecimal),
-                            ),
-                        ),
-                        |(addr, val): (&str, &str)| -> Result<Command, ParseIntError> {
-                            Ok(Command::Memory(memory::Command::Write(
-                                usize::from_str_radix(addr, 16)?,
-                                uintptr_t::from_str_radix(val, 16)?,
-                            )))
-                        },
-                    ),
-                ))),
-            )(input)
-        }
-
-        fn register_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            preceded(
-                alt((
-                    pair(tag(REGISTER_COMMAND_SHORT), multispace1),
-                    pair(tag(REGISTER_COMMAND), multispace1),
-                )),
-                cut(alt((
-                    map(
-                        preceded(
-                            tag(REGISTER_COMMAND_INFO_SUBCOMMAND),
-                            cut(not(alphanumeric1)),
-                        ),
-                        |_| Command::Register(register::Command::Info),
-                    ),
-                    map(
-                        preceded(
-                            tag(REGISTER_COMMAND_READ_SUBCOMMAND),
-                            preceded(multispace1, alphanumeric1),
-                        ),
-                        |reg_name: &str| {
-                            Command::Register(register::Command::Read(reg_name.to_string()))
-                        },
-                    ),
-                    map_res(
-                        preceded(
-                            tag(REGISTER_COMMAND_WRITE_SUBCOMMAND),
-                            preceded(
-                                multispace1,
-                                separated_pair(alphanumeric1, multispace1, hexadecimal),
-                            ),
-                        ),
-                        |(reg_name, val): (&str, &str)| -> Result<Command, ParseIntError> {
-                            Ok(Command::Register(register::Command::Write(
-                                reg_name.to_string(),
-                                u64::from_str_radix(val, 16)?,
-                            )))
-                        },
-                    ),
-                ))),
-            )(input)
-        }
-
-        fn thread_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            preceded(
-                pair(tag(THREAD_COMMAND), multispace1),
-                alt((
-                    map(tag(THREAD_COMMAND_INFO_SUBCOMMAND), |_| {
-                        Command::Thread(thread::Command::Info)
-                    }),
-                    map(tag(THREAD_COMMAND_CURRENT_SUBCOMMAND), |_| {
-                        Command::Thread(thread::Command::Current)
-                    }),
-                    map_res(
-                        preceded(
-                            pair(tag(THREAD_COMMAND_SWITCH_SUBCOMMAND), multispace1),
-                            digit1,
-                        ),
-                        |num: &str| -> Result<Command, <u32 as FromStr>::Err> {
-                            let num: u32 = num.parse::<u32>()?;
-                            Ok(Command::Thread(thread::Command::Switch(num)))
-                        },
-                    ),
-                )),
-            )(input)
-        }
-
-        fn frame_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            preceded(
-                alt((
-                    pair(tag(FRAME_COMMAND_SHORT), multispace1),
-                    pair(tag(FRAME_COMMAND), multispace1),
-                )),
-                alt((
-                    map(tag(FRAME_COMMAND_INFO_SUBCOMMAND), |_| {
-                        Command::Frame(frame::Command::Info)
-                    }),
-                    map_res(
-                        preceded(pair(tag("switch"), multispace1), digit1),
-                        |num: &str| -> Result<Command, <u32 as FromStr>::Err> {
-                            let num: u32 = num.parse::<u32>()?;
-                            Ok(Command::Frame(frame::Command::Switch(num)))
-                        },
-                    ),
-                )),
-            )(input)
-        }
-
-        fn shared_lib_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            preceded(
-                pair(tag(SHARED_LIB_COMMAND), multispace1),
-                map(tag(SHARED_LIB_COMMAND_INFO_SUBCOMMAND), |_| {
-                    Command::SharedLib
-                }),
-            )(input)
-        }
-
-        fn oracle_parser(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-            preceded(
-                pair(tag(ORACLE_COMMAND), multispace1),
-                map(
-                    separated_pair(alphanumeric1, multispace0, opt(alphanumeric1)),
-                    |(name, subcmd): (&str, Option<&str>)| {
-                        Command::Oracle(name.to_string(), subcmd.map(ToString::to_string))
-                    },
-                ),
-            )(input)
-        }
-
-        alt((
-            command(VAR_COMMAND, print_var_parser),
-            command(ARG_COMMAND, print_argument_parser),
-            command(BACKTRACE_COMMAND, backtrace_parser),
-            command(CONTINUE_COMMAND, continue_parser),
-            command(FRAME_COMMAND, frame_parser),
-            command(RUN_COMMAND, run_parser),
-            command(STEP_INSTRUCTION_COMMAND, stepi_parser),
-            command(STEP_INTO_COMMAND, step_into_parser),
-            command(STEP_OUT_COMMAND, step_out_parser),
-            command(STEP_OVER_COMMAND, step_over_parser),
-            command(SYMBOL_COMMAND, symbol_parser),
-            command(BREAK_COMMAND, break_parser),
-            command(MEMORY_COMMAND, memory_parser),
-            command(REGISTER_COMMAND, register_parser),
-            command(HELP_COMMAND, help_parser),
-            command(THREAD_COMMAND, thread_parser),
-            command(SHARED_LIB_COMMAND, shared_lib_parser),
-            command(SOURCE_COMMAND, source_code_parser),
-            command(ORACLE_COMMAND, oracle_parser),
-            cut(map(not_line_ending, |cmd: &str| {
-                if cmd.is_empty() {
-                    Command::SkipInput
+        let backtrace = op2(BACKTRACE_COMMAND, BACKTRACE_COMMAND_SHORT)
+            .ignore_then(op("all").or_not())
+            .map(|all| {
+                if all.is_some() {
+                    Command::PrintBacktrace(super::backtrace::Command::All)
                 } else {
-                    Command::Help {
-                        command: None,
-                        reason: Some("unknown command".to_string()),
-                    }
+                    Command::PrintBacktrace(super::backtrace::Command::CurrentThread)
                 }
-            })),
-        ))(input)
+            })
+            .boxed();
+
+        let symbol = op(SYMBOL_COMMAND)
+            .ignore_then(any().repeated().padded().to_slice())
+            .map(|s| Command::PrintSymbol(s.trim().to_string()))
+            .boxed();
+
+        let r#break = op2(BREAK_COMMAND, BREAK_COMMAND_SHORT)
+            .ignore_then(choice((
+                op2("remove", "r")
+                    .ignore_then(choice((
+                        brkpt_at_addr_parser(),
+                        brkpt_at_line_parser(),
+                        brkpt_number(),
+                        brkpt_at_fn(),
+                    )))
+                    .map(|brkpt| Command::Breakpoint(r#break::Command::Remove(brkpt))),
+                op("info").to(Command::Breakpoint(r#break::Command::Info)),
+                choice((
+                    brkpt_at_addr_parser(),
+                    brkpt_at_line_parser(),
+                    brkpt_at_fn(),
+                ))
+                .map(|brkpt| Command::Breakpoint(r#break::Command::Add(brkpt))),
+            )))
+            .boxed();
+
+        let memory = op2(MEMORY_COMMAND, MEMORY_COMMAND_SHORT)
+            .ignore_then(choice((
+                op(MEMORY_COMMAND_READ_SUBCOMMAND)
+                    .ignore_then(hex())
+                    .map(|addr| Command::Memory(memory::Command::Read(addr))),
+                op(MEMORY_COMMAND_WRITE_SUBCOMMAND)
+                    .ignore_then(hex().then(hex()))
+                    .map(|(addr, val)| Command::Memory(memory::Command::Write(addr, val))),
+            )))
+            .boxed();
+
+        let register = op2(REGISTER_COMMAND, REGISTER_COMMAND_SHORT)
+            .ignore_then(choice((
+                op(REGISTER_COMMAND_INFO_SUBCOMMAND).to(Command::Register(register::Command::Info)),
+                op(REGISTER_COMMAND_READ_SUBCOMMAND)
+                    .ignore_then(text::ident())
+                    .map(|reg_name| {
+                        Command::Register(register::Command::Read(reg_name.to_string()))
+                    })
+                    .padded(),
+                op(REGISTER_COMMAND_WRITE_SUBCOMMAND)
+                    .ignore_then(text::ident().then(hex()))
+                    .map(|(reg_name, val)| {
+                        Command::Register(register::Command::Write(
+                            reg_name.to_string(),
+                            val as u64,
+                        ))
+                    })
+                    .padded(),
+            )))
+            .boxed();
+
+        let thread = op(THREAD_COMMAND)
+            .ignore_then(choice((
+                op(THREAD_COMMAND_INFO_SUBCOMMAND).to(Command::Thread(thread::Command::Info)),
+                op(THREAD_COMMAND_CURRENT_SUBCOMMAND).to(Command::Thread(thread::Command::Current)),
+                op(THREAD_COMMAND_SWITCH_SUBCOMMAND)
+                    .ignore_then(text::int(10))
+                    .from_str()
+                    .unwrapped()
+                    .map(|num| Command::Thread(thread::Command::Switch(num)))
+                    .padded(),
+            )))
+            .boxed();
+
+        let frame = op2(FRAME_COMMAND, FRAME_COMMAND_SHORT)
+            .ignore_then(choice((
+                op(FRAME_COMMAND_INFO_SUBCOMMAND).to(Command::Frame(frame::Command::Info)),
+                op("switch")
+                    .ignore_then(text::int(10).from_str().unwrapped())
+                    .map(|num| Command::Frame(frame::Command::Switch(num)))
+                    .padded(),
+            )))
+            .boxed();
+
+        let shared_lib = op(SHARED_LIB_COMMAND)
+            .then(op(SHARED_LIB_COMMAND_INFO_SUBCOMMAND))
+            .to(Command::SharedLib)
+            .boxed();
+
+        let oracle = op(ORACLE_COMMAND)
+            .ignore_then(text::ident().padded().then(text::ident().or_not()))
+            .map(|(name, subcmd)| {
+                Command::Oracle(name.trim().to_string(), subcmd.map(ToString::to_string))
+            })
+            .padded()
+            .boxed();
+
+        choice((
+            command(VAR_COMMAND, print_variables),
+            command(ARG_COMMAND, print_arguments),
+            command(CONTINUE_COMMAND, r#continue),
+            command(RUN_COMMAND, run),
+            command(STEP_INSTRUCTION_COMMAND, stepi),
+            command(STEP_INTO_COMMAND, step_into),
+            command(STEP_OUT_COMMAND, step_out),
+            command(STEP_OVER_COMMAND, step_over),
+            command(SOURCE_COMMAND, source_code),
+            command(HELP_COMMAND, help),
+            command(BACKTRACE_COMMAND, backtrace),
+            command(SYMBOL_COMMAND, symbol),
+            command(BREAK_COMMAND, r#break),
+            command(MEMORY_COMMAND, memory),
+            command(REGISTER_COMMAND, register),
+            command(THREAD_COMMAND, thread),
+            command(FRAME_COMMAND, frame),
+            command(SHARED_LIB_COMMAND, shared_lib),
+            command(ORACLE_COMMAND, oracle),
+        ))
+        .map_err(|e| {
+            let span = e.span();
+            if span.start == 0 && span.end == 0 {
+                Rich::custom(*e.span(), "type help for list of commands")
+            } else {
+                e
+            }
+        })
+    }
+
+    // fn parse_inner(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+
+    //
+    //         alt((
+    //             command(VAR_COMMAND, print_var_parser),
+    //             command(ARG_COMMAND, print_argument_parser),
+    //             command(BACKTRACE_COMMAND, backtrace_parser),
+    //             command(CONTINUE_COMMAND, continue_parser),
+    //             command(FRAME_COMMAND, frame_parser),
+    //             command(RUN_COMMAND, run_parser),
+    //             command(STEP_INSTRUCTION_COMMAND, stepi_parser),
+    //             command(STEP_INTO_COMMAND, step_into_parser),
+    //             command(STEP_OUT_COMMAND, step_out_parser),
+    //             command(STEP_OVER_COMMAND, step_over_parser),
+    //             command(SYMBOL_COMMAND, symbol_parser),
+    //             command(BREAK_COMMAND, break_parser),
+    //             command(MEMORY_COMMAND, memory_parser),
+    //             command(REGISTER_COMMAND, register_parser),
+    //             command(HELP_COMMAND, help_parser),
+    //             command(THREAD_COMMAND, thread_parser),
+    //             command(SHARED_LIB_COMMAND, shared_lib_parser),
+    //             command(SOURCE_COMMAND, source_code_parser),
+    //             command(ORACLE_COMMAND, oracle_parser),
+    //             cut(map(not_line_ending, |cmd: &str| {
+    //                 if cmd.is_empty() {
+    //                     Command::SkipInput
+    //                 } else {
+    //                     Command::Help {
+    //                         command: None,
+    //                         reason: Some("unknown command".to_string()),
+    //                     }
+    //                 }
+    //             })),
+    //         ))(input)
+    //     }
+}
+
+#[test]
+fn test_hex_parser() {
+    struct TestCase {
+        string: &'static str,
+        result: Result<usize, ()>,
+    }
+    let cases = vec![
+        TestCase {
+            string: "0x123AA",
+            result: Ok(0x123aa_usize),
+        },
+        TestCase {
+            string: "  0X123AA ",
+            result: Ok(0x123aa_usize),
+        },
+        TestCase {
+            string: "  0x 123AA ",
+            result: Err(()),
+        },
+        TestCase {
+            string: "  123AA ",
+            result: Err(()),
+        },
+    ];
+
+    for tc in cases {
+        let expr = hex().parse(tc.string).into_result();
+        assert_eq!(expr.map_err(|_| ()), tc.result);
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
+#[test]
+fn test_rust_identifier_parser() {
+    struct TestCase {
+        string: &'static str,
+        result: Result<&'static str, ()>,
+    }
+    let cases = vec![
+        TestCase {
+            string: "some_var",
+            result: Ok("some_var"),
+        },
+        TestCase {
+            string: "_some_var",
+            result: Ok("_some_var"),
+        },
+        TestCase {
+            string: "  _some_var ",
+            result: Ok("_some_var"),
+        },
+        TestCase {
+            string: "::aa::BB::_CC1",
+            result: Ok("::aa::BB::_CC1"),
+        },
+        TestCase {
+            string: "1a",
+            result: Err(()),
+        },
+        TestCase {
+            string: "aa::",
+            result: Err(()),
+        },
+    ];
 
-    #[test]
-    fn test_parser() {
-        struct TestCase {
-            inputs: Vec<&'static str>,
-            command_matcher: fn(result: Result<Command, CommandError>),
-        }
-        let cases = vec![
-            TestCase {
-                inputs: vec!["var locals"],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::PrintVariables(Expression::Variable(VariableSelector::Any))
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["var **var1"],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::PrintVariables(Expression::Deref(_))
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["var ("],
-                command_matcher: |result| assert!(result.is_err()),
-            },
-            TestCase {
-                inputs: vec!["arg all"],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::PrintArguments(Expression::Variable(VariableSelector::Any))
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["bt", "backtrace"],
-                command_matcher: |result| {
-                    let cmd = result.unwrap();
-                    assert!(matches!(
-                        cmd,
-                        Command::PrintBacktrace(super::super::backtrace::Command::CurrentThread)
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["bt all", "backtrace  all  "],
-                command_matcher: |result| {
-                    let cmd = result.unwrap();
-                    assert!(matches!(
-                        cmd,
-                        Command::PrintBacktrace(super::super::backtrace::Command::All)
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["c", "continue"],
-                command_matcher: |result| {
-                    assert!(matches!(result.unwrap(), Command::Continue));
-                },
-            },
-            TestCase {
-                inputs: vec!["frame info ", "  frame  info"],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Frame(frame::Command::Info)
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["f info ", "  f  info"],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Frame(frame::Command::Info)
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["frame switch 1", "  frame  switch   1 "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Frame(frame::Command::Switch(1))
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["r", "run"],
-                command_matcher: |result| {
-                    assert!(matches!(result.unwrap(), Command::Run));
-                },
-            },
-            TestCase {
-                inputs: vec!["symbol main", " symbol  main "],
-                command_matcher: |result| {
-                    assert!(matches!(result.unwrap(), Command::PrintSymbol(s) if s == "main"));
-                },
-            },
-            TestCase {
-                inputs: vec!["  stepi"],
-                command_matcher: |result| {
-                    assert!(matches!(result.unwrap(), Command::StepInstruction));
-                },
-            },
-            TestCase {
-                inputs: vec!["step", "stepinto"],
-                command_matcher: |result| {
-                    assert!(matches!(result.unwrap(), Command::StepInto));
-                },
-            },
-            TestCase {
-                inputs: vec!["finish", "stepout"],
-                command_matcher: |result| {
-                    assert!(matches!(result.unwrap(), Command::StepOut));
-                },
-            },
-            TestCase {
-                inputs: vec!["next", "stepover"],
-                command_matcher: |result| {
-                    assert!(matches!(result.unwrap(), Command::StepOver));
-                },
-            },
-            TestCase {
-                inputs: vec!["b some_func", "break some_func", "   break some_func   "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Function(f))) if f == "some_func"
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["b some_func<T1,T2>"],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Function(f))) if f == "some_func<T1,T2>"
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["b some_struct<T1,T2>::some_func<T3,T4>"],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Function(f))) if f == "some_struct<T1,T2>::some_func<T3,T4>"
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["b ns1::some_func", "break ns1::ns2::some_func"],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Function(f))) if f == "ns1::some_func" || f == "ns1::ns2::some_func"
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["b file:123", "break file:123", "   break file:123   "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Line(f, n))) if f == "file" && n == 123
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["b 0x123", "break 0x123", "   break 0x123   "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Address(a))) if a == 0x123
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec![
-                    "b r some_func",
-                    "break r some_func",
-                    "   break r  some_func   ",
-                ],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Remove(BreakpointIdentity::Function(f))) if f == "some_func"
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec![
-                    "b r ns1::some_func",
-                    "break r ns1::some_func",
-                    "   break r  ns1::some_func   ",
-                ],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Remove(BreakpointIdentity::Function(f))) if f == "ns1::some_func"
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec![
-                    "b remove file:123",
-                    "break r file:123",
-                    "   break  remove file:123   ",
-                ],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Remove(BreakpointIdentity::Line(f, n))) if f == "file" && n == 123
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["b remove 0x123", "break r 0x123", "   break r 0x123   "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Remove(BreakpointIdentity::Address(a))) if a == 0x123
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["b info", "break info ", "   break   info   "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Breakpoint(r#break::Command::Info)
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec![
-                    "mem read 0x123",
-                    "memory read 0x123",
-                    "   mem read   0x123   ",
-                ],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Memory(memory::Command::Read(a)) if a == 0x123
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec![
-                    "mem write 0x123 0x321",
-                    "memory write 0x123 0x321",
-                    "   mem write   0x123  0x321 ",
-                ],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Memory(memory::Command::Write(a, v)) if a == 0x123 && v == 0x321
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["reg info", "register info", "   reg  info "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Register(register::Command::Info)
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["reg read rip", "register read rip", "   reg  read   rip "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Register(register::Command::Read(r)) if r == "rip"
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec![
-                    "reg write rip 0x123",
-                    "register write rip 0x123",
-                    "   reg  write  rip  0x123 ",
-                ],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Register(register::Command::Write(r, v)) if r == "rip" && v == 0x123
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["thread info", "thread    info  "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Thread(thread::Command::Info)
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["thread current", "thread    current  "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Thread(thread::Command::Current)
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["thread switch 1", " thread  switch 1  "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Thread(thread::Command::Switch(1))
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["sharedlib info", " sharedlib     info  "],
-                command_matcher: |result| {
-                    assert!(matches!(result.unwrap(), Command::SharedLib));
-                },
-            },
-            TestCase {
-                inputs: vec!["source asm", " source   asm  "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::SourceCode(source_code::Command::Asm)
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["source fn", " source   fn  "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::SourceCode(source_code::Command::Function)
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["source 12", " source   12  "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::SourceCode(source_code::Command::Range(r)) if r == 12
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["oracle tokio", " oracle  tokio   "],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Oracle(name, None) if name == "tokio"
-                    ));
-                },
-            },
-            TestCase {
-                inputs: vec!["oracle tokio all ", " oracle  tokio   all"],
-                command_matcher: |result| {
-                    assert!(matches!(
-                        result.unwrap(),
-                        Command::Oracle(name, Some(subcmd)) if name == "tokio" && subcmd == "all"
-                    ));
-                },
-            },
-        ];
+    for tc in cases {
+        let expr = rust_identifier().parse(tc.string).into_result();
+        assert_eq!(expr.map_err(|_| ()), tc.result);
+    }
+}
 
-        for case in cases {
-            for input in case.inputs {
-                let result = Command::parse(input);
-                (case.command_matcher)(result);
-            }
+#[test]
+fn test_parser() {
+    struct TestCase {
+        inputs: Vec<&'static str>,
+        command_matcher: fn(result: Result<Command, CommandError>),
+    }
+    let cases = vec![
+        TestCase {
+            inputs: vec!["var locals"],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::PrintVariables(Expression::Variable(VariableSelector::Any))
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["var **var1"],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::PrintVariables(Expression::Deref(_))
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["var ("],
+            command_matcher: |result| assert!(result.is_err()),
+        },
+        TestCase {
+            inputs: vec!["das"],
+            command_matcher: |result| assert!(result.is_err()),
+        },
+        TestCase {
+            inputs: vec!["voo"],
+            command_matcher: |result| assert!(result.is_err()),
+        },
+        TestCase {
+            inputs: vec!["arg 11"],
+            command_matcher: |result| assert!(result.is_err()),
+        },
+        TestCase {
+            inputs: vec!["arg all"],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::PrintArguments(Expression::Variable(VariableSelector::Any))
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["bt", "backtrace"],
+            command_matcher: |result| {
+                let cmd = result.unwrap();
+                assert!(matches!(
+                    cmd,
+                    Command::PrintBacktrace(super::backtrace::Command::CurrentThread)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["bt all", "backtrace  all  "],
+            command_matcher: |result| {
+                let cmd = result.unwrap();
+                assert!(matches!(
+                    cmd,
+                    Command::PrintBacktrace(super::backtrace::Command::All)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["c", "continue"],
+            command_matcher: |result| {
+                assert!(matches!(result.unwrap(), Command::Continue));
+            },
+        },
+        TestCase {
+            inputs: vec!["frame info ", "  frame  info"],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Frame(frame::Command::Info)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["f info ", "  f  info"],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Frame(frame::Command::Info)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["frame switch 1", "  frame  switch   1 "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Frame(frame::Command::Switch(1))
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["r", "run"],
+            command_matcher: |result| {
+                assert!(matches!(result.unwrap(), Command::Run));
+            },
+        },
+        TestCase {
+            inputs: vec!["symbol main", " symbol  main "],
+            command_matcher: |result| {
+                assert!(matches!(result.unwrap(), Command::PrintSymbol(s) if s == "main"));
+            },
+        },
+        TestCase {
+            inputs: vec!["  stepi"],
+            command_matcher: |result| {
+                assert!(matches!(result.unwrap(), Command::StepInstruction));
+            },
+        },
+        TestCase {
+            inputs: vec!["step", "stepinto"],
+            command_matcher: |result| {
+                assert!(matches!(result.unwrap(), Command::StepInto));
+            },
+        },
+        TestCase {
+            inputs: vec!["finish", "stepout"],
+            command_matcher: |result| {
+                assert!(matches!(result.unwrap(), Command::StepOut));
+            },
+        },
+        TestCase {
+            inputs: vec!["next", "stepover"],
+            command_matcher: |result| {
+                assert!(matches!(result.unwrap(), Command::StepOver));
+            },
+        },
+        TestCase {
+            inputs: vec!["b some_func", "break some_func", "   break some_func   "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Function(f))) if f == "some_func"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["b some_func<T1,T2>"],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Function(f))) if f == "some_func<T1,T2>"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["b some_struct<T1,T2>::some_func<T3,T4>"],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Function(f))) if f == "some_struct<T1,T2>::some_func<T3,T4>"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["b ns1::some_func", "break ns1::ns2::some_func"],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Function(f))) if f == "ns1::some_func" || f == "ns1::ns2::some_func"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["b file:123", "break file:123", "   break file:123   "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Line(f, n))) if f == "file" && n == 123
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["b 0x123", "break 0x123", "   break 0x0123   "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Address(a))) if a == 0x123
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec![
+                "b r some_func",
+                "break r some_func",
+                "   break r  some_func   ",
+            ],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Breakpoint(r#break::Command::Remove(BreakpointIdentity::Function(f))) if f == "some_func"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec![
+                "b r ns1::some_func",
+                "break r ns1::some_func",
+                "   break r  ns1::some_func   ",
+            ],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Breakpoint(r#break::Command::Remove(BreakpointIdentity::Function(f))) if f == "ns1::some_func"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec![
+                "b remove file:123",
+                "break r file:123",
+                "   break  remove file:123   ",
+            ],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Breakpoint(r#break::Command::Remove(BreakpointIdentity::Line(f, n))) if f == "file" && n == 123
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["b remove 0x123", "break r 0x123", "   break r 0x123   "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Breakpoint(r#break::Command::Remove(BreakpointIdentity::Address(a))) if a == 0x123
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["b info", "break info ", "   break   info   "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Breakpoint(r#break::Command::Info)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec![
+                "mem read 0x123",
+                "memory read 0x123",
+                "   mem read   0x123   ",
+            ],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Memory(memory::Command::Read(a)) if a == 0x123
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec![
+                "mem write 0x123 0x321",
+                "memory write 0x123 0x321",
+                "   mem write   0x123  0x321 ",
+            ],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Memory(memory::Command::Write(a, v)) if a == 0x123 && v == 0x321
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["reg info", "register info", "   reg  info "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Register(register::Command::Info)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["reg read rip", "register read rip", "   reg  read   rip "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Register(register::Command::Read(r)) if r == "rip"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec![
+                "reg write rip 0x123",
+                "register write rip 0x123",
+                "   reg  write  rip  0x123 ",
+            ],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Register(register::Command::Write(r, v)) if r == "rip" && v == 0x123
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["thread info", "thread    info  "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Thread(thread::Command::Info)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["thread current", "thread    current  "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Thread(thread::Command::Current)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["thread switch 1", " thread  switch 1  "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Thread(thread::Command::Switch(1))
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["sharedlib info", " sharedlib     info  "],
+            command_matcher: |result| {
+                assert!(matches!(result.unwrap(), Command::SharedLib));
+            },
+        },
+        TestCase {
+            inputs: vec!["source asm", " source   asm  "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::SourceCode(source_code::Command::Asm)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["source fn", " source   fn  "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::SourceCode(source_code::Command::Function)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["source 12", " source   12  "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::SourceCode(source_code::Command::Range(r)) if r == 12
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["oracle tokio", " oracle  tokio   "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Oracle(name, None) if name == "tokio"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["oracle tokio all ", " oracle  tokio   all"],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Oracle(name, Some(subcmd)) if name == "tokio" && subcmd == "all"
+                ));
+            },
+        },
+    ];
+
+    for case in cases {
+        for input in case.inputs {
+            let result = Command::parse(input);
+            (case.command_matcher)(result);
         }
     }
 }

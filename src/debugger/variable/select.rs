@@ -44,7 +44,7 @@ impl AsAllocatedData for VirtualVariableDie {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum VariableSelector {
-    Name { var_name: String, local: bool },
+    Name { var_name: String, only_local: bool },
     Any,
 }
 
@@ -112,7 +112,10 @@ impl<'a> SelectExpressionEvaluator<'a> {
             .ok_or(FunctionNotFound(ctx.location().global_pc))?;
 
         let vars = match selector {
-            VariableSelector::Name { var_name, local } => {
+            VariableSelector::Name {
+                var_name,
+                only_local: local,
+            } => {
                 let local_variants = current_func
                     .local_variable(ctx.location().global_pc, var_name)
                     .map(|v| vec![v])

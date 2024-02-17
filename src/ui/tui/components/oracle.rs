@@ -96,8 +96,8 @@ impl Oracles {
         self
     }
 
-    fn active_tab(&mut self) -> &mut dyn Component<Msg, UserEvent> {
-        &mut *self.tabs[self.active_idx]
+    fn active_tab(&mut self) -> Option<&mut Box<dyn Component<Msg, UserEvent>>> {
+        self.tabs.get_mut(self.active_idx)
     }
 }
 
@@ -117,7 +117,9 @@ impl MockComponent for Oracles {
                 let chunks = layout.chunks(area);
                 debug_assert!(chunks.len() == 2);
                 self.choices.view(frame, chunks[0]);
-                self.active_tab().view(frame, chunks[1]);
+                if let Some(active_tab) = self.active_tab() {
+                    active_tab.view(frame, chunks[1]);
+                }
             }
         }
     }
@@ -163,6 +165,10 @@ impl Component<Msg, UserEvent> for Oracles {
             _ => CmdResult::None,
         };
 
-        self.active_tab().on(ev)
+        if let Some(active_tab) = self.active_tab() {
+            active_tab.on(ev)
+        } else {
+            None
+        }
     }
 }

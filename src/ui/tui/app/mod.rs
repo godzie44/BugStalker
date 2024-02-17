@@ -1,12 +1,5 @@
 pub mod port;
 
-use std::borrow::Cow;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tuirealm::tui::layout::Alignment;
-use tuirealm::tui::style::Color;
-
 use crate::debugger::Error;
 use crate::ui::command;
 use crate::ui::command::r#break::BreakpointIdentity;
@@ -29,9 +22,16 @@ use crate::ui::tui::components::threads::Threads;
 use crate::ui::tui::components::variables::Variables;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::logger::TuiLogLine;
+use chumsky::Parser;
+use std::borrow::Cow;
+use std::str::FromStr;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tuirealm::props::{PropPayload, PropValue, TextSpan};
 use tuirealm::terminal::TerminalBridge;
+use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::layout::{Constraint, Direction, Layout};
+use tuirealm::tui::style::Color;
 use tuirealm::{
     props, Application, AttrValue, Attribute, EventListenerCfg, State, StateValue, Sub, SubClause,
     SubEventClause,
@@ -318,15 +318,30 @@ impl Model {
                 Msg::BreakpointAdd(r#type) => {
                     let (input_validator, input_data_type): (fn(&str) -> bool, _) = match r#type {
                         BreakpointsAddType::AtLine => (
-                            |s| -> bool { command::parser::brkpt_at_line_parser(s).is_ok() },
+                            |s| -> bool {
+                                command::parser::brkpt_at_line_parser()
+                                    .parse(s)
+                                    .into_result()
+                                    .is_ok()
+                            },
                             InputStringType::BreakpointAddAtLine,
                         ),
                         BreakpointsAddType::AtFunction => (
-                            |s| -> bool { command::parser::brkpt_at_fn(s).is_ok() },
+                            |s| -> bool {
+                                command::parser::brkpt_at_fn()
+                                    .parse(s)
+                                    .into_result()
+                                    .is_ok()
+                            },
                             InputStringType::BreakpointAddAtFunction,
                         ),
                         BreakpointsAddType::AtAddress => (
-                            |s| -> bool { command::parser::brkpt_at_addr_parser(s).is_ok() },
+                            |s| -> bool {
+                                command::parser::brkpt_at_addr_parser()
+                                    .parse(s)
+                                    .into_result()
+                                    .is_ok()
+                            },
                             InputStringType::BreakpointAddAtAddress,
                         ),
                     };

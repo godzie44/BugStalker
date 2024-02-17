@@ -2,7 +2,7 @@ use crate::debugger::Tracee;
 use crate::debugger::{Debugger, ThreadSnapshot};
 use crate::ui::command;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Command {
     Info,
     Current,
