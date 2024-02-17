@@ -621,7 +621,7 @@ impl AppLoop {
 
                     self.printer.print(
                         self.file_view
-                            .render_source_range(&range.start, &range.end)
+                            .render_source_range(range.file, range.start_line, range.end_line)
                             .map_err(CommandError::Render)?,
                     );
                 }

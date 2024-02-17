@@ -90,8 +90,9 @@ pub struct FunctionAssembly {
 pub struct FunctionRange<'a> {
     pub name: Option<String>,
     pub stop_place: PlaceDescriptor<'a>,
-    pub start: PlaceDescriptor<'a>,
-    pub end: PlaceDescriptor<'a>,
+    pub file: &'a Path,
+    pub start_line: u64,
+    pub end_line: u64,
 }
 
 /// Debugee - represent static and runtime debugee information.
@@ -548,21 +549,19 @@ impl Debugee {
             .find_place_from_pc(ctx.location().global_pc)?
             .ok_or(Error::PlaceNotFound(ctx.location().global_pc))?;
 
-        let (file, line) = function.die.decl_file_line.ok_or(FunctionRangeNotFound)?;
-        let start = unit
-            .find_place_by_line(file, line)
-            .ok_or(FunctionRangeNotFound)?;
+        let (file, start_line) = function.die.decl_file_line.ok_or(FunctionRangeNotFound)?;
+        let file = unit.files()[file as usize].as_path();
 
         let ei = GlobalAddress::from(usize::from(function.end_instruction()?).saturating_sub(1));
         let end = unit.find_place_by_pc(ei).ok_or(FunctionRangeNotFound)?;
-
-        debug_assert!(start.file == end.file);
+        debug_assert!(file == end.file);
 
         Ok(FunctionRange {
             name: function.full_name(),
             stop_place,
-            start,
-            end,
+            file,
+            start_line,
+            end_line: end.line_number,
         })
     }
 }
