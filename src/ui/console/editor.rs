@@ -129,20 +129,22 @@ impl CommandCompleter {
     pub fn replace_local_var_hints(&mut self, variables: impl IntoIterator<Item = String>) {
         let mut builder = TrieBuilder::new();
         self.vars = variables.into_iter().collect();
-        self.vars.push(VAR_LOCAL_KEY.underlined().to_string());
         self.vars.iter().for_each(|var| {
             builder.push(var);
         });
+        self.vars.push(VAR_LOCAL_KEY.underlined().to_string());
+        builder.push(VAR_LOCAL_KEY);
         self.var_hints = builder.build();
     }
 
     pub fn replace_arg_hints(&mut self, args: impl IntoIterator<Item = String>) {
         let mut builder = TrieBuilder::new();
         self.args = args.into_iter().collect();
-        self.vars.push(ARG_ALL_KEY.underlined().to_string());
         self.args.iter().for_each(|arg| {
             builder.push(arg);
         });
+        self.args.push(ARG_ALL_KEY.underlined().to_string());
+        builder.push(ARG_ALL_KEY);
         self.arg_hints = builder.build();
     }
 }
