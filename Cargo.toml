@@ -9,21 +9,21 @@ authors = ["Derevtsov Konstantin <godzie@yandex.ru>"]
 nix = {version = "0.27.1", features = ["process", "signal", "uio", "personality", "ptrace"]}
 once_cell = "1.13.1"
 anyhow = "1.0"
-rustyline = "12.0.0"
-rustyline-derive = "0.9.0"
+rustyline = "13.0.0"
+rustyline-derive = "0.10.0"
 gimli = "0.28.0"
 object = "0.32.1"
 memmap2 = "0.9.0"
 ouroboros = "0.18.0"
 typed-arena = "2.0.1"
 fallible-iterator = "0.3.0"
-itertools = "0.11.0"
+itertools = "0.12.1"
 unwind = { version = "0.4.1", features = ["ptrace"], optional = true }
 rustc-demangle = "0.1.21"
 thiserror = "1.0.37"
 bytes = "1.2.1"
 log = "0.4.17"
-env_logger = "0.10.0"
+env_logger = "0.11.2"
 crossterm = "0.27.0"
 clap =  { version = "4.0", features = ["derive"] }
 uuid = {version = "1.2.2", features = ["v4", "fast-rng", "macro-diagnostics"]}
@@ -33,11 +33,11 @@ thread_db = "0.1.4"
 smallvec = "1.10.0"
 rand = "0.8.5"
 ctrlc = "3.2.5"
-strum = "0.25.0"
-strum_macros = "0.25.2"
+strum = "0.26.1"
+strum_macros = "0.26.1"
 signal-hook = "0.3.15"
 rayon = "1.7.0"
-trie-rs = "0.1.1"
+trie-rs = "0.2.0"
 regex = "1.8.4"
 walkdir = "2.3.3"
 timeout-readwrite = "0.3.3"
@@ -55,7 +55,7 @@ chumsky = {version = "1.0.0-alpha.6", features = ["default", "label"]}
 ariadne = "0.4.0"
 
 [dev-dependencies]
-serial_test = "2.0.0"
+serial_test = "3.0.0"
 
 [features]
 default = ["libunwind"]
