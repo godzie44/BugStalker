@@ -1,6 +1,6 @@
 use crate::ui::command::parser::{
-    ARG_ALL_KEY, ARG_COMMAND, BACKTRACE_COMMAND, BACKTRACE_COMMAND_SHORT, BREAK_COMMAND,
-    BREAK_COMMAND_SHORT, CONTINUE_COMMAND, CONTINUE_COMMAND_SHORT, FRAME_COMMAND,
+    ARG_ALL_KEY, ARG_COMMAND, BACKTRACE_ALL_SUBCOMMAND, BACKTRACE_COMMAND, BACKTRACE_COMMAND_SHORT,
+    BREAK_COMMAND, BREAK_COMMAND_SHORT, CONTINUE_COMMAND, CONTINUE_COMMAND_SHORT, FRAME_COMMAND,
     FRAME_COMMAND_INFO_SUBCOMMAND, FRAME_COMMAND_SWITCH_SUBCOMMAND, HELP_COMMAND,
     HELP_COMMAND_SHORT, MEMORY_COMMAND, MEMORY_COMMAND_READ_SUBCOMMAND, MEMORY_COMMAND_SHORT,
     MEMORY_COMMAND_WRITE_SUBCOMMAND, ORACLE_COMMAND, REGISTER_COMMAND,
@@ -17,11 +17,10 @@ use chumsky::text::whitespace;
 use chumsky::{extra, text, Parser};
 use crossterm::style::{Color, Stylize};
 use rustyline::completion::{Completer, Pair};
-use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
+use rustyline::highlight::Highlighter;
 use rustyline::hint::HistoryHinter;
 use rustyline::history::MemHistory;
 use rustyline::line_buffer::LineBuffer;
-use rustyline::validate::MatchingBracketValidator;
 use rustyline::{Changeset, CompletionType, Config, Context, Editor};
 use rustyline_derive::{Helper, Hinter, Validator};
 use std::borrow::Cow;
@@ -285,9 +284,6 @@ impl Completer for CommandCompleter {
 #[derive(Helper, Hinter, Validator)]
 pub struct RLHelper {
     pub completer: Arc<Mutex<CommandCompleter>>,
-    highlighter: MatchingBracketHighlighter,
-    #[rustyline(Validator)]
-    validator: MatchingBracketValidator,
     #[rustyline(Hinter)]
     hinter: HistoryHinter,
     pub colored_prompt: String,
@@ -314,10 +310,6 @@ impl Completer for RLHelper {
 }
 
 impl Highlighter for RLHelper {
-    fn highlight<'l>(&self, line: &'l str, pos: usize) -> Cow<'l, str> {
-        self.highlighter.highlight(line, pos)
-    }
-
     fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
         &'s self,
         prompt: &'p str,
@@ -332,10 +324,6 @@ impl Highlighter for RLHelper {
 
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
         Owned("\x1b[1m".to_owned() + hint + "\x1b[m")
-    }
-
-    fn highlight_char(&self, line: &str, pos: usize) -> bool {
-        self.highlighter.highlight_char(line, pos)
     }
 }
 
@@ -367,7 +355,11 @@ pub fn create_editor(
         (STEP_OVER_COMMAND_SHORT, STEP_OVER_COMMAND).into(),
         SYMBOL_COMMAND.into(),
         (BREAK_COMMAND_SHORT, BREAK_COMMAND).into(),
-        (BACKTRACE_COMMAND_SHORT, BACKTRACE_COMMAND).into(),
+        CommandHint {
+            short: Some(BACKTRACE_COMMAND_SHORT.to_string()),
+            long: BACKTRACE_COMMAND.to_string(),
+            subcommands: vec![BACKTRACE_ALL_SUBCOMMAND.to_string()],
+        },
         CommandHint {
             short: Some(MEMORY_COMMAND_SHORT.to_string()),
             long: MEMORY_COMMAND.to_string(),
@@ -418,10 +410,8 @@ pub fn create_editor(
 
     let h = RLHelper {
         completer: Arc::new(Mutex::new(CommandCompleter::new(commands))),
-        highlighter: MatchingBracketHighlighter::new(),
         hinter: HistoryHinter {},
         colored_prompt: format!("{}", promt.with(Color::DarkGreen)),
-        validator: MatchingBracketValidator::new(),
     };
 
     let mut editor = Editor::with_history(config, MemHistory::new())?;

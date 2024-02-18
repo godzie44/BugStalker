@@ -29,10 +29,10 @@ use crate::debugger::Error;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {
-    #[error("malformed command (try `help command`):\n{0}")]
-    Parsing(anyhow::Error),
+    #[error("malformed command")]
+    Parsing(String),
     #[error("render error: \n{0}")]
-    Render(anyhow::Error),
+    FileRender(anyhow::Error),
     #[error(transparent)]
     Handle(#[from] Error),
 }

@@ -16,7 +16,7 @@ class OracleTestCase(unittest.TestCase):
     def test_oracle_unavailable_until_debugee_start(self):
         """Oracles unavailable until program not started"""
         self.debugger.sendline('oracle tokio')
-        self.debugger.expect_exact('oracle not found or not ready')
+        self.debugger.expect_exact('Oracle not found or not ready')
 
     def test_tokio_oracle(self):
         """Test tokio oracle"""

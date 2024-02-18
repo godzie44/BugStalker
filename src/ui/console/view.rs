@@ -1,5 +1,5 @@
 use crate::debugger::PlaceDescriptor;
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -94,20 +94,13 @@ impl FileView {
 
     pub fn render_source_range(
         &self,
-        from: &PlaceDescriptor,
-        to: &PlaceDescriptor,
+        file: &Path,
+        from_line: u64,
+        to_line: u64,
     ) -> anyhow::Result<String> {
-        if from.file != to.file {
-            bail!("invalid render range")
-        }
+        let start = if from_line == 0 { 0 } else { from_line - 1 };
+        let bound = to_line - from_line + 1;
 
-        let start = if from.line_number == 0 {
-            0
-        } else {
-            from.line_number - 1
-        };
-        let bound = to.line_number - from.line_number + 1;
-
-        self.render(from.file, start, bound)
+        self.render(file, start, bound)
     }
 }

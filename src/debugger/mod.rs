@@ -905,6 +905,7 @@ impl Debugger {
 
     /// Return a list of disassembled instruction for a function in focus.
     pub fn disasm(&self) -> Result<FunctionAssembly, Error> {
+        disable_when_not_stared!(self);
         self.debugee.disasm(
             self.exploration_ctx(),
             &self.breakpoints.active_breakpoints(),
@@ -913,6 +914,7 @@ impl Debugger {
 
     /// Return two place descriptors, at the start and at the end of the current function.
     pub fn current_function_range(&self) -> Result<FunctionRange, Error> {
+        disable_when_not_stared!(self);
         self.debugee.function_range(self.exploration_ctx())
     }
 }

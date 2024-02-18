@@ -113,5 +113,5 @@ pub mod style {
     view_struct!(KeywordView, Color::Magenta);
     view_struct!(AsmInstructionView, Color::DarkRed);
     view_struct!(AsmOperandsView, Color::DarkGreen);
-    view_struct!(ErrorView, Color::Red);
+    view_struct!(ErrorView, Color::DarkRed);
 }

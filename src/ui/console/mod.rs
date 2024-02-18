@@ -605,7 +605,7 @@ impl AppLoop {
                     self.printer.print(
                         self.file_view
                             .render_source(&range.stop_place, bounds)
-                            .map_err(CommandError::Render)?,
+                            .map_err(CommandError::FileRender)?,
                     );
                 }
                 source_code::Command::Function => {
@@ -622,7 +622,7 @@ impl AppLoop {
                     self.printer.print(
                         self.file_view
                             .render_source_range(range.file, range.start_line, range.end_line)
-                            .map_err(CommandError::Render)?,
+                            .map_err(CommandError::FileRender)?,
                     );
                 }
                 source_code::Command::Asm => {
@@ -651,7 +651,7 @@ impl AppLoop {
             Command::Oracle(name, subcmd) => match self.debugger.get_oracle(&name) {
                 None => self
                     .printer
-                    .println(ErrorView::from("oracle not found or not ready")),
+                    .println(ErrorView::from("Oracle not found or not ready")),
                 Some(oracle) => oracle.print(&self.printer, subcmd.as_deref()),
             },
         }
@@ -671,22 +671,22 @@ impl AppLoop {
                 UserAction::Cmd(command) => {
                     if let Err(e) = self.handle_command(&command) {
                         match e {
-                            CommandError::Parsing(_) => {
-                                self.printer.println(ErrorView::from(e));
+                            CommandError::Parsing(pretty_error) => {
+                                self.printer.println(pretty_error);
                             }
-                            CommandError::Render(_) => {
-                                self.printer.println(ErrorView::from(e));
+                            CommandError::FileRender(_) => {
+                                self.printer
+                                    .println(ErrorView::from(format!("Render file error: {e:#}")));
                             }
                             CommandError::Handle(ref err) if err.is_fatal() => {
-                                self.printer.println(ErrorView::from("shutdown debugger"));
-                                self.printer.println(ErrorView::from(format!(
-                                    "fatal debugger error: {e:#}"
-                                )));
+                                self.printer.println(ErrorView::from("Shutdown debugger"));
+                                self.printer
+                                    .println(ErrorView::from(format!("Fatal error: {e:#}")));
                                 exit(0);
                             }
                             CommandError::Handle(_) => {
                                 self.printer
-                                    .println(ErrorView::from(format!("debugger error: {e:#}")));
+                                    .println(ErrorView::from(format!("Error: {e:#}")));
                             }
                         }
                     }
@@ -700,7 +700,7 @@ impl AppLoop {
                     let tui_builder =
                         crate::ui::tui::AppBuilder::new(self.debugee_out, self.debugee_err);
                     let app = tui_builder.build(self.debugger);
-                    app.run().expect("run application fail");
+                    app.run().expect("Run application fail");
                     break;
                 }
             }

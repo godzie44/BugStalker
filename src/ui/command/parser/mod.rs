@@ -4,8 +4,11 @@ use super::r#break::BreakpointIdentity;
 use super::{frame, memory, register, source_code, thread, Command, CommandError};
 use super::{r#break, CommandResult};
 use crate::debugger::variable::select::{Expression, VariableSelector};
-use anyhow::anyhow;
-use std::u64;
+use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
+use chumsky::error::{Rich, RichPattern, RichReason};
+use chumsky::prelude::{any, choice, end, just};
+use chumsky::text::Char;
+use chumsky::{extra, text, Boxed, Parser};
 
 pub const VAR_COMMAND: &str = "var";
 pub const VAR_LOCAL_KEY: &str = "locals";
@@ -13,6 +16,7 @@ pub const ARG_COMMAND: &str = "arg";
 pub const ARG_ALL_KEY: &str = "all";
 pub const BACKTRACE_COMMAND: &str = "backtrace";
 pub const BACKTRACE_COMMAND_SHORT: &str = "bt";
+pub const BACKTRACE_ALL_SUBCOMMAND: &str = "all";
 pub const CONTINUE_COMMAND: &str = "continue";
 pub const CONTINUE_COMMAND_SHORT: &str = "c";
 pub const FRAME_COMMAND: &str = "frame";
@@ -31,6 +35,8 @@ pub const STEP_OVER_COMMAND_SHORT: &str = "next";
 pub const SYMBOL_COMMAND: &str = "symbol";
 pub const BREAK_COMMAND: &str = "break";
 pub const BREAK_COMMAND_SHORT: &str = "b";
+pub const BREAK_REMOVE_SUBCOMMAND: &str = "remove";
+pub const BREAK_REMOVE_SUBCOMMAND_SHORT: &str = "r";
 pub const MEMORY_COMMAND: &str = "memory";
 pub const MEMORY_COMMAND_SHORT: &str = "mem";
 pub const MEMORY_COMMAND_READ_SUBCOMMAND: &str = "read";
@@ -52,11 +58,6 @@ pub const SOURCE_COMMAND_FUNCTION_SUBCOMMAND: &str = "fn";
 pub const ORACLE_COMMAND: &str = "oracle";
 pub const HELP_COMMAND: &str = "help";
 pub const HELP_COMMAND_SHORT: &str = "h";
-
-use chumsky::error::Rich;
-use chumsky::prelude::{any, choice, end, just};
-use chumsky::text::Char;
-use chumsky::{extra, text, Boxed, Parser};
 
 type Err<'a> = extra::Err<Rich<'a, char>>;
 
@@ -123,12 +124,81 @@ where
 }
 
 impl Command {
-    /// Parse input string into command.
-    pub fn parse(input: &str) -> CommandResult<Command> {
-        Self::parser()
-            .parse(input)
-            .into_result()
-            .map_err(|e| CommandError::Parsing(anyhow!("{}", e[0])))
+    pub fn render_errors(src: &str, errors: Vec<Rich<char>>) -> String {
+        let mut reports = vec![];
+
+        for e in errors {
+            fn generate_reports(
+                src: &str,
+                reports: &mut Vec<String>,
+                err: &Rich<char>,
+                reason: &RichReason<char>,
+            ) {
+                let report = Report::build(ReportKind::Error, "<command>", err.span().start)
+                    .with_help("try \"help\" command");
+
+                let report = match reason {
+                    RichReason::ExpectedFound { expected, found } => report
+                        .with_message(format!(
+                            "{}, expected {}",
+                            if found.is_some() {
+                                "unexpected token in input"
+                            } else {
+                                "unexpected end of input"
+                            },
+                            if expected.is_empty() {
+                                "something else".to_string()
+                            } else {
+                                expected
+                                    .iter()
+                                    .map(|e| match e {
+                                        RichPattern::Token(tok) => tok.to_string(),
+                                        RichPattern::Label(label) => label.to_string(),
+                                        RichPattern::EndOfInput => "end of input".to_string(),
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            }
+                        ))
+                        .with_label(
+                            Label::new(("<command>", err.span().into_range()))
+                                .with_message(format!(
+                                    "unexpected token {}",
+                                    err.found()
+                                        .map(|t| t.to_string())
+                                        .unwrap_or("EOL".to_string())
+                                        .fg(Color::Red)
+                                ))
+                                .with_color(Color::Red),
+                        ),
+                    RichReason::Custom(ref msg) => report.with_message(msg).with_label(
+                        Label::new(("<command>", err.span().into_range()))
+                            .with_message(format!("{}", msg.fg(Color::Red)))
+                            .with_color(Color::Red),
+                    ),
+                    RichReason::Many(reasons) => {
+                        for r in reasons {
+                            generate_reports(src, reports, err, r);
+                        }
+                        return;
+                    }
+                };
+
+                let mut buf = vec![];
+                _ = report
+                    .finish()
+                    .write_for_stdout(("<command>", Source::from(&src)), &mut buf);
+                reports.push(
+                    std::str::from_utf8(&buf[..])
+                        .expect("infallible")
+                        .to_string(),
+                );
+            }
+
+            generate_reports(src, &mut reports, &e, e.reason());
+        }
+
+        reports.join("\n")
     }
 
     fn parser<'a>() -> impl chumsky::Parser<'a, &'a str, Command, Err<'a>> {
@@ -185,7 +255,7 @@ impl Command {
             .boxed();
 
         let backtrace = op2(BACKTRACE_COMMAND, BACKTRACE_COMMAND_SHORT)
-            .ignore_then(op("all").or_not())
+            .ignore_then(op(BACKTRACE_ALL_SUBCOMMAND).or_not())
             .map(|all| {
                 if all.is_some() {
                     Command::PrintBacktrace(super::backtrace::Command::All)
@@ -202,7 +272,7 @@ impl Command {
 
         let r#break = op2(BREAK_COMMAND, BREAK_COMMAND_SHORT)
             .ignore_then(choice((
-                op2("remove", "r")
+                op2(BREAK_REMOVE_SUBCOMMAND, BREAK_REMOVE_SUBCOMMAND_SHORT)
                     .ignore_then(choice((
                         brkpt_at_addr_parser(),
                         brkpt_at_line_parser(),
@@ -309,58 +379,15 @@ impl Command {
             command(SHARED_LIB_COMMAND, shared_lib),
             command(ORACLE_COMMAND, oracle),
         ))
-        .map_err(|e| {
-            let span = e.span();
-            if span.start == 0 && span.end == 0 {
-                Rich::custom(*e.span(), "type help for list of commands")
-            } else {
-                e
-            }
-        })
     }
 
-    // fn parse_inner(input: &str) -> IResult<&str, Command, ErrorTree<&str>> {
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-
-    //
-    //         alt((
-    //             command(VAR_COMMAND, print_var_parser),
-    //             command(ARG_COMMAND, print_argument_parser),
-    //             command(BACKTRACE_COMMAND, backtrace_parser),
-    //             command(CONTINUE_COMMAND, continue_parser),
-    //             command(FRAME_COMMAND, frame_parser),
-    //             command(RUN_COMMAND, run_parser),
-    //             command(STEP_INSTRUCTION_COMMAND, stepi_parser),
-    //             command(STEP_INTO_COMMAND, step_into_parser),
-    //             command(STEP_OUT_COMMAND, step_out_parser),
-    //             command(STEP_OVER_COMMAND, step_over_parser),
-    //             command(SYMBOL_COMMAND, symbol_parser),
-    //             command(BREAK_COMMAND, break_parser),
-    //             command(MEMORY_COMMAND, memory_parser),
-    //             command(REGISTER_COMMAND, register_parser),
-    //             command(HELP_COMMAND, help_parser),
-    //             command(THREAD_COMMAND, thread_parser),
-    //             command(SHARED_LIB_COMMAND, shared_lib_parser),
-    //             command(SOURCE_COMMAND, source_code_parser),
-    //             command(ORACLE_COMMAND, oracle_parser),
-    //             cut(map(not_line_ending, |cmd: &str| {
-    //                 if cmd.is_empty() {
-    //                     Command::SkipInput
-    //                 } else {
-    //                     Command::Help {
-    //                         command: None,
-    //                         reason: Some("unknown command".to_string()),
-    //                     }
-    //                 }
-    //             })),
-    //         ))(input)
-    //     }
+    /// Parse input string into command.
+    pub fn parse(input: &str) -> CommandResult<Command> {
+        Self::parser()
+            .parse(input)
+            .into_result()
+            .map_err(|e| CommandError::Parsing(Self::render_errors(input, e)))
+    }
 }
 
 #[test]
