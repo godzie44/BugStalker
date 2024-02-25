@@ -15,8 +15,9 @@ use gimli::{
     AttributeValue, DW_AT_address_class, DW_AT_byte_size, DW_AT_call_column, DW_AT_call_file,
     DW_AT_call_line, DW_AT_const_value, DW_AT_count, DW_AT_data_member_location, DW_AT_decl_file,
     DW_AT_decl_line, DW_AT_declaration, DW_AT_discr, DW_AT_discr_value, DW_AT_encoding,
-    DW_AT_frame_base, DW_AT_linkage_name, DW_AT_location, DW_AT_lower_bound, DW_AT_name,
-    DW_AT_specification, DW_AT_type, DW_AT_upper_bound, Range, Reader, UnitHeader, UnitOffset,
+    DW_AT_frame_base, DW_AT_language, DW_AT_linkage_name, DW_AT_location, DW_AT_lower_bound,
+    DW_AT_name, DW_AT_producer, DW_AT_specification, DW_AT_type, DW_AT_upper_bound,
+    DebuggingInformationEntry, DwAt, Range, Reader, UnitHeader, UnitOffset,
 };
 use log::warn;
 use once_cell::sync::OnceCell;
@@ -33,6 +34,18 @@ pub struct DwarfUnitParser<'a> {
 impl<'a> DwarfUnitParser<'a> {
     pub fn new(dwarf: &'a gimli::Dwarf<EndianArcSlice>) -> Self {
         Self { dwarf }
+    }
+
+    fn attr_to_string(
+        &self,
+        unit: &gimli::Unit<EndianArcSlice, usize>,
+        die: &DebuggingInformationEntry<EndianArcSlice, usize>,
+        attr: DwAt,
+    ) -> gimli::Result<Option<String>> {
+        die.attr(attr)?
+            .and_then(|attr| self.dwarf.attr_string(unit, attr.value()).ok())
+            .map(|l| l.to_string_lossy().map(|s| s.to_string()))
+            .transpose()
     }
 
     pub fn parse(&self, header: UnitHeader<EndianArcSlice>) -> gimli::Result<Unit> {
@@ -55,6 +68,18 @@ impl<'a> DwarfUnitParser<'a> {
         let mut ranges = self.dwarf.unit_ranges(&unit)?.collect::<Vec<_>>()?;
         ranges.sort_unstable_by_key(|r| r.begin);
 
+        let mut cursor = unit.header.entries(&unit.abbreviations);
+        cursor.next_dfs()?;
+        let root = cursor.current().ok_or(gimli::Error::MissingUnitDie)?;
+
+        let language = root.attr(DW_AT_language)?.and_then(|attr| {
+            if let AttributeValue::Language(lang) = attr.value() {
+                return Some(lang);
+            }
+            None
+        });
+        let producer = self.attr_to_string(&unit, root, DW_AT_producer)?;
+
         Ok(Unit {
             header: Mutex::new(Some(header)),
             idx: usize::MAX,
@@ -72,6 +97,8 @@ impl<'a> DwarfUnitParser<'a> {
             lines,
             ranges,
             lazy_part: OnceCell::new(),
+            language,
+            producer,
         })
     }
 
@@ -84,6 +111,7 @@ impl<'a> DwarfUnitParser<'a> {
         let mut entries: Vec<Entry> = vec![];
         let mut die_ranges: Vec<DieRange> = vec![];
         let mut variable_index: HashMap<String, Vec<(NamespaceHierarchy, usize)>> = HashMap::new();
+        let mut type_index: HashMap<String, UnitOffset> = HashMap::new();
         let mut die_offsets_index: HashMap<UnitOffset, usize> = HashMap::new();
         let mut function_index = PathSearchIndex::new("::");
         let mut fn_declarations = HashMap::new();
@@ -97,16 +125,12 @@ impl<'a> DwarfUnitParser<'a> {
                 Some(entries.len() - 1)
             };
 
-            let name = die
-                .attr(DW_AT_name)?
-                .and_then(|attr| self.dwarf.attr_string(&unit, attr.value()).ok());
-
             let parent_idx = match delta_depth {
                 // if 1 then previous die is a parent
                 1 => prev_index,
-                // if 0 then previous die is a sibling
+                // if 0, then previous die is a sibling
                 0 => entries.last().and_then(|dd| dd.node.parent),
-                // if < 0 then parent of previous die is a sibling
+                // if < 0 then the parent of previous die is a sibling
                 mut x if x < 0 => {
                     let mut parent = entries.last().unwrap();
                     while x != 0 {
@@ -135,12 +159,8 @@ impl<'a> DwarfUnitParser<'a> {
                 })
             });
 
-            let base_attrs = DieAttributes {
-                name: name
-                    .map(|s| s.to_string_lossy().map(|s| s.to_string()))
-                    .transpose()?,
-                ranges,
-            };
+            let name = self.attr_to_string(&unit, die, DW_AT_name)?;
+            let base_attrs = DieAttributes { name, ranges };
 
             let parsed_die = match die.tag() {
                 gimli::DW_TAG_subprogram => {
@@ -151,7 +171,7 @@ impl<'a> DwarfUnitParser<'a> {
                         None
                     });
                     if is_declaration == Some(true) {
-                        // add declaration in special map, this die's may be used later, when
+                        // add declaration in a special map, this die's may be used later, when
                         // parse implementation
                         fn_declarations.insert(die.offset(), current_idx);
                     }
@@ -213,7 +233,7 @@ impl<'a> DwarfUnitParser<'a> {
                         .as_ref()
                         .or(fn_die.base_attributes.name.as_ref());
                     if let Some(fn_name) = any_name {
-                        // subprograms without range are useless for this index
+                        // subprograms without a range are useless for this index
                         if !fn_die.base_attributes.ranges.is_empty() {
                             function_index.insert_w_head(
                                 fn_die.namespace.iter(),
@@ -253,7 +273,7 @@ impl<'a> DwarfUnitParser<'a> {
                     while let Some(parent_idx) = mb_parent_idx {
                         if let DieVariant::LexicalBlock(_) = entries[parent_idx].die {
                             if lexical_block_idx.is_none() {
-                                // save closest lexical block and ignore others
+                                // save the closest lexical block and ignore others
                                 lexical_block_idx = Some(parent_idx);
                             }
                         }
@@ -303,34 +323,52 @@ impl<'a> DwarfUnitParser<'a> {
                         }
                     });
 
+                    if let Some(ref name) = base_attrs.name {
+                        type_index.insert(name.to_string(), die.offset());
+                    }
                     DieVariant::BaseType(BaseTypeDie {
                         base_attributes: base_attrs,
                         encoding,
                         byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
                     })
                 }
-                gimli::DW_TAG_structure_type => DieVariant::StructType(StructTypeDie {
-                    base_attributes: base_attrs,
-                    byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
-                }),
+                gimli::DW_TAG_structure_type => {
+                    if let Some(ref name) = base_attrs.name {
+                        type_index.insert(name.to_string(), die.offset());
+                    }
+                    DieVariant::StructType(StructTypeDie {
+                        base_attributes: base_attrs,
+                        byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
+                    })
+                }
                 gimli::DW_TAG_member => DieVariant::TypeMember(TypeMemberDie {
                     base_attributes: base_attrs,
                     byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
                     location: die.attr(DW_AT_data_member_location)?,
                     type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
                 }),
-                gimli::DW_TAG_union_type => DieVariant::UnionTypeDie(UnionTypeDie {
-                    base_attributes: base_attrs,
-                    byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
-                }),
+                gimli::DW_TAG_union_type => {
+                    if let Some(ref name) = base_attrs.name {
+                        type_index.insert(name.to_string(), die.offset());
+                    }
+                    DieVariant::UnionTypeDie(UnionTypeDie {
+                        base_attributes: base_attrs,
+                        byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
+                    })
+                }
                 gimli::DW_TAG_lexical_block => DieVariant::LexicalBlock(LexicalBlockDie {
                     base_attributes: base_attrs,
                 }),
-                gimli::DW_TAG_array_type => DieVariant::ArrayType(ArrayDie {
-                    base_attributes: base_attrs,
-                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                    byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
-                }),
+                gimli::DW_TAG_array_type => {
+                    if let Some(ref name) = base_attrs.name {
+                        type_index.insert(name.to_string(), die.offset());
+                    }
+                    DieVariant::ArrayType(ArrayDie {
+                        base_attributes: base_attrs,
+                        type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
+                        byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
+                    })
+                }
                 gimli::DW_TAG_subrange_type => DieVariant::ArraySubrange(ArraySubrangeDie {
                     base_attributes: base_attrs,
                     lower_bound: die.attr(DW_AT_lower_bound)?,
@@ -359,13 +397,18 @@ impl<'a> DwarfUnitParser<'a> {
                         .attr(DW_AT_discr_value)?
                         .and_then(|val| val.sdata_value()),
                 }),
-                gimli::DW_TAG_pointer_type => DieVariant::PointerType(PointerType {
-                    base_attributes: base_attrs,
-                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                    address_class: die
-                        .attr(DW_AT_address_class)?
-                        .and_then(|v| v.udata_value().map(|u| u as u8)),
-                }),
+                gimli::DW_TAG_pointer_type => {
+                    if let Some(ref name) = base_attrs.name {
+                        type_index.insert(name.to_string(), die.offset());
+                    }
+                    DieVariant::PointerType(PointerType {
+                        base_attributes: base_attrs,
+                        type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
+                        address_class: die
+                            .attr(DW_AT_address_class)?
+                            .and_then(|v| v.udata_value().map(|u| u as u8)),
+                    })
+                }
                 gimli::DW_TAG_template_type_parameter => {
                     DieVariant::TemplateType(TemplateTypeParameter {
                         base_attributes: base_attrs,
@@ -407,6 +450,7 @@ impl<'a> DwarfUnitParser<'a> {
             entries,
             die_ranges,
             variable_index,
+            type_index,
             die_offsets_index,
             function_index,
         })

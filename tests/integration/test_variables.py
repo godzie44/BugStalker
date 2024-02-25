@@ -39,7 +39,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('char_non_ascii = char(😊)'.encode('utf-8'))
 
     def test_read_scalar_variables_at_place(self):
-        """Local variables reading only from current lexical block"""
+        """Local variables reading only from the current lexical block"""
         self.debugger.sendline('break vars.rs:11')
         self.debugger.expect('New breakpoint')
 
@@ -397,7 +397,7 @@ class VariablesTestCase(unittest.TestCase):
 
         # assert tls variables changes in another thread
         self.debugger.sendline('break vars.rs:203')
-        self.debugger.expect('New breakpoint')
+        self.debugger.expect_exact('New breakpoint')
         self.debugger.sendline('continue')
         self.debugger.expect_exact('203     let nop: Option<u8> = None;')
 
@@ -538,16 +538,16 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('cap: usize(0)')
         self.debugger.expect_exact('}')
 
-        self.debugger.expect_exact('hash_map_zst_key = HashMap<(), i32, std::collections::hash::map::RandomState> {')
+        self.debugger.expect(re.compile(b"hash_map_zst_key = HashMap<\(\), i32, .*::RandomState> {"))
         self.debugger.expect_exact('()(()): i32(1)')
         self.debugger.expect_exact('}')
-        self.debugger.expect_exact('hash_map_zst_val = HashMap<i32, (), std::collections::hash::map::RandomState> {')
+        self.debugger.expect(re.compile(b"hash_map_zst_val = HashMap<i32, \(\), .*::RandomState> {"))
         self.debugger.expect_exact('i32(1): ()(())')
         self.debugger.expect_exact('}')
-        self.debugger.expect_exact('hash_map_zst = HashMap<(), (), std::collections::hash::map::RandomState> {')
+        self.debugger.expect(re.compile(b"hash_map_zst = HashMap<\(\), \(\), .*::RandomState> {"))
         self.debugger.expect_exact('()(()): ()(())')
         self.debugger.expect_exact('}')
-        self.debugger.expect_exact('hash_set_zst = HashSet<(), std::collections::hash::map::RandomState> {')
+        self.debugger.expect(re.compile(b"hash_set_zst = HashSet<\(\), .*::RandomState> {"))
         self.debugger.expect_exact('()(())')
         self.debugger.expect_exact('}')
 

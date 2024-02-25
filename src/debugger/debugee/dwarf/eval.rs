@@ -179,6 +179,10 @@ impl<'a> ExpressionEvaluator<'a> {
         }
     }
 
+    pub fn unit(&self) -> &Unit {
+        self.unit
+    }
+
     fn value_type_from_offset(&self, base_type: UnitOffset) -> ValueType {
         if base_type == UnitOffset(0) {
             ValueType::Generic

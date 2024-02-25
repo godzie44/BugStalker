@@ -1,8 +1,11 @@
 use bugstalker::debugger::address::RelocatedAddress;
 use bugstalker::debugger::{EventHook, FunctionDie, PlaceDescriptor};
+use bugstalker::version::Version;
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
+use object::{Object, ObjectSection};
 use std::cell::Cell;
+use std::fs;
 use std::sync::Arc;
 
 #[derive(Clone, Default)]
@@ -67,4 +70,18 @@ macro_rules! assert_no_proc {
             sysinfo::System::process(&sys, sysinfo::Pid::from_u32($pid.as_raw() as u32)).is_none()
         )
     };
+}
+
+pub fn rust_version(file: &str) -> Option<Version> {
+    let file = fs::File::open(file).unwrap();
+    let mmap = unsafe { memmap2::Mmap::map(&file).unwrap() };
+    let object = object::File::parse(&*mmap).unwrap();
+    let sect = object
+        .section_by_name(".comment")
+        .expect(".comment section not found");
+
+    let data = sect.data().unwrap();
+    let string_data = std::str::from_utf8(data).unwrap();
+
+    Version::rustc_parse(string_data)
 }

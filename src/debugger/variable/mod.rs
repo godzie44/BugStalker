@@ -52,6 +52,8 @@ pub enum AssumeError {
 pub enum ParsingError {
     #[error(transparent)]
     Assume(#[from] AssumeError),
+    #[error("unsupported language version")]
+    UnsupportedVersion,
     #[error("error while reading from debugee memory: {0}")]
     ReadDebugeeMemory(#[from] nix::Error),
 }
@@ -794,7 +796,7 @@ impl<'a> VariableParser<'a> {
                 bytes_chunks = bytes.chunks(el_size as usize).enumerate();
                 &mut bytes_chunks
             } else {
-                // if items type is zst
+                // if an item type is zst
                 let v: Vec<&[u8]> = vec![&[]; len as usize];
                 empty_chunks = v.into_iter().enumerate();
                 &mut empty_chunks

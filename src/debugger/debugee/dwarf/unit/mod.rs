@@ -8,9 +8,10 @@ use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::debugee::Debugee;
 use crate::debugger::error::Error;
+use crate::version::Version;
 use gimli::{
-    Attribute, AttributeValue, DebugAddrBase, DebugInfoOffset, DebugLocListsBase, DwAte, Encoding,
-    Range, UnitHeader, UnitOffset,
+    Attribute, AttributeValue, DW_LANG_Rust, DebugAddrBase, DebugInfoOffset, DebugLocListsBase,
+    DwAte, DwLang, Encoding, Range, UnitHeader, UnitOffset,
 };
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
@@ -404,8 +405,10 @@ struct UnitProperties {
 struct UnitLazyPart {
     entries: Vec<Entry>,
     die_ranges: Vec<DieRange>,
-    // index for variable die position: variable name -> [namespaces : die position in unit]
+    // index for variable die position: { variable name -> [namespaces : die position in unit] }
     variable_index: HashMap<String, Vec<(NamespaceHierarchy, usize)>>,
+    // index for type die position: { type name -> offset in unit }
+    type_index: HashMap<String, UnitOffset>,
     // index for variables: offset in unit -> position in unit `entries`
     die_offsets_index: HashMap<UnitOffset, usize>,
     // index for function entries: function -> die position in unit `entries`
@@ -471,6 +474,8 @@ pub struct Unit {
     lines: Vec<LineRow>,
     ranges: Vec<Range>,
     lazy_part: OnceCell<UnitLazyPart>,
+    language: Option<DwLang>,
+    producer: Option<String>,
 }
 
 impl Clone for Unit {
@@ -486,6 +491,8 @@ impl Clone for Unit {
             lines: self.lines.clone(),
             ranges: self.ranges.clone(),
             lazy_part: self.lazy_part.clone(),
+            language: self.language,
+            producer: self.producer.clone(),
         }
     }
 }
@@ -520,6 +527,17 @@ impl Unit {
     /// See [`crate::debugger::debugee::dwarf::DebugInformation`]
     pub(super) fn set_idx(&mut self, idx: usize) {
         self.idx = idx;
+    }
+
+    /// Return rust SEMVER value. If rust is not unit language or
+    /// if version determine fail return `None`.
+    pub fn rustc_version(&self) -> Option<Version> {
+        if self.language == Some(DW_LANG_Rust) {
+            if let Some(producer) = self.producer.as_ref() {
+                return Version::rustc_parse(producer);
+            }
+        }
+        None
     }
 
     /// Return the encoding parameters for this unit.
@@ -680,7 +698,7 @@ impl Unit {
         }
     }
 
-    /// Return locations of all variables with name equals to `name` parameter.
+    /// Return locations of all variables with name equal to `name` parameter.
     /// Note: this method requires a full unit.
     ///
     /// # Arguments
@@ -693,6 +711,19 @@ impl Unit {
         match self.lazy_part.get() {
             None => UnitResult::Reload,
             Some(additional) => UnitResult::Ok(additional.variable_index.get(name)),
+        }
+    }
+
+    /// Return locations of a type with name equal to `name` parameter.
+    /// Note: this method requires a full unit.
+    ///
+    /// # Arguments
+    ///
+    /// * `name`: needle type name
+    pub fn locate_type(&self, name: &str) -> UnitResult<Option<UnitOffset>> {
+        match self.lazy_part.get() {
+            None => UnitResult::Reload,
+            Some(additional) => UnitResult::Ok(additional.type_index.get(name).copied()),
         }
     }
 

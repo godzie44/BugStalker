@@ -530,9 +530,20 @@ impl DebugInformation {
     }
 
     /// Return reference (unit and die offsets) to type die by type name.
-    /// Currently search only in `pub_types` section.
+    ///
+    /// Search from `pub_types` section in priority, but if `pub_types` is empty,
+    /// then a unit full scan may be occurred.
     pub fn find_type_die_ref(&self, name: &str) -> Option<(DebugInfoOffset, UnitOffset)> {
-        self.pub_types.get(name).copied()
+        if self.pub_types.is_empty() {
+            self.get_units().ok()?.iter().find_map(|u| {
+                u.offset().and_then(|u_offset| {
+                    let type_ref_in_unit = resolve_unit_call!(&self.inner, u, locate_type, name)?;
+                    Some((u_offset, type_ref_in_unit))
+                })
+            })
+        } else {
+            self.pub_types.get(name).copied()
+        }
     }
 
     /// Return unit found at offset.

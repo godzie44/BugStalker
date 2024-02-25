@@ -221,12 +221,10 @@ impl<'a> SelectExpressionEvaluator<'a> {
         let var_die_ref = self.fill_virtual_ptr_variable(&mut var_die, &any_node, type_name)?;
 
         let mut type_cache = self.debugger.type_cache.borrow_mut();
-        let r#type = weak_error!(type_from_cache!(var_die_ref, type_cache));
+        let r#type = type_from_cache!(var_die_ref, type_cache)?;
 
-        if let Some(r#type) = r#type {
-            if let Some(v) = self.evaluate_single_variable(&self.expression, &var_die_ref, r#type) {
-                return Ok(vec![v]);
-            }
+        if let Some(v) = self.evaluate_single_variable(&self.expression, &var_die_ref, r#type) {
+            return Ok(vec![v]);
         }
         Ok(vec![])
     }

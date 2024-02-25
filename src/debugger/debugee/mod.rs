@@ -445,8 +445,9 @@ impl Debugee {
             .ok_or(Error::NoDebugInformation("executable object"))
     }
 
-    /// Return all known debug information. Debug info about main executable is located at the zero index.
-    /// Other information ordered from less compilation unit count to greatest.
+    /// Return all known debug information.
+    /// Debug info of the main executable is located at the zero index.
+    /// Other information ordered from less compilation unit counts to greatest.
     #[inline(always)]
     pub fn debug_info_all(&self) -> Vec<&DebugInformation> {
         self.dwarf_registry.all_dwarf()

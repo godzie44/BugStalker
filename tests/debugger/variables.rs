@@ -1,13 +1,13 @@
-use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
+use crate::common::{rust_version, DebugeeRunInfo};
 use crate::VARS_APP;
 use crate::{assert_no_proc, prepare_debugee_process};
-use bugstalker::debugger;
 use bugstalker::debugger::variable::render::RenderRepr;
 use bugstalker::debugger::variable::select::{Expression, VariableSelector};
 use bugstalker::debugger::variable::{select, VariableIR};
 use bugstalker::debugger::{variable, Debugger, DebuggerBuilder};
 use bugstalker::ui::command::parser::expression;
+use bugstalker::{debugger, version_switch};
 use chumsky::Parser;
 use debugger::variable::SupportedScalar;
 use serial_test::serial;
@@ -1268,144 +1268,121 @@ fn test_read_hashmap() {
     debugger.start_debugee().unwrap();
     assert_eq!(info.line.take(), Some(261));
 
+    let rust_version = rust_version(VARS_APP).unwrap();
+    let hash_map_type = version_switch!(
+            rust_version,
+            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<bool, i64, std::collections::hash::map::RandomState>",
+            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<bool, i64, std::hash::random::RandomState>",
+    ).unwrap();
+
     let vars = debugger.read_local_variables().unwrap();
-    assert_hashmap(
-        &vars[0],
-        "hm1",
-        "HashMap<bool, i64, std::collections::hash::map::RandomState>",
-        |items| {
-            assert_eq!(items.len(), 2);
-            assert_scalar(&items[0].0, "0", "bool", Some(SupportedScalar::Bool(false)));
-            assert_scalar(&items[0].1, "1", "i64", Some(SupportedScalar::I64(5)));
-            assert_scalar(&items[1].0, "0", "bool", Some(SupportedScalar::Bool(true)));
-            assert_scalar(&items[1].1, "1", "i64", Some(SupportedScalar::I64(3)));
-        },
-    );
-    assert_hashmap(
-        &vars[1],
-        "hm2",
-        "HashMap<&str, alloc::vec::Vec<i32, alloc::alloc::Global>, std::collections::hash::map::RandomState>",
-        |items| {
-            assert_eq!(items.len(), 2);
-            assert_str(
-                &items[0].0,
-                "0",
-                "abc",
-            );
-            assert_vec(&items[0].1, "1", "Vec<i32, alloc::alloc::Global>", 3, |buf| {
+    assert_hashmap(&vars[0], "hm1", hash_map_type, |items| {
+        assert_eq!(items.len(), 2);
+        assert_scalar(&items[0].0, "0", "bool", Some(SupportedScalar::Bool(false)));
+        assert_scalar(&items[0].1, "1", "i64", Some(SupportedScalar::I64(5)));
+        assert_scalar(&items[1].0, "0", "bool", Some(SupportedScalar::Bool(true)));
+        assert_scalar(&items[1].1, "1", "i64", Some(SupportedScalar::I64(3)));
+    });
+
+    let hash_map_type = version_switch!(
+            rust_version,
+            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<&str, alloc::vec::Vec<i32, alloc::alloc::Global>, std::collections::hash::map::RandomState>",
+            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<&str, alloc::vec::Vec<i32, alloc::alloc::Global>, std::hash::random::RandomState>",
+    ).unwrap();
+    assert_hashmap(&vars[1], "hm2", hash_map_type, |items| {
+        assert_eq!(items.len(), 2);
+        assert_str(&items[0].0, "0", "abc");
+        assert_vec(
+            &items[0].1,
+            "1",
+            "Vec<i32, alloc::alloc::Global>",
+            3,
+            |buf| {
                 assert_array(buf, "buf", "[i32]", |i, item| match i {
                     0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
                     1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
                     2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(3))),
                     _ => panic!("3 items expected"),
                 })
-            });
-            assert_str(
-                &items[1].0,
-                "0",
-                "efg",
-            );
-            assert_vec(&items[1].1, "1", "Vec<i32, alloc::alloc::Global>", 3, |buf| {
+            },
+        );
+        assert_str(&items[1].0, "0", "efg");
+        assert_vec(
+            &items[1].1,
+            "1",
+            "Vec<i32, alloc::alloc::Global>",
+            3,
+            |buf| {
                 assert_array(buf, "buf", "[i32]", |i, item| match i {
                     0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(11))),
                     1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(12))),
                     2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(13))),
                     _ => panic!("3 items expected"),
                 })
-            });
-        },
-    );
-    assert_hashmap(
-        &vars[2],
-        "hm3",
-        "HashMap<i32, i32, std::collections::hash::map::RandomState>",
-        |items| {
-            assert_eq!(items.len(), 100);
+            },
+        );
+    });
 
-            let mut exp_items = (0..100).collect::<Vec<_>>();
-            exp_items.sort_by_key(|i1| i1.to_string());
+    let hash_map_type = version_switch!(
+            rust_version,
+            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<i32, i32, std::collections::hash::map::RandomState>",
+            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<i32, i32, std::hash::random::RandomState>",
+    ).unwrap();
+    assert_hashmap(&vars[2], "hm3", hash_map_type, |items| {
+        assert_eq!(items.len(), 100);
 
-            for i in 0..100 {
-                assert_scalar(
-                    &items[i].0,
-                    "0",
-                    "i32",
-                    Some(SupportedScalar::I32(exp_items[i])),
-                );
-            }
-            for i in 0..100 {
-                assert_scalar(
-                    &items[i].1,
-                    "1",
-                    "i32",
-                    Some(SupportedScalar::I32(exp_items[i])),
-                );
-            }
-        },
-    );
-    assert_hashmap(
-        &vars[3],
-        "hm4",
-        "HashMap<alloc::string::String, std::collections::hash::map::HashMap<i32, i32, std::collections::hash::map::RandomState>, std::collections::hash::map::RandomState>",
-        |items| {
+        let mut exp_items = (0..100).collect::<Vec<_>>();
+        exp_items.sort_by_key(|i1| i1.to_string());
+
+        for i in 0..100 {
+            assert_scalar(
+                &items[i].0,
+                "0",
+                "i32",
+                Some(SupportedScalar::I32(exp_items[i])),
+            );
+        }
+        for i in 0..100 {
+            assert_scalar(
+                &items[i].1,
+                "1",
+                "i32",
+                Some(SupportedScalar::I32(exp_items[i])),
+            );
+        }
+    });
+
+    let hash_map_type = version_switch!(
+            rust_version,
+            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<alloc::string::String, std::collections::hash::map::HashMap<i32, i32, std::collections::hash::map::RandomState>, std::collections::hash::map::RandomState>",
+            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<alloc::string::String, std::collections::hash::map::HashMap<i32, i32, std::hash::random::RandomState>, std::hash::random::RandomState>",
+    ).unwrap();
+    let inner_hash_map_type = version_switch!(
+            rust_version,
+            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<i32, i32, std::collections::hash::map::RandomState>",
+            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<i32, i32, std::hash::random::RandomState>",
+    ).unwrap();
+
+    assert_hashmap(&vars[3], "hm4", hash_map_type, |items| {
+        assert_eq!(items.len(), 2);
+        assert_string(&items[0].0, "0", "1");
+        assert_hashmap(&items[0].1, "1", inner_hash_map_type, |items| {
             assert_eq!(items.len(), 2);
-            assert_string(
-                &items[0].0,
-                "0",
-                "1",
-            );
-            assert_hashmap(
-                &items[0].1,
-                "1",
-                "HashMap<i32, i32, std::collections::hash::map::RandomState>",
-                |items| {
-                    assert_eq!(items.len(), 2);
-                    assert_scalar(
-                        &items[0].0,
-                        "0",
-                        "i32",
-                        Some(SupportedScalar::I32(1)),
-                    );
-                    assert_scalar(&items[0].1, "1", "i32", Some(SupportedScalar::I32(1)));
-                    assert_scalar(
-                        &items[1].0,
-                        "0",
-                        "i32",
-                        Some(SupportedScalar::I32(2)),
-                    );
-                    assert_scalar(&items[1].1, "1", "i32", Some(SupportedScalar::I32(2)));
-                },
-            );
+            assert_scalar(&items[0].0, "0", "i32", Some(SupportedScalar::I32(1)));
+            assert_scalar(&items[0].1, "1", "i32", Some(SupportedScalar::I32(1)));
+            assert_scalar(&items[1].0, "0", "i32", Some(SupportedScalar::I32(2)));
+            assert_scalar(&items[1].1, "1", "i32", Some(SupportedScalar::I32(2)));
+        });
 
-            assert_string(
-                &items[1].0,
-                "0",
-                "3",
-            );
-            assert_hashmap(
-                &items[1].1,
-                "1",
-                "HashMap<i32, i32, std::collections::hash::map::RandomState>",
-                |items| {
-                    assert_eq!(items.len(), 2);
-                    assert_scalar(
-                        &items[0].0,
-                        "0",
-                        "i32",
-                        Some(SupportedScalar::I32(3)),
-                    );
-                    assert_scalar(&items[0].1, "1", "i32", Some(SupportedScalar::I32(3)));
-                    assert_scalar(
-                        &items[1].0,
-                        "0",
-                        "i32",
-                        Some(SupportedScalar::I32(4)),
-                    );
-                    assert_scalar(&items[1].1, "1", "i32", Some(SupportedScalar::I32(4)));
-                },
-            );
-        },
-    );
+        assert_string(&items[1].0, "0", "3");
+        assert_hashmap(&items[1].1, "1", inner_hash_map_type, |items| {
+            assert_eq!(items.len(), 2);
+            assert_scalar(&items[0].0, "0", "i32", Some(SupportedScalar::I32(3)));
+            assert_scalar(&items[0].1, "1", "i32", Some(SupportedScalar::I32(3)));
+            assert_scalar(&items[1].0, "0", "i32", Some(SupportedScalar::I32(4)));
+            assert_scalar(&items[1].1, "1", "i32", Some(SupportedScalar::I32(4)));
+        });
+    });
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
@@ -1425,53 +1402,51 @@ fn test_read_hashset() {
     debugger.start_debugee().unwrap();
     assert_eq!(info.line.take(), Some(274));
 
-    let vars = debugger.read_local_variables().unwrap();
-    assert_hashset(
-        &vars[0],
-        "hs1",
-        "HashSet<i32, std::collections::hash::map::RandomState>",
-        |items| {
-            assert_eq!(items.len(), 4);
-            assert_scalar(&items[0], "0", "i32", Some(SupportedScalar::I32(1)));
-            assert_scalar(&items[1], "0", "i32", Some(SupportedScalar::I32(2)));
-            assert_scalar(&items[2], "0", "i32", Some(SupportedScalar::I32(3)));
-            assert_scalar(&items[3], "0", "i32", Some(SupportedScalar::I32(4)));
-        },
-    );
-    assert_hashset(
-        &vars[1],
-        "hs2",
-        "HashSet<i32, std::collections::hash::map::RandomState>",
-        |items| {
-            assert_eq!(items.len(), 100);
-            let mut exp_items = (0..100).into_iter().collect::<Vec<_>>();
-            exp_items.sort_by_key(|i1| i1.to_string());
+    let rust_version = rust_version(VARS_APP).unwrap();
+    let hashset_type = version_switch!(
+            rust_version,
+            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashSet<i32, std::collections::hash::map::RandomState>",
+            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashSet<i32, std::hash::random::RandomState>",
+    ).unwrap();
 
-            for i in 0..100 {
-                assert_scalar(
-                    &items[i],
-                    "0",
-                    "i32",
-                    Some(SupportedScalar::I32(exp_items[i])),
-                );
-            }
-        },
-    );
-    assert_hashset(
-        &vars[2],
-        "hs3",
-        "HashSet<alloc::vec::Vec<i32, alloc::alloc::Global>, std::collections::hash::map::RandomState>",
-        |items| {
-            assert_eq!(items.len(), 1);
-            assert_vec(&items[0], "0", "Vec<i32, alloc::alloc::Global>", 2, |buf| {
-                assert_array(buf, "buf", "[i32]", |i, item| match i {
-                    0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
-                    1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
-                    _ => panic!("2 items expected"),
-                })
-            });
-        },
-    );
+    let vars = debugger.read_local_variables().unwrap();
+    assert_hashset(&vars[0], "hs1", hashset_type, |items| {
+        assert_eq!(items.len(), 4);
+        assert_scalar(&items[0], "0", "i32", Some(SupportedScalar::I32(1)));
+        assert_scalar(&items[1], "0", "i32", Some(SupportedScalar::I32(2)));
+        assert_scalar(&items[2], "0", "i32", Some(SupportedScalar::I32(3)));
+        assert_scalar(&items[3], "0", "i32", Some(SupportedScalar::I32(4)));
+    });
+    assert_hashset(&vars[1], "hs2", hashset_type, |items| {
+        assert_eq!(items.len(), 100);
+        let mut exp_items = (0..100).collect::<Vec<_>>();
+        exp_items.sort_by_key(|i1| i1.to_string());
+
+        for i in 0..100 {
+            assert_scalar(
+                &items[i],
+                "0",
+                "i32",
+                Some(SupportedScalar::I32(exp_items[i])),
+            );
+        }
+    });
+
+    let hashset_type = version_switch!(
+            rust_version,
+            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashSet<alloc::vec::Vec<i32, alloc::alloc::Global>, std::collections::hash::map::RandomState>",
+            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashSet<alloc::vec::Vec<i32, alloc::alloc::Global>, std::hash::random::RandomState>",
+    ).unwrap();
+    assert_hashset(&vars[2], "hs3", hashset_type, |items| {
+        assert_eq!(items.len(), 1);
+        assert_vec(&items[0], "0", "Vec<i32, alloc::alloc::Global>", 2, |buf| {
+            assert_array(buf, "buf", "[i32]", |i, item| match i {
+                0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+                1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
+                _ => panic!("2 items expected"),
+            })
+        });
+    });
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
@@ -2155,45 +2130,49 @@ fn test_zst_types() {
         },
     );
 
-    assert_hashmap(
-        &vars[7],
-        "hash_map_zst_key",
-        "HashMap<(), i32, std::collections::hash::map::RandomState>",
-        |items| {
-            assert_eq!(items.len(), 1);
-            assert_scalar(&items[0].0, "0", "()", Some(SupportedScalar::Empty()));
-            assert_scalar(&items[0].1, "1", "i32", Some(SupportedScalar::I32(1)));
-        },
-    );
-    assert_hashmap(
-        &vars[8],
-        "hash_map_zst_val",
-        "HashMap<i32, (), std::collections::hash::map::RandomState>",
-        |items| {
-            assert_eq!(items.len(), 1);
-            assert_scalar(&items[0].0, "0", "i32", Some(SupportedScalar::I32(1)));
-            assert_scalar(&items[0].1, "1", "()", Some(SupportedScalar::Empty()));
-        },
-    );
-    assert_hashmap(
-        &vars[9],
-        "hash_map_zst",
-        "HashMap<(), (), std::collections::hash::map::RandomState>",
-        |items| {
-            assert_eq!(items.len(), 1);
-            assert_scalar(&items[0].0, "0", "()", Some(SupportedScalar::Empty()));
-            assert_scalar(&items[0].1, "1", "()", Some(SupportedScalar::Empty()));
-        },
-    );
-    assert_hashset(
-        &vars[10],
-        "hash_set_zst",
-        "HashSet<(), std::collections::hash::map::RandomState>",
-        |items| {
-            assert_eq!(items.len(), 1);
-            assert_scalar(&items[0], "0", "()", Some(SupportedScalar::Empty()));
-        },
-    );
+    let rust_version = rust_version(VARS_APP).unwrap();
+    let hashmap_type = version_switch!(
+            rust_version,
+            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<(), i32, std::collections::hash::map::RandomState>",
+            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<(), i32, std::hash::random::RandomState>",
+    ).unwrap();
+    assert_hashmap(&vars[7], "hash_map_zst_key", hashmap_type, |items| {
+        assert_eq!(items.len(), 1);
+        assert_scalar(&items[0].0, "0", "()", Some(SupportedScalar::Empty()));
+        assert_scalar(&items[0].1, "1", "i32", Some(SupportedScalar::I32(1)));
+    });
+
+    let hashmap_type = version_switch!(
+            rust_version,
+            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<i32, (), std::collections::hash::map::RandomState>",
+            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<i32, (), std::hash::random::RandomState>",
+    ).unwrap();
+    assert_hashmap(&vars[8], "hash_map_zst_val", hashmap_type, |items| {
+        assert_eq!(items.len(), 1);
+        assert_scalar(&items[0].0, "0", "i32", Some(SupportedScalar::I32(1)));
+        assert_scalar(&items[0].1, "1", "()", Some(SupportedScalar::Empty()));
+    });
+
+    let hashmap_type = version_switch!(
+            rust_version,
+            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<(), (), std::collections::hash::map::RandomState>",
+            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<(), (), std::hash::random::RandomState>",
+    ).unwrap();
+    assert_hashmap(&vars[9], "hash_map_zst", hashmap_type, |items| {
+        assert_eq!(items.len(), 1);
+        assert_scalar(&items[0].0, "0", "()", Some(SupportedScalar::Empty()));
+        assert_scalar(&items[0].1, "1", "()", Some(SupportedScalar::Empty()));
+    });
+
+    let hashset_type = version_switch!(
+            rust_version,
+            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashSet<(), std::collections::hash::map::RandomState>",
+            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashSet<(), std::hash::random::RandomState>",
+    ).unwrap();
+    assert_hashset(&vars[10], "hash_set_zst", hashset_type, |items| {
+        assert_eq!(items.len(), 1);
+        assert_scalar(&items[0], "0", "()", Some(SupportedScalar::Empty()));
+    });
 
     assert_btree_map(
         &vars[11],

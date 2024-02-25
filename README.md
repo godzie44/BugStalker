@@ -1,6 +1,8 @@
 # Bug-stalker
 
-Modern debugger for programs written in rust. Current supported version: 1.75.0
+Modern debugger for programs written in rust. Supported rustc versions:
+- 1.75
+- 1.76
 
 ## Small demo
 

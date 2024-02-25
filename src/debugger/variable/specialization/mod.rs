@@ -13,7 +13,7 @@ use crate::debugger::variable::{
     ArrayVariable, AssumeError, ParsingError, PointerVariable, ScalarVariable, StructVariable,
     SupportedScalar, VariableIR, VariableIdentity, VariableParser,
 };
-use crate::{debugger, weak_error};
+use crate::{debugger, version_switch, weak_error};
 use anyhow::Context;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
@@ -267,7 +267,7 @@ impl<'a> VariableParserExtension<'a> {
         let len = ir.assume_field_as_scalar_number("len")?;
         let len = guard_len(len);
 
-        let cap = ir.assume_field_as_scalar_number("cap")?;
+        let cap = extract_capacity(eval_ctx, &ir)? as i64;
         let cap = guard_cap(cap);
 
         let data_ptr = ir.assume_field_as_pointer("pointer")?;
@@ -681,7 +681,7 @@ impl<'a> VariableParserExtension<'a> {
         let cap = if el_type_size == 0 {
             usize::MAX
         } else {
-            ir.assume_field_as_scalar_number("cap")? as usize
+            extract_capacity(eval_ctx, &ir)?
         };
         let head = ir.assume_field_as_scalar_number("head")? as usize;
 
@@ -860,4 +860,26 @@ impl<'a> VariableParserExtension<'a> {
             })
             .ok_or(IncompleteInterp("Arc"))?)
     }
+}
+
+fn extract_capacity(eval_ctx: &EvaluationContext, ir: &VariableIR) -> Result<usize, ParsingError> {
+    let rust_version = eval_ctx
+        .evaluator
+        .unit()
+        .rustc_version()
+        .ok_or(ParsingError::UnsupportedVersion)?;
+
+    version_switch!(
+                rust_version,
+                (1, 0, 0) ..= (1, 75, u32::MAX) => ir.assume_field_as_scalar_number("cap")? as usize,
+                (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => {
+                        let cap_s = ir.assume_field_as_struct("cap")?;
+                        let cap = cap_s.members.first().ok_or(IncompleteInterp("Vec"))?;
+                        if let VariableIR::Scalar(ScalarVariable {value: Some(SupportedScalar::Usize(cap)), ..}) = cap {
+                            Ok(*cap)
+                        } else {
+                            Err(AssumeError::FieldNotANumber("cap"))
+                        }?
+                    },
+                ).ok_or(ParsingError::UnsupportedVersion)
 }
