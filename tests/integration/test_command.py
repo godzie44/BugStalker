@@ -6,7 +6,7 @@ import pexpect
 class CommandTestCase(unittest.TestCase):
     def setUp(self):
         debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/hello_world')
+            './target/debug/bugstalker ./examples/target/debug/hello_world')
         debugger.expect('BugStalker greets')
         self.debugger = debugger
 
@@ -88,7 +88,7 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.sendline('q')
         # respawn debugger and test address breakpoint
         self.debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/hello_world')
+            './target/debug/bugstalker ./examples/target/debug/hello_world')
         self.debugger.expect('BugStalker greets')
         self.debugger.sendline('break ' + addr)
         self.debugger.expect_exact('New breakpoint')
@@ -137,7 +137,7 @@ class CommandTestCase(unittest.TestCase):
 
         # respawn debugger and move pc counter
         self.debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/hello_world')
+            './target/debug/bugstalker ./examples/target/debug/hello_world')
         self.debugger.expect('BugStalker greets')
         self.debugger.sendline('break ' + ret_addr)
         self.debugger.expect('New breakpoint')
@@ -156,32 +156,32 @@ class CommandTestCase(unittest.TestCase):
     def test_step_in():
         """Debugger step in command (move to next line)"""
         debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/calc -- 1 2 3 --description result')
+            './target/debug/bugstalker ./examples/target/debug/calc -- 1 2 3 --description result')
         debugger.expect('BugStalker greets')
-        debugger.sendline('break calc.rs:10')
+        debugger.sendline('break main.rs:10')
         debugger.expect('New breakpoint')
 
         debugger.sendline('run')
         debugger.expect('10     let s: i64')
         debugger.sendline('step')
         debugger.expect_exact('calc::sum3')
-        debugger.expect_exact('23     let ab = sum2')
+        debugger.expect_exact('25     let ab = sum2')
         debugger.sendline('step')
         debugger.expect_exact('calc::sum2')
-        debugger.expect_exact('19     a + b')
+        debugger.expect_exact('21     a + b')
         debugger.sendline('step')
-        debugger.expect_exact('20 }')
+        debugger.expect_exact('22 }')
         debugger.sendline('step')
         debugger.expect_exact('calc::sum3')
-        debugger.expect_exact('24     sum2(ab, c)')
+        debugger.expect_exact('26     sum2(ab, c)')
         debugger.sendline('step')
         debugger.expect_exact('calc::sum2')
-        debugger.expect_exact('19     a + b')
+        debugger.expect_exact('21     a + b')
         debugger.sendline('step')
-        debugger.expect_exact('20 }')
+        debugger.expect_exact('22 }')
         debugger.sendline('step')
         debugger.expect_exact('calc::sum3')
-        debugger.expect_exact('25 }')
+        debugger.expect_exact('27 }')
         debugger.sendline('step')
         debugger.expect_exact('calc::main')
         debugger.expect_exact('15     print(s, &args[5]);')
@@ -243,7 +243,7 @@ class CommandTestCase(unittest.TestCase):
     def test_args_for_executable():
         """Run debugee with arguments"""
         debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/calc -- 1 1 1 --description three')
+            './target/debug/bugstalker ./examples/target/debug/calc -- 1 1 1 --description three')
         debugger.expect('BugStalker greets')
         debugger.sendline('r')
         debugger.expect_exact('three: 3')
@@ -252,9 +252,9 @@ class CommandTestCase(unittest.TestCase):
     def test_read_value_u64():
         """Get program variable"""
         debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/calc -- 1 2 3 --description result')
+            './target/debug/bugstalker ./examples/target/debug/calc -- 1 2 3 --description result')
         debugger.expect('BugStalker greets')
-        debugger.sendline('break calc.rs:15')
+        debugger.sendline('break main.rs:15')
         debugger.expect('New breakpoint')
 
         debugger.sendline('run')
@@ -378,9 +378,9 @@ class CommandTestCase(unittest.TestCase):
     def test_frame_switch():
         """Switch stack frame and assert argument values"""
         debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/calc -- 1 2 3 --description result')
+            './target/debug/bugstalker ./examples/target/debug/calc -- 1 2 3 --description result')
         debugger.expect('BugStalker greets')
-        debugger.sendline('break calc.rs:19')
+        debugger.sendline('break main.rs:21')
         debugger.expect_exact('New breakpoint 1')
 
         debugger.sendline('r')

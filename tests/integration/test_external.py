@@ -6,7 +6,7 @@ import psutil
 
 class ExternalProcessTestCase(unittest.TestCase):
     def setUp(self):
-        self.process = pexpect.spawn('./target/debug/sleeper -s 1')
+        self.process = pexpect.spawn('./examples/target/debug/sleeper -s 1')
         self.process_pid = self.process.pid
         time.sleep(1)
         self.debugger = pexpect.spawn('./target/debug/bugstalker -p ' + str(self.process_pid))

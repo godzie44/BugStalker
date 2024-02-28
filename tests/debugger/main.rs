@@ -36,15 +36,15 @@ pub fn prepare_debugee_process(prog: &str, args: &[&'static str]) -> Child<Insta
     runner.install().unwrap()
 }
 
-const HW_APP: &str = "./target/debug/hello_world";
-const CALC_APP: &str = "./target/debug/calc";
-const MT_APP: &str = "./target/debug/mt";
-const VARS_APP: &str = "./target/debug/vars";
-const RECURSION_APP: &str = "./target/debug/recursion";
-const SIGNALS_APP: &str = "./target/debug/signals";
+const HW_APP: &str = "./examples/target/debug/hello_world";
+const CALC_APP: &str = "./examples/target/debug/calc";
+const MT_APP: &str = "./examples/target/debug/mt";
+const VARS_APP: &str = "./examples/target/debug/vars";
+const RECURSION_APP: &str = "./examples/target/debug/recursion";
+const SIGNALS_APP: &str = "./examples/target/debug/signals";
 const SHARED_LIB_APP: &str = "./examples/target/debug/calc_bin";
-const SLEEPER_APP: &str = "./target/debug/sleeper";
-const FIZZBUZZ_APP: &str = "./target/debug/fizzbuzz";
+const SLEEPER_APP: &str = "./examples/target/debug/sleeper";
+const FIZZBUZZ_APP: &str = "./examples/target/debug/fizzbuzz";
 
 #[test]
 #[serial]

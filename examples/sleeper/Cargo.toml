@@ -1,0 +1,10 @@
+[package]
+name = "sleeper"
+version = "0.0.0"
+edition = "2021"
+workspace = "./.."
+publish = false
+
+[[bin]]
+name = "sleeper"
+path = "src/sleeper.rs"

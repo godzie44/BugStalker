@@ -13,6 +13,8 @@ fn main() {
         v3.parse().unwrap(),
     );
     print(s, &args[5]);
+    // just to prevent the compiler from removing dead code
+    _ = float::sum3(1f64, 2f64, 3f64);
 }
 
 fn sum2(a: i64, b: i64) -> i64 {

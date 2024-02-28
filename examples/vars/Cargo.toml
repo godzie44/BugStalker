@@ -1,0 +1,10 @@
+[package]
+name = "vars"
+version = "0.0.0"
+edition = "2021"
+workspace = "./.."
+publish = false
+
+[[bin]]
+name = "vars"
+path = "src/vars.rs"

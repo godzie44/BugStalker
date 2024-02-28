@@ -61,35 +61,3 @@ serial_test = "3.0.0"
 default = ["libunwind"]
 libunwind = ["unwind"]
 int_test = []
-
-[[bin]]
-name = "hello_world"
-test = false
-
-[[bin]]
-name = "calc"
-test = false
-
-[[bin]]
-name = "vars"
-test = false
-
-[[bin]]
-name = "mt"
-test = false
-
-[[bin]]
-name = "recursion"
-test = false
-
-[[bin]]
-name = "signals"
-test = false
-
-[[bin]]
-name = "sleeper"
-test = false
-
-[[bin]]
-name = "fizzbuzz"
-test = false

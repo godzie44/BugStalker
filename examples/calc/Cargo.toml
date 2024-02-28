@@ -1,0 +1,9 @@
+[package]
+name = "calc"
+version = "0.0.0"
+edition = "2021"
+workspace = "./.."
+publish = false
+
+[profile.dev]
+opt-level = 0

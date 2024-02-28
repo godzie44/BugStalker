@@ -2,6 +2,41 @@
 
 A list of applications for debugger testing. 
 
+### hello_world
+
+Simple hello world application. Used for test base debugger functions.
+
+### calc
+
+Calculate a sum of input arguments. Used for breakpoint and step testing.
+
+### mt
+
+Multithread application, using it for test thread functions.
+
+### signals
+
+Application with interaction with linux signals.
+
+### vars
+
+Application for test data examination.
+
+### fizzbuzz
+
+Fizzbuzz implementation, artificially overcomplicated.
+Used for test related to type polymorphism.
+
+### sleeper
+
+Long live application.
+Used to test debugger attaching to external processes. 
+
+### recursion
+
+Application with recursion calls.
+Used for test debugger behavior with recursive code.
+
 ### Pastebin
 
 Example application from [Rocket](https://github.com/SergioBenitez/Rocket) web framework.

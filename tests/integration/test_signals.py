@@ -10,7 +10,7 @@ class SignalsTestCase(unittest.TestCase):
     def test_signal_stop_single_thread(self):
         """Send signal to debugee process"""
         self.debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/signals -- single_thread')
+            './target/debug/bugstalker ./examples/target/debug/signals -- single_thread')
         self.debugger.expect('BugStalker greets')
 
         debugger_process = psutil.Process(self.debugger.pid)
@@ -28,7 +28,7 @@ class SignalsTestCase(unittest.TestCase):
     def test_multi_thread_signal(self):
         """Send signal to multithread debugee process"""
         self.debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/signals -- multi_thread')
+            './target/debug/bugstalker ./examples/target/debug/signals -- multi_thread')
         self.debugger.expect('BugStalker greets')
 
         debugger_process = psutil.Process(self.debugger.pid)
@@ -46,7 +46,7 @@ class SignalsTestCase(unittest.TestCase):
     def test_multi_thread_multi_signal(self):
         """Send multiple signals to multithread debugee process"""
         self.debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/signals -- multi_thread_multi_signal')
+            './target/debug/bugstalker ./examples/target/debug/signals -- multi_thread_multi_signal')
         self.debugger.expect('BugStalker greets')
 
         debugger_process = psutil.Process(self.debugger.pid)
@@ -68,7 +68,7 @@ class SignalsTestCase(unittest.TestCase):
     def test_signal_stop_on_continue(self):
         """Send signal to stopped debugee process"""
         self.debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/vars')
+            './target/debug/bugstalker ./examples/target/debug/vars')
         self.debugger.expect('BugStalker greets')
 
         debugger_process = psutil.Process(self.debugger.pid)
@@ -92,7 +92,7 @@ class SignalsTestCase(unittest.TestCase):
     def test_signal_stop_on_step(self):
         """Send signal to stopped debugee process and do a step"""
         self.debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/vars')
+            './target/debug/bugstalker ./examples/target/debug/vars')
         self.debugger.expect('BugStalker greets')
 
         debugger_process = psutil.Process(self.debugger.pid)
@@ -116,7 +116,7 @@ class SignalsTestCase(unittest.TestCase):
     def test_signal_stop_on_step_over(self):
         """Send signal to stopped debugee process and do a step over"""
         self.debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/vars')
+            './target/debug/bugstalker ./examples/target/debug/vars')
         self.debugger.expect('BugStalker greets')
 
         debugger_process = psutil.Process(self.debugger.pid)
@@ -140,7 +140,7 @@ class SignalsTestCase(unittest.TestCase):
     def test_transparent_signal(self):
         """Send sigint to running process must return control to debugger"""
         self.debugger = pexpect.spawn(
-            './target/debug/bugstalker ./target/debug/sleeper -- -s 5')
+            './target/debug/bugstalker ./examples/target/debug/sleeper -- -s 5')
         self.debugger.expect('BugStalker greets')
 
         self.debugger.sendline('run')

@@ -1,0 +1,10 @@
+[package]
+name = "recursion"
+version = "0.0.0"
+edition = "2021"
+workspace = "./.."
+publish = false
+
+[[bin]]
+name = "recursion"
+path = "src/recursion.rs"

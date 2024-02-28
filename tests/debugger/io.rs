@@ -69,7 +69,7 @@ fn test_read_value_u64() {
     let info = DebugeeRunInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
-    debugger.set_breakpoint_at_line("calc.rs", 15).unwrap();
+    debugger.set_breakpoint_at_line("main.rs", 15).unwrap();
 
     debugger.start_debugee().unwrap();
     assert_eq!(info.line.take(), Some(15));

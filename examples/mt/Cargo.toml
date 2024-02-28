@@ -1,0 +1,10 @@
+[package]
+name = "mt"
+version = "0.0.0"
+edition = "2021"
+workspace = "./.."
+publish = false
+
+[[bin]]
+name = "mt"
+path = "src/mt.rs"

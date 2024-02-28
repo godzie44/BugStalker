@@ -72,12 +72,14 @@ fn test_brkpt_on_function() {
     debugger.start_debugee().unwrap();
     let pc1 = debugger.exploration_ctx().location().pc;
     assert!(u64::from(pc1) > 0);
-    assert_eq!(info.line.take(), Some(19));
+    assert_eq!(info.line.take(), Some(21));
 
     debugger.continue_debugee().unwrap();
     let pc2 = debugger.exploration_ctx().location().pc;
     assert_eq!(pc1, pc2);
-    assert_eq!(info.line.take(), Some(19));
+    assert_eq!(info.line.take(), Some(21));
+
+    debugger.remove_breakpoint_at_fn("sum2").unwrap();
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
@@ -275,7 +277,7 @@ fn test_breakpoint_at_line_with_monomorphization() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    let brkpts = debugger.set_breakpoint_at_line("fizzbuzz.rs", 83).unwrap();
+    let brkpts = debugger.set_breakpoint_at_line("main.rs", 83).unwrap();
     assert_eq!(brkpts.len(), 3);
 
     debugger.start_debugee().unwrap();

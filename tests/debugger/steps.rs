@@ -18,29 +18,29 @@ fn test_step_into() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("calc.rs", 10).unwrap();
+    debugger.set_breakpoint_at_line("main.rs", 10).unwrap();
 
     debugger.start_debugee().unwrap();
     assert_eq!(info.line.take(), Some(10));
 
     debugger.step_into().unwrap();
-    assert_eq!(info.line.take(), Some(23));
-
-    debugger.step_into().unwrap();
-    assert_eq!(info.line.take(), Some(19));
-    debugger.step_into().unwrap();
-    assert_eq!(info.line.take(), Some(20));
-
-    debugger.step_into().unwrap();
-    assert_eq!(info.line.take(), Some(24));
-
-    debugger.step_into().unwrap();
-    assert_eq!(info.line.take(), Some(19));
-    debugger.step_into().unwrap();
-    assert_eq!(info.line.take(), Some(20));
-
-    debugger.step_into().unwrap();
     assert_eq!(info.line.take(), Some(25));
+
+    debugger.step_into().unwrap();
+    assert_eq!(info.line.take(), Some(21));
+    debugger.step_into().unwrap();
+    assert_eq!(info.line.take(), Some(22));
+
+    debugger.step_into().unwrap();
+    assert_eq!(info.line.take(), Some(26));
+
+    debugger.step_into().unwrap();
+    assert_eq!(info.line.take(), Some(21));
+    debugger.step_into().unwrap();
+    assert_eq!(info.line.take(), Some(22));
+
+    debugger.step_into().unwrap();
+    assert_eq!(info.line.take(), Some(27));
 
     debugger.step_into().unwrap();
     assert_eq!(info.line.take(), Some(15));
