@@ -6,7 +6,7 @@ class SharedLibTestCase(unittest.TestCase):
     """Test a debugger on project with shared libraries dependencies"""
     def setUp(self):
         debugger = pexpect.spawn(
-                './target/debug/bugstalker ./examples/target/debug/calc_bin')
+                './target/debug/bs ./examples/target/debug/calc_bin')
         debugger.expect('BugStalker greets')
         self.debugger = debugger
 

@@ -9,7 +9,7 @@ class OracleTestCase(unittest.TestCase):
 
     def setUp(self):
         debugger = pexpect.spawn(
-            './target/debug/bugstalker --oracle tokio ./examples/target/debug/tokioticker')
+            './target/debug/bs --oracle tokio ./examples/target/debug/tokioticker')
         debugger.expect('BugStalker greets')
         self.debugger = debugger
 

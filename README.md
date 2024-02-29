@@ -11,3 +11,14 @@ Modern debugger for programs written in rust. Supported rustc versions:
 ![debugger-demo](doc/demo.gif)
 
 ## TODO (work in progress)
+
+## Install
+## Running program under BugStalker
+## Stopping and Continuing
+## Examining the Stack
+## Examining Source Files
+## Examining Data
+## Other commands
+## Tui interface
+## Oracles
+

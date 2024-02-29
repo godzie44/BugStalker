@@ -9,7 +9,7 @@ class ExternalProcessTestCase(unittest.TestCase):
         self.process = pexpect.spawn('./examples/target/debug/sleeper -s 1')
         self.process_pid = self.process.pid
         time.sleep(1)
-        self.debugger = pexpect.spawn('./target/debug/bugstalker -p ' + str(self.process_pid))
+        self.debugger = pexpect.spawn('./target/debug/bs -p ' + str(self.process_pid))
 
     def test_external_process_connect(self):
         """Assert that debugee can connect to running (or sleeping) process by its pid"""

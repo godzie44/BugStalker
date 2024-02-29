@@ -4,6 +4,18 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["Derevtsov Konstantin <godzie@yandex.ru>"]
+description = """
+BugStalker is a modern and lightweight debugger for rust applications.
+"""
+homepage = "https://github.com/godzie44/BugStalker"
+keywords = ["debugger", "debug", "gdb"]
+categories = ["command-line-utilities", "development-tools::debugging"]
+build = "build.rs"
+
+[[bin]]
+bench = false
+path = "src/main.rs"
+name = "bs"
 
 [dependencies]
 nix = {version = "0.27.1", features = ["process", "signal", "uio", "personality", "ptrace"]}

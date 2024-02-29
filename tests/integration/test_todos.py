@@ -22,7 +22,7 @@ class TodosTestCase(unittest.TestCase):
 
     def setUp(self):
         debugger = pexpect.spawn(
-            './target/debug/bugstalker ./examples/target/debug/todos')
+            './target/debug/bs ./examples/target/debug/todos')
         debugger.expect('BugStalker greets')
         self.debugger = debugger
 

@@ -7,7 +7,7 @@ import re
 class HintsTestCase(unittest.TestCase):
     def setUp(self):
         debugger = pexpect.spawn(
-            './target/debug/bugstalker ./examples/target/debug/vars')
+            './target/debug/bs ./examples/target/debug/vars')
         debugger.expect('BugStalker greets')
         self.debugger = debugger
 

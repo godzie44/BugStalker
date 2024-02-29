@@ -17,7 +17,7 @@ class PastebinTestCase(unittest.TestCase):
 
     def setUp(self):
         debugger = pexpect.spawn(
-            './target/debug/bugstalker ./examples/target/debug/pastebin')
+            './target/debug/bs ./examples/target/debug/pastebin')
         debugger.expect('BugStalker greets')
         self.debugger = debugger
 
