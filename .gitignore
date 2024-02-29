@@ -2,3 +2,4 @@
 /examples/target
 /examples/pastebin/upload
 .idea
+/tests/integration/__pycache__
