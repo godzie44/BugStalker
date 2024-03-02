@@ -389,10 +389,12 @@ impl DebugInformation {
                         let line = suitable_places_in_unit[0].line_number;
                         let col = suitable_places_in_unit[0].column_number;
                         let pe = suitable_places_in_unit[0].prolog_end;
+                        let eb = suitable_places_in_unit[0].epilog_begin;
 
                         if next_line_row.line != line
                             || next_line_row.column != col
                             || next_line_row.prolog_end != pe
+                            || next_line_row.epilog_begin != eb
                             || !next_line_row.is_stmt
                         {
                             continue;
