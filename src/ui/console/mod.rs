@@ -682,7 +682,7 @@ impl AppLoop {
                                 self.printer.println(ErrorView::from("Shutdown debugger"));
                                 self.printer
                                     .println(ErrorView::from(format!("Fatal error: {e:#}")));
-                                exit(0);
+                                exit(1);
                             }
                             CommandError::Handle(_) => {
                                 self.printer

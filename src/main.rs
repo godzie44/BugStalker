@@ -9,7 +9,9 @@ use clap::error::ErrorKind;
 use clap::{arg, CommandFactory, Parser};
 use log::info;
 use nix::unistd::Pid;
+use std::fmt::Display;
 use std::path::PathBuf;
+use std::process::exit;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -39,6 +41,25 @@ struct Args {
     args: Vec<String>,
 }
 
+fn print_fatal_and_exit(kind: ErrorKind, message: impl Display) -> ! {
+    let mut cmd = Args::command();
+    _ = cmd.error(kind, message).print();
+    exit(1);
+}
+
+trait FatalResult<T> {
+    fn unwrap_or_exit(self, kind: ErrorKind, message: impl Display) -> T;
+}
+
+impl<T, E: Display> FatalResult<T> for Result<T, E> {
+    fn unwrap_or_exit(self, kind: ErrorKind, message: impl Display) -> T {
+        match self {
+            Ok(ok) => ok,
+            Err(err) => print_fatal_and_exit(kind, format!("{message}: {err}")),
+        }
+    }
+}
+
 fn main() {
     let logger = env_logger::Logger::from_default_env();
     let filter = logger.filter();
@@ -54,16 +75,12 @@ fn main() {
         let proc_tpl = Child::new(debugee, args.args, stdout_writer, stderr_writer);
         proc_tpl
             .install()
-            .expect("initial process instantiation error")
+            .unwrap_or_exit(ErrorKind::Io, "Initial process instantiation error")
     } else if let Some(pid) = args.pid {
         Child::from_external(Pid::from_raw(pid), stdout_writer, stderr_writer)
-            .expect("attach external process error")
+            .unwrap_or_exit(ErrorKind::Io, "Attach external process error")
     } else {
-        let mut cmd = Args::command();
-        _ = cmd
-            .error(ErrorKind::ArgumentConflict, "Please provide a debugee name or use a \"-p\" option for attach to already running process")
-            .print();
-        return;
+        print_fatal_and_exit(ErrorKind::ArgumentConflict, "Please provide a debugee name or use a \"-p\" option for attach to already running process");
     };
 
     let mut debugger_builder: DebuggerBuilder<NopHook> = DebuggerBuilder::new();
@@ -77,17 +94,19 @@ fn main() {
 
     let debugger = debugger_builder
         .build(process)
-        .expect("prepare application error");
+        .unwrap_or_exit(ErrorKind::Io, "Init debugee error:");
 
     if args.tui {
         let app_builder = tui::AppBuilder::new(stdout_reader.into(), stderr_reader.into());
         let app = app_builder.build(debugger);
-        app.run().expect("application run error");
+        app.run()
+            .unwrap_or_exit(ErrorKind::Io, "Application error:");
     } else {
         let app_builder = console::AppBuilder::new(stdout_reader.into(), stderr_reader.into());
         let app = app_builder
             .build(debugger)
-            .expect("application build error");
-        app.run().expect("application run error");
+            .unwrap_or_exit(ErrorKind::Io, "Application error:");
+        app.run()
+            .unwrap_or_exit(ErrorKind::Io, "Application error:");
     }
 }
