@@ -428,6 +428,38 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect_exact('7     sleep(Duration::from_secs(1));')
         self.debugger.expect_exact('10 }')
 
+    @staticmethod
+    def test_source_fn_with_frame_switch():
+        """Switch stack frame and assert argument values"""
+        debugger = pexpect.spawn(
+            './target/debug/bs ./examples/target/debug/calc -- 1 2 3 --description result')
+        debugger.expect('BugStalker greets')
+        debugger.sendline('break main.rs:21')
+        debugger.expect_exact('New breakpoint 1')
+
+        debugger.sendline('r')
+        debugger.expect_exact('Hit breakpoint 1')
+
+        debugger.sendline('source fn')
+        debugger.expect_exact('fn sum2(a: i64, b: i64) -> i64 {')
+        debugger.expect_exact('a + b')
+        debugger.expect_exact('}')
+
+        debugger.sendline('frame switch 1')
+        debugger.sendline('source fn')
+        debugger.expect_exact('fn sum3(a: i64, b: i64, c: i64) -> i64 {')
+        debugger.expect_exact('let ab = sum2(a, b);')
+        debugger.expect_exact('sum2(ab, c)')
+        debugger.expect_exact('}')
+
+        debugger.sendline('frame switch 2')
+        debugger.sendline('source fn')
+        debugger.expect_exact('fn main() {')
+        debugger.expect_exact('let args: Vec<String> = env::args().collect();')
+        debugger.expect_exact('let v1 = &args[1];')
+        debugger.expect_exact('let v2 = &args[2];')
+        debugger.expect_exact('}')
+
     def test_source_bounds(self):
         """View source code"""
         self.debugger.sendline('break main')

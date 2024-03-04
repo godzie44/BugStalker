@@ -553,16 +553,31 @@ impl Debugee {
         let (file, start_line) = function.die.decl_file_line.ok_or(FunctionRangeNotFound)?;
         let file = unit.files()[file as usize].as_path();
 
-        let ei = GlobalAddress::from(usize::from(function.end_instruction()?).saturating_sub(1));
-        let end = unit.find_place_by_pc(ei).ok_or(FunctionRangeNotFound)?;
-        debug_assert!(file == end.file);
+        let fn_places: Vec<_> = function
+            .die
+            .base_attributes
+            .ranges
+            .iter()
+            .flat_map(|range| function.unit().find_lines_for_range(range))
+            .collect();
+
+        let mut end_line = fn_places
+            .iter()
+            .map(|place| place.line_number)
+            .max()
+            .unwrap_or(start_line);
+
+        if start_line > end_line {
+            warn!(target: "debugger", "irrational function range ({start_line};{end_line})");
+            end_line = start_line;
+        }
 
         Ok(FunctionRange {
             name: function.full_name(),
             stop_place,
             file,
             start_line,
-            end_line: end.line_number,
+            end_line,
         })
     }
 }

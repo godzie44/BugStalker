@@ -471,6 +471,7 @@ pub struct Unit {
     idx: usize,
     properties: UnitProperties,
     files: Vec<PathBuf>,
+    /// List of program lines, ordered by its address
     lines: Vec<LineRow>,
     ranges: Vec<Range>,
     lazy_part: OnceCell<UnitLazyPart>,
@@ -629,10 +630,10 @@ impl Unit {
     /// * `pc`: program counter represented by global address.
     pub fn find_place_by_pc(&self, pc: GlobalAddress) -> Option<PlaceDescriptor> {
         let pc = u64::from(pc);
-        let pos = match self.lines.binary_search_by_key(&pc, |line| line.address) {
-            Ok(p) => p,
-            Err(p) => p.saturating_sub(1),
-        };
+        let pos = self
+            .lines
+            .binary_search_by_key(&pc, |line| line.address)
+            .unwrap_or_else(|p| p.saturating_sub(1));
 
         self.find_place_by_idx(pos)
     }
@@ -648,6 +649,34 @@ impl Unit {
             Ok(p) => self.find_place_by_idx(p),
             Err(_) => None,
         }
+    }
+
+    /// Return all places that correspond to given range.
+    ///
+    /// # Arguments
+    ///
+    /// * `range`: address range
+    pub fn find_lines_for_range(&self, range: &Range) -> Vec<PlaceDescriptor> {
+        let Some(start_place) = self.find_place_by_pc(GlobalAddress::from(range.begin)) else {
+            return vec![];
+        };
+        let range_end_instr = range.end.saturating_sub(1);
+        let Some(end_place) = self.find_place_by_pc(GlobalAddress::from(range_end_instr)) else {
+            return vec![start_place];
+        };
+
+        debug_assert!(end_place.pos_in_unit >= start_place.pos_in_unit);
+        let result_cap = end_place.pos_in_unit - start_place.pos_in_unit;
+        let mut result = Vec::with_capacity(result_cap);
+
+        let start_place_pos_in_unit = start_place.pos_in_unit;
+        result.push(start_place);
+        for pos in start_place_pos_in_unit + 1..end_place.pos_in_unit {
+            result.push(self.find_place_by_idx(pos).expect("index must exists"));
+        }
+        result.push(end_place);
+
+        result
     }
 
     /// Return list on debug entries.
