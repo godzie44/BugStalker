@@ -5,10 +5,12 @@ use crate::ui::tui::output::{OutputLine, OutputStreamProcessor, StreamType};
 use crate::ui::tui::proto::{exchanger, Request};
 use crate::ui::{console, DebugeeOutReader};
 use anyhow::anyhow;
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::execute;
 use log::error;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
+use std::{io, thread};
 use strum_macros::{Display, EnumString};
 use timeout_readwrite::TimeoutReader;
 use tuirealm::{AttrValue, Attribute, PollStrategy};
@@ -21,6 +23,7 @@ pub mod utils;
 
 pub use crate::ui::tui::app::port::TuiHook;
 use crate::ui::tui::components::popup::Popup;
+use crate::weak_error;
 
 // Component ids for debugger application
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
@@ -164,6 +167,7 @@ impl TuiApplication {
             )?;
             model.terminal.enter_alternate_screen()?;
             model.terminal.enable_raw_mode()?;
+            weak_error!(execute!(io::stdout(), DisableMouseCapture));
 
             while !model.quit {
                 match model.app.tick(PollStrategy::Once) {
@@ -203,6 +207,7 @@ impl TuiApplication {
                 }
             }
 
+            weak_error!(execute!(io::stdout(), EnableMouseCapture));
             model.terminal.leave_alternate_screen()?;
             model.terminal.disable_raw_mode()?;
             model.terminal.clear_screen()?;
