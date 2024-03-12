@@ -94,19 +94,17 @@ fn main() {
 
     let debugger = debugger_builder
         .build(process)
-        .unwrap_or_exit(ErrorKind::Io, "Init debugee error:");
+        .unwrap_or_exit(ErrorKind::Io, "Init debugee error");
 
     if args.tui {
         let app_builder = tui::AppBuilder::new(stdout_reader.into(), stderr_reader.into());
         let app = app_builder.build(debugger);
-        app.run()
-            .unwrap_or_exit(ErrorKind::Io, "Application error:");
+        app.run().unwrap_or_exit(ErrorKind::Io, "Application error");
     } else {
         let app_builder = console::AppBuilder::new(stdout_reader.into(), stderr_reader.into());
         let app = app_builder
             .build(debugger)
-            .unwrap_or_exit(ErrorKind::Io, "Application error:");
-        app.run()
-            .unwrap_or_exit(ErrorKind::Io, "Application error:");
+            .unwrap_or_exit(ErrorKind::Io, "Application error");
+        app.run().unwrap_or_exit(ErrorKind::Io, "Application error");
     }
 }

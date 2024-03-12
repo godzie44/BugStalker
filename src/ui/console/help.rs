@@ -148,7 +148,7 @@ Manage breakpoints.
 
 Available subcomands:
 break <location> - set breakpoint to location
-break remove <location> - deactivate and delete selected breakpoint
+break remove <location>|<number> - deactivate and delete selected breakpoint
 break info - show all breakpoints
 
 Posible location format:
