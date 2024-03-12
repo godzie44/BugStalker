@@ -76,11 +76,7 @@ impl Model {
             let input_in_focus = self.app.focus() == Some(&Id::Input);
             let popup_in_focus = self.app.focus() == Some(&Id::Popup);
 
-            let mut constraints = vec![
-                Constraint::Max(3),
-                Constraint::Length(9),
-                Constraint::Max(3),
-            ];
+            let mut constraints = vec![Constraint::Max(3), Constraint::Min(9), Constraint::Max(3)];
             if input_in_focus {
                 constraints.push(Constraint::Max(3));
             }

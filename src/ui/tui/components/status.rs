@@ -27,7 +27,7 @@ impl Status {
         let app_state = tui_realm_stdlib::Paragraph::default()
             .text(&[initial_state])
             .alignment(Alignment::Center)
-            .title("App status", Alignment::Center)
+            .title("Process", Alignment::Center)
             .borders(
                 Borders::default()
                     .color(Color::White)
@@ -36,10 +36,10 @@ impl Status {
 
         let help = tui_realm_stdlib::Paragraph::default()
             .text(&[TextSpan::new(
-                "F6 - step out, F7 - step, F8 - step over, F9/c - continue, F10/r - start/restart, ESC - go to console, q - quit",
+                "<F6> step out | <F7> step | <F8> step over | <F9>/<c> continue | <F10>/<r> start/restart | <ESC> go to console | <q> quit",
             )
                 .fg(Color::Green).bold()])
-            .alignment(Alignment::Center)
+            .alignment(Alignment::Left)
             .title("Help", Alignment::Center)
             .borders(
                 Borders::default()
