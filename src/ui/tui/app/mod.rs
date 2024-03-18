@@ -12,17 +12,18 @@ use crate::ui::tui::components::breakpoint::Breakpoints;
 use crate::ui::tui::components::control::GlobalControl;
 use crate::ui::tui::components::input::{Input, InputStringType};
 use crate::ui::tui::components::logs::Logs;
-use crate::ui::tui::components::oracle::Oracles;
+use crate::ui::tui::components::oracle::make_oracle_tab_window;
 use crate::ui::tui::components::output::Output;
 use crate::ui::tui::components::popup::{Popup, YesNoLabels};
 use crate::ui::tui::components::source::Source;
 use crate::ui::tui::components::status::Status;
-use crate::ui::tui::components::tabs::{LeftTab, RightTab};
 use crate::ui::tui::components::threads::Threads;
 use crate::ui::tui::components::variables::Variables;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::logger::TuiLogLine;
+use crate::ui::tui::utils::tab::TabWindow;
 use chumsky::Parser;
+use log::warn;
 use std::borrow::Cow;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -33,8 +34,7 @@ use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::layout::{Constraint, Direction, Layout};
 use tuirealm::tui::style::Color;
 use tuirealm::{
-    props, Application, AttrValue, Attribute, EventListenerCfg, State, StateValue, Sub, SubClause,
-    SubEventClause,
+    props, Application, AttrValue, Attribute, EventListenerCfg, Sub, SubClause, SubEventClause,
 };
 
 use super::{BreakpointsAddType, ConfirmedAction, DebugeeStreamBuffer, Id, Msg};
@@ -48,7 +48,7 @@ pub struct Model {
     pub redraw: bool,
     /// Used to draw to terminal
     pub terminal: TerminalBridge,
-
+    /// Message exchanger with tracer (debugger) thread
     exchanger: Arc<ClientExchanger>,
 }
 
@@ -76,7 +76,7 @@ impl Model {
             let input_in_focus = self.app.focus() == Some(&Id::Input);
             let popup_in_focus = self.app.focus() == Some(&Id::Popup);
 
-            let mut constraints = vec![Constraint::Max(3), Constraint::Min(9), Constraint::Max(3)];
+            let mut constraints = vec![Constraint::Min(9), Constraint::Max(3)];
             if input_in_focus {
                 constraints.push(Constraint::Max(3));
             }
@@ -93,56 +93,14 @@ impl Model {
                 .constraints([Constraint::Percentage(25), Constraint::Percentage(75)])
                 .split(tabs_rect);
 
-            let window_rect = main_chunks[1];
-            let window_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(25), Constraint::Percentage(75)])
-                .split(window_rect);
-
             self.app.view(&Id::LeftTabs, f, tab_chunks[0]);
             self.app.view(&Id::RightTabs, f, tab_chunks[1]);
 
-            match self.app.state(&Id::LeftTabs) {
-                Ok(state) => {
-                    if let State::One(StateValue::Usize(n)) = state {
-                        let id = match n {
-                            0 => Id::Breakpoints,
-                            1 => Id::Variables,
-                            2 => Id::Threads,
-                            _ => unreachable!(),
-                        };
-                        self.app.view(&id, f, window_chunks[0]);
-                    }
-                }
-                Err(_) => {
-                    unreachable!()
-                }
-            }
-
-            match self.app.state(&Id::RightTabs) {
-                Ok(state) => {
-                    if let State::One(StateValue::Usize(n)) = state {
-                        let id = match n {
-                            0 => Id::Source,
-                            1 => Id::Output,
-                            2 => Id::Asm,
-                            3 => Id::Oracles,
-                            4 => Id::Logs,
-                            _ => unreachable!(),
-                        };
-                        self.app.view(&id, f, window_chunks[1]);
-                    }
-                }
-                Err(_) => {
-                    unreachable!()
-                }
-            }
-
             if input_in_focus {
-                self.app.view(&Id::Input, f, main_chunks[2]);
-                self.app.view(&Id::Status, f, main_chunks[3]);
-            } else {
+                self.app.view(&Id::Input, f, main_chunks[1]);
                 self.app.view(&Id::Status, f, main_chunks[2]);
+            } else {
+                self.app.view(&Id::Status, f, main_chunks[1]);
             }
 
             if popup_in_focus {
@@ -180,7 +138,9 @@ impl Model {
                 .tick_interval(Duration::from_secs(1)),
         );
 
-        let pid = exchanger.request_sync(|dbg| dbg.process().pid());
+        let pid = exchanger
+            .request_sync(|dbg| dbg.process().pid())
+            .expect("messaging enabled at tui start");
         app.mount(
             Id::GlobalControl,
             Box::new(GlobalControl::new(exchanger.clone(), pid)),
@@ -190,67 +150,70 @@ impl Model {
         app.mount(Id::Popup, Box::<Popup>::default(), vec![])?;
         app.mount(Id::Input, Box::<Input>::default(), vec![])?;
 
-        let mb_err =
-            exchanger.request_sync(|dbg| run::Handler::new(dbg).handle(run::Command::DryStart));
+        let mb_err = exchanger
+            .request_sync(|dbg| run::Handler::new(dbg).handle(run::Command::DryStart))
+            .expect("messaging enabled at tui start");
         let already_run = matches!(mb_err.err(), Some(CommandError::Handle(Error::AlreadyRun)));
+
+        let output = output_buf.data.lock().unwrap().clone();
+        let oracles: Vec<_> = exchanger
+            .request_sync(|dbg| dbg.all_oracles_arc().collect())
+            .expect("messaging enabled at tui start");
 
         app.mount(
             Id::Status,
             Box::new(Status::new(already_run)),
             Status::subscriptions(),
         )?;
-        app.mount(Id::LeftTabs, Box::<LeftTab>::default(), vec![])?;
-        app.mount(Id::RightTabs, Box::<RightTab>::default(), vec![])?;
 
-        app.mount(
-            Id::Breakpoints,
-            Box::new(Breakpoints::new(exchanger.clone())),
-            vec![],
-        )?;
-        app.mount(
-            Id::Variables,
-            Box::new(Variables::new(exchanger.clone())),
-            Variables::subscriptions(),
-        )?;
-        app.mount(
-            Id::Threads,
-            Box::new(Threads::new(exchanger.clone())),
-            Threads::subscriptions(),
-        )?;
+        let mut left_tab_sub = Variables::subscriptions();
+        left_tab_sub.extend(Threads::subscriptions());
+        left_tab_sub.extend(vec![Sub::new(SubEventClause::Tick, SubClause::Always)]);
 
-        app.mount(
-            Id::Source,
-            Box::new(Source::new(exchanger.clone())?),
-            Source::subscriptions(),
-        )?;
-        app.mount(
-            Id::Asm,
-            Box::new(Asm::new(exchanger.clone())?),
-            Asm::subscriptions(),
-        )?;
+        let left_tab = TabWindow::new(
+            "[1]",
+            &["🔴 Breakpoints", "🧩 Variables", "🧵 Threads"],
+            vec![
+                Box::new(Breakpoints::new(exchanger.clone())),
+                Box::new(Variables::new(exchanger.clone())),
+                Box::new(Threads::new(exchanger.clone())),
+            ],
+        );
+        app.mount(Id::LeftTabs, Box::new(left_tab), left_tab_sub)?;
 
-        let output = output_buf.data.lock().unwrap().clone();
-        app.mount(
-            Id::Output,
-            Box::new(Output::new(&output)),
-            Output::subscriptions(),
-        )?;
-        app.mount(Id::Logs, Box::<Logs>::default(), Logs::subscriptions())?;
+        let mut right_tab_sub = Source::subscriptions();
+        right_tab_sub.extend(Asm::subscriptions());
+        right_tab_sub.extend(Output::subscriptions());
+        right_tab_sub.extend(vec![Sub::new(SubEventClause::Tick, SubClause::Always)]);
+
+        let right_tab = TabWindow::new(
+            "[2]",
+            &["</> Source", "📃 Output", "🤖 Asm", "🔮 Oracles", "💾 Logs"],
+            vec![
+                Box::new(Source::new(exchanger.clone())?),
+                Box::new(Output::new(&output)),
+                Box::new(Asm::new(exchanger.clone())?),
+                Box::new(make_oracle_tab_window(&oracles)),
+                Box::<Logs>::default(),
+            ],
+        );
+        app.mount(Id::RightTabs, Box::new(right_tab), right_tab_sub)?;
 
         app.active(&Id::LeftTabs)?;
-
-        let oracles: Vec<_> = exchanger.request_sync(|dbg| dbg.all_oracles_arc().collect());
-        app.mount(
-            Id::Oracles,
-            Box::new(Oracles::new(&oracles)),
-            vec![Sub::new(SubEventClause::Tick, SubClause::Always)],
-        )?;
 
         Ok(app)
     }
 }
 
 impl Model {
+    fn update_breakpoints(&mut self) -> anyhow::Result<()> {
+        Ok(self.app.attr(
+            &Id::LeftTabs,
+            Attribute::Custom("update_breakpoints"),
+            AttrValue::Flag(true),
+        )?)
+    }
+
     pub fn update(&mut self, msg: Option<Msg>) -> anyhow::Result<Option<Msg>> {
         if let Some(msg) = msg {
             // Set redraw
@@ -274,44 +237,30 @@ impl Model {
                     self.exchanger.send_switch_ui();
                     self.quit = true;
                 }
-                Msg::BreakpointsInFocus => {
-                    self.app.active(&Id::Breakpoints)?;
-                }
-                Msg::BreakpointsUpdate => {
-                    self.app.attr(
-                        &Id::Breakpoints,
-                        Attribute::Custom("update_breakpoints"),
-                        AttrValue::Flag(true),
-                    )?;
-                }
-                Msg::VariablesInFocus => {
-                    self.app.active(&Id::Variables)?;
-                }
-                Msg::ThreadsInFocus => {
-                    self.app.active(&Id::Threads)?;
-                }
                 Msg::LeftTabsInFocus => {
                     self.app.active(&Id::LeftTabs)?;
+                    // change the focus again to prevent the situation
+                    // when the focus was removed
+                    // when call active for an already active component
+                    _ = self
+                        .app
+                        .attr(&Id::LeftTabs, Attribute::Focus, AttrValue::Flag(true));
                 }
                 Msg::RightTabsInFocus => {
                     self.app.active(&Id::RightTabs)?;
-                }
-                Msg::SourceInFocus => {
-                    self.app.active(&Id::Source)?;
-                }
-                Msg::OutputInFocus => {
-                    self.app.active(&Id::Output)?;
-                }
-                Msg::AsmInFocus => {
-                    self.app.active(&Id::Asm)?;
-                }
-                Msg::OraclesInFocus => {
-                    self.app.active(&Id::Oracles)?;
-                }
-                Msg::LogsInFocus => {
-                    self.app.active(&Id::Logs)?;
+                    // change the focus again to prevent the situation
+                    // when the focus was removed
+                    // when call active for an already active component
+                    _ = self
+                        .app
+                        .attr(&Id::RightTabs, Attribute::Focus, AttrValue::Flag(true));
                 }
                 Msg::BreakpointAdd(r#type) => {
+                    if !self.exchanger.is_messaging_enabled() {
+                        warn!(target: "tui", "try to add breakpoint but messaging disabled");
+                        return Ok(None);
+                    }
+
                     let (input_validator, input_data_type): (fn(&str) -> bool, _) = match r#type {
                         BreakpointsAddType::AtLine => (
                             |s| -> bool {
@@ -397,18 +346,22 @@ impl Model {
                                 .request_sync(move |dbg| -> anyhow::Result<()> {
                                     command::r#break::Handler::new(dbg).handle(&cmd)?;
                                     Ok(())
-                                })?;
+                                })
+                                .expect("messaging enabled")?;
 
                             self.app.unlock_subs();
                             self.app.blur()?;
-                            Ok(Some(Msg::BreakpointsUpdate))
+                            self.update_breakpoints()?;
+                            Ok(None)
                         }
                     };
                 }
                 Msg::InputCancel => {
                     self.app.unlock_subs();
                     self.app.blur()?;
-                    return Ok(Some(Msg::BreakpointsUpdate));
+                    self.update_breakpoints()?;
+
+                    // Ok(None)
                 }
                 Msg::ShowOkPopup(title, text) => {
                     if let Some(title) = title {
@@ -468,9 +421,12 @@ impl Model {
                 }
                 Msg::PopupYes(action) => match action {
                     ConfirmedAction::Restart => {
-                        self.exchanger.request_async(|dbg| {
-                            Ok(run::Handler::new(dbg).handle(run::Command::Restart)?)
-                        });
+                        self.exchanger
+                            .request_async(|dbg| {
+                                Ok(run::Handler::new(dbg).handle(run::Command::Restart)?)
+                            })
+                            .expect("messaging enabled");
+                        self.exchanger.disable_messaging();
                         self.app.blur()?;
                         return Ok(Some(Msg::AppRunning));
                     }
@@ -480,16 +436,20 @@ impl Model {
                 },
                 Msg::PopupNo(action) => match action {
                     ConfirmedAction::RemoveBreakpoint => {
-                        let brkpt_num = self.app.state(&Id::Breakpoints)?.unwrap_one().unwrap_u32();
+                        // the left tab must contain a breakpoints as active window
+                        let brkpt_num = self.app.state(&Id::LeftTabs)?.unwrap_one().unwrap_u32();
                         self.exchanger
                             .request_sync(move |dbg| -> anyhow::Result<()> {
                                 let cmd =
                                     r#break::Command::Remove(BreakpointIdentity::Number(brkpt_num));
                                 command::r#break::Handler::new(dbg).handle(&cmd)?;
                                 Ok(())
-                            })?;
+                            })
+                            .expect("messaging enabled")?;
                         self.app.blur()?;
-                        return Ok(Some(Msg::BreakpointsUpdate));
+                        self.update_breakpoints()?;
+
+                        // return Ok(Some(Msg::BreakpointsUpdate));
                     }
                     _ => {
                         self.app.blur()?;

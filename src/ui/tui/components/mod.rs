@@ -8,6 +8,5 @@ pub mod output;
 pub mod popup;
 pub mod source;
 pub mod status;
-pub mod tabs;
 pub mod threads;
 pub mod variables;

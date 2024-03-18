@@ -43,7 +43,9 @@ impl Asm {
     }
 
     fn update_asm_view(&mut self) {
-        let asm = self.exchanger.request_sync(|dbg| dbg.disasm());
+        let Ok(asm) = self.exchanger.request_sync(|dbg| dbg.disasm()) else {
+            return;
+        };
 
         if let Ok(asm) = asm {
             if let Some(ref fn_name) = asm.name {

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tui_realm_stdlib::List;
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
-use tuirealm::props::{Style, TableBuilder, TextSpan};
+use tuirealm::props::{BorderType, Borders, Style, TableBuilder, TextSpan};
 use tuirealm::tui::layout::{Alignment, Rect};
 use tuirealm::tui::style::Color;
 use tuirealm::{AttrValue, Attribute, Component, Event, Frame, MockComponent, State, StateValue};
@@ -58,7 +58,7 @@ impl MockComponent for Breakpoints {
 impl Breakpoints {
     /// Update breakpoint list. Triggered by custom attribute "update_breakpoints".
     pub fn update_list(&mut self) {
-        let breakpoints = self.exchanger.request_sync(|dbg| {
+        let Ok(breakpoints) = self.exchanger.request_sync(|dbg| {
             let mut cmd = command::r#break::Handler::new(dbg);
             let brkpt_result = cmd.handle(&BreakpointCommand::Info).expect("unreachable");
             let ExecutionResult::Dump(breakpoints) = brkpt_result else {
@@ -69,7 +69,9 @@ impl Breakpoints {
                 .into_iter()
                 .map(|snap| snap.to_owned())
                 .collect::<Vec<_>>()
-        });
+        }) else {
+            return;
+        };
 
         let skip = if self.state == Some(AddState::SelectType) {
             // skip the first 4 rows because it is an added buttons
@@ -132,6 +134,11 @@ impl Breakpoints {
 impl Breakpoints {
     pub fn new(exchanger: Arc<ClientExchanger>) -> Self {
         let list = List::default()
+            .borders(
+                Borders::default()
+                    .modifiers(BorderType::Rounded)
+                    .color(Color::LightYellow),
+            )
             .title("Breakpoints", Alignment::Center)
             .scroll(true)
             .inactive(Style::default().fg(Color::Gray))
@@ -194,14 +201,26 @@ impl Component<Msg, UserEvent> for Breakpoints {
                     None => {
                         if idx == 0 {
                             self.state = Some(AddState::SelectType);
-                            return Some(Msg::BreakpointsUpdate);
+                            self.attr(
+                                Attribute::Custom("update_breakpoints"),
+                                AttrValue::Flag(true),
+                            );
+                            return Some(Msg::None);
                         }
                     }
                     Some(AddState::SelectType) => {
+                        if !self.exchanger.is_messaging_enabled() {
+                            return Some(Msg::None);
+                        }
+
                         self.state = None;
                         match idx {
                             0 => {
-                                return Some(Msg::BreakpointsUpdate);
+                                self.attr(
+                                    Attribute::Custom("update_breakpoints"),
+                                    AttrValue::Flag(true),
+                                );
+                                return Some(Msg::None);
                             }
                             1 => {
                                 return Some(Msg::BreakpointAdd(BreakpointsAddType::AtLine));
@@ -217,8 +236,9 @@ impl Component<Msg, UserEvent> for Breakpoints {
                     }
                 }
 
-                let brkpt = &self.row_to_brkpt_map[&idx];
-                return Some(Msg::PopupBreakpoint(brkpt.clone()));
+                if let Some(brkpt) = self.row_to_brkpt_map.get(&idx) {
+                    return Some(Msg::PopupBreakpoint(brkpt.clone()));
+                }
             }
             _ => {}
         };

@@ -4,6 +4,7 @@ use crate::ui::command::{run, CommandError};
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::{Id, Msg};
+use log::warn;
 use nix::sys::signal;
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
@@ -96,6 +97,29 @@ impl GlobalControl {
                 SubEventClause::User(UserEvent::ProcessInstall(Pid::from_raw(0))),
                 SubClause::Always,
             ),
+            Sub::new(
+                // concrete brkpt doesn't meter
+                SubEventClause::User(UserEvent::Breakpoint {
+                    pc: Default::default(),
+                    num: 0,
+                    file: None,
+                    line: None,
+                    function: None,
+                }),
+                SubClause::Always,
+            ),
+            Sub::new(
+                // concrete step doesn't meter
+                SubEventClause::User(UserEvent::Step {
+                    pc: Default::default(),
+                    file: None,
+                    line: None,
+                    function: None,
+                }),
+                SubClause::Always,
+            ),
+            // concrete code doesn't meter
+            Sub::new(SubEventClause::User(UserEvent::Exit(0)), SubClause::Always),
         ]
     }
 }
@@ -134,8 +158,16 @@ impl Component<Msg, UserEvent> for GlobalControl {
                 code: Key::Function(9),
                 ..
             }) => {
+                if !self.exchanger.is_messaging_enabled() {
+                    warn!(target: "tui", "try start/restart but messaging disabled");
+                    return None;
+                }
+
                 self.exchanger
-                    .request_async(|dbg| Ok(command::r#continue::Handler::new(dbg).handle()?));
+                    .request_async(|dbg| Ok(command::r#continue::Handler::new(dbg).handle()?))
+                    .expect("messaging enabled");
+
+                self.exchanger.disable_messaging();
                 Msg::AppRunning
             }
             Event::Keyboard(KeyEvent {
@@ -146,9 +178,15 @@ impl Component<Msg, UserEvent> for GlobalControl {
                 code: Key::Function(10),
                 ..
             }) => {
+                if !self.exchanger.is_messaging_enabled() {
+                    warn!(target: "tui", "try start/restart but messaging disabled");
+                    return None;
+                }
+
                 let mb_err = self
                     .exchanger
-                    .request_sync(|dbg| run::Handler::new(dbg).handle(run::Command::DryStart));
+                    .request_sync(|dbg| run::Handler::new(dbg).handle(run::Command::DryStart))
+                    .expect("messaging enabled");
 
                 let already_run =
                     matches!(mb_err.err(), Some(CommandError::Handle(Error::AlreadyRun)));
@@ -156,38 +194,58 @@ impl Component<Msg, UserEvent> for GlobalControl {
                 if already_run {
                     Msg::PopupConfirmDebuggerRestart
                 } else {
-                    self.exchanger.request_async(|dbg| {
-                        Ok(run::Handler::new(dbg).handle(run::Command::Start)?)
-                    });
+                    self.exchanger
+                        .request_async(
+                            |dbg| Ok(run::Handler::new(dbg).handle(run::Command::Start)?),
+                        )
+                        .expect("messaging enabled");
+                    self.exchanger.disable_messaging();
                     Msg::AppRunning
                 }
             }
-            Event::User(UserEvent::Signal(sig)) => Msg::ShowOkPopup(
-                Some("Signal stop".to_string()),
-                format!("Application receive signal: {sig}"),
-            ),
             Event::Keyboard(KeyEvent {
                 code: Key::Function(8),
                 modifiers: KeyModifiers::NONE,
             }) => {
+                if !self.exchanger.is_messaging_enabled() {
+                    warn!(target: "tui", "try start/restart but messaging disabled");
+                    return None;
+                }
+
                 self.exchanger
-                    .request_async(|dbg| Ok(command::step_over::Handler::new(dbg).handle()?));
+                    .request_async(|dbg| Ok(command::step_over::Handler::new(dbg).handle()?))
+                    .expect("messaging enabled");
+
                 Msg::AppRunning
             }
             Event::Keyboard(KeyEvent {
                 code: Key::Function(7),
                 modifiers: KeyModifiers::NONE,
             }) => {
+                if !self.exchanger.is_messaging_enabled() {
+                    warn!(target: "tui", "try start/restart but messaging disabled");
+                    return None;
+                }
+
                 self.exchanger
-                    .request_async(|dbg| Ok(command::step_into::Handler::new(dbg).handle()?));
+                    .request_async(|dbg| Ok(command::step_into::Handler::new(dbg).handle()?))
+                    .expect("messaging enabled");
+
                 Msg::AppRunning
             }
             Event::Keyboard(KeyEvent {
                 code: Key::Function(6),
                 modifiers: KeyModifiers::NONE,
             }) => {
+                if !self.exchanger.is_messaging_enabled() {
+                    warn!(target: "tui", "try start/restart but messaging disabled");
+                    return None;
+                }
+
                 self.exchanger
-                    .request_async(|dbg| Ok(command::step_out::Handler::new(dbg).handle()?));
+                    .request_async(|dbg| Ok(command::step_out::Handler::new(dbg).handle()?))
+                    .expect("messaging enabled");
+
                 Msg::AppRunning
             }
             Event::User(UserEvent::AsyncErrorResponse(err)) => {
@@ -195,6 +253,19 @@ impl Component<Msg, UserEvent> for GlobalControl {
             }
             Event::User(UserEvent::ProcessInstall(pid)) => {
                 self.last_seen_pid = pid;
+                Msg::None
+            }
+            Event::User(UserEvent::Signal(sig)) => {
+                self.exchanger.enable_messaging();
+                Msg::ShowOkPopup(
+                    Some("Signal stop".to_string()),
+                    format!("Application receive signal: {sig}"),
+                )
+            }
+            Event::User(UserEvent::Breakpoint { .. })
+            | Event::User(UserEvent::Exit(_))
+            | Event::User(UserEvent::Step { .. }) => {
+                self.exchanger.enable_messaging();
                 Msg::None
             }
             _ => Msg::None,

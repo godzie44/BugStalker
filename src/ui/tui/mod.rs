@@ -1,9 +1,12 @@
 use crate::debugger::{BreakpointViewOwned, Debugger};
 use crate::ui::tui::app::port::DebuggerEventQueue;
+pub use crate::ui::tui::app::port::TuiHook;
 use crate::ui::tui::app::Model;
+use crate::ui::tui::components::popup::Popup;
 use crate::ui::tui::output::{OutputLine, OutputStreamProcessor, StreamType};
 use crate::ui::tui::proto::{exchanger, Request};
 use crate::ui::{console, DebugeeOutReader};
+use crate::weak_error;
 use anyhow::anyhow;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
@@ -21,31 +24,17 @@ mod output;
 mod proto;
 pub mod utils;
 
-pub use crate::ui::tui::app::port::TuiHook;
-use crate::ui::tui::components::popup::Popup;
-use crate::weak_error;
-
 // Component ids for debugger application
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
 pub enum Id {
     LeftTabs,
     RightTabs,
 
-    Breakpoints,
-    Threads,
-    Asm,
-    Variables,
-    Output,
-    Source,
-    Logs,
-
     Status,
     GlobalControl,
 
     Input,
     Popup,
-
-    Oracles,
 }
 
 #[derive(Debug, PartialEq, EnumString, Display)]
@@ -69,16 +58,7 @@ pub enum Msg {
     LeftTabsInFocus,
     RightTabsInFocus,
     SwitchUI,
-    BreakpointsInFocus,
-    BreakpointsUpdate,
     BreakpointAdd(BreakpointsAddType),
-    VariablesInFocus,
-    ThreadsInFocus,
-    SourceInFocus,
-    OutputInFocus,
-    LogsInFocus,
-    AsmInFocus,
-    OraclesInFocus,
 
     PopupConfirmDebuggerRestart,
     PopupBreakpoint(BreakpointViewOwned),

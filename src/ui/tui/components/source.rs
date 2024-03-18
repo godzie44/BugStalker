@@ -88,7 +88,10 @@ impl Source {
     }
 
     pub fn new(exchanger: Arc<ClientExchanger>) -> anyhow::Result<Self> {
-        let mb_threads = exchanger.request_sync(|dbg| dbg.thread_state()).ok();
+        let mb_threads = exchanger
+            .request_sync(|dbg| dbg.thread_state())
+            .expect("messaging enabled")
+            .ok();
         let mb_place_in_focus = mb_threads.and_then(|threads| {
             threads
                 .into_iter()

@@ -57,10 +57,12 @@ impl Variables {
 
                         let variables = {
                             let deref_expr = deref_expr.clone();
-                            self.exchanger.request_sync(|dbg| {
-                                let handler = command::variables::Handler::new(dbg);
-                                handler.handle(deref_expr)
-                            })
+                            self.exchanger
+                                .request_sync(|dbg| {
+                                    let handler = command::variables::Handler::new(dbg);
+                                    handler.handle(deref_expr)
+                                })
+                                .expect("messaging enabled")
                         };
 
                         if let Ok(variables) = variables {
@@ -159,20 +161,24 @@ impl Variables {
     }
 
     fn update(&mut self) {
-        let variables = self.exchanger.request_sync(|dbg| {
+        let Ok(variables) = self.exchanger.request_sync(|dbg| {
             let expr = select::Expression::Variable(VariableSelector::Any);
             let vars = command::variables::Handler::new(dbg)
                 .handle(expr)
                 .unwrap_or_default();
             vars
-        });
-        let arguments = self.exchanger.request_sync(|dbg| {
+        }) else {
+            return;
+        };
+        let Ok(arguments) = self.exchanger.request_sync(|dbg| {
             let expr = select::Expression::Variable(VariableSelector::Any);
             let args = command::arguments::Handler::new(dbg)
                 .handle(expr)
                 .unwrap_or_default();
             args
-        });
+        }) else {
+            return;
+        };
 
         let mut root = Node::new("root".to_string(), "arguments and variables".to_string());
 
@@ -321,7 +327,10 @@ impl Component<Msg, UserEvent> for Variables {
             }) => {
                 self.perform(Cmd::Submit);
             }
-            Event::User(_) => {
+            Event::User(UserEvent::Breakpoint { .. })
+            | Event::User(UserEvent::Exit(_))
+            | Event::User(UserEvent::Step { .. }) => {
+                self.exchanger.enable_messaging();
                 self.update();
             }
             _ => {}
