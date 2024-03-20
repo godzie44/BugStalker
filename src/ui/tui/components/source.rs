@@ -1,3 +1,4 @@
+use crate::ui::short::Abbreviator;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::mstextarea::MultiSpanTextarea;
@@ -81,7 +82,12 @@ pub struct Source {
 impl Source {
     fn get_title(mb_file: Option<&Path>) -> String {
         if let Some(file) = mb_file {
-            format!("Program source code ({:?})", file)
+            let abbreviator = Abbreviator::new("/", "/..", 70);
+
+            format!(
+                "Program source code ({:?})",
+                abbreviator.apply(file.to_string_lossy().as_ref())
+            )
         } else {
             "Program source code".into()
         }

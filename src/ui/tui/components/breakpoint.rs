@@ -2,6 +2,7 @@ use crate::debugger::BreakpointViewOwned;
 use crate::ui::command;
 use crate::ui::command::r#break::Command as BreakpointCommand;
 use crate::ui::command::r#break::ExecutionResult;
+use crate::ui::short::Abbreviator;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::{BreakpointsAddType, Msg};
@@ -107,15 +108,16 @@ impl Breakpoints {
             table_builder.add_row();
         }
 
+        let abbreviator = Abbreviator::new("/", "/..", 50);
+
         for brkpt in breakpoints.iter() {
             table_builder.add_col(TextSpan::from(brkpt.number.to_string()).fg(Color::Cyan));
             table_builder.add_col(TextSpan::from(" "));
             if let Some(ref place) = brkpt.place {
-                table_builder.add_col(TextSpan::from(format!(
-                    "{}:{}",
-                    place.file.to_string_lossy(),
-                    place.line_number
-                )));
+                let breakpoint_path =
+                    format!("{}:{}", place.file.to_string_lossy(), place.line_number);
+                let breakpoint_path = abbreviator.apply(&breakpoint_path);
+                table_builder.add_col(TextSpan::from(breakpoint_path));
             } else {
                 table_builder.add_col(TextSpan::from(format!("{}", brkpt.number)));
             }

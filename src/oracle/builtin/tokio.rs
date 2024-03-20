@@ -6,12 +6,12 @@ use crate::debugger::{Debugger, Error};
 use crate::oracle::{ConsolePlugin, Oracle, TuiPlugin};
 use crate::ui::console::print::style::KeywordView;
 use crate::ui::console::print::ExternalPrinter;
+use crate::ui::short::Abbreviator;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::Msg;
 use chrono::Duration;
 use indexmap::IndexMap;
 use log::warn;
-use std::borrow::Cow;
 use std::mem::size_of;
 use std::sync::Arc;
 use std::time::Instant;
@@ -241,7 +241,7 @@ impl ConsolePlugin for TokioOracle {
 
         if !tasks.is_empty() {
             let header = format!(
-                "{task:<5} {state:<10} {time:<5} {target:<25} {caller:<40} {polls}",
+                "{task:<5} {state:<10} {time:<5} {target:<25} {caller:<25} {polls}",
                 task = "task",
                 state = "state",
                 time = "time",
@@ -251,6 +251,8 @@ impl ConsolePlugin for TokioOracle {
             );
 
             printer.println(header);
+
+            let abbreviator = Abbreviator::new("::", "", 25);
             for (task_id, task) in tasks.iter() {
                 let state = task.state;
                 let elapsed = task.task_time();
@@ -258,18 +260,14 @@ impl ConsolePlugin for TokioOracle {
                 let seconds = elapsed.num_seconds() % 60;
                 let time = format!("{minutes}m{seconds}s");
 
-                fn max_n_symbols(s: &str, n: usize) -> Cow<'_, str> {
-                    if s.len() > n {
-                        Cow::Owned(s[..n - 3].to_string() + "...")
-                    } else {
-                        Cow::Borrowed(s)
-                    }
-                }
+                let target = task.target.to_string();
+                let target = abbreviator.apply(&target);
+
+                let caller = task.caller.as_deref().unwrap_or("unknown").to_string();
+                let caller = abbreviator.apply(&caller);
 
                 printer.println(format!(
-                    "{task_id:<5} {state:<10} {time:<5} {target:<25} {caller:<40} {polls}",
-                    target = max_n_symbols(&task.target.to_string(), 25),
-                    caller = max_n_symbols(task.caller.as_deref().unwrap_or("unknown"), 40),
+                    "{task_id:<5} {state:<10} {time:<5} {target:<25} {caller:<25} {polls}",
                     polls = task.polls,
                 ));
             }
@@ -457,7 +455,8 @@ impl TuiPlugin for TokioOracle {
 }
 
 pub mod tui {
-    use crate::oracle::builtin::tokio::TokioOracle;
+    use crate::oracle::builtin::tokio::{State, TokioOracle};
+    use crate::ui::short::Abbreviator;
     use crate::ui::tui::app::port::UserEvent;
     use crate::ui::tui::Msg;
     use std::sync::Arc;
@@ -466,6 +465,19 @@ pub mod tui {
     use tuirealm::event::{Key, KeyEvent};
     use tuirealm::props::{Alignment, BorderType, Borders, Color, Style, TableBuilder, TextSpan};
     use tuirealm::{AttrValue, Attribute, Component, Event, MockComponent};
+
+    impl State {
+        fn fg(self) -> Color {
+            match self {
+                State::Initial => Color::White,
+                State::Idle => Color::LightBlue,
+                State::Notified => Color::LightBlue,
+                State::Running => Color::Green,
+                State::Cancelled => Color::Gray,
+                State::Complete => Color::White,
+            }
+        }
+    }
 
     #[derive(MockComponent)]
     pub struct TokioComponent {
@@ -488,7 +500,7 @@ pub mod tui {
                 .highlighted_str("▶")
                 .rewind(true)
                 .step(4)
-                .widths(&[5, 5, 5, 15, 30, 5])
+                .widths(&[5, 5, 5, 15, 15, 5])
                 .headers(&["Task ID", "State", "Time", "Target", "Caller", "Polls"])
                 .table(
                     TableBuilder::default()
@@ -523,26 +535,36 @@ pub mod tui {
                     .add_col(TextSpan::from(""))
                     .add_row();
             }
+
+            let abbreviator = Abbreviator::new("::", "", 20);
             for (id, task) in tasks {
                 let fg = if task.dropped_at.is_some() {
                     Color::Gray
                 } else {
                     Color::Reset
                 };
+                let state_fg = if task.dropped_at.is_some() {
+                    Color::Gray
+                } else {
+                    task.state.fg()
+                };
 
                 let elapsed = task.task_time();
                 let minutes = elapsed.num_minutes();
                 let seconds = elapsed.num_seconds() % 60;
 
+                let target = task.target.to_string();
+                let target = abbreviator.apply(&target);
+
+                let caller = task.caller.as_deref().unwrap_or("unknown").to_string();
+                let caller = abbreviator.apply(&caller);
+
                 tasks_table_builder
                     .add_col(TextSpan::from(id.to_string()).fg(fg))
-                    .add_col(TextSpan::from(task.state.to_string()).fg(fg))
+                    .add_col(TextSpan::from(task.state.to_string()).fg(state_fg))
                     .add_col(TextSpan::from(format!("{minutes}m{seconds}s")).fg(fg))
-                    .add_col(TextSpan::from(task.target.to_string()).fg(fg))
-                    .add_col(
-                        TextSpan::from(task.caller.as_deref().unwrap_or("unknown").to_string())
-                            .fg(fg),
-                    )
+                    .add_col(TextSpan::from(target).fg(fg))
+                    .add_col(TextSpan::from(caller).fg(fg))
                     .add_col(TextSpan::from(task.polls.to_string()).fg(fg))
                     .add_row();
             }

@@ -1,5 +1,6 @@
 pub mod command;
 pub mod console;
+pub mod short;
 pub mod tui;
 
 use os_pipe::PipeReader;
