@@ -459,11 +459,18 @@ pub mod tui {
     use crate::ui::short::Abbreviator;
     use crate::ui::tui::app::port::UserEvent;
     use crate::ui::tui::Msg;
+    use chrono::{DateTime, Local, Timelike};
+    use std::collections::VecDeque;
     use std::sync::Arc;
-    use tui_realm_stdlib::Table;
+    use tui_realm_stdlib::{Container, Paragraph, Sparkline, Table};
     use tuirealm::command::{Cmd, Direction, Position};
     use tuirealm::event::{Key, KeyEvent};
-    use tuirealm::props::{Alignment, BorderType, Borders, Color, Style, TableBuilder, TextSpan};
+    use tuirealm::props::{
+        Alignment, BorderSides, BorderType, Borders, Color, Layout, PropPayload, PropValue, Style,
+        TableBuilder, TextSpan,
+    };
+    use tuirealm::tui::layout;
+    use tuirealm::tui::layout::Constraint;
     use tuirealm::{AttrValue, Attribute, Component, Event, MockComponent};
 
     impl State {
@@ -479,48 +486,114 @@ pub mod tui {
         }
     }
 
+    const SPARKLINE_LEN: usize = 120;
+    const SPARKLINE_DEFAULT_LVL: u64 = 4;
+    const SPARKLINE_HIST_EVERY_N_S: usize = 10;
+
     #[derive(MockComponent)]
     pub struct TokioComponent {
-        component: Table,
+        component: Container,
         oracle: Arc<TokioOracle>,
+        count_history: VecDeque<(DateTime<Local>, u64)>,
     }
 
     impl TokioComponent {
         pub fn new(oracle: Arc<TokioOracle>) -> Self {
-            let list = Table::default()
-                .borders(
-                    Borders::default()
-                        .modifiers(BorderType::Rounded)
-                        .color(Color::LightYellow),
+            let mut sparkline_hint = "0s".to_string();
+            for i in 0..SPARKLINE_LEN / SPARKLINE_HIST_EVERY_N_S {
+                let hint = format!("-{}s", (i + 1) * SPARKLINE_HIST_EVERY_N_S);
+                let empty_space = " ".repeat(SPARKLINE_HIST_EVERY_N_S - hint.len());
+                sparkline_hint = sparkline_hint + &empty_space + &hint;
+            }
+
+            let container = Container::default()
+                .layout(
+                    Layout::default()
+                        .constraints(&[Constraint::Percentage(70), Constraint::Percentage(30)])
+                        .direction(layout::Direction::Vertical),
                 )
-                .title("Active tasks", Alignment::Center)
-                .inactive(Style::default().fg(Color::Gray))
-                .scroll(true)
-                .highlighted_color(Color::LightYellow)
-                .highlighted_str("▶")
-                .rewind(true)
-                .step(4)
-                .widths(&[5, 5, 5, 15, 15, 5])
-                .headers(&["Task ID", "State", "Time", "Target", "Caller", "Polls"])
-                .table(
-                    TableBuilder::default()
-                        .add_col(TextSpan::from(""))
-                        .add_col(TextSpan::from(""))
-                        .add_col(TextSpan::from(""))
-                        .add_col(TextSpan::from(""))
-                        .add_col(TextSpan::from(""))
-                        .add_col(TextSpan::from(""))
-                        .add_row()
-                        .build(),
-                );
+                .borders(Borders::default().sides(BorderSides::NONE))
+                .children(vec![
+                    Box::new(
+                        Table::default()
+                            .borders(
+                                Borders::default()
+                                    .modifiers(BorderType::Rounded)
+                                    .color(Color::LightYellow),
+                            )
+                            .title("Active tasks", Alignment::Center)
+                            .inactive(Style::default().fg(Color::Gray))
+                            .scroll(true)
+                            .highlighted_color(Color::LightYellow)
+                            .highlighted_str("▶")
+                            .rewind(true)
+                            .step(4)
+                            .widths(&[5, 5, 5, 15, 15, 5])
+                            .headers(&["Task ID", "State", "Time", "Target", "Caller", "Polls"])
+                            .table(
+                                TableBuilder::default()
+                                    .add_col(TextSpan::from(""))
+                                    .add_col(TextSpan::from(""))
+                                    .add_col(TextSpan::from(""))
+                                    .add_col(TextSpan::from(""))
+                                    .add_col(TextSpan::from(""))
+                                    .add_col(TextSpan::from(""))
+                                    .add_row()
+                                    .build(),
+                            ),
+                    ),
+                    Box::new(
+                        Container::default()
+                            .borders(Borders::default().sides(BorderSides::NONE))
+                            .layout(
+                                Layout::default()
+                                    .constraints(&[Constraint::Min(3), Constraint::Length(3)])
+                                    .direction(layout::Direction::Vertical),
+                            )
+                            .children(vec![
+                                Box::new(
+                                    Sparkline::default()
+                                        .title("Task count", Alignment::Center)
+                                        .foreground(Color::Green)
+                                        .max_entries(120)
+                                        .borders(Borders::default().sides(BorderSides::NONE))
+                                        .data(&[0; 120]),
+                                ),
+                                Box::new(
+                                    Paragraph::default()
+                                        .borders(Borders::default().sides(BorderSides::NONE))
+                                        .text(&[TextSpan::new(sparkline_hint)]),
+                                ),
+                            ]),
+                    ),
+                ]);
 
             Self {
-                component: list,
+                component: container,
                 oracle,
+                count_history: VecDeque::from(
+                    [(Local::now(), SPARKLINE_DEFAULT_LVL); SPARKLINE_LEN],
+                ),
             }
         }
 
-        fn refresh_list(&mut self) {
+        fn active_task_count(&self) -> usize {
+            let tasks = self.oracle.tasks.lock().unwrap().clone();
+            tasks
+                .iter()
+                .filter(|(_, task)| {
+                    if task.dropped_at.is_some() {
+                        return false;
+                    }
+                    match task.state {
+                        State::Initial | State::Idle | State::Notified | State::Running => true,
+                        State::Cancelled | State::Complete => false,
+                    }
+                })
+                .count()
+        }
+
+        fn refresh_table(&mut self) {
             let mut tasks_table_builder = TableBuilder::default();
 
             let tasks = self.oracle.tasks.lock().unwrap().clone();
@@ -537,7 +610,7 @@ pub mod tui {
             }
 
             let abbreviator = Abbreviator::new("::", "", 20);
-            for (id, task) in tasks {
+            for (id, task) in &tasks {
                 let fg = if task.dropped_at.is_some() {
                     Color::Gray
                 } else {
@@ -569,10 +642,35 @@ pub mod tui {
                     .add_row();
             }
 
-            self.component.attr(
+            self.component.children[0].attr(
                 Attribute::Content,
                 AttrValue::Table(tasks_table_builder.build()),
             );
+
+            let back = self.count_history.front();
+            let last_s = back.map(|(dt, _)| dt.second()).unwrap_or(0);
+            let current_dt = Local::now();
+            let new_second = current_dt.second() != last_s;
+
+            if new_second {
+                let active_task_cnt = self.active_task_count() as u64 + SPARKLINE_DEFAULT_LVL;
+                self.count_history.push_front((current_dt, active_task_cnt));
+                if self.count_history.len() > SPARKLINE_LEN {
+                    self.count_history.pop_back();
+                };
+
+                let data: Vec<_> = self
+                    .count_history
+                    .make_contiguous()
+                    .iter()
+                    .map(|(_, cnt)| PropValue::U64(*cnt))
+                    .collect();
+
+                self.component.children[1].attr(
+                    Attribute::Dataset,
+                    AttrValue::Payload(PropPayload::Vec(data)),
+                );
+            }
         }
     }
 
@@ -607,7 +705,7 @@ pub mod tui {
                     self.perform(Cmd::GoTo(Position::End));
                 }
                 Event::Tick => {
-                    self.refresh_list();
+                    self.refresh_table();
                 }
                 _ => {}
             }

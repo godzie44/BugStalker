@@ -17,7 +17,15 @@ fn main() {
     runtime.spawn(new_ticker_task("task_2", 2));
     runtime.spawn(new_ticker_task("task_3", 3));
 
-    std::thread::sleep(Duration::from_secs(15));
+    std::thread::sleep(Duration::from_secs(3));
+    runtime.spawn(new_ticker_task("task_4", 2));
+    std::thread::sleep(Duration::from_secs(3));
+    runtime.spawn(new_ticker_task("task_5", 2));
+    std::thread::sleep(Duration::from_secs(3));
+    runtime.spawn(new_ticker_task("task_6", 2));
+    std::thread::sleep(Duration::from_secs(3));
+    runtime.spawn(new_ticker_task("task_7", 2));
+    std::thread::sleep(Duration::from_secs(3));
 
     drop(runtime);
 

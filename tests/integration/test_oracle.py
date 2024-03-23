@@ -21,7 +21,7 @@ class OracleTestCase(unittest.TestCase):
     def test_tokio_oracle(self):
         """Test tokio oracle"""
         self.debugger.sendline('b main.rs:20')
-        self.debugger.sendline('b main.rs:24')
+        self.debugger.sendline('b main.rs:32')
 
         self.debugger.sendline('run')
 

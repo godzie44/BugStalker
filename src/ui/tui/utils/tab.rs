@@ -3,7 +3,7 @@ use crate::ui::tui::Msg;
 use tui_realm_stdlib::Radio;
 use tuirealm::command::{Cmd, CmdResult, Direction};
 use tuirealm::event::{Key, KeyEvent};
-use tuirealm::props::{Alignment, BorderType, Borders, Color, Layout};
+use tuirealm::props::{Alignment, BorderSides, BorderType, Borders, Color, Layout};
 use tuirealm::tui::layout::Rect;
 use tuirealm::{AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State};
 
@@ -76,11 +76,6 @@ impl TabWindow {
         self
     }
 
-    pub fn borders(mut self, b: Borders) -> Self {
-        self.attr(Attribute::Borders, AttrValue::Borders(b));
-        self
-    }
-
     pub fn title<S: AsRef<str>>(mut self, t: S, a: Alignment) -> Self {
         self.attr(
             Attribute::Title,
@@ -141,7 +136,10 @@ impl MockComponent for TabWindow {
         if self.props.get_or(Attribute::Display, AttrValue::Flag(true)) == AttrValue::Flag(true) {
             let borders = self
                 .props
-                .get_or(Attribute::Borders, AttrValue::Borders(Borders::default()))
+                .get_or(
+                    Attribute::Borders,
+                    AttrValue::Borders(Borders::default().sides(BorderSides::NONE)),
+                )
                 .unwrap_borders();
             let focus = self
                 .props

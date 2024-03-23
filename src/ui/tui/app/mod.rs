@@ -135,7 +135,7 @@ impl Model {
                     Duration::from_millis(10),
                 )
                 .poll_timeout(Duration::from_millis(10))
-                .tick_interval(Duration::from_secs(1)),
+                .tick_interval(Duration::from_millis(200)),
         );
 
         let pid = exchanger
