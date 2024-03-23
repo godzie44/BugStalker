@@ -1,6 +1,12 @@
 # BugStalker
 
-Modern debugger for Linux x86-64. Written in RUST for RUST programs.
+> Modern debugger for Linux x86-64. Written in RUST for RUST programs.
+
+![debugger-demo](doc/demo.gif)
+
+---
+
+# Table of Contents
 
 - [BugStalker](#bugstalker)
   * [Supported rustc versions](#supported-rustc-versions)
@@ -16,8 +22,6 @@ Modern debugger for Linux x86-64. Written in RUST for RUST programs.
   * [Other commands](#other-commands)
   * [Tui interface](#tui-interface)
   * [Oracles](#oracles)
-
-![debugger-demo](doc/demo.gif)
 
 ## Supported rustc versions
 
@@ -246,7 +250,7 @@ One of the most funny BugStalker features is switching between old school termin
 
 ## Oracles
 
-[demo](https://terminalizer.com/view/36bd0c735900)
+[demo](https://www.terminalizer.com/view/147a81e85906)
 
 Oracle is a module that expands the capabilities of the debugger.
 Oracles can monitor the internal state of a program
