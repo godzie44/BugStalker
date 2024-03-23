@@ -23,11 +23,15 @@
   * [Tui interface](#tui-interface)
   * [Oracles](#oracles)
 
+---
+
 ## Supported rustc versions
 
 - 1.75
 - 1.76
 - 1.77
+
+---
 
 ## Features
 
@@ -35,11 +39,13 @@
 * breakpoints, steps, signals
 * multithread application support
 * data query expressions
-* support for a rust types system (collections, smart pointers, thread locals and other), not only for printing but also for interaction
+* support for a rust type system (collections, smart pointers, thread locals and other), not only for printing but also for interaction
 * two ui types: console and tui, switch available in any moment
 * oracle as extension mechanism
 * builtin tokio oracle - like `tokio_console` but there is no need to make changes in the source codes
 * and much more!
+
+---
 
 ## Installation
 
@@ -56,6 +62,8 @@ cargo install bugstalker
 ```
 
 That's all, `bs` command is available now!
+
+---
 
 ## Start debugger session
 
