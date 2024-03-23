@@ -25,6 +25,13 @@ impl Version {
     }
 }
 
+impl Default for Version {
+    fn default() -> Self {
+        // the first supported version is default
+        Version((1, 75, 0))
+    }
+}
+
 /// Execute expression depending on compiler version.
 #[macro_export]
 macro_rules! version_switch {

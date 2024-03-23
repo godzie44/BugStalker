@@ -7,6 +7,7 @@ use crate::debugger::debugee::dwarf::unit::{
 use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::error::Error;
 use crate::debugger::ExplorationContext;
+use crate::version::Version;
 use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::{AttributeValue, DwAte, Expression};
@@ -23,6 +24,12 @@ pub type TypeIdentity = DieRef;
 pub struct EvaluationContext<'a> {
     pub evaluator: &'a ExpressionEvaluator<'a>,
     pub expl_ctx: &'a ExplorationContext,
+}
+
+impl<'a> EvaluationContext<'a> {
+    pub fn rustc_version(&self) -> Option<Version> {
+        self.evaluator.unit().rustc_version()
+    }
 }
 
 #[derive(Clone)]

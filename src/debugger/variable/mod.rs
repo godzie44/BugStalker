@@ -5,7 +5,7 @@ use crate::debugger::debugee::dwarf::r#type::{ComplexType, TypeDeclaration};
 use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, NamespaceHierarchy};
 use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::specialization::VariableParserExtension;
-use crate::{debugger, weak_error};
+use crate::{debugger, version_switch, weak_error};
 use bytes::Bytes;
 use gimli::{
     DW_ATE_address, DW_ATE_boolean, DW_ATE_float, DW_ATE_signed, DW_ATE_signed_char,
@@ -976,7 +976,13 @@ impl<'a> VariableParser<'a> {
                     ));
                 };
 
-                if type_ns_h.contains(&["std", "sys", "common", "thread_local", "fast_local"]) {
+                let rust_version = eval_ctx.rustc_version().unwrap_or_default();
+                let is_tls_type = version_switch!(
+                    rust_version,
+                    (1, 0, 0) ..= (1, 76, u32::MAX) => type_ns_h.contains(&["std", "sys", "common", "thread_local", "fast_local"]),
+                    (1, 77, 0) ..= (1, u32::MAX, u32::MAX) => type_ns_h.contains(&["std", "sys", "pal", "common", "thread_local", "fast_local"])
+                );
+                if is_tls_type == Some(true) {
                     return VariableIR::Specialized(parser_ext.parse_tls(struct_var, type_params));
                 }
 

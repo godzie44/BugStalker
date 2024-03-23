@@ -864,8 +864,6 @@ impl<'a> VariableParserExtension<'a> {
 
 fn extract_capacity(eval_ctx: &EvaluationContext, ir: &VariableIR) -> Result<usize, ParsingError> {
     let rust_version = eval_ctx
-        .evaluator
-        .unit()
         .rustc_version()
         .ok_or(ParsingError::UnsupportedVersion)?;
 
