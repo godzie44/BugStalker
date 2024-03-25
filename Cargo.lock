@@ -208,7 +208,7 @@ checksum = "b4682ae6287fcf752ecaabbfcc7b6f9b72aa33933dc23a554d853aea8eea8635"
 
 [[package]]
 name = "bugstalker"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "ariadne",

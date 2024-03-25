@@ -1,6 +1,6 @@
 # BugStalker
 
-> Modern debugger for Linux x86-64. Written in RUST for RUST programs.
+> Modern debugger for Linux x86-64. Written in Rust for Rust programs.
 
 ![debugger-demo](doc/demo.gif)
 
@@ -36,21 +36,23 @@
 ## Features
 
 * written in rust for rust language with simplicity as a priority goal
-* breakpoints, steps, signals
+* [breakpoints, steps, signals]((#stopping-and-continuing))
 * multithread application support
-* data query expressions
+* [data query expressions](#examining-data) 
 * support for a rust type system (collections, smart pointers, thread locals and other), not only for printing but also for interaction
-* two ui types: console and tui, switch available in any moment
-* oracle as extension mechanism
-* builtin tokio oracle - like `tokio_console` but there is no need to make changes in the source codes
+* two ui types: console and [tui](#tui-interface), switch available in any moment
+* [oracle](#oracles) as extension mechanism
+* builtin [tokio oracle](#oracles) - like `tokio_console` but there is no need to make changes in the source codes
 * and much more!
 
 ---
 
 ## Installation
 
-First check if the necessary dependencies are installed:
+First check if the necessary dependencies
+(`pkg-config` and `libunwind-dev`) are installed:
 
+For example, ubuntu/debian:
 ```shell
 apt install pkg-config libunwind-dev
 ```
@@ -127,7 +129,7 @@ Thread witch initiated a stop become a current selected thread.
 
 - `stepi` - step a single instruction
 - `step` - step a program until it reaches a different source line (alias: `stepinto`)
-- `next` - step a program, stepping over subroutine calls (alias: `stepover`)
+- `next` - step a program, stepping over subroutine (function) calls (alias: `stepover`)
 - `finish` - execute a program until selected stack frame returns (alias: `stepout`)
 
 ### Signals
@@ -135,14 +137,14 @@ Thread witch initiated a stop become a current selected thread.
 [demo](https://terminalizer.com/view/4ed500545892)
 
 You can send OS signal to debugee program,
-for example, send SIGINT (ctrl+c) to debugee
+for example, send SIGINT (ctrl+c) to the debugee
 program to stop it.
 
 ### Change current selected thread
 
 [demo](https://terminalizer.com/view/ad448b5c5893)
 
-- `thread info` - print list of thread information
+- `thread info` - print list of information about threads
 - `thread current` - prints current selected thread
 - `thread switch {number}` - switch selected thread
 
@@ -182,7 +184,7 @@ and the address at which the function is executed.
 [demo](https://terminalizer.com/view/8ac0ed475896)
 
 Most commands
-for examining the stack and other data in your program work
+for examining the stack and other data in your program works
 on whichever stack frame is selected at the moment.
 - `frame info` - print information about current selected frame.
 - `frame switch {num}` - change current selected frame.
@@ -231,9 +233,9 @@ Some examples:
 
 - `var *some_variable` - dereference and print value of `some_variable`
 - `var some_array[0][2..5]` - print 3 elements, starts from index 2 from
-  first element of `some_array`
+zero element of `some_array`
 - `var *some_array[0]` - print dereferenced value of `some_array[0]`
-- `var (*some_array)[0]` - print a first element of `*some_array`
+- `var (*some_array)[0]` - print a zero element of `*some_array`
 - `var *(*(var1.field1)).field2[1][2]` - print dereferenced value of element at index 2 in
   element at index 1 at field `field2` in dereferenced value of field `field1` at variable var1 🤡
 
@@ -258,7 +260,9 @@ One of the most funny BugStalker features is switching between old school termin
 
 ## Oracles
 
-[demo](https://www.terminalizer.com/view/147a81e85906)
+[demo console](https://terminalizer.com/view/0ea924865908)
+
+[demo tui](https://terminalizer.com/view/971412185907)
 
 Oracle is a module that expands the capabilities of the debugger.
 Oracles can monitor the internal state of a program
