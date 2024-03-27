@@ -367,13 +367,40 @@ impl DebugInformation {
 
                 let mut suitable_places_in_unit = vec![];
 
-                for &line_idx in file_lines {
+                let mut i = 0;
+                while i < file_lines.len() {
+                    let mut line_idx = file_lines[i];
                     let next_line_row = unit.line(line_idx);
 
                     if suitable_places_in_unit.is_empty() {
-                        // no places found, try to find the closest place to a target line
+                        // no places found at this point,
+                        // try to find the closest place to a target line
                         if next_line_row.line != needle_line || !next_line_row.is_stmt {
+                            i += 1;
                             continue;
+                        }
+
+                        // now check that there is no prolog end in neighborhood line rows,
+                        // if there is one then take it.
+                        // This sets priority of line rows with PE over other
+                        // line rows at this line as a breakpoint candidate
+                        let mut ahead_idx = i + 1;
+                        loop {
+                            let Some(&ahead_line_idx) = file_lines.get(ahead_idx) else {
+                                break;
+                            };
+
+                            let line_row = unit.line(ahead_line_idx);
+                            if line_row.line != next_line_row.line || !line_row.is_stmt {
+                                break;
+                            }
+
+                            if line_row.prolog_end {
+                                line_idx = ahead_line_idx;
+                                i = ahead_idx;
+                                break;
+                            }
+                            ahead_idx += 1;
                         }
 
                         if let Some(place) = unit.find_place_by_idx(line_idx) {
@@ -397,6 +424,7 @@ impl DebugInformation {
                             || next_line_row.epilog_begin != eb
                             || !next_line_row.is_stmt
                         {
+                            i += 1;
                             continue;
                         }
 
@@ -404,6 +432,8 @@ impl DebugInformation {
                             suitable_places_in_unit.push(place);
                         }
                     }
+
+                    i += 1;
                 }
 
                 for suitable_place in suitable_places_in_unit {
