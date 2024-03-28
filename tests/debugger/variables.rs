@@ -324,6 +324,14 @@ fn assert_arc(var: &VariableIR, exp_name: &str, exp_type: &str) {
     assert_eq!(var.r#type(), exp_type);
 }
 
+fn assert_uuid(var: &VariableIR, exp_name: &str, exp_type: &str) {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::Uuid { .. }) = var else {
+        panic!("not an uuid");
+    };
+    assert_eq!(var.name(), exp_name);
+    assert_eq!(var.r#type(), exp_type);
+}
+
 #[test]
 #[serial]
 fn test_read_scalar_variables() {
@@ -2232,7 +2240,7 @@ fn test_read_static_in_fn_variable() {
     // brkpt in function where static is declared
     debugger.set_breakpoint_at_line("vars.rs", 438).unwrap();
     // brkpt outside function where static is declared
-    debugger.set_breakpoint_at_line("vars.rs", 478).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 485).unwrap();
 
     debugger.start_debugee().unwrap();
     assert_eq!(info.line.take(), Some(438));
@@ -2251,7 +2259,7 @@ fn test_read_static_in_fn_variable() {
     );
 
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(478));
+    assert_eq!(info.line.take(), Some(485));
 
     let vars = debugger
         .read_variable(Expression::Variable(VariableSelector::Name {
@@ -2389,6 +2397,28 @@ fn test_cast_pointers() {
         ))
         .unwrap();
     assert_scalar(&var[0], "{unknown}", "i32", Some(SupportedScalar::I32(2)));
+
+    debugger.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_read_uuid() {
+    let process = prepare_debugee_process(VARS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = DebugeeRunInfo::default();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
+
+    debugger.set_breakpoint_at_line("vars.rs", 453).unwrap();
+
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(453));
+
+    let vars = debugger.read_local_variables().unwrap();
+    assert_uuid(&vars[0], "uuid_v4", "Uuid");
+    assert_uuid(&vars[1], "uuid_v7", "Uuid");
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);

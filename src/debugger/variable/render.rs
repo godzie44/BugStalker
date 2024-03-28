@@ -101,6 +101,7 @@ impl RenderRepr for VariableIR {
                 | SpecializedVariableIR::RefCell { original, .. } => &original.type_name,
                 SpecializedVariableIR::Rc { original, .. }
                 | SpecializedVariableIR::Arc { original, .. } => &original.type_name,
+                SpecializedVariableIR::Uuid { original, .. } => &original.type_name,
             },
             VariableIR::Subroutine(_) => {
                 // currently this line is unreachable cause dereference fn pointer is forbidden
@@ -211,6 +212,15 @@ impl RenderRepr for VariableIR {
                     Some(pointer) => {
                         let ptr = pointer.value?;
                         ValueLayout::Referential { addr: ptr }
+                    }
+                },
+                SpecializedVariableIR::Uuid { value, original } => match value {
+                    None => ValueLayout::Structure {
+                        members: original.members.as_ref(),
+                    },
+                    Some(array) => {
+                        let uuid = uuid::Uuid::from_slice(array).expect("infallible");
+                        ValueLayout::PreRendered(Cow::Owned(uuid.to_string()))
                     }
                 },
             },

@@ -455,6 +455,7 @@ impl VariableIR {
                 SpecializedVariableIR::RefCell { original, .. } => &original.identity,
                 SpecializedVariableIR::Rc { original, .. } => &original.identity,
                 SpecializedVariableIR::Arc { original, .. } => &original.identity,
+                SpecializedVariableIR::Uuid { original, .. } => &original.identity,
             },
             VariableIR::Subroutine(s) => &s.identity,
             VariableIR::CModifiedVariable(v) => &v.identity,
@@ -483,6 +484,7 @@ impl VariableIR {
                 SpecializedVariableIR::RefCell { original, .. } => &mut original.identity,
                 SpecializedVariableIR::Rc { original, .. } => &mut original.identity,
                 SpecializedVariableIR::Arc { original, .. } => &mut original.identity,
+                SpecializedVariableIR::Uuid { original, .. } => &mut original.identity,
             },
             VariableIR::Subroutine(s) => &mut s.identity,
             VariableIR::CModifiedVariable(v) => &mut v.identity,
@@ -1064,6 +1066,12 @@ impl<'a> VariableParser<'a> {
                     return VariableIR::Specialized(parser_ext.parse_arc(struct_var));
                 };
 
+                if struct_name.as_ref().map(|name| name == "Uuid") == Some(true)
+                    && type_ns_h.contains(&["uuid"])
+                {
+                    return VariableIR::Specialized(parser_ext.parse_uuid(struct_var));
+                };
+
                 VariableIR::Struct(struct_var)
             }
             TypeDeclaration::Array(decl) => {
@@ -1215,6 +1223,7 @@ impl<'a> Iterator for BfsIterator<'a> {
                         .for_each(|member| self.queue.push_back(member));
                 }
                 SpecializedVariableIR::Rc { .. } | SpecializedVariableIR::Arc { .. } => {}
+                SpecializedVariableIR::Uuid { .. } => {}
             },
             _ => {}
         }

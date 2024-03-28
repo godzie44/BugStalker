@@ -158,6 +158,10 @@ pub enum SpecializedVariableIR {
         value: Option<PointerVariable>,
         original: StructVariable,
     },
+    Uuid {
+        value: Option<[u8; 16]>,
+        original: StructVariable,
+    },
 }
 
 pub struct VariableParserExtension<'a> {
@@ -859,6 +863,43 @@ impl<'a> VariableParserExtension<'a> {
                 None
             })
             .ok_or(IncompleteInterp("Arc"))?)
+    }
+
+    pub fn parse_uuid(&self, structure: StructVariable) -> SpecializedVariableIR {
+        SpecializedVariableIR::Uuid {
+            value: weak_error!(self
+                .parse_uuid_inner(&structure)
+                .context("Uuid interpretation")),
+            original: structure,
+        }
+    }
+
+    fn parse_uuid_inner(&self, structure: &StructVariable) -> Result<[u8; 16], ParsingError> {
+        let member0 = structure.members.first().ok_or(FieldNotFound("member 0"))?;
+        let VariableIR::Array(arr) = member0 else {
+            return Err(UnexpectedType("uuid struct member must be an array").into());
+        };
+        let items = arr
+            .items
+            .as_ref()
+            .ok_or(AssumeError::NoData("uuid items"))?;
+        if items.len() != 16 {
+            return Err(AssumeError::UnexpectedType("uuid struct member must be [u8; 16]").into());
+        }
+
+        let mut bytes_repr = [0; 16];
+        for (i, item) in items.iter().enumerate() {
+            let VariableIR::Scalar(ScalarVariable {
+                value: Some(SupportedScalar::U8(byte)),
+                ..
+            }) = item
+            else {
+                return Err(UnexpectedType("uuid struct member must be [u8; 16]").into());
+            };
+            bytes_repr[i] = *byte;
+        }
+
+        Ok(bytes_repr)
     }
 }
 

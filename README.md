@@ -39,7 +39,7 @@
 * [breakpoints, steps, signals]((#stopping-and-continuing))
 * multithread application support
 * [data query expressions](#examining-data) 
-* support for a rust type system (collections, smart pointers, thread locals and other), not only for printing but also for interaction
+* support for a rust type system (collections, smart pointers, thread locals and many others), not only for printing but also for interaction
 * two ui types: console and [tui](#tui-interface), switch available in any moment
 * [oracle](#oracles) as extension mechanism
 * builtin [tokio oracle](#oracles) - like `tokio_console` but there is no need to make changes in the source codes
