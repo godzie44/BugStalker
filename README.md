@@ -36,7 +36,7 @@
 ## Features
 
 * written in rust for rust language with simplicity as a priority goal
-* [breakpoints, steps, signals]((#stopping-and-continuing))
+* [breakpoints, steps, signals](#stopping-and-continuing)
 * multithread application support
 * [data query expressions](#examining-data) 
 * support for a rust type system (collections, smart pointers, thread locals and many others), not only for printing but also for interaction
