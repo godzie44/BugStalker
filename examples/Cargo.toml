@@ -14,5 +14,6 @@ members = [
   "shlib/calc_lib",
   "shlib/calc_bin",
   "shlib/printer_lib",
+  "panic",
 ]
 resolver = "2"

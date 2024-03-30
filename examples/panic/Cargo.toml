@@ -1,0 +1,13 @@
+[package]
+name = "panic"
+version = "0.0.0"
+edition = "2021"
+workspace = "./.."
+publish = false
+
+[[bin]]
+name = "panic"
+path = "src/panic.rs"
+
+[dependencies]
+uuid = { version = "1.8.0", features = ["v4", "v7"] }

@@ -52,3 +52,8 @@ Example of shared library with C interface and a consumer of this lib.
 ### Tokioticker
 
 Tick 5 seconds and exit. Useful for tokio oracle testing.
+
+### Panic
+
+Program that just panics.
+Initiated by user or system panic (like divide by zero panic).

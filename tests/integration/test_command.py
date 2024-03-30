@@ -472,3 +472,26 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect_exact('4 fn main() {')
         self.debugger.expect_exact('9     myprint("bye!")')
 
+    @staticmethod
+    def test_breakpoint_at_rust_panic():
+        """Set breakpoint to rust panic handler and catch panics"""
+        debugger = pexpect.spawn(
+            './target/debug/bs ./examples/target/debug/panic -- user')
+        debugger.sendline('break rust_panic')
+        debugger.expect('New breakpoint')
+        debugger.sendline('run')
+        debugger.expect_exact('then panic!')
+        debugger.sendline('bt')
+        debugger.expect('rust_panic')
+        debugger.expect('panic::user_panic')
+        debugger.sendline('continue')
+
+        debugger = pexpect.spawn(
+            './target/debug/bs ./examples/target/debug/panic -- system')
+        debugger.sendline('break rust_panic')
+        debugger.expect('New breakpoint')
+        debugger.sendline('run')
+        debugger.expect('attempt to divide by zero')
+        debugger.sendline('bt')
+        debugger.expect('rust_panic')
+        debugger.expect('panic::divided_by_zero')
