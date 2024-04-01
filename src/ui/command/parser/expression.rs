@@ -37,24 +37,24 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Expression, Err<'a>> {
 
         let field = text::ascii::ident()
             .or(text::int(10))
-            .map(|s: &str| s.to_string())
             .labelled("field name or tuple index");
-        let field_expr = atom.clone().foldl(
-            op('.')
-                .to(Expression::Field as fn(_, _) -> _)
-                .then(field)
-                .repeated(),
-            |lhs, (op, rhs)| op(Box::new(lhs), rhs),
-        );
+
+        let field_op = op('.')
+            .ignore_then(field)
+            .map(|field: &str| -> Box<dyn Fn(Expression) -> Expression> {
+                Box::new(move |r| Expression::Field(Box::new(r), field.to_string()))
+            })
+            .boxed();
 
         let index_op = text::int(10)
             .padded()
             .map(|v: &str| v.parse::<u64>().unwrap())
             .labelled("index value")
-            .delimited_by(op('['), op(']'));
-        let index_expr = field_expr.clone().foldl(index_op.repeated(), |r, idx| {
-            Expression::Index(Box::new(r), idx)
-        });
+            .delimited_by(op('['), op(']'))
+            .map(|idx| -> Box<dyn Fn(Expression) -> Expression> {
+                Box::new(move |r: Expression| Expression::Index(Box::new(r), idx))
+            })
+            .boxed();
 
         let mb_usize = text::int(10)
             .or_not()
@@ -65,14 +65,18 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Expression, Err<'a>> {
             .then_ignore(just("..").padded())
             .then(mb_usize)
             .labelled("slice range (start..end)")
-            .delimited_by(op('['), op(']'));
-        let slice_expr = index_expr
-            .clone()
-            .foldl(slice_op.repeated(), |r, (from, to)| {
-                Expression::Slice(Box::new(r), from, to)
-            });
+            .delimited_by(op('['), op(']'))
+            .map(|(from, to)| -> Box<dyn Fn(Expression) -> Expression> {
+                Box::new(move |r: Expression| Expression::Slice(Box::new(r), from, to))
+            })
+            .boxed();
 
-        let expr = slice_expr.or(ptr_cast());
+        let expr = atom
+            .foldl(
+                field_op.or(index_op).or(slice_op).repeated(),
+                |r, expr_fn| expr_fn(r),
+            )
+            .or(ptr_cast());
 
         op('*')
             .repeated()
@@ -309,6 +313,54 @@ mod test {
                 string: "*(*const i32)0x007FFFFFFFDC94",
                 expr: Expression::Deref(
                     Expression::PtrCast(0x7FFFFFFFDC94, "*const i32".to_string()).boxed(),
+                ),
+            },
+            TestCase {
+                string: "var.arr[0].some_val",
+                expr: Expression::Field(
+                    Expression::Index(
+                        Expression::Field(
+                            Expression::Variable(VariableSelector::Name {
+                                var_name: "var".to_string(),
+                                only_local: false,
+                            })
+                            .boxed(),
+                            "arr".to_string(),
+                        )
+                        .boxed(),
+                        0,
+                    )
+                    .boxed(),
+                    "some_val".to_string(),
+                ),
+            },
+            TestCase {
+                string: "arr[0][..][1..][0].some_val",
+                expr: Expression::Field(
+                    Expression::Index(
+                        Expression::Slice(
+                            Expression::Slice(
+                                Expression::Index(
+                                    Expression::Variable(VariableSelector::Name {
+                                        var_name: "arr".to_string(),
+                                        only_local: false,
+                                    })
+                                    .boxed(),
+                                    0,
+                                )
+                                .boxed(),
+                                None,
+                                None,
+                            )
+                            .boxed(),
+                            Some(1),
+                            None,
+                        )
+                        .boxed(),
+                        0,
+                    )
+                    .boxed(),
+                    "some_val".to_string(),
                 ),
             },
         ];
