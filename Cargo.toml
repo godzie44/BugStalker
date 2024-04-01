@@ -7,7 +7,7 @@ authors = ["Derevtsov Konstantin <godzie@yandex.ru>"]
 description = """
 BugStalker is a modern and lightweight debugger for rust applications.
 """
-homepage = "https://github.com/godzie44/BugStalker"
+repository = "https://github.com/godzie44/BugStalker"
 keywords = ["debugger", "debug", "gdb"]
 categories = ["command-line-utilities", "development-tools::debugging"]
 build = "build.rs"
