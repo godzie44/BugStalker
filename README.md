@@ -37,12 +37,12 @@
 
 * written in rust for rust language with simplicity as a priority goal
 * [breakpoints, steps, signals](#stopping-and-continuing)
-* multithread application support
+* multithreaded application support
 * [data query expressions](#examining-data) 
 * support for a rust type system (collections, smart pointers, thread locals and many others), not only for printing but also for interaction
-* two ui types: console and [tui](#tui-interface), switch available in any moment
-* [oracle](#oracles) as extension mechanism
-* builtin [tokio oracle](#oracles) - like `tokio_console` but there is no need to make changes in the source codes
+* two ui types: console and [tui](#tui-interface), switch available at any moment
+* [oracle](#oracles) as an extension mechanism
+* builtin [tokio oracle](#oracles) - like [tokio_console](https://github.com/tokio-rs/console) but there is no need to make changes to the source codes
 * and much more!
 
 ---
@@ -64,6 +64,17 @@ cargo install bugstalker
 ```
 
 That's all, `bs` command is available now!
+
+<details>
+  <summary>Problem with libunwind?</summary>
+If you have any issues with `libunwind`, you can try to install `bs` with
+native unwinder 
+(currently, I don't recommend this method because libunwind is better :))
+
+```shell
+cargo install bugstalker --no-default-features
+```
+</details>
 
 ---
 
@@ -268,7 +279,7 @@ Oracle is a module that expands the capabilities of the debugger.
 Oracles can monitor the internal state of a program
 to display interesting information.
 For example, tokio oracle is able
-to provide information about tokio runtime during program debugging without the needs
+to provide information about tokio runtime during program debugging without the need
 to change the source code.
 You must run the debugger with enabled oracle, for example, for tokio oracle:
 
