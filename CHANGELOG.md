@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 ### Changed
+- console: history hints now have better highlighting (grey instead of bolt)
 
 ### Fixed
 - console: now sub commands (like break remove or break info) don't clash with operation + argument

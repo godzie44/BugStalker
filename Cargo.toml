@@ -21,7 +21,7 @@ name = "bs"
 nix = {version = "0.27.1", features = ["process", "signal", "uio", "personality", "ptrace"]}
 once_cell = "1.13.1"
 anyhow = "1.0"
-rustyline = "13.0.0"
+rustyline = "14.0.0"
 rustyline-derive = "0.10.0"
 gimli = "0.28.0"
 object = "0.32.1"

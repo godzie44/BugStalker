@@ -325,7 +325,7 @@ impl Highlighter for RLHelper {
     }
 
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
-        Owned("\x1b[1m".to_owned() + hint + "\x1b[m")
+        Owned(format!("{}", hint.with(Color::Grey)))
     }
 }
 
