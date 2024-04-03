@@ -9,6 +9,7 @@ use chumsky::error::{Rich, RichPattern, RichReason};
 use chumsky::prelude::{any, choice, end, just};
 use chumsky::text::{whitespace, Char};
 use chumsky::{extra, text, Boxed, Parser};
+use itertools::Itertools;
 
 pub const VAR_COMMAND: &str = "var";
 pub const VAR_LOCAL_KEY: &str = "locals";
@@ -156,7 +157,6 @@ impl Command {
                                         RichPattern::Label(label) => label.to_string(),
                                         RichPattern::EndOfInput => "end of input".to_string(),
                                     })
-                                    .collect::<Vec<_>>()
                                     .join(", ")
                             }
                         ))
@@ -201,30 +201,35 @@ impl Command {
         reports.join("\n")
     }
 
-    fn parser<'a>() -> impl chumsky::Parser<'a, &'a str, Command, Err<'a>> {
-        let op = |sym| just(sym).padded();
-        let sub_op = |sym| just(sym).then(whitespace().at_least(1).or(end()));
+    fn parser<'a>() -> impl Parser<'a, &'a str, Command, Err<'a>> {
+        let ws_req = whitespace().at_least(1);
+        let ws_req_or_end = ws_req.or(end());
+        let op = |sym| whitespace().then(just(sym)).then(ws_req_or_end);
+        let op_w_arg = |sym| whitespace().then(just(sym)).then(ws_req);
+        let sub_op = |sym| just(sym).then(ws_req_or_end);
+        let sub_op_w_arg = |sym| just(sym).then(ws_req);
 
-        let print_local_vars = op(VAR_COMMAND)
+        let print_local_vars = op_w_arg(VAR_COMMAND)
             .then(sub_op(VAR_LOCAL_KEY))
             .map(|_| Command::PrintVariables(Expression::Variable(VariableSelector::Any)));
-        let print_var = op(VAR_COMMAND)
+        let print_var = op_w_arg(VAR_COMMAND)
             .ignore_then(expression::parser())
             .map(Command::PrintVariables);
 
         let print_variables = choice((print_local_vars, print_var)).boxed();
 
-        let print_all_args = op(ARG_COMMAND)
+        let print_all_args = op_w_arg(ARG_COMMAND)
             .then(sub_op(ARG_ALL_KEY))
             .map(|_| Command::PrintArguments(Expression::Variable(VariableSelector::Any)));
-        let print_arg = op(ARG_COMMAND)
+        let print_arg = op_w_arg(ARG_COMMAND)
             .ignore_then(expression::parser())
             .map(Command::PrintArguments);
 
         let print_arguments = choice((print_all_args, print_arg)).boxed();
 
         let op2 = |full, short| op(full).or(op(short));
-        let sub_op2 = |full, short| sub_op(full).or(sub_op(short));
+        let op2_w_arg = |full, short| op_w_arg(full).or(op_w_arg(short));
+        let sub_op2_w_arg = |full, short| sub_op_w_arg(full).or(sub_op_w_arg(short));
 
         let r#continue = op2(CONTINUE_COMMAND, CONTINUE_COMMAND_SHORT).to(Command::Continue);
         let run = op2(RUN_COMMAND, RUN_COMMAND_SHORT).to(Command::Run);
@@ -233,7 +238,7 @@ impl Command {
         let step_out = op2(STEP_OUT_COMMAND, STEP_OUT_COMMAND_SHORT).to(Command::StepOut);
         let step_over = op2(STEP_OVER_COMMAND, STEP_OVER_COMMAND_SHORT).to(Command::StepOver);
 
-        let source_code = op(SOURCE_COMMAND)
+        let source_code = op_w_arg(SOURCE_COMMAND)
             .ignore_then(choice((
                 sub_op(SOURCE_COMMAND_DISASM_SUBCOMMAND)
                     .to(Command::SourceCode(source_code::Command::Asm)),
@@ -267,14 +272,14 @@ impl Command {
             })
             .boxed();
 
-        let symbol = op(SYMBOL_COMMAND)
+        let symbol = op_w_arg(SYMBOL_COMMAND)
             .ignore_then(any().repeated().padded().to_slice())
             .map(|s| Command::PrintSymbol(s.trim().to_string()))
             .boxed();
 
-        let r#break = op2(BREAK_COMMAND, BREAK_COMMAND_SHORT)
+        let r#break = op2_w_arg(BREAK_COMMAND, BREAK_COMMAND_SHORT)
             .ignore_then(choice((
-                sub_op2(BREAK_REMOVE_SUBCOMMAND, BREAK_REMOVE_SUBCOMMAND_SHORT)
+                sub_op2_w_arg(BREAK_REMOVE_SUBCOMMAND, BREAK_REMOVE_SUBCOMMAND_SHORT)
                     .ignore_then(choice((
                         brkpt_at_addr_parser(),
                         brkpt_at_line_parser(),
@@ -292,28 +297,28 @@ impl Command {
             )))
             .boxed();
 
-        let memory = op2(MEMORY_COMMAND, MEMORY_COMMAND_SHORT)
+        let memory = op2_w_arg(MEMORY_COMMAND, MEMORY_COMMAND_SHORT)
             .ignore_then(choice((
-                sub_op(MEMORY_COMMAND_READ_SUBCOMMAND)
+                sub_op_w_arg(MEMORY_COMMAND_READ_SUBCOMMAND)
                     .ignore_then(hex())
                     .map(|addr| Command::Memory(memory::Command::Read(addr))),
-                sub_op(MEMORY_COMMAND_WRITE_SUBCOMMAND)
+                sub_op_w_arg(MEMORY_COMMAND_WRITE_SUBCOMMAND)
                     .ignore_then(hex().then(hex()))
                     .map(|(addr, val)| Command::Memory(memory::Command::Write(addr, val))),
             )))
             .boxed();
 
-        let register = op2(REGISTER_COMMAND, REGISTER_COMMAND_SHORT)
+        let register = op2_w_arg(REGISTER_COMMAND, REGISTER_COMMAND_SHORT)
             .ignore_then(choice((
                 sub_op(REGISTER_COMMAND_INFO_SUBCOMMAND)
                     .to(Command::Register(register::Command::Info)),
-                sub_op(REGISTER_COMMAND_READ_SUBCOMMAND)
+                sub_op_w_arg(REGISTER_COMMAND_READ_SUBCOMMAND)
                     .ignore_then(text::ident())
                     .map(|reg_name| {
                         Command::Register(register::Command::Read(reg_name.to_string()))
                     })
                     .padded(),
-                sub_op(REGISTER_COMMAND_WRITE_SUBCOMMAND)
+                sub_op_w_arg(REGISTER_COMMAND_WRITE_SUBCOMMAND)
                     .ignore_then(text::ident().then(hex()))
                     .map(|(reg_name, val)| {
                         Command::Register(register::Command::Write(
@@ -325,12 +330,12 @@ impl Command {
             )))
             .boxed();
 
-        let thread = op(THREAD_COMMAND)
+        let thread = op_w_arg(THREAD_COMMAND)
             .ignore_then(choice((
                 sub_op(THREAD_COMMAND_INFO_SUBCOMMAND).to(Command::Thread(thread::Command::Info)),
                 sub_op(THREAD_COMMAND_CURRENT_SUBCOMMAND)
                     .to(Command::Thread(thread::Command::Current)),
-                sub_op(THREAD_COMMAND_SWITCH_SUBCOMMAND)
+                sub_op_w_arg(THREAD_COMMAND_SWITCH_SUBCOMMAND)
                     .ignore_then(text::int(10))
                     .from_str()
                     .unwrapped()
@@ -339,22 +344,22 @@ impl Command {
             )))
             .boxed();
 
-        let frame = op2(FRAME_COMMAND, FRAME_COMMAND_SHORT)
+        let frame = op2_w_arg(FRAME_COMMAND, FRAME_COMMAND_SHORT)
             .ignore_then(choice((
                 sub_op(FRAME_COMMAND_INFO_SUBCOMMAND).to(Command::Frame(frame::Command::Info)),
-                sub_op("switch")
+                sub_op(FRAME_COMMAND_SWITCH_SUBCOMMAND)
                     .ignore_then(text::int(10).from_str().unwrapped())
                     .map(|num| Command::Frame(frame::Command::Switch(num)))
                     .padded(),
             )))
             .boxed();
 
-        let shared_lib = op(SHARED_LIB_COMMAND)
+        let shared_lib = op_w_arg(SHARED_LIB_COMMAND)
             .then(sub_op(SHARED_LIB_COMMAND_INFO_SUBCOMMAND))
             .to(Command::SharedLib)
             .boxed();
 
-        let oracle = op(ORACLE_COMMAND)
+        let oracle = op_w_arg(ORACLE_COMMAND)
             .ignore_then(text::ident().padded().then(text::ident().or_not()))
             .map(|(name, subcmd)| {
                 Command::Oracle(name.trim().to_string(), subcmd.map(ToString::to_string))
@@ -512,6 +517,10 @@ fn test_parser() {
         },
         TestCase {
             inputs: vec!["arg 11"],
+            command_matcher: |result| assert!(result.is_err()),
+        },
+        TestCase {
+            inputs: vec!["br", "arglocals"],
             command_matcher: |result| assert!(result.is_err()),
         },
         TestCase {
