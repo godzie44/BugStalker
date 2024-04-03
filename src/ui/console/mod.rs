@@ -488,7 +488,7 @@ impl AppLoop {
                         Ok(r#break::ExecutionResult::Removed(brkpts)) => {
                             brkpts
                                 .iter()
-                                .for_each(|brkpt| print_bp("Remove breakpoint", brkpt));
+                                .for_each(|brkpt| print_bp("Removed breakpoint", brkpt));
                         }
                         Ok(r#break::ExecutionResult::Dump(brkpts)) => brkpts
                             .iter()

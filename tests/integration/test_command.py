@@ -269,7 +269,7 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('break remove main')
-        self.debugger.expect('Remove breakpoint')
+        self.debugger.expect('Removed breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('bye!')
@@ -283,7 +283,7 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect_exact('15     println!("{}", s)')
 
         self.debugger.sendline('break remove hello_world.rs:15')
-        self.debugger.expect('Remove breakpoint')
+        self.debugger.expect('Removed breakpoint')
 
         self.debugger.sendline('continue')
         self.debugger.expect('bye!')
@@ -294,7 +294,7 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect('New breakpoint')
 
         self.debugger.sendline('break remove 1')
-        self.debugger.expect('Remove breakpoint')
+        self.debugger.expect('Removed breakpoint')
 
         self.debugger.sendline('run')
         self.debugger.expect('bye!')
@@ -327,7 +327,7 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.expect(r'- Breakpoint 4 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:7')
 
         self.debugger.sendline('break remove main')
-        self.debugger.expect('Remove breakpoint')
+        self.debugger.expect('Removed breakpoint')
 
         self.debugger.sendline('break info')
         self.debugger.expect(r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9 ')
