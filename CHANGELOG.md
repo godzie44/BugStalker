@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 ### Changed
+- tui: now current active line (in a source code window and disassemble window) 
+glued to the middle of render area instead of the bottom of the screen
 
 ### Fixed
 
