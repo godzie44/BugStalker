@@ -235,16 +235,26 @@ impl MockComponent for MultiSpanTextarea {
                 .props
                 .get(Attribute::FocusStyle)
                 .map(|x| x.unwrap_style());
-            let mut state: ListState = ListState::default();
-            state.select(Some(self.states.list_index));
+
             // Make component
+            let block =
+                tui_realm_stdlib::utils::get_block(borders, Some(title), focus, inactive_style);
+
+            let render_area_h = block.inner(area).height as usize;
+            let num_lines_to_show_at_top = render_area_h / 2;
+            let offset_max = lines.len().saturating_sub(render_area_h);
+            let offset = self
+                .states
+                .list_index
+                .saturating_sub(num_lines_to_show_at_top)
+                .min(offset_max);
+
+            let mut state: ListState = ListState::default()
+                .with_offset(offset)
+                .with_selected(Some(self.states.list_index));
+
             let mut list = List::new(lines)
-                .block(tui_realm_stdlib::utils::get_block(
-                    borders,
-                    Some(title),
-                    focus,
-                    inactive_style,
-                ))
+                .block(block)
                 .start_corner(Corner::TopLeft)
                 .style(
                     Style::default()
