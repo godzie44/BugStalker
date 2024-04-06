@@ -9,5 +9,5 @@ pub fn make_oracle_tab_window(oracles: &[Arc<dyn Oracle>]) -> TabWindow {
         .map(|o| o.clone().make_tui_component())
         .collect();
 
-    TabWindow::new("Choose your oracle", &ora_names, windows)
+    TabWindow::new("Choose your oracle", &ora_names, windows, None)
 }

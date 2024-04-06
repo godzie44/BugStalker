@@ -31,6 +31,14 @@ impl GlobalControl {
     pub fn subscriptions() -> Vec<Sub<Id, UserEvent>> {
         vec![
             Sub::new(
+                SubEventClause::Keyboard(KeyEvent::new(Key::Char('1'), KeyModifiers::ALT)),
+                SubClause::Always,
+            ),
+            Sub::new(
+                SubEventClause::Keyboard(KeyEvent::new(Key::Char('2'), KeyModifiers::ALT)),
+                SubClause::Always,
+            ),
+            Sub::new(
                 SubEventClause::Keyboard(KeyEvent::new(Key::Char('1'), KeyModifiers::NONE)),
                 SubClause::Always,
             ),
@@ -129,12 +137,20 @@ impl Component<Msg, UserEvent> for GlobalControl {
         let msg = match ev {
             Event::Keyboard(KeyEvent {
                 code: Key::Char('1'),
+                modifiers: KeyModifiers::ALT,
+            }) => Msg::ExpandTab(Id::LeftTabs),
+            Event::Keyboard(KeyEvent {
+                code: Key::Char('2'),
+                modifiers: KeyModifiers::ALT,
+            }) => Msg::ExpandTab(Id::RightTabs),
+            Event::Keyboard(KeyEvent {
+                code: Key::Char('1'),
                 modifiers: KeyModifiers::NONE,
-            }) => Msg::LeftTabsInFocus,
+            }) => Msg::LeftTabsInFocus { reset_to: None },
             Event::Keyboard(KeyEvent {
                 code: Key::Char('2'),
                 modifiers: KeyModifiers::NONE,
-            }) => Msg::RightTabsInFocus,
+            }) => Msg::RightTabsInFocus { reset_to: None },
             Event::Keyboard(KeyEvent {
                 code: Key::Esc,
                 modifiers: KeyModifiers::NONE,
