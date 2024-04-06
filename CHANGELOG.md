@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 # [?.?.?] Unreleased
 
 ### Added
+- tui: added ability to select tab across both windows
+- tui: now left and right windows can expand (and the opposite window, accordingly, collapsed)
 
 ### Changed
 - tui: now current active line (in a source code window and disassemble window) 
