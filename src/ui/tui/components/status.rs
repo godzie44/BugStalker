@@ -36,7 +36,7 @@ impl Status {
 
         let help = tui_realm_stdlib::Paragraph::default()
             .text(&[TextSpan::new(
-                "<F6> step out | <F7> step | <F8> step over | <F9>/<c> continue | <F10>/<r> start/restart | <ESC> go to console | <q> quit",
+                "<ALT>+<1>/<2> expand left/right window | <F6> step out | <F7> step | <F8> step over | <F9>/<c> continue | <F10>/<r> start/restart | <ESC> go to console | <q> quit",
             )
                 .fg(Color::Green).bold()])
             .alignment(Alignment::Left)

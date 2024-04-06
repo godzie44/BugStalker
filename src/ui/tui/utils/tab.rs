@@ -1,23 +1,52 @@
 use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::utils::flex_radio;
 use crate::ui::tui::Msg;
-use tui_realm_stdlib::Radio;
+use strum_macros::FromRepr;
 use tuirealm::command::{Cmd, CmdResult, Direction};
 use tuirealm::event::{Key, KeyEvent};
-use tuirealm::props::{Alignment, BorderSides, BorderType, Borders, Color, Layout};
+use tuirealm::props::{
+    Alignment, BorderSides, BorderType, Borders, Color, Layout, PropPayload, PropValue,
+};
 use tuirealm::tui::layout::Rect;
-use tuirealm::{AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State};
+use tuirealm::{props, AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State};
+
+#[derive(FromRepr, PartialEq, Clone, Copy)]
+#[repr(u8)]
+pub enum ViewSize {
+    Default,
+    Expand,
+    Compacted,
+}
+
+impl From<ViewSize> for AttrValue {
+    fn from(layout: ViewSize) -> Self {
+        AttrValue::Payload(PropPayload::One(PropValue::U8(layout as u8)))
+    }
+}
+
+impl From<AttrValue> for ViewSize {
+    fn from(value: AttrValue) -> Self {
+        ViewSize::from_repr(value.unwrap_payload().unwrap_one().unwrap_u8())
+            .expect("invalid attribute value")
+    }
+}
 
 /// Tabs and related windows
 pub struct TabWindow {
     props: Props,
     /// Tab choice
-    choices: Radio,
+    choices: flex_radio::Radio,
     /// Active window
     active_idx: Option<usize>,
     /// Visible window
     visible_idx: usize,
     /// All windows
     windows: Vec<Box<dyn Component<Msg, UserEvent>>>,
+    /// Window size in relation to others
+    view_size: ViewSize,
+    /// If specified - disable default rewinding and
+    /// returning a special message instead of rewind
+    on_rewind: Option<fn(Direction) -> Msg>,
 }
 
 impl TabWindow {
@@ -25,10 +54,11 @@ impl TabWindow {
         title: &str,
         tabs: &[&str],
         windows: Vec<Box<dyn Component<Msg, UserEvent>>>,
+        msg_on_rewind: Option<fn(Direction) -> Msg>,
     ) -> Self {
         debug_assert!(tabs.len() == windows.len());
 
-        let choices = Radio::default()
+        let choices = flex_radio::Radio::default()
             .borders(
                 Borders::default()
                     .modifiers(BorderType::Rounded)
@@ -36,7 +66,7 @@ impl TabWindow {
             )
             .foreground(Color::LightGreen)
             .title(title, Alignment::Center)
-            .rewind(true)
+            .rewind(msg_on_rewind.is_none())
             .choices(tabs);
 
         let tabs: Vec<_> = windows;
@@ -47,6 +77,8 @@ impl TabWindow {
             choices,
             windows: tabs,
             props: Props::default(),
+            view_size: ViewSize::Default,
+            on_rewind: msg_on_rewind,
         };
 
         this.background(Color::Yellow)
@@ -66,6 +98,9 @@ impl TabWindow {
 }
 
 impl TabWindow {
+    pub const VIEW_SIZE_ATTR: Attribute = Attribute::Custom("VIEW_SIZE");
+    pub const RESET_CHOICE_ATTR: Attribute = Attribute::Custom("RESET_CHOICE");
+
     pub fn foreground(mut self, fg: Color) -> Self {
         self.attr(Attribute::Foreground, AttrValue::Color(fg));
         self
@@ -133,26 +168,32 @@ impl TabWindow {
 
 impl MockComponent for TabWindow {
     fn view(&mut self, frame: &mut Frame, area: Rect) {
-        if self.props.get_or(Attribute::Display, AttrValue::Flag(true)) == AttrValue::Flag(true) {
-            let borders = self
-                .props
-                .get_or(
-                    Attribute::Borders,
-                    AttrValue::Borders(Borders::default().sides(BorderSides::NONE)),
-                )
-                .unwrap_borders();
-            let focus = self
-                .props
-                .get_or(Attribute::Focus, AttrValue::Flag(false))
-                .unwrap_flag();
-            self.choices.attr(Attribute::Focus, AttrValue::Flag(focus));
+        if self.props.get_or(Attribute::Display, AttrValue::Flag(true)) != AttrValue::Flag(true) {
+            return;
+        }
 
-            let title = self.props.get(Attribute::Title).map(|x| x.unwrap_title());
-            let div = tui_realm_stdlib::utils::get_block(borders, title, focus, None);
-            // Render block
-            frame.render_widget(div, area);
-            // Render children
-            if let Some(layout) = self.props.get(Attribute::Layout).map(|x| x.unwrap_layout()) {
+        let borders = self
+            .props
+            .get_or(
+                Attribute::Borders,
+                AttrValue::Borders(Borders::default().sides(BorderSides::NONE)),
+            )
+            .unwrap_borders();
+        let focus = self
+            .props
+            .get_or(Attribute::Focus, AttrValue::Flag(false))
+            .unwrap_flag();
+        self.choices.attr(Attribute::Focus, AttrValue::Flag(focus));
+
+        let title = self.props.get(Attribute::Title).map(|x| x.unwrap_title());
+        let div = tui_realm_stdlib::utils::get_block(borders, title, focus, None);
+        // Render block
+        frame.render_widget(div, area);
+        // Render children
+        if let Some(layout) = self.props.get(Attribute::Layout).map(|x| x.unwrap_layout()) {
+            if self.view_size == ViewSize::Compacted {
+                self.choices.view(frame, area);
+            } else {
                 let chunks = layout.chunks(area);
                 debug_assert!(chunks.len() == 2);
                 self.choices.view(frame, chunks[0]);
@@ -172,15 +213,45 @@ impl MockComponent for TabWindow {
             self.deactivate_window();
         }
 
-        // all custom attributes redirect to tab windows
-        if matches!(attr, Attribute::Custom(_)) {
-            for comp in self.windows.iter_mut() {
-                comp.attr(attr, value.clone());
+        match attr {
+            Self::VIEW_SIZE_ATTR => {
+                self.view_size = crate::ui::tui::utils::tab::ViewSize::from(value);
+                match self.view_size {
+                    ViewSize::Default | ViewSize::Expand => {
+                        self.choices.states.set_horizontal_render()
+                    }
+                    ViewSize::Compacted => self.choices.states.set_vertical_layout(),
+                }
             }
-            return;
-        }
+            Self::RESET_CHOICE_ATTR => {
+                debug_assert!(matches!(
+                    value,
+                    AttrValue::Direction(props::Direction::Left)
+                        | AttrValue::Direction(props::Direction::Right)
+                ));
 
-        self.props.set(attr, value.clone());
+                match value {
+                    AttrValue::Direction(props::Direction::Left) => {
+                        self.choices.states.select(0);
+                    }
+                    AttrValue::Direction(props::Direction::Right) => {
+                        self.choices
+                            .states
+                            .select(self.choices.states.choices.len() - 1);
+                    }
+                    _ => {}
+                }
+            }
+            Attribute::Custom(_) => {
+                // all other custom attributes redirect to tab windows
+                for comp in self.windows.iter_mut() {
+                    comp.attr(attr, value.clone());
+                }
+            }
+            _ => {
+                self.props.set(attr, value.clone());
+            }
+        }
     }
 
     fn state(&self) -> State {
@@ -201,13 +272,16 @@ impl MockComponent for TabWindow {
 
 impl Component<Msg, UserEvent> for TabWindow {
     fn on(&mut self, ev: Event<UserEvent>) -> Option<Msg> {
-        match ev {
+        let cmd_res = match ev {
             Event::Keyboard(KeyEvent {
                 code: Key::Left, ..
             }) => self.perform(Cmd::Move(Direction::Left)),
             Event::Keyboard(KeyEvent {
                 code: Key::Right, ..
-            }) => self.perform(Cmd::Move(Direction::Right)),
+            })
+            | Event::Keyboard(KeyEvent { code: Key::Tab, .. }) => {
+                self.perform(Cmd::Move(Direction::Right))
+            }
             Event::Keyboard(KeyEvent {
                 code: Key::Enter, ..
             }) => {
@@ -231,6 +305,10 @@ impl Component<Msg, UserEvent> for TabWindow {
             }
             _ => CmdResult::None,
         };
+
+        if let CmdResult::Invalid(Cmd::Move(dir)) = cmd_res {
+            return self.on_rewind.map(|cb| cb(dir));
+        }
 
         if let Some(window) = self.active_window_mut() {
             return window.on(ev);

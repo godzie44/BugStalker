@@ -16,7 +16,7 @@ use std::time::Duration;
 use std::{io, thread};
 use strum_macros::{Display, EnumString};
 use timeout_readwrite::TimeoutReader;
-use tuirealm::{AttrValue, Attribute, PollStrategy};
+use tuirealm::{props, AttrValue, Attribute, PollStrategy};
 
 pub mod app;
 pub mod components;
@@ -37,28 +37,29 @@ pub enum Id {
     Popup,
 }
 
-#[derive(Debug, PartialEq, EnumString, Display)]
+#[derive(Debug, PartialEq, EnumString, Display, Clone)]
 pub enum ConfirmedAction {
     Restart,
     RemoveBreakpoint,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum BreakpointsAddType {
     AtLine,
     AtFunction,
     AtAddress,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Msg {
     None,
     AppClose,
     AppRunning,
-    LeftTabsInFocus,
-    RightTabsInFocus,
+    LeftTabsInFocus { reset_to: Option<props::Direction> },
+    RightTabsInFocus { reset_to: Option<props::Direction> },
     SwitchUI,
     BreakpointAdd(BreakpointsAddType),
+    ExpandTab(Id),
 
     PopupConfirmDebuggerRestart,
     PopupBreakpoint(BreakpointViewOwned),

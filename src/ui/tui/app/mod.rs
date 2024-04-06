@@ -21,6 +21,7 @@ use crate::ui::tui::components::threads::Threads;
 use crate::ui::tui::components::variables::Variables;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::logger::TuiLogLine;
+use crate::ui::tui::utils::tab;
 use crate::ui::tui::utils::tab::TabWindow;
 use chumsky::Parser;
 use log::warn;
@@ -50,9 +51,18 @@ pub struct Model {
     pub terminal: TerminalBridge,
     /// Message exchanger with tracer (debugger) thread
     exchanger: Arc<ClientExchanger>,
+    /// Layout of main tabs
+    tabs_layout: [Constraint; 2],
 }
 
 impl Model {
+    const DEFAULT_TABS_LAYOUT: [Constraint; 2] =
+        [Constraint::Percentage(25), Constraint::Percentage(75)];
+    const LEFT_TAB_FOCUS_LAYOUT: [Constraint; 2] =
+        [Constraint::Percentage(90), Constraint::Percentage(10)];
+    const RIGHT_TAB_FOCUS_LAYOUT: [Constraint; 2] =
+        [Constraint::Percentage(10), Constraint::Percentage(90)];
+
     pub fn new(
         output_buf: DebugeeStreamBuffer,
         event_queue: DebuggerEventQueue,
@@ -66,6 +76,7 @@ impl Model {
             redraw: true,
             terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
             exchanger,
+            tabs_layout: Self::DEFAULT_TABS_LAYOUT,
         })
     }
 }
@@ -90,7 +101,7 @@ impl Model {
             let tabs_rect = main_chunks[0];
             let tab_chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(25), Constraint::Percentage(75)])
+                .constraints(self.tabs_layout)
                 .split(tabs_rect);
 
             self.app.view(&Id::LeftTabs, f, tab_chunks[0]);
@@ -178,6 +189,17 @@ impl Model {
                 Box::new(Variables::new(exchanger.clone())),
                 Box::new(Threads::new(exchanger.clone())),
             ],
+            Some(|rewind_direction| match rewind_direction {
+                tuirealm::command::Direction::Left => Msg::RightTabsInFocus {
+                    reset_to: Some(props::Direction::Right),
+                },
+                tuirealm::command::Direction::Right => Msg::RightTabsInFocus {
+                    reset_to: Some(props::Direction::Left),
+                },
+                _ => {
+                    unreachable!()
+                }
+            }),
         );
         app.mount(Id::LeftTabs, Box::new(left_tab), left_tab_sub)?;
 
@@ -196,6 +218,17 @@ impl Model {
                 Box::new(make_oracle_tab_window(&oracles)),
                 Box::<Logs>::default(),
             ],
+            Some(|rewind_direction| match rewind_direction {
+                tuirealm::command::Direction::Left => Msg::LeftTabsInFocus {
+                    reset_to: Some(props::Direction::Right),
+                },
+                tuirealm::command::Direction::Right => Msg::LeftTabsInFocus {
+                    reset_to: Some(props::Direction::Left),
+                },
+                _ => {
+                    unreachable!()
+                }
+            }),
         );
         app.mount(Id::RightTabs, Box::new(right_tab), right_tab_sub)?;
 
@@ -237,8 +270,15 @@ impl Model {
                     self.exchanger.send_switch_ui();
                     self.quit = true;
                 }
-                Msg::LeftTabsInFocus => {
+                Msg::LeftTabsInFocus { reset_to } => {
                     self.app.active(&Id::LeftTabs)?;
+                    if let Some(direction) = reset_to {
+                        self.app.attr(
+                            &Id::LeftTabs,
+                            TabWindow::RESET_CHOICE_ATTR,
+                            AttrValue::Direction(direction),
+                        )?;
+                    }
                     // change the focus again to prevent the situation
                     // when the focus was removed
                     // when call active for an already active component
@@ -246,8 +286,15 @@ impl Model {
                         .app
                         .attr(&Id::LeftTabs, Attribute::Focus, AttrValue::Flag(true));
                 }
-                Msg::RightTabsInFocus => {
+                Msg::RightTabsInFocus { reset_to } => {
                     self.app.active(&Id::RightTabs)?;
+                    if let Some(direction) = reset_to {
+                        self.app.attr(
+                            &Id::RightTabs,
+                            TabWindow::RESET_CHOICE_ATTR,
+                            AttrValue::Direction(direction),
+                        )?;
+                    }
                     // change the focus again to prevent the situation
                     // when the focus was removed
                     // when call active for an already active component
@@ -360,8 +407,6 @@ impl Model {
                     self.app.unlock_subs();
                     self.app.blur()?;
                     self.update_breakpoints()?;
-
-                    // Ok(None)
                 }
                 Msg::ShowOkPopup(title, text) => {
                     if let Some(title) = title {
@@ -448,13 +493,60 @@ impl Model {
                             .expect("messaging enabled")?;
                         self.app.blur()?;
                         self.update_breakpoints()?;
-
-                        // return Ok(Some(Msg::BreakpointsUpdate));
                     }
                     _ => {
                         self.app.blur()?;
                     }
                 },
+                Msg::ExpandTab(tab_id) => {
+                    debug_assert!(tab_id == Id::RightTabs || tab_id == Id::LeftTabs);
+                    match tab_id {
+                        Id::RightTabs
+                            if self.tabs_layout == Self::DEFAULT_TABS_LAYOUT
+                                || self.tabs_layout == Self::LEFT_TAB_FOCUS_LAYOUT =>
+                        {
+                            self.app.attr(
+                                &Id::RightTabs,
+                                TabWindow::VIEW_SIZE_ATTR,
+                                tab::ViewSize::Expand.into(),
+                            )?;
+                            self.app.attr(
+                                &Id::LeftTabs,
+                                TabWindow::VIEW_SIZE_ATTR,
+                                tab::ViewSize::Compacted.into(),
+                            )?;
+
+                            self.tabs_layout = Self::RIGHT_TAB_FOCUS_LAYOUT;
+                        }
+                        Id::LeftTabs
+                            if self.tabs_layout == Self::DEFAULT_TABS_LAYOUT
+                                || self.tabs_layout == Self::RIGHT_TAB_FOCUS_LAYOUT =>
+                        {
+                            self.app.attr(
+                                &Id::LeftTabs,
+                                TabWindow::VIEW_SIZE_ATTR,
+                                tab::ViewSize::Expand.into(),
+                            )?;
+                            self.app.attr(
+                                &Id::RightTabs,
+                                TabWindow::VIEW_SIZE_ATTR,
+                                tab::ViewSize::Compacted.into(),
+                            )?;
+
+                            self.tabs_layout = Self::LEFT_TAB_FOCUS_LAYOUT;
+                        }
+                        _ => {
+                            for id in [&Id::LeftTabs, &Id::RightTabs] {
+                                self.app.attr(
+                                    id,
+                                    TabWindow::VIEW_SIZE_ATTR,
+                                    tab::ViewSize::Default.into(),
+                                )?;
+                            }
+                            self.tabs_layout = Self::DEFAULT_TABS_LAYOUT;
+                        }
+                    }
+                }
 
                 Msg::None => {}
             }
