@@ -6,7 +6,7 @@ import pexpect
 class CommandTestCase(unittest.TestCase):
     def setUp(self):
         debugger = pexpect.spawn(
-            './target/debug/bs ./examples/target/debug/hello_world')
+            './target/debug/bs -t none ./examples/target/debug/hello_world')
         debugger.expect('BugStalker greets')
         self.debugger = debugger
 
@@ -88,7 +88,7 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.sendline('q')
         # respawn debugger and test address breakpoint
         self.debugger = pexpect.spawn(
-            './target/debug/bs ./examples/target/debug/hello_world')
+            './target/debug/bs -t none ./examples/target/debug/hello_world')
         self.debugger.expect('BugStalker greets')
         self.debugger.sendline('break ' + addr)
         self.debugger.expect_exact('New breakpoint')
@@ -137,7 +137,7 @@ class CommandTestCase(unittest.TestCase):
 
         # respawn debugger and move pc counter
         self.debugger = pexpect.spawn(
-            './target/debug/bs ./examples/target/debug/hello_world')
+            './target/debug/bs -t none ./examples/target/debug/hello_world')
         self.debugger.expect('BugStalker greets')
         self.debugger.sendline('break ' + ret_addr)
         self.debugger.expect('New breakpoint')
@@ -156,7 +156,7 @@ class CommandTestCase(unittest.TestCase):
     def test_step_in():
         """Debugger step in command (move to next line)"""
         debugger = pexpect.spawn(
-            './target/debug/bs ./examples/target/debug/calc -- 1 2 3 --description result')
+            './target/debug/bs -t none ./examples/target/debug/calc -- 1 2 3 --description result')
         debugger.expect('BugStalker greets')
         debugger.sendline('break main.rs:10')
         debugger.expect('New breakpoint')
@@ -243,7 +243,7 @@ class CommandTestCase(unittest.TestCase):
     def test_args_for_executable():
         """Run debugee with arguments"""
         debugger = pexpect.spawn(
-            './target/debug/bs ./examples/target/debug/calc -- 1 1 1 --description three')
+            './target/debug/bs -t none ./examples/target/debug/calc -- 1 1 1 --description three')
         debugger.expect('BugStalker greets')
         debugger.sendline('r')
         debugger.expect_exact('three: 3')
@@ -252,7 +252,7 @@ class CommandTestCase(unittest.TestCase):
     def test_read_value_u64():
         """Get program variable"""
         debugger = pexpect.spawn(
-            './target/debug/bs ./examples/target/debug/calc -- 1 2 3 --description result')
+            './target/debug/bs -t none ./examples/target/debug/calc -- 1 2 3 --description result')
         debugger.expect('BugStalker greets')
         debugger.sendline('break main.rs:15')
         debugger.expect('New breakpoint')
@@ -378,7 +378,7 @@ class CommandTestCase(unittest.TestCase):
     def test_frame_switch():
         """Switch stack frame and assert argument values"""
         debugger = pexpect.spawn(
-            './target/debug/bs ./examples/target/debug/calc -- 1 2 3 --description result')
+            './target/debug/bs -t none ./examples/target/debug/calc -- 1 2 3 --description result')
         debugger.expect('BugStalker greets')
         debugger.sendline('break main.rs:21')
         debugger.expect_exact('New breakpoint 1')
@@ -432,7 +432,7 @@ class CommandTestCase(unittest.TestCase):
     def test_source_fn_with_frame_switch():
         """Switch stack frame and assert argument values"""
         debugger = pexpect.spawn(
-            './target/debug/bs ./examples/target/debug/calc -- 1 2 3 --description result')
+            './target/debug/bs -t none ./examples/target/debug/calc -- 1 2 3 --description result')
         debugger.expect('BugStalker greets')
         debugger.sendline('break main.rs:21')
         debugger.expect_exact('New breakpoint 1')
@@ -476,7 +476,7 @@ class CommandTestCase(unittest.TestCase):
     def test_breakpoint_at_rust_panic():
         """Set breakpoint to rust panic handler and catch panics"""
         debugger = pexpect.spawn(
-            './target/debug/bs ./examples/target/debug/panic -- user')
+            './target/debug/bs -t none ./examples/target/debug/panic -- user')
         debugger.sendline('break rust_panic')
         debugger.expect('New breakpoint')
         debugger.sendline('run')
@@ -487,7 +487,7 @@ class CommandTestCase(unittest.TestCase):
         debugger.sendline('continue')
 
         debugger = pexpect.spawn(
-            './target/debug/bs ./examples/target/debug/panic -- system')
+            './target/debug/bs -t none ./examples/target/debug/panic -- system')
         debugger.sendline('break rust_panic')
         debugger.expect('New breakpoint')
         debugger.sendline('run')

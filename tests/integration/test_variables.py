@@ -6,7 +6,7 @@ import re
 class VariablesTestCase(unittest.TestCase):
     def setUp(self):
         debugger = pexpect.spawn(
-            './target/debug/bs ./examples/target/debug/vars')
+            './target/debug/bs -t none ./examples/target/debug/vars')
         debugger.expect('BugStalker greets')
         self.debugger = debugger
 

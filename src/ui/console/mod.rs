@@ -1,5 +1,4 @@
 use crate::debugger;
-use crate::debugger::variable::render::RenderRepr;
 use crate::debugger::variable::select::{Expression, VariableSelector};
 use crate::debugger::Debugger;
 use crate::ui::command;
@@ -23,15 +22,14 @@ use crate::ui::command::{
 };
 use crate::ui::command::{run, Command};
 use crate::ui::console::editor::{create_editor, CommandCompleter, RLHelper};
+use crate::ui::console::file::FileView;
 use crate::ui::console::help::*;
 use crate::ui::console::hook::TerminalHook;
 use crate::ui::console::print::style::{
     AddressView, AsmInstructionView, AsmOperandsView, ErrorView, FilePathView, FunctionNameView,
-    KeywordView,
 };
 use crate::ui::console::print::ExternalPrinter;
-use crate::ui::console::variable::render_variable_ir;
-use crate::ui::console::view::FileView;
+use crate::ui::console::variable::render_variable;
 use crate::ui::DebugeeOutReader;
 use crossterm::style::{Color, Stylize};
 use debugger::Error;
@@ -52,11 +50,11 @@ use std::time::Duration;
 use timeout_readwrite::TimeoutReader;
 
 mod editor;
+pub mod file;
 mod help;
 pub mod hook;
 pub mod print;
 mod variable;
-pub mod view;
 
 const WELCOME_TEXT: &str = r#"
 BugStalker greets
@@ -348,21 +346,19 @@ impl AppLoop {
                 .handle(print_var_command)?
                 .into_iter()
                 .for_each(|var| {
-                    self.printer.println(format!(
-                        "{} = {}",
-                        KeywordView::from(var.name()),
-                        render_variable_ir(&var, 0)
-                    ));
+                    self.printer.println(
+                        render_variable(&var)
+                            .unwrap_or(print::style::UNKNOWN_PLACEHOLDER.to_string()),
+                    );
                 }),
             Command::PrintArguments(print_arg_command) => ArgumentsHandler::new(&self.debugger)
                 .handle(print_arg_command)?
                 .into_iter()
                 .for_each(|arg| {
-                    self.printer.println(format!(
-                        "{} = {}",
-                        KeywordView::from(arg.name()),
-                        render_variable_ir(&arg, 0)
-                    ));
+                    self.printer.println(
+                        render_variable(&arg)
+                            .unwrap_or(print::style::UNKNOWN_PLACEHOLDER.to_string()),
+                    );
                 }),
             Command::PrintBacktrace(cmd) => {
                 let bt = BacktraceHandler::new(&self.debugger).handle(cmd)?;

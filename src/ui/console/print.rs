@@ -52,7 +52,7 @@ pub mod style {
     use crossterm::style::{Color, Stylize};
     use std::fmt::{Display, Formatter};
 
-    const UNKNOWN_PLACEHOLDER: &str = "???";
+    pub const UNKNOWN_PLACEHOLDER: &str = "???";
 
     struct View<T: Display> {
         inner: Option<T>,

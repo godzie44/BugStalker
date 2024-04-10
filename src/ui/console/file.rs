@@ -1,29 +1,22 @@
 use crate::debugger::PlaceDescriptor;
-use anyhow::anyhow;
+use crate::ui::syntax;
+use crate::ui::syntax::StylizedLine;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
-use syntect::easy::HighlightLines;
-use syntect::highlighting::ThemeSet;
-use syntect::parsing::SyntaxSet;
+use syntect::util::as_24_bit_terminal_escaped;
 
+#[derive(Default)]
 pub struct FileView {
     cached_lines: RefCell<HashMap<PathBuf, Box<[String]>>>,
-
-    ps: SyntaxSet,
-    ts: ThemeSet,
 }
 
 impl FileView {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        Self {
-            cached_lines: RefCell::default(),
-            ps: SyntaxSet::load_defaults_newlines(),
-            ts: ThemeSet::load_defaults(),
-        }
+        Self::default()
     }
 
     fn render(&self, file_path: &Path, start: u64, length: u64) -> anyhow::Result<String> {
@@ -41,13 +34,8 @@ impl FileView {
             Some(lines) => lines,
         };
 
-        #[allow(unused)]
-        let syntax = self
-            .ps
-            .find_syntax_by_extension("rs")
-            .ok_or(anyhow!("rust hl extension must exists"))?;
-        #[allow(unused)]
-        let mut h = HighlightLines::new(syntax, &self.ts.themes["Solarized (dark)"]);
+        let syntax_renderer = syntax::rust_syntax_renderer();
+        let mut line_renderer = syntax_renderer.line_renderer();
 
         let mut i = 0;
         let result = file_lines
@@ -58,18 +46,12 @@ impl FileView {
                 let line_number = start + 1 + i;
                 i += 1;
 
-                #[cfg(feature = "int_test")]
-                {
-                    Ok(format!("{acc}{line_number:>4} {line}\n"))
-                }
-                #[cfg(not(feature = "int_test"))]
-                {
-                    use syntect::highlighting::Style;
-                    use syntect::util::as_24_bit_terminal_escaped;
-
-                    let ranges: Vec<(Style, &str)> = h.highlight_line(line, &self.ps)?;
-                    let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
-                    Ok(format!("{acc}{line_number:>4} {escaped}\x1b[0m\n"))
+                match line_renderer.render_line(line)? {
+                    StylizedLine::NoneStyle(line) => Ok(format!("{acc}{line_number:>4} {line}\n")),
+                    StylizedLine::Stylized(segments) => {
+                        let escaped = as_24_bit_terminal_escaped(&segments, false);
+                        Ok(format!("{acc}{line_number:>4} {escaped}\x1b[0m\n"))
+                    }
                 }
             })?;
 
