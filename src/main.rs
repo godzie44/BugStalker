@@ -4,6 +4,8 @@ use bugstalker::debugger::process::Child;
 use bugstalker::debugger::{rust, DebuggerBuilder, NopHook};
 use bugstalker::log::LOGGER_SWITCHER;
 use bugstalker::oracle::builtin;
+use bugstalker::ui;
+use bugstalker::ui::config::{Theme, UIConfig};
 use bugstalker::ui::{console, tui};
 use clap::error::ErrorKind;
 use clap::{arg, CommandFactory, Parser};
@@ -12,10 +14,11 @@ use nix::unistd::Pid;
 use std::fmt::Display;
 use std::path::PathBuf;
 use std::process::exit;
+use std::str::FromStr;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
-struct Args {
+pub struct Args {
     /// Start with terminal ui
     #[clap(long)]
     #[arg(default_value_t = false)]
@@ -39,6 +42,13 @@ struct Args {
     /// Arguments are passed to debugee
     #[arg(raw(true))]
     args: Vec<String>,
+
+    /// Theme used for visualize code and variables.
+    /// Available themes: none, inspired_github, solarized_dark, solarized_light, base16_eighties_dark
+    /// base16_mocha_dark, base16_ocean_dark, base16_ocean_light
+    #[clap(short, long)]
+    #[arg(default_value = "solarized_dark")]
+    theme: String,
 }
 
 fn print_fatal_and_exit(kind: ErrorKind, message: impl Display) -> ! {
@@ -60,12 +70,22 @@ impl<T, E: Display> FatalResult<T> for Result<T, E> {
     }
 }
 
+impl From<&Args> for UIConfig {
+    fn from(args: &Args) -> Self {
+        Self {
+            theme: Theme::from_str(&args.theme)
+                .unwrap_or_exit(ErrorKind::InvalidValue, "Not an available theme"),
+        }
+    }
+}
+
 fn main() {
     let logger = env_logger::Logger::from_default_env();
     let filter = logger.filter();
     LOGGER_SWITCHER.switch(logger, filter);
 
     let args = Args::parse();
+    ui::config::set(UIConfig::from(&args));
 
     rust::Environment::init(args.std_lib_path.map(PathBuf::from));
     let (stdout_reader, stdout_writer) = os_pipe::pipe().unwrap();
