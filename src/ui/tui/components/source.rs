@@ -1,9 +1,12 @@
 use crate::ui::short::Abbreviator;
+use crate::ui::syntax;
+use crate::ui::syntax::StylizedLine;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::mstextarea::MultiSpanTextarea;
 use crate::ui::tui::utils::syntect::into_text_span;
 use crate::ui::tui::{Id, Msg};
+use crate::weak_error;
 use log::warn;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -11,9 +14,6 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use syntect::easy::HighlightLines;
-use syntect::highlighting::ThemeSet;
-use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 use tuirealm::command::{Cmd, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
@@ -32,44 +32,46 @@ struct FileLinesCache {
 }
 
 impl FileLinesCache {
-    fn lines(&mut self, file: &Path) -> &Vec<Vec<TextSpan>> {
-        match self.files.entry(file.to_path_buf()) {
+    fn lines(&mut self, file: &Path) -> anyhow::Result<&Vec<Vec<TextSpan>>> {
+        let lines = match self.files.entry(file.to_path_buf()) {
             Entry::Occupied(o) => o.into_mut(),
             Entry::Vacant(v) => {
                 let mut file = match fs::File::open(file) {
                     Ok(f) => f,
                     Err(e) => {
                         warn!("error while open {file:?}: {e}");
-                        return &self.empty_file;
+                        return Ok(&self.empty_file);
                     }
                 };
 
                 let mut source_code = String::new();
-                file.read_to_string(&mut source_code).unwrap();
+                file.read_to_string(&mut source_code)?;
 
-                let ps = SyntaxSet::load_defaults_newlines();
-                let ts = ThemeSet::load_defaults();
-                let syntax = ps.find_syntax_by_extension("rs").unwrap();
-                let mut h = HighlightLines::new(syntax, &ts.themes["Solarized (dark)"]);
+                let syntax_renderer = syntax::rust_syntax_renderer();
+                let mut line_renderer = syntax_renderer.line_renderer();
+
                 let mut lines = vec![];
                 for (i, line) in LinesWithEndings::from(&source_code).enumerate() {
                     let mut line_spans = vec![TextSpan::new(format!("{:>4} ", i + 1))];
 
-                    h.highlight_line(line, &ps)
-                        .unwrap()
-                        .into_iter()
-                        .for_each(|segment| {
-                            if let Ok(span) = into_text_span(segment) {
+                    match line_renderer.render_line(line)? {
+                        StylizedLine::NoneStyle(l) => {
+                            line_spans.push(TextSpan::new(l));
+                        }
+                        StylizedLine::Stylized(segment) => segment.into_iter().for_each(|s| {
+                            if let Ok(span) = into_text_span(s) {
                                 line_spans.push(span)
                             }
-                        });
+                        }),
+                    }
 
                     lines.push(line_spans);
                 }
 
                 v.insert(lines)
             }
-        }
+        };
+        Ok(lines)
     }
 }
 
@@ -122,13 +124,13 @@ impl Source {
         };
 
         if let Some(place) = mb_place_in_focus {
-            this.update_source_view(place.file.as_path(), Some(place.line_number));
+            weak_error!(this.update_source_view(place.file.as_path(), Some(place.line_number)));
         }
 
         Ok(this)
     }
 
-    fn update_source_view(&mut self, file: &Path, mb_line_num: Option<u64>) {
+    fn update_source_view(&mut self, file: &Path, mb_line_num: Option<u64>) -> anyhow::Result<()> {
         self.component.attr(
             Attribute::Title,
             AttrValue::Title((Self::get_title(Some(file)), Alignment::Center)),
@@ -136,7 +138,7 @@ impl Source {
 
         let lines = self
             .file_cache
-            .lines(file)
+            .lines(file)?
             .iter()
             .cloned()
             .enumerate()
@@ -152,6 +154,7 @@ impl Source {
         if let Some(line) = mb_line_num {
             self.component.states.list_index = (line as usize).saturating_sub(1);
         }
+        Ok(())
     }
 
     pub fn subscriptions() -> Vec<Sub<Id, UserEvent>> {
@@ -213,7 +216,7 @@ impl Component<Msg, UserEvent> for Source {
             Event::User(UserEvent::Breakpoint { file, line, .. })
             | Event::User(UserEvent::Step { file, line, .. }) => {
                 if let Some(file) = file {
-                    self.update_source_view(PathBuf::from(file).as_path(), line);
+                    weak_error!(self.update_source_view(PathBuf::from(file).as_path(), line));
                 }
             }
             Event::User(UserEvent::Exit { .. }) => {

@@ -2,8 +2,31 @@ use crate::debugger::address::RelocatedAddress;
 use crate::debugger::variable::render::{RenderRepr, ValueLayout};
 use crate::debugger::variable::VariableIR;
 use crate::ui::console::print::style::AddressView;
+use crate::ui::syntax;
+use crate::ui::syntax::StylizedLine;
+use syntect::util::as_24_bit_terminal_escaped;
 
 const TAB: &str = "\t";
+
+pub fn render_variable(var: &VariableIR) -> anyhow::Result<String> {
+    let syntax_renderer = syntax::rust_syntax_renderer();
+    let mut line_renderer = syntax_renderer.line_renderer();
+    let var_as_string = format!("{} = {}", var.name(), render_variable_ir(var, 0));
+    Ok(var_as_string
+        .lines()
+        .map(|l| -> anyhow::Result<String> {
+            let line = match line_renderer.render_line(l)? {
+                StylizedLine::NoneStyle(l) => l.to_string(),
+                StylizedLine::Stylized(segments) => {
+                    let line = as_24_bit_terminal_escaped(&segments, false);
+                    format!("{line}\x1b[0m")
+                }
+            };
+            Ok(line)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?
+        .join("\n"))
+}
 
 pub fn render_variable_ir(view: &VariableIR, depth: usize) -> String {
     match view.value() {
