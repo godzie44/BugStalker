@@ -113,7 +113,7 @@ pub trait EventHook {
     /// # Arguments
     ///
     /// * `pid`: debugee process pid
-    fn on_process_install(&self, pid: Pid);
+    fn on_process_install(&self, pid: Pid, object: Option<&object::File>);
 }
 
 pub struct NopHook {}
@@ -142,7 +142,7 @@ impl EventHook for NopHook {
 
     fn on_exit(&self, _: i32) {}
 
-    fn on_process_install(&self, _: Pid) {}
+    fn on_process_install(&self, _: Pid, _: Option<&object::File>) {}
 }
 
 macro_rules! disable_when_not_stared {
@@ -299,7 +299,7 @@ impl Debugger {
         ));
 
         let process_id = process.pid();
-        hooks.on_process_install(process_id);
+        hooks.on_process_install(process_id, Some(&object));
 
         let debugee = if process.is_external() {
             Debugee::new_from_external_process(program_path, &process, &object)?
@@ -548,7 +548,7 @@ impl Debugger {
         // breakpoints will be enabled later, when StopReason::DebugeeStart state is reached
         self.breakpoints.update_pid(self.process.pid());
 
-        self.hooks.on_process_install(self.process.pid());
+        self.hooks.on_process_install(self.process.pid(), None);
         self.expl_context = ExplorationContext::new_non_running(self.process.pid());
         self.continue_execution()?;
         Ok(self.process.pid())

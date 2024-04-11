@@ -3,6 +3,8 @@ use crate::debugger::{EventHook, FunctionDie, PlaceDescriptor};
 use crate::ui::tui::output::OutputLine;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::logger::TuiLogLine;
+use crate::version;
+use log::warn;
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use std::sync::{Arc, Mutex};
@@ -144,7 +146,15 @@ impl EventHook for TuiHook {
         self.event_queue.lock().unwrap().push(UserEvent::Exit(code));
     }
 
-    fn on_process_install(&self, pid: Pid) {
+    fn on_process_install(&self, pid: Pid, object: Option<&object::File>) {
+        if let Some(obj) = object {
+            if !version::probe_file(obj) {
+                let supported_versions = version::supported_versions_to_string();
+                warn!(target: "debugger", "Found unsupported rust version, some of program data may not be displayed correctly. \
+                List of supported rustc versions: {supported_versions}.");
+            }
+        }
+
         self.event_queue
             .lock()
             .unwrap()
