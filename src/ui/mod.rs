@@ -2,6 +2,7 @@ pub mod command;
 pub mod config;
 pub mod console;
 pub mod short;
+pub mod supervisor;
 mod syntax;
 pub mod tui;
 

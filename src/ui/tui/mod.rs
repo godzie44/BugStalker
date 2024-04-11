@@ -1,11 +1,12 @@
-use crate::debugger::{BreakpointViewOwned, Debugger};
-use crate::ui::tui::app::port::DebuggerEventQueue;
+use crate::debugger::process::{Child, Installed};
+use crate::debugger::{BreakpointViewOwned, Debugger, DebuggerBuilder};
 pub use crate::ui::tui::app::port::TuiHook;
+use crate::ui::tui::app::port::{DebuggerEventQueue, UserEvent};
 use crate::ui::tui::app::Model;
 use crate::ui::tui::components::popup::Popup;
 use crate::ui::tui::output::{OutputLine, OutputStreamProcessor, StreamType};
 use crate::ui::tui::proto::{exchanger, Request};
-use crate::ui::{console, DebugeeOutReader};
+use crate::ui::{console, supervisor, DebugeeOutReader};
 use crate::weak_error;
 use anyhow::anyhow;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
@@ -90,8 +91,34 @@ impl AppBuilder {
         }
     }
 
-    pub fn build(self, debugger: Debugger) -> TuiApplication {
-        TuiApplication::new(debugger, self.debugee_out, self.debugee_err)
+    pub fn build(
+        self,
+        dbg_builder: DebuggerBuilder<TuiHook>,
+        process: Child<Installed>,
+    ) -> anyhow::Result<TuiApplication> {
+        let debugger_event_queue = DebuggerEventQueue::default();
+        let debugger = dbg_builder
+            .with_hooks(TuiHook::new(debugger_event_queue.clone()))
+            .build(process)?;
+
+        Ok(TuiApplication::new(
+            debugger,
+            self.debugee_out,
+            self.debugee_err,
+            debugger_event_queue,
+        ))
+    }
+
+    pub fn extend(self, mut debugger: Debugger) -> TuiApplication {
+        let debugger_event_queue = DebuggerEventQueue::default();
+        debugger.set_hook(TuiHook::new(debugger_event_queue.clone()));
+
+        TuiApplication::new(
+            debugger,
+            self.debugee_out,
+            self.debugee_err,
+            debugger_event_queue,
+        )
     }
 }
 
@@ -99,6 +126,7 @@ pub struct TuiApplication {
     debugger: Debugger,
     debugee_out: DebugeeOutReader,
     debugee_err: DebugeeOutReader,
+    debugger_event_queue: Arc<Mutex<Vec<UserEvent>>>,
 }
 
 impl TuiApplication {
@@ -106,23 +134,21 @@ impl TuiApplication {
         debugger: Debugger,
         debugee_out: DebugeeOutReader,
         debugee_err: DebugeeOutReader,
+        debugger_event_queue: Arc<Mutex<Vec<UserEvent>>>,
     ) -> Self {
         Self {
             debugger,
             debugee_out,
             debugee_err,
+            debugger_event_queue,
         }
     }
 
-    pub fn run(mut self) -> anyhow::Result<()> {
+    pub fn run(mut self) -> anyhow::Result<supervisor::ControlFlow> {
         let log_buffer = Arc::new(Mutex::default());
         let logger = utils::logger::TuiLogger::new(log_buffer.clone());
         let filter = logger.filter();
         crate::log::LOGGER_SWITCHER.switch(logger, filter);
-
-        let debugger_event_queue = DebuggerEventQueue::default();
-        self.debugger
-            .set_hook(TuiHook::new(debugger_event_queue.clone()));
 
         let stream_buf = DebugeeStreamBuffer::default();
 
@@ -142,7 +168,7 @@ impl TuiApplication {
         let ui_jh = thread::spawn(move || -> anyhow::Result<()> {
             let mut model = Model::new(
                 stream_buf,
-                debugger_event_queue,
+                self.debugger_event_queue,
                 client_exchanger,
                 log_buffer,
             )?;
@@ -233,7 +259,7 @@ impl TuiApplication {
         drop(std_err_handle);
 
         match exit_type {
-            ExitType::Exit => {}
+            ExitType::Exit => Ok(supervisor::ControlFlow::Exit),
             ExitType::Shutdown => {
                 let join_result = ui_jh.join();
                 let join_result = join_result
@@ -242,17 +268,18 @@ impl TuiApplication {
                 if let Err(e) = join_result {
                     error!(target: "tui", "tui thread error: {e}");
                 };
+                Ok(supervisor::ControlFlow::Exit)
             }
             ExitType::SwitchUi => {
                 _ = ui_jh.join();
                 let builder = console::AppBuilder::new(self.debugee_out, self.debugee_err);
                 let app = builder
-                    .build(self.debugger)
+                    .extend(self.debugger)
                     .expect("build application fail");
-                app.run().expect("run application fail");
+                Ok(supervisor::ControlFlow::Switch(
+                    supervisor::Application::Terminal(app),
+                ))
             }
         }
-
-        Ok(())
     }
 }
