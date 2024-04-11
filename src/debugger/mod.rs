@@ -220,14 +220,12 @@ impl<H: EventHook + 'static> DebuggerBuilder<H> {
         }
     }
 
-    /// Add oracle.
+    /// Add oracles.
     ///
     /// # Arguments
     ///
-    /// * `oracle`: oracle to add
-    pub fn with_oracle(self, oracle: Arc<dyn Oracle>) -> Self {
-        let mut oracles = self.oracles;
-        oracles.push(oracle);
+    /// * `oracles`: list of oracles
+    pub fn with_oracles(self, oracles: Vec<Arc<dyn Oracle>>) -> Self {
         Self { oracles, ..self }
     }
 
@@ -241,6 +239,11 @@ impl<H: EventHook + 'static> DebuggerBuilder<H> {
             hooks: Some(hooks),
             ..self
         }
+    }
+
+    /// Return all oracles.
+    pub fn oracles(&self) -> impl Iterator<Item = &dyn Oracle> {
+        self.oracles.iter().map(|oracle| oracle.as_ref())
     }
 
     /// Create a debugger.
