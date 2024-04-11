@@ -15,6 +15,7 @@ glued to the middle of render area instead of the bottom of the screen
 - console: now program data (variables and arguments) stylized with syntect
 
 ### Fixed
+- ui: possible stack overflow when switching between ui types
 
 ### Deprecated
 

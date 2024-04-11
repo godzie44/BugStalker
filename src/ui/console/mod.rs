@@ -1,7 +1,7 @@
 use crate::debugger;
+use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::select::{Expression, VariableSelector};
-use crate::debugger::Debugger;
-use crate::ui::command;
+use crate::debugger::{Debugger, DebuggerBuilder};
 use crate::ui::command::arguments::Handler as ArgumentsHandler;
 use crate::ui::command::backtrace::Handler as BacktraceHandler;
 use crate::ui::command::frame::ExecutionResult as FrameResult;
@@ -31,6 +31,7 @@ use crate::ui::console::print::style::{
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::variable::render_variable;
 use crate::ui::DebugeeOutReader;
+use crate::ui::{command, supervisor};
 use crossterm::style::{Color, Stylize};
 use debugger::Error;
 use nix::sys::signal::{kill, Signal};
@@ -80,25 +81,27 @@ impl AppBuilder {
         }
     }
 
-    pub fn build(self, mut debugger: Debugger) -> anyhow::Result<TerminalApplication> {
+    fn build_inner(
+        self,
+        oracles: &[&str],
+        debugger_lazy: impl FnOnce(TerminalHook) -> anyhow::Result<Debugger>,
+    ) -> anyhow::Result<TerminalApplication> {
         let (user_cmd_tx, user_cmd_rx) = mpsc::sync_channel::<UserAction>(0);
-        let oracles = debugger.all_oracles().map(|o| o.name()).collect::<Vec<_>>();
-        let mut editor = create_editor(PROMT, &oracles)?;
+        let mut editor = create_editor(PROMT, oracles)?;
+        let file_view = Rc::new(FileView::new());
+        let hook = TerminalHook::new(
+            ExternalPrinter::new(&mut editor)?,
+            file_view.clone(),
+            move |pid| DEBUGEE_PID.store(pid.as_raw(), Ordering::Release),
+        );
 
+        let debugger = debugger_lazy(hook)?;
         if let Some(h) = editor.helper_mut() {
             h.completer
                 .lock()
                 .unwrap()
                 .replace_file_hints(debugger.known_files().cloned())
         }
-
-        DEBUGEE_PID.store(debugger.process().pid().as_raw(), Ordering::Release);
-        let file_view = Rc::new(FileView::new());
-        debugger.set_hook(TerminalHook::new(
-            ExternalPrinter::new(&mut editor)?,
-            file_view.clone(),
-            move |pid| DEBUGEE_PID.store(pid.as_raw(), Ordering::Release),
-        ));
 
         Ok(TerminalApplication {
             debugger,
@@ -109,6 +112,39 @@ impl AppBuilder {
             user_act_tx: user_cmd_tx,
             user_act_rx: user_cmd_rx,
         })
+    }
+
+    /// Create a new debugger using debugger builder.
+    /// Create application then.
+    ///
+    /// # Arguments
+    ///
+    /// * `dbg_builder`: already configured debugger builder
+    /// * `process`: already install debugee process
+    pub fn build(
+        self,
+        dbg_builder: DebuggerBuilder<TerminalHook>,
+        process: Child<Installed>,
+    ) -> anyhow::Result<TerminalApplication> {
+        let oracles = dbg_builder.oracles().map(|o| o.name()).collect::<Vec<_>>();
+        let debugger_ctor = |hook| Ok(dbg_builder.with_hooks(hook).build(process)?);
+        self.build_inner(&oracles, debugger_ctor)
+    }
+
+    /// Extend new application with existed debugger.
+    ///
+    /// # Arguments
+    ///
+    /// * `debugger`: already existed debugger
+    pub fn extend(self, mut debugger: Debugger) -> anyhow::Result<TerminalApplication> {
+        let oracles = debugger.all_oracles().map(|o| o.name()).collect::<Vec<_>>();
+        DEBUGEE_PID.store(debugger.process().pid().as_raw(), Ordering::Release);
+        let debugger_ctor = move |hook| {
+            debugger.set_hook(hook);
+            Ok(debugger)
+        };
+
+        self.build_inner(&oracles, debugger_ctor)
     }
 }
 
@@ -141,7 +177,7 @@ pub struct TerminalApplication {
 pub static HELLO_ONCE: Once = Once::new();
 
 impl TerminalApplication {
-    pub fn run(mut self) -> anyhow::Result<()> {
+    pub fn run(mut self) -> anyhow::Result<supervisor::ControlFlow> {
         let logger = env_logger::Logger::from_default_env();
         let filter = logger.filter();
         crate::log::LOGGER_SWITCHER.switch(logger, filter);
@@ -282,9 +318,7 @@ impl TerminalApplication {
             });
         }
 
-        app_loop.run();
-
-        Ok(())
+        app_loop.run()
     }
 }
 
@@ -655,12 +689,12 @@ impl AppLoop {
         Ok(())
     }
 
-    fn run(mut self) {
+    fn run(mut self) -> anyhow::Result<supervisor::ControlFlow> {
         loop {
             _ = self.ready_to_next_command_tx.send(EditorMode::Default);
 
             let Ok(action) = self.user_input_rx.recv() else {
-                break;
+                return Ok(supervisor::ControlFlow::Exit);
             };
 
             match action {
@@ -689,15 +723,16 @@ impl AppLoop {
                 }
                 UserAction::Nop => {}
                 UserAction::Terminate => {
-                    break;
+                    return Ok(supervisor::ControlFlow::Exit);
                 }
                 UserAction::ChangeMode => {
                     self.cancel_output_flag.store(true, Ordering::SeqCst);
                     let tui_builder =
                         crate::ui::tui::AppBuilder::new(self.debugee_out, self.debugee_err);
-                    let app = tui_builder.build(self.debugger);
-                    app.run().expect("Run application fail");
-                    break;
+                    let app = tui_builder.extend(self.debugger);
+                    return Ok(supervisor::ControlFlow::Switch(
+                        supervisor::Application::TUI(app),
+                    ));
                 }
             }
         }
