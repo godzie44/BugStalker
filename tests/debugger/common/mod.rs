@@ -55,7 +55,7 @@ impl EventHook for TestHooks {
     }
     fn on_signal(&self, _: Signal) {}
     fn on_exit(&self, _code: i32) {}
-    fn on_process_install(&self, _pid: Pid) {}
+    fn on_process_install(&self, _pid: Pid, _: Option<&object::File>) {}
 }
 
 #[macro_export]
