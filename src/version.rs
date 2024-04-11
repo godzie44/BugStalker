@@ -1,4 +1,6 @@
 use crate::weak_error;
+use itertools::Itertools;
+use object::{Object, ObjectSection};
 use once_cell::sync;
 use regex::Regex;
 
@@ -46,3 +48,41 @@ macro_rules! version_switch {
                 }
             };
         }
+
+/// Supported rustc version diapasons.
+static SUPPORTED_RUSTC: [(Version, Version); 3] = [
+    (Version((1, 75, 0)), Version((1, 75, u32::MAX))),
+    (Version((1, 76, 0)), Version((1, 76, u32::MAX))),
+    (Version((1, 77, 0)), Version((1, 77, u32::MAX))),
+];
+
+pub fn supported_versions_to_string() -> String {
+    format!(
+        "[{}]",
+        SUPPORTED_RUSTC
+            .iter()
+            .map(|(v, _)| format!("{}.{}.x", v.0 .0, v.0 .1))
+            .join(", ")
+    )
+}
+
+/// Check rustc version, return true if a version supported, false otherwise. False positive.
+pub fn probe_file(obj: &object::File) -> bool {
+    let Some(comment_sect) = obj.section_by_name(".comment") else {
+        return true;
+    };
+    let Ok(data) = comment_sect.data() else {
+        return true;
+    };
+    let Ok(string_data) = std::str::from_utf8(data) else {
+        return true;
+    };
+
+    if let Some(version) = Version::rustc_parse(string_data) {
+        return SUPPORTED_RUSTC
+            .iter()
+            .any(|(v_min, v_max)| version >= *v_min && version <= *v_max);
+    }
+
+    true
+}
