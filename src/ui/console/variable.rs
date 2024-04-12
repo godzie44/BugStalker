@@ -1,7 +1,6 @@
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::variable::render::{RenderRepr, ValueLayout};
 use crate::debugger::variable::VariableIR;
-use crate::ui::console::print::style::AddressView;
 use crate::ui::syntax;
 use crate::ui::syntax::StylizedLine;
 use syntect::util::as_24_bit_terminal_escaped;
@@ -39,7 +38,7 @@ pub fn render_variable_ir(view: &VariableIR, depth: usize) -> String {
                 format!(
                     "{} [{}]",
                     view.r#type(),
-                    AddressView::from(RelocatedAddress::from(addr as usize))
+                    RelocatedAddress::from(addr as usize)
                 )
             }
             ValueLayout::Wrapped(val) => {
