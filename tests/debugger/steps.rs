@@ -150,12 +150,12 @@ fn test_step_over_inline_code() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 442).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 536).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(442));
+    assert_eq!(info.line.take(), Some(536));
     debugger.step_over().unwrap();
-    assert_eq!(info.line.take(), Some(443));
+    assert_eq!(info.line.take(), Some(537));
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);

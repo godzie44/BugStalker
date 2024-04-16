@@ -3,7 +3,9 @@ use crate::common::{rust_version, DebugeeRunInfo};
 use crate::VARS_APP;
 use crate::{assert_no_proc, prepare_debugee_process};
 use bugstalker::debugger::variable::render::RenderRepr;
-use bugstalker::debugger::variable::select::{Expression, VariableSelector};
+use bugstalker::debugger::variable::select::{
+    Expression, Literal, LiteralOrWildcard, VariableSelector,
+};
 use bugstalker::debugger::variable::{select, VariableIR};
 use bugstalker::debugger::{variable, Debugger, DebuggerBuilder};
 use bugstalker::ui::command::parser::expression;
@@ -11,6 +13,7 @@ use bugstalker::{debugger, version_switch};
 use chumsky::Parser;
 use debugger::variable::SupportedScalar;
 use serial_test::serial;
+use std::collections::HashMap;
 
 fn assert_scalar(
     var: &VariableIR,
@@ -1271,10 +1274,10 @@ fn test_read_hashmap() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 261).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 290).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(261));
+    assert_eq!(info.line.take(), Some(290));
 
     let rust_version = rust_version(VARS_APP).unwrap();
     let hash_map_type = version_switch!(
@@ -1392,6 +1395,95 @@ fn test_read_hashmap() {
         });
     });
 
+    let make_idx_dqe = |var: &str, literal| {
+        Expression::Index(
+            Expression::Variable(VariableSelector::Name {
+                var_name: var.to_string(),
+                only_local: true,
+            })
+            .boxed(),
+            literal,
+        )
+    };
+
+    // get by bool key
+    let dqe = make_idx_dqe("hm1", Literal::Bool(true));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "value", "i64", Some(SupportedScalar::I64(3)));
+
+    // get by string key
+    let dqe = make_idx_dqe("hm2", Literal::String("efg".to_string()));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_vec(val, "value", "Vec<i32, alloc::alloc::Global>", 3, |buf| {
+        assert_array(buf, "buf", "[i32]", |i, item| match i {
+            0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(11))),
+            1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(12))),
+            2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(13))),
+            _ => panic!("3 items expected"),
+        })
+    });
+
+    // get by int key
+    let dqe = make_idx_dqe("hm3", Literal::Int(99));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "value", "i32", Some(SupportedScalar::I32(99)));
+
+    // get by pointer key
+    let key = debugger
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "b".to_string(),
+            only_local: true,
+        }))
+        .unwrap();
+    assert_eq!(key.len(), 1);
+    let VariableIR::Pointer(ptr) = &key[0] else {
+        panic!("not a pointer")
+    };
+    let ptr_val = ptr.value.unwrap() as usize;
+
+    let dqe = make_idx_dqe("hm5", Literal::Address(ptr_val));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_str(val, "value", "b");
+
+    // get by complex object
+    let dqe = make_idx_dqe(
+        "hm6",
+        Literal::AssocArray(HashMap::from([
+            (
+                "field_1".to_string(),
+                LiteralOrWildcard::Literal(Literal::Int(1)),
+            ),
+            (
+                "field_2".to_string(),
+                LiteralOrWildcard::Literal(Literal::Array(Box::new([
+                    LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                    LiteralOrWildcard::Wildcard,
+                ]))),
+            ),
+            (
+                "field_3".to_string(),
+                LiteralOrWildcard::Literal(Literal::EnumVariant(
+                    "Some".to_string(),
+                    Some(Box::new(Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::Bool(true)),
+                    ])))),
+                )),
+            ),
+        ])),
+    );
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "value", "i32", Some(SupportedScalar::I32(1)));
+
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
@@ -1405,10 +1497,10 @@ fn test_read_hashset() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 274).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 307).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(274));
+    assert_eq!(info.line.take(), Some(307));
 
     let rust_version = rust_version(VARS_APP).unwrap();
     let hashset_type = version_switch!(
@@ -1456,6 +1548,55 @@ fn test_read_hashset() {
         });
     });
 
+    let make_idx_dqe = |var: &str, literal| {
+        Expression::Index(
+            Expression::Variable(VariableSelector::Name {
+                var_name: var.to_string(),
+                only_local: true,
+            })
+            .boxed(),
+            literal,
+        )
+    };
+
+    // get by int key
+    let dqe = make_idx_dqe("hs1", Literal::Int(2));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "contains", "bool", Some(SupportedScalar::Bool(true)));
+
+    let dqe = make_idx_dqe("hs1", Literal::Int(5));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "contains", "bool", Some(SupportedScalar::Bool(false)));
+
+    // get by pointer key
+    let key = debugger
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "b".to_string(),
+            only_local: true,
+        }))
+        .unwrap();
+    assert_eq!(key.len(), 1);
+    let VariableIR::Pointer(ptr) = &key[0] else {
+        panic!("not a pointer")
+    };
+    let ptr_val = ptr.value.unwrap() as usize;
+
+    let dqe = make_idx_dqe("hs4", Literal::Address(ptr_val));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "contains", "bool", Some(SupportedScalar::Bool(true)));
+
+    let dqe = make_idx_dqe("hs4", Literal::Address(0));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "contains", "bool", Some(SupportedScalar::Bool(false)));
+
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
@@ -1469,10 +1610,10 @@ fn test_circular_ref_types() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 301).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 334).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(301));
+    assert_eq!(info.line.take(), Some(334));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_rc(
@@ -1536,9 +1677,9 @@ fn test_lexical_blocks() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 307).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 340).unwrap();
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(307));
+    assert_eq!(info.line.take(), Some(340));
 
     let vars = debugger.read_local_variables().unwrap();
     // WAITFORFIX: https://github.com/rust-lang/rust/issues/113819
@@ -1547,18 +1688,18 @@ fn test_lexical_blocks() {
     assert_eq!(vars.len(), 2);
     assert_eq!(vars[0].name(), "alpha");
 
-    debugger.set_breakpoint_at_line("vars.rs", 309).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 342).unwrap();
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(309));
+    assert_eq!(info.line.take(), Some(342));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_eq!(vars.len(), 2);
     assert_eq!(vars[0].name(), "alpha");
     assert_eq!(vars[1].name(), "beta");
 
-    debugger.set_breakpoint_at_line("vars.rs", 310).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 343).unwrap();
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(310));
+    assert_eq!(info.line.take(), Some(343));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_eq!(vars.len(), 3);
@@ -1566,9 +1707,9 @@ fn test_lexical_blocks() {
     assert_eq!(vars[1].name(), "beta");
     assert_eq!(vars[2].name(), "gama");
 
-    debugger.set_breakpoint_at_line("vars.rs", 316).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 349).unwrap();
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(316));
+    assert_eq!(info.line.take(), Some(349));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_eq!(vars.len(), 2);
@@ -1588,9 +1729,9 @@ fn test_btree_map() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 334).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 396).unwrap();
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(334));
+    assert_eq!(info.line.take(), Some(396));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_btree_map(
@@ -1709,6 +1850,88 @@ fn test_btree_map() {
             );
         });
 
+    let make_idx_dqe = |var: &str, literal| {
+        Expression::Index(
+            Expression::Variable(VariableSelector::Name {
+                var_name: var.to_string(),
+                only_local: true,
+            })
+            .boxed(),
+            literal,
+        )
+    };
+
+    // get by bool key
+    let dqe = make_idx_dqe("hm1", Literal::Bool(true));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "value", "i64", Some(SupportedScalar::I64(3)));
+
+    // get by string key
+    let dqe = make_idx_dqe("hm2", Literal::String("efg".to_string()));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_vec(val, "value", "Vec<i32, alloc::alloc::Global>", 3, |buf| {
+        assert_array(buf, "buf", "[i32]", |i, item| match i {
+            0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(11))),
+            1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(12))),
+            2 => assert_scalar(item, "2", "i32", Some(SupportedScalar::I32(13))),
+            _ => panic!("3 items expected"),
+        })
+    });
+
+    // get by int key
+    let dqe = make_idx_dqe("hm3", Literal::Int(99));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "value", "i32", Some(SupportedScalar::I32(99)));
+
+    // get by pointer key
+    let key = debugger
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "b".to_string(),
+            only_local: true,
+        }))
+        .unwrap();
+    assert_eq!(key.len(), 1);
+    let VariableIR::Pointer(ptr) = &key[0] else {
+        panic!("not a pointer")
+    };
+    let ptr_val = ptr.value.unwrap() as usize;
+
+    let dqe = make_idx_dqe("hm5", Literal::Address(ptr_val));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_str(val, "value", "b");
+
+    // get by complex object
+    let dqe = make_idx_dqe(
+        "hm6",
+        Literal::AssocArray(HashMap::from([
+            ("field_1".to_string(), LiteralOrWildcard::Wildcard),
+            (
+                "field_2".to_string(),
+                LiteralOrWildcard::Literal(Literal::Array(Box::new([
+                    LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                    LiteralOrWildcard::Wildcard,
+                    LiteralOrWildcard::Wildcard,
+                ]))),
+            ),
+            (
+                "field_3".to_string(),
+                LiteralOrWildcard::Literal(Literal::EnumVariant("None".to_string(), None)),
+            ),
+        ])),
+    );
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "value", "i32", Some(SupportedScalar::I32(2)));
+
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
@@ -1722,10 +1945,10 @@ fn test_read_btree_set() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 347).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 413).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(347));
+    assert_eq!(info.line.take(), Some(413));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_btree_set(
@@ -1774,6 +1997,55 @@ fn test_read_btree_set() {
         },
     );
 
+    let make_idx_dqe = |var: &str, literal| {
+        Expression::Index(
+            Expression::Variable(VariableSelector::Name {
+                var_name: var.to_string(),
+                only_local: true,
+            })
+            .boxed(),
+            literal,
+        )
+    };
+
+    // get by int key
+    let dqe = make_idx_dqe("hs1", Literal::Int(2));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "contains", "bool", Some(SupportedScalar::Bool(true)));
+
+    let dqe = make_idx_dqe("hs1", Literal::Int(5));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "contains", "bool", Some(SupportedScalar::Bool(false)));
+
+    // get by pointer key
+    let key = debugger
+        .read_variable(Expression::Variable(VariableSelector::Name {
+            var_name: "b".to_string(),
+            only_local: true,
+        }))
+        .unwrap();
+    assert_eq!(key.len(), 1);
+    let VariableIR::Pointer(ptr) = &key[0] else {
+        panic!("not a pointer")
+    };
+    let ptr_val = ptr.value.unwrap() as usize;
+
+    let dqe = make_idx_dqe("hs4", Literal::Address(ptr_val));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "contains", "bool", Some(SupportedScalar::Bool(true)));
+
+    let dqe = make_idx_dqe("hs4", Literal::Address(0));
+    let val = debugger.read_variable(dqe).unwrap();
+    assert_eq!(val.len(), 1);
+    let val = &val[0];
+    assert_scalar(val, "contains", "bool", Some(SupportedScalar::Bool(false)));
+
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
@@ -1787,10 +2059,10 @@ fn test_read_vec_deque() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 365).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 431).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(365));
+    assert_eq!(info.line.take(), Some(431));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_vec_deque(
@@ -1858,10 +2130,10 @@ fn test_read_atomic() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 375).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 441).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(375));
+    assert_eq!(info.line.take(), Some(441));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_struct(&vars[0], "int32_atomic", "AtomicI32", |i, member| match i {
@@ -1901,10 +2173,10 @@ fn test_cell() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 387).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 453).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(387));
+    assert_eq!(info.line.take(), Some(453));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_cell(&vars[0], "a_cell", "Cell<i32>", |value| {
@@ -1941,10 +2213,10 @@ fn test_shared_ptr() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 409).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 475).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(409));
+    assert_eq!(info.line.take(), Some(475));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_rc(&vars[0], "rc0", "Rc<i32, alloc::alloc::Global>");
@@ -2052,10 +2324,10 @@ fn test_zst_types() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 430).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 496).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(430));
+    assert_eq!(info.line.take(), Some(496));
 
     let vars = debugger.read_local_variables().unwrap();
 
@@ -2238,12 +2510,12 @@ fn test_read_static_in_fn_variable() {
     let mut debugger = builder.build(process).unwrap();
 
     // brkpt in function where static is declared
-    debugger.set_breakpoint_at_line("vars.rs", 438).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 504).unwrap();
     // brkpt outside function where static is declared
-    debugger.set_breakpoint_at_line("vars.rs", 485).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 551).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(438));
+    assert_eq!(info.line.take(), Some(504));
 
     let vars = debugger
         .read_variable(Expression::Variable(VariableSelector::Name {
@@ -2259,7 +2531,7 @@ fn test_read_static_in_fn_variable() {
     );
 
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(485));
+    assert_eq!(info.line.take(), Some(551));
 
     let vars = debugger
         .read_variable(Expression::Variable(VariableSelector::Name {
@@ -2411,10 +2683,10 @@ fn test_read_uuid() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 453).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 519).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(453));
+    assert_eq!(info.line.take(), Some(519));
 
     let vars = debugger.read_local_variables().unwrap();
     assert_uuid(&vars[0], "uuid_v4", "Uuid");
