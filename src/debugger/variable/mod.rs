@@ -4,7 +4,9 @@ use crate::debugger::debugee::dwarf::r#type::{
 use crate::debugger::debugee::dwarf::r#type::{ComplexType, TypeDeclaration};
 use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, NamespaceHierarchy};
 use crate::debugger::variable::render::RenderRepr;
-use crate::debugger::variable::specialization::VariableParserExtension;
+use crate::debugger::variable::specialization::{
+    HashSetVariable, StrVariable, StringVariable, VariableParserExtension,
+};
 use crate::{debugger, version_switch, weak_error};
 use bytes::Bytes;
 use gimli::{
@@ -15,11 +17,13 @@ use log::warn;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Display, Formatter};
 use std::string::FromUtf8Error;
+use uuid::Uuid;
 
 pub mod render;
 pub mod select;
 mod specialization;
 
+use crate::debugger::variable::select::{Literal, LiteralOrWildcard};
 pub use specialization::SpecializedVariableIR;
 
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -60,7 +64,7 @@ pub enum ParsingError {
 
 /// Identifier of debugee variables.
 /// Consists of the name and namespace of the variable.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct VariableIdentity {
     namespace: NamespaceHierarchy,
     pub name: Option<String>,
@@ -152,6 +156,30 @@ impl Display for SupportedScalar {
     }
 }
 
+impl SupportedScalar {
+    fn equal_with_literal(&self, lhs: &Literal) -> bool {
+        match self {
+            SupportedScalar::I8(i) => lhs.equal_with_int(*i as i64),
+            SupportedScalar::I16(i) => lhs.equal_with_int(*i as i64),
+            SupportedScalar::I32(i) => lhs.equal_with_int(*i as i64),
+            SupportedScalar::I64(i) => lhs.equal_with_int(*i),
+            SupportedScalar::I128(i) => lhs.equal_with_int(*i as i64),
+            SupportedScalar::Isize(i) => lhs.equal_with_int(*i as i64),
+            SupportedScalar::U8(u) => lhs.equal_with_int(*u as i64),
+            SupportedScalar::U16(u) => lhs.equal_with_int(*u as i64),
+            SupportedScalar::U32(u) => lhs.equal_with_int(*u as i64),
+            SupportedScalar::U64(u) => lhs.equal_with_int(*u as i64),
+            SupportedScalar::U128(u) => lhs.equal_with_int(*u as i64),
+            SupportedScalar::Usize(u) => lhs.equal_with_int(*u as i64),
+            SupportedScalar::F32(f) => lhs.equal_with_float(*f as f64),
+            SupportedScalar::F64(f) => lhs.equal_with_float(*f),
+            SupportedScalar::Bool(b) => lhs.equal_with_bool(*b),
+            SupportedScalar::Char(c) => lhs.equal_with_string(&c.to_string()),
+            SupportedScalar::Empty() => false,
+        }
+    }
+}
+
 /// Represents scalars: integer's, float's, bool, char and () types.
 #[derive(Clone)]
 pub struct ScalarVariable {
@@ -179,13 +207,13 @@ impl ScalarVariable {
 }
 
 /// Represents structures.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct StructVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
     /// Structure members. Each represents by variable IR.
     pub members: Vec<VariableIR>,
-    /// Map of type parameters of structure type.
+    /// Map of type parameters of a structure type.
     pub type_params: HashMap<String, Option<TypeIdentity>>,
 }
 
@@ -554,13 +582,16 @@ impl VariableIR {
         }
     }
 
-    /// Return variable element by its index, `None` if indexing is not allowed for variable type.
-    /// Supported: array, rust-style enums, vector.
-    fn index(self, idx: usize) -> Option<Self> {
+    /// Return variable element by its index, `None` if indexing is not allowed for a variable type.
+    /// Supported: array, rust-style enums, vector, hashmap, hashset, btreemap, btreeset.
+    fn index(self, idx: &Literal) -> Option<Self> {
         match self {
             VariableIR::Array(array) => array.items.and_then(|mut items| {
-                if idx < items.len() {
-                    return Some(items.swap_remove(idx));
+                if let Literal::Int(idx) = idx {
+                    let idx = *idx as usize;
+                    if idx < items.len() {
+                        return Some(items.swap_remove(idx));
+                    }
                 }
                 None
             }),
@@ -577,6 +608,28 @@ impl VariableIR {
                 SpecializedVariableIR::Cell { value, .. }
                 | SpecializedVariableIR::RefCell { value, .. } => {
                     value.and_then(|var| var.index(idx))
+                }
+                SpecializedVariableIR::BTreeMap { map: Some(map), .. }
+                | SpecializedVariableIR::HashMap { map: Some(map), .. } => {
+                    for (k, mut v) in map.kv_items {
+                        if k.match_literal(idx) {
+                            let identity = v.identity_mut();
+                            identity.name = Some("value".to_string());
+                            return Some(v);
+                        }
+                    }
+
+                    None
+                }
+                SpecializedVariableIR::BTreeSet { set: Some(set), .. }
+                | SpecializedVariableIR::HashSet { set: Some(set), .. } => {
+                    let found = set.items.into_iter().any(|it| it.match_literal(idx));
+
+                    Some(VariableIR::Scalar(ScalarVariable {
+                        identity: VariableIdentity::no_namespace(Some("contains".to_string())),
+                        type_name: Some("bool".to_string()),
+                        value: Some(SupportedScalar::Bool(found)),
+                    }))
                 }
                 _ => None,
             },
@@ -636,6 +689,217 @@ impl VariableIR {
         let identity = clone.identity_mut();
         identity.name = Some(new_name.to_string());
         clone
+    }
+
+    /// Match variable with a literal object.
+    /// Return true if variable matched to literal.
+    fn match_literal(self, literal: &Literal) -> bool {
+        match self {
+            VariableIR::Scalar(ScalarVariable {
+                value: Some(scalar),
+                ..
+            }) => scalar.equal_with_literal(literal),
+            VariableIR::Pointer(PointerVariable {
+                value: Some(ptr), ..
+            }) => literal.equal_with_address(ptr as usize),
+            VariableIR::Array(ArrayVariable {
+                items: Some(items), ..
+            }) => {
+                let Literal::Array(arr_literal) = literal else {
+                    return false;
+                };
+                if arr_literal.len() != items.len() {
+                    return false;
+                }
+
+                for (i, item) in items.into_iter().enumerate() {
+                    match &arr_literal[i] {
+                        LiteralOrWildcard::Literal(lit) => {
+                            if !item.match_literal(lit) {
+                                return false;
+                            }
+                        }
+                        LiteralOrWildcard::Wildcard => continue,
+                    }
+                }
+                true
+            }
+            VariableIR::Struct(StructVariable { members, .. }) => {
+                match literal {
+                    Literal::Array(array_literal) => {
+                        // structure must be a tuple
+                        if array_literal.len() != members.len() {
+                            return false;
+                        }
+
+                        for (i, member) in members.into_iter().enumerate() {
+                            let field_literal = &array_literal[i];
+                            match field_literal {
+                                LiteralOrWildcard::Literal(lit) => {
+                                    if !member.match_literal(lit) {
+                                        return false;
+                                    }
+                                }
+                                LiteralOrWildcard::Wildcard => continue,
+                            }
+                        }
+
+                        true
+                    }
+                    Literal::AssocArray(struct_literal) => {
+                        // default structure
+                        if struct_literal.len() != members.len() {
+                            return false;
+                        }
+
+                        for member in members {
+                            let Some(member_name) = member.identity().name.as_ref() else {
+                                return false;
+                            };
+
+                            let Some(field_literal) = struct_literal.get(member_name) else {
+                                return false;
+                            };
+
+                            match field_literal {
+                                LiteralOrWildcard::Literal(lit) => {
+                                    if !member.match_literal(lit) {
+                                        return false;
+                                    }
+                                }
+                                LiteralOrWildcard::Wildcard => continue,
+                            }
+                        }
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            VariableIR::Specialized(spec) => match spec {
+                SpecializedVariableIR::String {
+                    string: Some(StringVariable { value, .. }),
+                    ..
+                } => literal.equal_with_string(&value),
+                SpecializedVariableIR::Str {
+                    string: Some(StrVariable { value, .. }),
+                    ..
+                } => literal.equal_with_string(&value),
+                SpecializedVariableIR::Uuid {
+                    value: Some(bytes), ..
+                } => {
+                    let uuid = Uuid::from_bytes(bytes);
+                    literal.equal_with_string(&uuid.to_string())
+                }
+                SpecializedVariableIR::Cell { mut value, .. }
+                | SpecializedVariableIR::RefCell { mut value, .. } => {
+                    let Some(inner) = value.take() else {
+                        return false;
+                    };
+                    inner.match_literal(literal)
+                }
+                SpecializedVariableIR::Rc {
+                    value:
+                        Some(PointerVariable {
+                            value: Some(ptr), ..
+                        }),
+                    ..
+                }
+                | SpecializedVariableIR::Arc {
+                    value:
+                        Some(PointerVariable {
+                            value: Some(ptr), ..
+                        }),
+                    ..
+                } => literal.equal_with_address(ptr as usize),
+                SpecializedVariableIR::Vector {
+                    vec: Some(mut v), ..
+                }
+                | SpecializedVariableIR::VecDeque {
+                    vec: Some(mut v), ..
+                } => {
+                    let inner_array = v.structure.members.swap_remove(0);
+                    debug_assert!(matches!(inner_array, VariableIR::Array(_)));
+                    inner_array.match_literal(literal)
+                }
+                SpecializedVariableIR::HashSet {
+                    set: Some(HashSetVariable { items, .. }),
+                    ..
+                }
+                | SpecializedVariableIR::BTreeSet {
+                    set: Some(HashSetVariable { items, .. }),
+                    ..
+                } => {
+                    let Literal::Array(arr_literal) = literal else {
+                        return false;
+                    };
+                    if arr_literal.len() != items.len() {
+                        return false;
+                    }
+                    let mut arr_literal = arr_literal.to_vec();
+
+                    for item in items {
+                        let mut item_found = false;
+
+                        // try to find equals item
+                        let mb_literal_idx = arr_literal.iter().position(|lit| {
+                            if let LiteralOrWildcard::Literal(lit) = lit {
+                                item.clone().match_literal(lit)
+                            } else {
+                                false
+                            }
+                        });
+                        if let Some(literal_idx) = mb_literal_idx {
+                            arr_literal.swap_remove(literal_idx);
+                            item_found = true;
+                        }
+
+                        // try to find wildcard
+                        if !item_found {
+                            let mb_wildcard_idx = arr_literal
+                                .iter()
+                                .position(|lit| matches!(lit, LiteralOrWildcard::Wildcard));
+                            if let Some(wildcard_idx) = mb_wildcard_idx {
+                                arr_literal.swap_remove(wildcard_idx);
+                                item_found = true;
+                            }
+                        }
+
+                        // still not found - set aren't equal
+                        if !item_found {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                _ => false,
+            },
+            VariableIR::CEnum(CEnumVariable {
+                value: Some(ref value),
+                ..
+            }) => {
+                let Literal::EnumVariant(variant, None) = literal else {
+                    return false;
+                };
+                value == variant
+            }
+            VariableIR::RustEnum(RustEnumVariable {
+                value: Some(value), ..
+            }) => {
+                let Literal::EnumVariant(variant, variant_value) = literal else {
+                    return false;
+                };
+
+                if value.identity().name.as_ref() != Some(variant) {
+                    return false;
+                }
+
+                match variant_value {
+                    None => true,
+                    Some(lit) => value.match_literal(lit),
+                }
+            }
+            _ => false,
+        }
     }
 }
 
@@ -1241,6 +1505,7 @@ fn scalar_from_bytes<T: Copy>(bytes: &Bytes) -> T {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::debugger::variable::specialization::VecVariable;
 
     #[test]
     fn test_bfs_iterator() {
@@ -1379,6 +1644,719 @@ mod test {
                 })
                 .collect();
             assert_eq!(tc.expected_order, names);
+        }
+    }
+
+    // test helpers --------------------------------------------------------------------------------
+    //
+    fn make_scalar_var_ir(
+        name: Option<&str>,
+        type_name: &str,
+        scalar: SupportedScalar,
+    ) -> VariableIR {
+        VariableIR::Scalar(ScalarVariable {
+            identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
+            type_name: Some(type_name.into()),
+            value: Some(scalar),
+        })
+    }
+
+    fn make_str_var_ir(name: Option<&str>, val: &str) -> VariableIR {
+        VariableIR::Specialized(SpecializedVariableIR::Str {
+            string: Some(StrVariable {
+                identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
+                value: val.to_string(),
+            }),
+            original: StructVariable {
+                identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
+                ..Default::default()
+            },
+        })
+    }
+
+    fn make_string_var_ir(name: Option<&str>, val: &str) -> VariableIR {
+        VariableIR::Specialized(SpecializedVariableIR::String {
+            string: Some(StringVariable {
+                identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
+                value: val.to_string(),
+            }),
+            original: StructVariable {
+                identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
+                ..Default::default()
+            },
+        })
+    }
+
+    fn make_vec_var_ir(name: Option<&str>, items: Vec<VariableIR>) -> VecVariable {
+        let items_len = items.len();
+        VecVariable {
+            structure: StructVariable {
+                identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
+                type_name: Some("vec".to_string()),
+                members: vec![
+                    VariableIR::Array(ArrayVariable {
+                        identity: VariableIdentity::default(),
+                        type_name: Some("[item]".to_string()),
+                        items: Some(items),
+                    }),
+                    VariableIR::Scalar(ScalarVariable {
+                        identity: VariableIdentity::no_namespace(Some("cap".to_string())),
+                        type_name: Some("usize".to_owned()),
+                        value: Some(SupportedScalar::Usize(items_len)),
+                    }),
+                ],
+                type_params: HashMap::default(),
+            },
+        }
+    }
+
+    fn make_vector_var_ir(name: Option<&str>, items: Vec<VariableIR>) -> VariableIR {
+        VariableIR::Specialized(SpecializedVariableIR::Vector {
+            vec: Some(make_vec_var_ir(name, items)),
+            original: StructVariable {
+                identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
+                ..Default::default()
+            },
+        })
+    }
+
+    fn make_vecdeque_var_ir(name: Option<&str>, items: Vec<VariableIR>) -> VariableIR {
+        VariableIR::Specialized(SpecializedVariableIR::VecDeque {
+            vec: Some(make_vec_var_ir(name, items)),
+            original: StructVariable {
+                identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
+                ..Default::default()
+            },
+        })
+    }
+
+    fn make_hashset_var_ir(name: Option<&str>, items: Vec<VariableIR>) -> VariableIR {
+        VariableIR::Specialized(SpecializedVariableIR::HashSet {
+            set: Some(HashSetVariable {
+                identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
+                type_name: Some("hashset".to_string()),
+                items,
+            }),
+            original: StructVariable {
+                identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
+                ..Default::default()
+            },
+        })
+    }
+
+    fn make_btreeset_var_ir(name: Option<&str>, items: Vec<VariableIR>) -> VariableIR {
+        VariableIR::Specialized(SpecializedVariableIR::BTreeSet {
+            set: Some(HashSetVariable {
+                identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
+                type_name: Some("btreeset".to_string()),
+                items,
+            }),
+            original: StructVariable {
+                identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
+                ..Default::default()
+            },
+        })
+    }
+    //----------------------------------------------------------------------------------------------
+
+    #[test]
+    fn test_equal_with_literal() {
+        struct TestCase {
+            variable: VariableIR,
+            eq_literal: Literal,
+            neq_literals: Vec<Literal>,
+        }
+
+        let test_cases = [
+            TestCase {
+                variable: make_scalar_var_ir(None, "i8", SupportedScalar::I8(8)),
+                eq_literal: Literal::Int(8),
+                neq_literals: vec![Literal::Int(9)],
+            },
+            TestCase {
+                variable: make_scalar_var_ir(None, "i32", SupportedScalar::I32(32)),
+                eq_literal: Literal::Int(32),
+                neq_literals: vec![Literal::Int(33)],
+            },
+            TestCase {
+                variable: make_scalar_var_ir(None, "isize", SupportedScalar::Isize(-1234)),
+                eq_literal: Literal::Int(-1234),
+                neq_literals: vec![Literal::Int(-1233)],
+            },
+            TestCase {
+                variable: make_scalar_var_ir(None, "u8", SupportedScalar::U8(8)),
+                eq_literal: Literal::Int(8),
+                neq_literals: vec![Literal::Int(9)],
+            },
+            TestCase {
+                variable: make_scalar_var_ir(None, "u32", SupportedScalar::U32(32)),
+                eq_literal: Literal::Int(32),
+                neq_literals: vec![Literal::Int(33)],
+            },
+            TestCase {
+                variable: make_scalar_var_ir(None, "usize", SupportedScalar::Usize(1234)),
+                eq_literal: Literal::Int(1234),
+                neq_literals: vec![Literal::Int(1235)],
+            },
+            TestCase {
+                variable: make_scalar_var_ir(None, "f32", SupportedScalar::F32(1.1)),
+                eq_literal: Literal::Float(1.1),
+                neq_literals: vec![Literal::Float(1.2)],
+            },
+            TestCase {
+                variable: make_scalar_var_ir(None, "f64", SupportedScalar::F64(-2.2)),
+                eq_literal: Literal::Float(-2.2),
+                neq_literals: vec![Literal::Float(2.2)],
+            },
+            TestCase {
+                variable: make_scalar_var_ir(None, "bool", SupportedScalar::Bool(true)),
+                eq_literal: Literal::Bool(true),
+                neq_literals: vec![Literal::Bool(false)],
+            },
+            TestCase {
+                variable: make_scalar_var_ir(None, "char", SupportedScalar::Char('b')),
+                eq_literal: Literal::String("b".into()),
+                neq_literals: vec![Literal::String("c".into())],
+            },
+            TestCase {
+                variable: VariableIR::Pointer(PointerVariable {
+                    identity: VariableIdentity::default(),
+                    target_type: None,
+                    type_name: Some("ptr".into()),
+                    value: Some(123usize as *const ()),
+                }),
+                eq_literal: Literal::Address(123),
+                neq_literals: vec![Literal::Address(124), Literal::Int(123)],
+            },
+            TestCase {
+                variable: VariableIR::Pointer(PointerVariable {
+                    identity: VariableIdentity::default(),
+                    target_type: None,
+                    type_name: Some("MyPtr".into()),
+                    value: Some(123usize as *const ()),
+                }),
+                eq_literal: Literal::Address(123),
+                neq_literals: vec![Literal::Address(124), Literal::Int(123)],
+            },
+            TestCase {
+                variable: VariableIR::CEnum(CEnumVariable {
+                    identity: VariableIdentity::default(),
+                    type_name: Some("MyEnum".into()),
+                    value: Some("Variant1".into()),
+                }),
+                eq_literal: Literal::EnumVariant("Variant1".to_string(), None),
+                neq_literals: vec![
+                    Literal::EnumVariant("Variant2".to_string(), None),
+                    Literal::String("Variant1".to_string()),
+                ],
+            },
+            TestCase {
+                variable: VariableIR::RustEnum(RustEnumVariable {
+                    identity: VariableIdentity::default(),
+                    type_name: Some("MyEnum".into()),
+                    value: Some(Box::new(VariableIR::Struct(StructVariable {
+                        identity: VariableIdentity::no_namespace(Some("Variant1".to_string())),
+                        type_name: None,
+                        members: vec![VariableIR::Scalar(ScalarVariable {
+                            identity: VariableIdentity::no_namespace(Some("Variant1".to_string())),
+                            type_name: Some("int".into()),
+                            value: Some(SupportedScalar::I64(100)),
+                        })],
+                        type_params: Default::default(),
+                    }))),
+                }),
+                eq_literal: Literal::EnumVariant(
+                    "Variant1".to_string(),
+                    Some(Box::new(Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::Int(100)),
+                    ])))),
+                ),
+                neq_literals: vec![
+                    Literal::EnumVariant("Variant1".to_string(), Some(Box::new(Literal::Int(101)))),
+                    Literal::EnumVariant("Variant2".to_string(), Some(Box::new(Literal::Int(100)))),
+                    Literal::String("Variant1".to_string()),
+                ],
+            },
+        ];
+
+        for tc in test_cases {
+            assert!(tc.variable.clone().match_literal(&tc.eq_literal));
+            for neq_lit in tc.neq_literals {
+                assert!(!tc.variable.clone().match_literal(&neq_lit));
+            }
+        }
+    }
+
+    #[test]
+    fn test_equal_with_complex_literal() {
+        struct TestCase {
+            variable: VariableIR,
+            eq_literals: Vec<Literal>,
+            neq_literals: Vec<Literal>,
+        }
+
+        let test_cases = [
+            TestCase {
+                variable: make_str_var_ir(None, "str1"),
+                eq_literals: vec![Literal::String("str1".to_string())],
+                neq_literals: vec![Literal::String("str2".to_string()), Literal::Int(1)],
+            },
+            TestCase {
+                variable: make_string_var_ir(None, "string1"),
+                eq_literals: vec![Literal::String("string1".to_string())],
+                neq_literals: vec![Literal::String("string2".to_string()), Literal::Int(1)],
+            },
+            TestCase {
+                variable: VariableIR::Specialized(SpecializedVariableIR::Uuid {
+                    value: Some([
+                        0xd0, 0x60, 0x66, 0x29, 0x78, 0x6a, 0x44, 0xbe, 0x9d, 0x49, 0xb7, 0x02,
+                        0x0f, 0x3e, 0xb0, 0x5a,
+                    ]),
+                    original: StructVariable::default(),
+                }),
+                eq_literals: vec![Literal::String(
+                    "d0606629-786a-44be-9d49-b7020f3eb05a".to_string(),
+                )],
+                neq_literals: vec![Literal::String(
+                    "d0606629-786a-44be-9d49-b7020f3eb05b".to_string(),
+                )],
+            },
+            TestCase {
+                variable: make_vector_var_ir(
+                    None,
+                    vec![
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('a')),
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('b')),
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                    ],
+                ),
+                eq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Wildcard,
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                ],
+                neq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                ],
+            },
+            TestCase {
+                variable: make_vector_var_ir(
+                    None,
+                    vec![
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('a')),
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('b')),
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                    ],
+                ),
+                eq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Wildcard,
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                ],
+                neq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                ],
+            },
+            TestCase {
+                variable: make_vecdeque_var_ir(
+                    None,
+                    vec![
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('a')),
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('b')),
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                    ],
+                ),
+                eq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Wildcard,
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                ],
+                neq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                ],
+            },
+            TestCase {
+                variable: make_hashset_var_ir(
+                    None,
+                    vec![
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('a')),
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('b')),
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                    ],
+                ),
+                eq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Wildcard,
+                        LiteralOrWildcard::Wildcard,
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                ],
+                neq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Wildcard,
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                ],
+            },
+            TestCase {
+                variable: make_btreeset_var_ir(
+                    None,
+                    vec![
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('a')),
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('b')),
+                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                    ],
+                ),
+                eq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("c".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Wildcard,
+                        LiteralOrWildcard::Wildcard,
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                ],
+                neq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("a".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("b".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Wildcard,
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                ],
+            },
+            TestCase {
+                variable: VariableIR::Specialized(SpecializedVariableIR::Cell {
+                    value: Some(Box::new(make_scalar_var_ir(
+                        None,
+                        "int",
+                        SupportedScalar::I64(100),
+                    ))),
+                    original: StructVariable::default(),
+                }),
+                eq_literals: vec![Literal::Int(100)],
+                neq_literals: vec![Literal::Int(101), Literal::Float(100.1)],
+            },
+            TestCase {
+                variable: VariableIR::Array(ArrayVariable {
+                    identity: Default::default(),
+                    type_name: Some("array_str".to_string()),
+                    items: Some(vec![
+                        make_str_var_ir(None, "ab"),
+                        make_str_var_ir(None, "cd"),
+                        make_str_var_ir(None, "ef"),
+                    ]),
+                }),
+                eq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("ab".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("cd".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("ef".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("ab".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("cd".to_string())),
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Wildcard,
+                        LiteralOrWildcard::Wildcard,
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                ],
+                neq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("ab".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("cd".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("gj".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("ab".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("cd".to_string())),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("ab".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("cd".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("ef".to_string())),
+                        LiteralOrWildcard::Literal(Literal::String("gj".to_string())),
+                    ])),
+                ],
+            },
+            TestCase {
+                variable: VariableIR::Struct(StructVariable {
+                    identity: Default::default(),
+                    type_name: Some("MyStruct".to_string()),
+                    members: vec![
+                        make_str_var_ir(Some("str_field"), "str1"),
+                        make_vector_var_ir(
+                            Some("vec_field"),
+                            vec![
+                                make_scalar_var_ir(None, "", SupportedScalar::I8(1)),
+                                make_scalar_var_ir(None, "", SupportedScalar::I8(2)),
+                            ],
+                        ),
+                        make_scalar_var_ir(Some("bool_field"), "", SupportedScalar::Bool(true)),
+                    ],
+                    type_params: Default::default(),
+                }),
+                eq_literals: vec![
+                    Literal::AssocArray(HashMap::from([
+                        (
+                            "str_field".to_string(),
+                            LiteralOrWildcard::Literal(Literal::String("str1".to_string())),
+                        ),
+                        (
+                            "vec_field".to_string(),
+                            LiteralOrWildcard::Literal(Literal::Array(Box::new([
+                                LiteralOrWildcard::Literal(Literal::Int(1)),
+                                LiteralOrWildcard::Literal(Literal::Int(2)),
+                            ]))),
+                        ),
+                        (
+                            "bool_field".to_string(),
+                            LiteralOrWildcard::Literal(Literal::Bool(true)),
+                        ),
+                    ])),
+                    Literal::AssocArray(HashMap::from([
+                        (
+                            "str_field".to_string(),
+                            LiteralOrWildcard::Literal(Literal::String("str1".to_string())),
+                        ),
+                        (
+                            "vec_field".to_string(),
+                            LiteralOrWildcard::Literal(Literal::Array(Box::new([
+                                LiteralOrWildcard::Literal(Literal::Int(1)),
+                                LiteralOrWildcard::Wildcard,
+                            ]))),
+                        ),
+                        ("bool_field".to_string(), LiteralOrWildcard::Wildcard),
+                    ])),
+                ],
+                neq_literals: vec![
+                    Literal::AssocArray(HashMap::from([
+                        (
+                            "str_field".to_string(),
+                            LiteralOrWildcard::Literal(Literal::String("str2".to_string())),
+                        ),
+                        (
+                            "vec_field".to_string(),
+                            LiteralOrWildcard::Literal(Literal::Array(Box::new([
+                                LiteralOrWildcard::Literal(Literal::Int(1)),
+                                LiteralOrWildcard::Literal(Literal::Int(2)),
+                            ]))),
+                        ),
+                        (
+                            "bool_field".to_string(),
+                            LiteralOrWildcard::Literal(Literal::Bool(true)),
+                        ),
+                    ])),
+                    Literal::AssocArray(HashMap::from([
+                        (
+                            "str_field".to_string(),
+                            LiteralOrWildcard::Literal(Literal::String("str1".to_string())),
+                        ),
+                        (
+                            "vec_field".to_string(),
+                            LiteralOrWildcard::Literal(Literal::Array(Box::new([
+                                LiteralOrWildcard::Literal(Literal::Int(1)),
+                            ]))),
+                        ),
+                        (
+                            "bool_field".to_string(),
+                            LiteralOrWildcard::Literal(Literal::Bool(true)),
+                        ),
+                    ])),
+                ],
+            },
+            TestCase {
+                variable: VariableIR::Struct(StructVariable {
+                    identity: Default::default(),
+                    type_name: Some("MyTuple".to_string()),
+                    members: vec![
+                        make_str_var_ir(None, "str1"),
+                        make_vector_var_ir(
+                            None,
+                            vec![
+                                make_scalar_var_ir(None, "", SupportedScalar::I8(1)),
+                                make_scalar_var_ir(None, "", SupportedScalar::I8(2)),
+                            ],
+                        ),
+                        make_scalar_var_ir(None, "", SupportedScalar::Bool(true)),
+                    ],
+                    type_params: Default::default(),
+                }),
+                eq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("str1".to_string())),
+                        LiteralOrWildcard::Literal(Literal::Array(Box::new([
+                            LiteralOrWildcard::Literal(Literal::Int(1)),
+                            LiteralOrWildcard::Literal(Literal::Int(2)),
+                        ]))),
+                        LiteralOrWildcard::Literal(Literal::Bool(true)),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("str1".to_string())),
+                        LiteralOrWildcard::Literal(Literal::Array(Box::new([
+                            LiteralOrWildcard::Literal(Literal::Int(1)),
+                            LiteralOrWildcard::Wildcard,
+                        ]))),
+                        LiteralOrWildcard::Wildcard,
+                    ])),
+                ],
+                neq_literals: vec![
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("str1".to_string())),
+                        LiteralOrWildcard::Literal(Literal::Array(Box::new([
+                            LiteralOrWildcard::Literal(Literal::Int(1)),
+                            LiteralOrWildcard::Literal(Literal::Int(2)),
+                        ]))),
+                        LiteralOrWildcard::Literal(Literal::Bool(false)),
+                    ])),
+                    Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::String("str1".to_string())),
+                        LiteralOrWildcard::Literal(Literal::Array(Box::new([
+                            LiteralOrWildcard::Literal(Literal::Int(1)),
+                        ]))),
+                        LiteralOrWildcard::Literal(Literal::Bool(true)),
+                    ])),
+                ],
+            },
+        ];
+
+        for tc in test_cases {
+            for eq_lit in tc.eq_literals {
+                assert!(tc.variable.clone().match_literal(&eq_lit));
+            }
+            for neq_lit in tc.neq_literals {
+                assert!(!tc.variable.clone().match_literal(&neq_lit));
+            }
         }
     }
 }

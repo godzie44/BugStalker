@@ -1,5 +1,5 @@
 use crate::debugger::variable::render::{RenderRepr, ValueLayout};
-use crate::debugger::variable::select::{Expression, VariableSelector};
+use crate::debugger::variable::select::{Expression, Literal, VariableSelector};
 use crate::debugger::variable::{select, VariableIR};
 use crate::ui::command;
 use crate::ui::tui::app::port::UserEvent;
@@ -141,7 +141,9 @@ impl Variables {
                         let el_path = if indexed {
                             select_path.clone().and_then(|expr| {
                                 let mb_idx: Option<u64> = member.name().parse().ok();
-                                mb_idx.map(|idx| Expression::Index(Box::new(expr), idx))
+                                mb_idx.map(|idx| {
+                                    Expression::Index(Box::new(expr), Literal::Int(idx as i64))
+                                })
                             })
                         } else {
                             None

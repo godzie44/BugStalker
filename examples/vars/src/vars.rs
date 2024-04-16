@@ -258,6 +258,35 @@ fn hashmap() {
         ("3".to_string(), HashMap::from([(3, 3), (4, 4)])),
     ]);
 
+    let a = &1;
+    let b = &2;
+    let hm5 = HashMap::from([(a, "a"), (b, "b")]);
+
+    #[derive(Hash, PartialEq, Eq)]
+    struct Index {
+        field_1: i32,
+        field_2: Vec<&'static str>,
+        field_3: Option<bool>,
+    }
+    let hm6 = HashMap::from([
+        (
+            Index {
+                field_1: 1,
+                field_2: vec!["a", "b"],
+                field_3: Some(true),
+            },
+            1,
+        ),
+        (
+            Index {
+                field_1: 2,
+                field_2: vec!["c", "d", "e"],
+                field_3: None,
+            },
+            2,
+        ),
+    ]);
+
     let nop: Option<u8> = None;
 }
 
@@ -270,6 +299,10 @@ fn hashset() {
         hs2.insert(i);
     }
     let hs3 = HashSet::from([vec![1, 2]]);
+
+    let a = &1;
+    let b = &2;
+    let hs4 = HashSet::from([a, b]);
 
     let nop: Option<u8> = None;
 }
@@ -331,6 +364,35 @@ fn btree_map() {
         ("3".to_string(), BTreeMap::from([(3, 3), (4, 4)])),
     ]);
 
+    let a = &1;
+    let b = &2;
+    let hm5 = BTreeMap::from([(a, "a"), (b, "b")]);
+
+    #[derive(Hash, PartialEq, Eq, PartialOrd, Ord)]
+    struct Index {
+        field_1: i32,
+        field_2: Vec<&'static str>,
+        field_3: Option<bool>,
+    }
+    let hm6 = BTreeMap::from([
+        (
+            Index {
+                field_1: 1,
+                field_2: vec!["a", "b"],
+                field_3: Some(true),
+            },
+            1,
+        ),
+        (
+            Index {
+                field_1: 2,
+                field_2: vec!["c", "d", "e"],
+                field_3: None,
+            },
+            2,
+        ),
+    ]);
+
     let nop: Option<u8> = None;
 }
 
@@ -343,6 +405,10 @@ fn btreeset() {
         hs2.insert(i);
     }
     let hs3 = BTreeSet::from([vec![1, 2]]);
+
+    let a = &1;
+    let b = &2;
+    let hs4 = BTreeSet::from([a, b]);
 
     let nop: Option<u8> = None;
 }

@@ -13,9 +13,11 @@ use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::{Attribute, DebugInfoOffset, UnitOffset};
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 
-/// This die not exists in debug information. It may be used for represent
-/// variables that declared by user, for example, using pointer cast operator.
+/// This die not exists in debug information.
+/// It may be used to represent variables that are
+/// declared by user, for example, using pointer cast operator.
 struct VirtualVariableDie {
     type_ref: DieRef,
 }
@@ -48,6 +50,63 @@ pub enum VariableSelector {
     Any,
 }
 
+/// Literal object. Using it for a searching element by key in key-value containers.
+#[derive(Debug, PartialEq, Clone)]
+pub enum Literal {
+    String(String),
+    Int(i64),
+    Float(f64),
+    Address(usize),
+    Bool(bool),
+    EnumVariant(String, Option<Box<Literal>>),
+    Array(Box<[LiteralOrWildcard]>),
+    AssocArray(HashMap<String, LiteralOrWildcard>),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum LiteralOrWildcard {
+    Literal(Literal),
+    Wildcard,
+}
+
+macro_rules! impl_equal {
+    ($lhs: expr, $rhs: expr, $lit: path) => {
+        if let $lit(lhs) = $lhs {
+            lhs == &$rhs
+        } else {
+            false
+        }
+    };
+}
+
+impl Literal {
+    pub fn equal_with_string(&self, rhs: &str) -> bool {
+        impl_equal!(self, rhs, Literal::String)
+    }
+
+    pub fn equal_with_address(&self, rhs: usize) -> bool {
+        impl_equal!(self, rhs, Literal::Address)
+    }
+
+    pub fn equal_with_bool(&self, rhs: bool) -> bool {
+        impl_equal!(self, rhs, Literal::Bool)
+    }
+
+    pub fn equal_with_int(&self, rhs: i64) -> bool {
+        impl_equal!(self, rhs, Literal::Int)
+    }
+
+    pub fn equal_with_float(&self, rhs: f64) -> bool {
+        const EPS: f64 = 0.0000001f64;
+        if let Literal::Float(float) = self {
+            let diff = (*float - rhs).abs();
+            diff < EPS
+        } else {
+            false
+        }
+    }
+}
+
 /// List of operations for select variables and their properties.
 /// Expression can be parsed from an input string like `*(*variable1.field2)[1]` (see debugger::command module)
 ///
@@ -57,7 +116,7 @@ pub enum Expression {
     Variable(VariableSelector),
     PtrCast(usize, String),
     Field(Box<Expression>, String),
-    Index(Box<Expression>, u64),
+    Index(Box<Expression>, Literal),
     Slice(Box<Expression>, Option<usize>, Option<usize>),
     Parentheses(Box<Expression>),
     Deref(Box<Expression>),
@@ -350,7 +409,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
             }
             Expression::Index(expr, idx) => {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
-                var.index(*idx as usize)
+                var.index(idx)
             }
             Expression::Slice(expr, left, right) => {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;

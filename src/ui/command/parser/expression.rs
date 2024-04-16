@@ -1,8 +1,9 @@
 //! data query expressions parser.
-use crate::debugger::variable::select::{Expression, VariableSelector};
+use crate::debugger::variable::select::{Expression, Literal, LiteralOrWildcard, VariableSelector};
 use crate::ui::command::parser::{hex, rust_identifier};
 use chumsky::prelude::*;
 use chumsky::Parser;
+use std::collections::HashMap;
 
 type Err<'a> = extra::Err<Rich<'a, char>>;
 
@@ -20,6 +21,92 @@ fn ptr_cast<'a>() -> impl Parser<'a, &'a str, Expression, Err<'a>> + Clone {
         .then(hex())
         .map(|(r#type, ptr)| Expression::PtrCast(ptr, r#type.trim().to_string()))
         .labelled("pointer cast")
+}
+
+fn literal<'a>() -> impl Parser<'a, &'a str, Literal, Err<'a>> + Clone {
+    let op = |c| just(c).padded();
+
+    let literal = recursive(|literal| {
+        let int = just("-")
+            .or_not()
+            .then(text::int(10).from_str::<u64>().unwrapped())
+            .map(|(sign, val)| {
+                Literal::Int(if sign.is_some() {
+                    -(val as i64)
+                } else {
+                    val as i64
+                })
+            });
+
+        let float = just("-")
+            .or_not()
+            .then(text::int(10).then_ignore(just(".")).then(text::int(10)))
+            .map(|(sign, (i, f))| {
+                let sign = sign.unwrap_or_default();
+                Literal::Float(format!("{sign}{i}.{f}").parse::<f64>().expect("infallible"))
+            });
+
+        fn make_string<'a, 's: 'a>(
+            q: &'a str,
+        ) -> impl Parser<'a, &'a str, Literal, Err<'a>> + Clone {
+            one_of::<_, _, Err<'a>>(q)
+                .ignore_then(none_of(q).repeated().collect::<String>())
+                .then_ignore(one_of(q))
+                .map(Literal::String)
+        }
+        let string1 = make_string("\"");
+        let string2 = make_string("'");
+
+        let bool = op("true")
+            .to(Literal::Bool(true))
+            .or(op("false").to(Literal::Bool(false)));
+
+        let enum_variant = rust_identifier()
+            .then(literal.clone().delimited_by(op("("), op(")")).or_not())
+            .map(|(ident, lit)| Literal::EnumVariant(ident.to_string(), lit.map(Box::new)));
+
+        let wildcard = op("*");
+        let literal_or_wildcard = literal
+            .clone()
+            .map(LiteralOrWildcard::Literal)
+            .or(wildcard.to(LiteralOrWildcard::Wildcard));
+
+        let array = op("{")
+            .ignore_then(
+                literal_or_wildcard
+                    .clone()
+                    .separated_by(op(","))
+                    .collect::<Vec<_>>()
+                    .map(|literals: Vec<LiteralOrWildcard>| {
+                        Literal::Array(literals.into_boxed_slice())
+                    }),
+            )
+            .then_ignore(op("}"));
+
+        let kv = rust_identifier()
+            .then_ignore(op(":"))
+            .then(literal_or_wildcard)
+            .map(|(k, v)| (k.to_string(), v));
+        let assoc_array = op("{")
+            .ignore_then(
+                kv.separated_by(op(","))
+                    .collect::<HashMap<_, _>>()
+                    .map(Literal::AssocArray),
+            )
+            .then_ignore(op("}"));
+
+        float
+            .or(bool)
+            .or(hex().map(Literal::Address))
+            .or(int)
+            .or(enum_variant)
+            .or(string1)
+            .or(string2)
+            .or(array)
+            .or(assoc_array)
+    });
+
+    literal
 }
 
 pub fn parser<'a>() -> impl Parser<'a, &'a str, Expression, Err<'a>> {
@@ -41,17 +128,16 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Expression, Err<'a>> {
 
         let field_op = op('.')
             .ignore_then(field)
-            .map(|field: &str| -> Box<dyn Fn(Expression) -> Expression> {
+            .map(|field: &str| -> Box<dyn FnOnce(Expression) -> Expression> {
                 Box::new(move |r| Expression::Field(Box::new(r), field.to_string()))
             })
             .boxed();
 
-        let index_op = text::int(10)
+        let index_op = literal()
             .padded()
-            .map(|v: &str| v.parse::<u64>().unwrap())
             .labelled("index value")
             .delimited_by(op('['), op(']'))
-            .map(|idx| -> Box<dyn Fn(Expression) -> Expression> {
+            .map(|idx| -> Box<dyn FnOnce(Expression) -> Expression> {
                 Box::new(move |r: Expression| Expression::Index(Box::new(r), idx))
             })
             .boxed();
@@ -66,7 +152,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Expression, Err<'a>> {
             .then(mb_usize)
             .labelled("slice range (start..end)")
             .delimited_by(op('['), op(']'))
-            .map(|(from, to)| -> Box<dyn Fn(Expression) -> Expression> {
+            .map(|(from, to)| -> Box<dyn FnOnce(Expression) -> Expression> {
                 Box::new(move |r: Expression| Expression::Slice(Box::new(r), from, to))
             })
             .boxed();
@@ -128,6 +214,152 @@ mod test {
         for tc in cases {
             let expr = ptr_cast().parse(tc.string).into_result();
             assert_eq!(expr.map_err(|_| ()), tc.result);
+        }
+    }
+
+    #[test]
+    fn test_literal_parser() {
+        struct TestCase {
+            string: &'static str,
+            result: Literal,
+        }
+        let test_cases = vec![
+            TestCase {
+                string: "1",
+                result: Literal::Int(1),
+            },
+            TestCase {
+                string: "-1",
+                result: Literal::Int(-1),
+            },
+            TestCase {
+                string: "1.1",
+                result: Literal::Float(1.1),
+            },
+            TestCase {
+                string: "-1.0",
+                result: Literal::Float(-1.0),
+            },
+            TestCase {
+                string: "0x123ABC",
+                result: Literal::Address(0x123ABC),
+            },
+            TestCase {
+                string: "0X123ABC",
+                result: Literal::Address(0x123ABC),
+            },
+            TestCase {
+                string: "\"abc\"",
+                result: Literal::String("abc".to_string()),
+            },
+            TestCase {
+                string: "'\"abc\"'",
+                result: Literal::String("\"abc\"".to_string()),
+            },
+            TestCase {
+                string: "'\"ab\nc\"'",
+                result: Literal::String("\"ab\nc\"".to_string()),
+            },
+            TestCase {
+                string: "true",
+                result: Literal::Bool(true),
+            },
+            TestCase {
+                string: "false",
+                result: Literal::Bool(false),
+            },
+            TestCase {
+                string: "EnumVariantA",
+                result: Literal::EnumVariant("EnumVariantA".to_string(), None),
+            },
+            TestCase {
+                string: "Some(true)",
+                result: Literal::EnumVariant(
+                    "Some".to_string(),
+                    Some(Box::new(Literal::Bool(true))),
+                ),
+            },
+            TestCase {
+                string: "EnumVariantA(EnumVariantB(1))",
+                result: Literal::EnumVariant(
+                    "EnumVariantA".to_string(),
+                    Some(Box::new(Literal::EnumVariant(
+                        "EnumVariantB".to_string(),
+                        Some(Box::new(Literal::Int(1))),
+                    ))),
+                ),
+            },
+            TestCase {
+                string: "{1, 2,*}",
+                result: Literal::Array(Box::new([
+                    LiteralOrWildcard::Literal(Literal::Int(1)),
+                    LiteralOrWildcard::Literal(Literal::Int(2)),
+                    LiteralOrWildcard::Wildcard,
+                ])),
+            },
+            TestCase {
+                string: "{{1,2}, \"str\", * , EnumVariantA}",
+                result: Literal::Array(Box::new([
+                    LiteralOrWildcard::Literal(Literal::Array(Box::new([
+                        LiteralOrWildcard::Literal(Literal::Int(1)),
+                        LiteralOrWildcard::Literal(Literal::Int(2)),
+                    ]))),
+                    LiteralOrWildcard::Literal(Literal::String("str".to_string())),
+                    LiteralOrWildcard::Wildcard,
+                    LiteralOrWildcard::Literal(Literal::EnumVariant(
+                        "EnumVariantA".to_string(),
+                        None,
+                    )),
+                ])),
+            },
+            TestCase {
+                string: "{ field_1: \"val1\", field_2:*, field_3: 5}",
+                result: Literal::AssocArray(HashMap::from([
+                    (
+                        "field_1".to_string(),
+                        LiteralOrWildcard::Literal(Literal::String("val1".to_string())),
+                    ),
+                    ("field_2".to_string(), LiteralOrWildcard::Wildcard),
+                    (
+                        "field_3".to_string(),
+                        LiteralOrWildcard::Literal(Literal::Int(5)),
+                    ),
+                ])),
+            },
+            TestCase {
+                string: "{ field_1: {sub_field_1: 1}, field_2: {1, 2}, field_3: A({3, 4})}",
+                result: Literal::AssocArray(HashMap::from([
+                    (
+                        "field_1".to_string(),
+                        LiteralOrWildcard::Literal(Literal::AssocArray(HashMap::from([(
+                            "sub_field_1".to_string(),
+                            LiteralOrWildcard::Literal(Literal::Int(1)),
+                        )]))),
+                    ),
+                    (
+                        "field_2".to_string(),
+                        LiteralOrWildcard::Literal(Literal::Array(Box::new([
+                            LiteralOrWildcard::Literal(Literal::Int(1)),
+                            LiteralOrWildcard::Literal(Literal::Int(2)),
+                        ]))),
+                    ),
+                    (
+                        "field_3".to_string(),
+                        LiteralOrWildcard::Literal(Literal::EnumVariant(
+                            "A".to_string(),
+                            Some(Box::new(Literal::Array(Box::new([
+                                LiteralOrWildcard::Literal(Literal::Int(3)),
+                                LiteralOrWildcard::Literal(Literal::Int(4)),
+                            ])))),
+                        )),
+                    ),
+                ])),
+            },
+        ];
+
+        for tc in test_cases {
+            let literal = literal().parse(tc.string).into_result().unwrap();
+            assert_eq!(literal, tc.result);
         }
     }
 
@@ -216,9 +448,9 @@ mod test {
                             )))),
                             "field2".to_string(),
                         )),
-                        1,
+                        Literal::Int(1),
                     )),
-                    2,
+                    Literal::Int(2),
                 ))),
             },
             TestCase {
@@ -328,7 +560,7 @@ mod test {
                             "arr".to_string(),
                         )
                         .boxed(),
-                        0,
+                        Literal::Int(0),
                     )
                     .boxed(),
                     "some_val".to_string(),
@@ -346,7 +578,7 @@ mod test {
                                         only_local: false,
                                     })
                                     .boxed(),
-                                    0,
+                                    Literal::Int(0),
                                 )
                                 .boxed(),
                                 None,
@@ -357,10 +589,48 @@ mod test {
                             None,
                         )
                         .boxed(),
-                        0,
+                        Literal::Int(0),
                     )
                     .boxed(),
                     "some_val".to_string(),
+                ),
+            },
+            TestCase {
+                string: "map[\"key\"][-5][1.1][false][0x12]",
+                expr: Expression::Index(
+                    Expression::Index(
+                        Expression::Index(
+                            Expression::Index(
+                                Expression::Index(
+                                    Expression::Variable(VariableSelector::Name {
+                                        var_name: "map".to_string(),
+                                        only_local: false,
+                                    })
+                                    .boxed(),
+                                    Literal::String("key".to_string()),
+                                )
+                                .boxed(),
+                                Literal::Int(-5),
+                            )
+                            .boxed(),
+                            Literal::Float(1.1),
+                        )
+                        .boxed(),
+                        Literal::Bool(false),
+                    )
+                    .boxed(),
+                    Literal::Address(0x12),
+                ),
+            },
+            TestCase {
+                string: "map[Some(true)]",
+                expr: Expression::Index(
+                    Expression::Variable(VariableSelector::Name {
+                        var_name: "map".to_string(),
+                        only_local: false,
+                    })
+                    .boxed(),
+                    Literal::EnumVariant("Some".to_string(), Some(Box::new(Literal::Bool(true)))),
                 ),
             },
         ];
