@@ -107,22 +107,22 @@ impl Literal {
     }
 }
 
+/// Data query expression.
 /// List of operations for select variables and their properties.
 /// Expression can be parsed from an input string like `*(*variable1.field2)[1]` (see debugger::command module)
 ///
-/// Supported operations are: dereference, get element by index, get field by name, make slice from pointer.
+/// Supported operations are: dereference, get an element by index, get field by name, make slice from a pointer.
 #[derive(Debug, PartialEq, Clone)]
-pub enum Expression {
+pub enum DQE {
     Variable(VariableSelector),
     PtrCast(usize, String),
-    Field(Box<Expression>, String),
-    Index(Box<Expression>, Literal),
-    Slice(Box<Expression>, Option<usize>, Option<usize>),
-    Parentheses(Box<Expression>),
-    Deref(Box<Expression>),
+    Field(Box<DQE>, String),
+    Index(Box<DQE>, Literal),
+    Slice(Box<DQE>, Option<usize>, Option<usize>),
+    Deref(Box<DQE>),
 }
 
-impl Expression {
+impl DQE {
     /// Return boxed expression.
     pub fn boxed(self) -> Box<Self> {
         Box::new(self)
@@ -132,7 +132,7 @@ impl Expression {
 /// Evaluate `Expression` at current breakpoint (for current debugee location).
 pub struct SelectExpressionEvaluator<'a> {
     debugger: &'a Debugger,
-    expression: Expression,
+    expression: DQE,
 }
 
 macro_rules! type_from_cache {
@@ -151,7 +151,7 @@ macro_rules! type_from_cache {
 }
 
 impl<'a> SelectExpressionEvaluator<'a> {
-    pub fn new(debugger: &'a Debugger, expression: Expression) -> Self {
+    pub fn new(debugger: &'a Debugger, expression: DQE) -> Self {
         Self {
             debugger,
             expression,
@@ -235,7 +235,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
     /// This method will panic if select expression contain any operators excluding a variable selector.
     pub fn evaluate_names(&self) -> Result<Vec<String>, Error> {
         match &self.expression {
-            Expression::Variable(selector) => {
+            DQE::Variable(selector) => {
                 let vars = self.extract_variable_by_selector(selector)?;
                 Ok(vars
                     .into_iter()
@@ -246,11 +246,11 @@ impl<'a> SelectExpressionEvaluator<'a> {
         }
     }
 
-    fn evaluate_inner(&self, expression: &Expression) -> Result<Vec<VariableIR>, Error> {
+    fn evaluate_inner(&self, expression: &DQE) -> Result<Vec<VariableIR>, Error> {
         // evaluate variable one by one in `evaluate_single_variable` method
         // here just filter variables
         match expression {
-            Expression::Variable(selector) => {
+            DQE::Variable(selector) => {
                 let vars = self.extract_variable_by_selector(selector)?;
                 let mut type_cache = self.debugger.type_cache.borrow_mut();
 
@@ -262,14 +262,11 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     })
                     .collect())
             }
-            Expression::PtrCast(_, target_type_name) => {
-                self.evaluate_from_ptr_cast(target_type_name)
-            }
-            Expression::Field(expr, _)
-            | Expression::Index(expr, _)
-            | Expression::Slice(expr, _, _)
-            | Expression::Parentheses(expr)
-            | Expression::Deref(expr) => self.evaluate_inner(expr),
+            DQE::PtrCast(_, target_type_name) => self.evaluate_from_ptr_cast(target_type_name),
+            DQE::Field(expr, _)
+            | DQE::Index(expr, _)
+            | DQE::Slice(expr, _, _)
+            | DQE::Deref(expr) => self.evaluate_inner(expr),
         }
     }
 
@@ -296,7 +293,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
     /// Same as [`SelectExpressionEvaluator::evaluate_names`] but for function arguments.
     pub fn evaluate_on_arguments_names(&self) -> Result<Vec<String>, Error> {
         match &self.expression {
-            Expression::Variable(selector) => {
+            DQE::Variable(selector) => {
                 let expl_ctx_loc = self.debugger.exploration_ctx().location();
                 let current_function = self
                     .debugger
@@ -328,12 +325,9 @@ impl<'a> SelectExpressionEvaluator<'a> {
         self.evaluate_on_arguments_inner(&self.expression)
     }
 
-    fn evaluate_on_arguments_inner(
-        &self,
-        expression: &Expression,
-    ) -> Result<Vec<VariableIR>, Error> {
+    fn evaluate_on_arguments_inner(&self, expression: &DQE) -> Result<Vec<VariableIR>, Error> {
         match expression {
-            Expression::Variable(selector) => {
+            DQE::Variable(selector) => {
                 let expl_ctx_loc = self.debugger.exploration_ctx().location();
                 let debugee = &self.debugger.debugee;
                 let current_function = debugee
@@ -360,20 +354,17 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     })
                     .collect())
             }
-            Expression::PtrCast(_, target_type_name) => {
-                self.evaluate_from_ptr_cast(target_type_name)
-            }
-            Expression::Field(expr, _)
-            | Expression::Index(expr, _)
-            | Expression::Slice(expr, _, _)
-            | Expression::Parentheses(expr)
-            | Expression::Deref(expr) => self.evaluate_on_arguments_inner(expr),
+            DQE::PtrCast(_, target_type_name) => self.evaluate_from_ptr_cast(target_type_name),
+            DQE::Field(expr, _)
+            | DQE::Index(expr, _)
+            | DQE::Slice(expr, _, _)
+            | DQE::Deref(expr) => self.evaluate_on_arguments_inner(expr),
         }
     }
 
     fn evaluate_single_variable(
         &self,
-        expression: &Expression,
+        expression: &DQE,
         variable_die: &ContextualDieRef<impl AsAllocatedData>,
         r#type: &ComplexType,
     ) -> Option<VariableIR> {
@@ -386,7 +377,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
         };
 
         match expression {
-            Expression::Variable(_) => Some(parser.parse(
+            DQE::Variable(_) => Some(parser.parse(
                 evaluation_context,
                 VariableIdentity::from_variable_die(variable_die),
                 variable_die.read_value(
@@ -395,7 +386,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     r#type,
                 ),
             )),
-            Expression::PtrCast(addr, ..) => {
+            DQE::PtrCast(addr, ..) => {
                 let value = Bytes::copy_from_slice(&(*addr).to_le_bytes());
                 Some(parser.parse(
                     evaluation_context,
@@ -403,22 +394,19 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     Some(value),
                 ))
             }
-            Expression::Field(expr, field) => {
+            DQE::Field(expr, field) => {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
                 var.field(field)
             }
-            Expression::Index(expr, idx) => {
+            DQE::Index(expr, idx) => {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
                 var.index(idx)
             }
-            Expression::Slice(expr, left, right) => {
+            DQE::Slice(expr, left, right) => {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
                 var.slice(evaluation_context, &parser, *left, *right)
             }
-            Expression::Parentheses(expr) => {
-                self.evaluate_single_variable(expr, variable_die, r#type)
-            }
-            Expression::Deref(expr) => {
+            DQE::Deref(expr) => {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
                 var.deref(evaluation_context, &parser)
             }

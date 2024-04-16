@@ -1,5 +1,5 @@
 //! data query expressions parser.
-use crate::debugger::variable::select::{Expression, Literal, LiteralOrWildcard, VariableSelector};
+use crate::debugger::variable::select::{Literal, LiteralOrWildcard, VariableSelector, DQE};
 use crate::ui::command::parser::{hex, rust_identifier};
 use chumsky::prelude::*;
 use chumsky::Parser;
@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 type Err<'a> = extra::Err<Rich<'a, char>>;
 
-fn ptr_cast<'a>() -> impl Parser<'a, &'a str, Expression, Err<'a>> + Clone {
+fn ptr_cast<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> + Clone {
     let op = |c| just(c).padded();
 
     // try to interp any string between brackets as a type
@@ -19,7 +19,7 @@ fn ptr_cast<'a>() -> impl Parser<'a, &'a str, Expression, Err<'a>> + Clone {
     let type_p = any.delimited_by(op('('), op(')'));
     type_p
         .then(hex())
-        .map(|(r#type, ptr)| Expression::PtrCast(ptr, r#type.trim().to_string()))
+        .map(|(r#type, ptr)| DQE::PtrCast(ptr, r#type.trim().to_string()))
         .labelled("pointer cast")
 }
 
@@ -109,9 +109,9 @@ fn literal<'a>() -> impl Parser<'a, &'a str, Literal, Err<'a>> + Clone {
     literal
 }
 
-pub fn parser<'a>() -> impl Parser<'a, &'a str, Expression, Err<'a>> {
+pub fn parser<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> {
     let selector = rust_identifier().padded().map(|name: &str| {
-        Expression::Variable(VariableSelector::Name {
+        DQE::Variable(VariableSelector::Name {
             var_name: name.to_string(),
             only_local: false,
         })
@@ -128,8 +128,8 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Expression, Err<'a>> {
 
         let field_op = op('.')
             .ignore_then(field)
-            .map(|field: &str| -> Box<dyn FnOnce(Expression) -> Expression> {
-                Box::new(move |r| Expression::Field(Box::new(r), field.to_string()))
+            .map(|field: &str| -> Box<dyn FnOnce(DQE) -> DQE> {
+                Box::new(move |r| DQE::Field(Box::new(r), field.to_string()))
             })
             .boxed();
 
@@ -137,8 +137,8 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Expression, Err<'a>> {
             .padded()
             .labelled("index value")
             .delimited_by(op('['), op(']'))
-            .map(|idx| -> Box<dyn FnOnce(Expression) -> Expression> {
-                Box::new(move |r: Expression| Expression::Index(Box::new(r), idx))
+            .map(|idx| -> Box<dyn FnOnce(DQE) -> DQE> {
+                Box::new(move |r: DQE| DQE::Index(Box::new(r), idx))
             })
             .boxed();
 
@@ -152,8 +152,8 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Expression, Err<'a>> {
             .then(mb_usize)
             .labelled("slice range (start..end)")
             .delimited_by(op('['), op(']'))
-            .map(|(from, to)| -> Box<dyn FnOnce(Expression) -> Expression> {
-                Box::new(move |r: Expression| Expression::Slice(Box::new(r), from, to))
+            .map(|(from, to)| -> Box<dyn FnOnce(DQE) -> DQE> {
+                Box::new(move |r: DQE| DQE::Slice(Box::new(r), from, to))
             })
             .boxed();
 
@@ -166,7 +166,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Expression, Err<'a>> {
 
         op('*')
             .repeated()
-            .foldr(expr, |_op, rhs| Expression::Deref(Box::new(rhs)))
+            .foldr(expr, |_op, rhs| DQE::Deref(Box::new(rhs)))
     });
 
     expr.then_ignore(end())
@@ -180,20 +180,20 @@ mod test {
     fn test_ptr_cast_parser() {
         struct TestCase {
             string: &'static str,
-            result: Result<Expression, ()>,
+            result: Result<DQE, ()>,
         }
         let cases = vec![
             TestCase {
                 string: "(*SomeStruct) 0x12345",
-                result: Ok(Expression::PtrCast(0x12345, "*SomeStruct".to_string())),
+                result: Ok(DQE::PtrCast(0x12345, "*SomeStruct".to_string())),
             },
             TestCase {
                 string: " ( &u32 )0x12345",
-                result: Ok(Expression::PtrCast(0x12345, "&u32".to_string())),
+                result: Ok(DQE::PtrCast(0x12345, "&u32".to_string())),
             },
             TestCase {
                 string: "(*const abc::def::SomeType)  0x123AABCD",
-                result: Ok(Expression::PtrCast(
+                result: Ok(DQE::PtrCast(
                     0x123AABCD,
                     "*const abc::def::SomeType".to_string(),
                 )),
@@ -204,10 +204,7 @@ mod test {
             },
             TestCase {
                 string: "(*const i32)0x007FFFFFFFDC94",
-                result: Ok(Expression::PtrCast(
-                    0x7FFFFFFFDC94,
-                    "*const i32".to_string(),
-                )),
+                result: Ok(DQE::PtrCast(0x7FFFFFFFDC94, "*const i32".to_string())),
             },
         ];
 
@@ -367,37 +364,37 @@ mod test {
     fn test_expr_parsing() {
         struct TestCase {
             string: &'static str,
-            expr: Expression,
+            expr: DQE,
         }
         let test_cases = vec![
             TestCase {
                 string: "var1",
-                expr: Expression::Variable(VariableSelector::Name {
+                expr: DQE::Variable(VariableSelector::Name {
                     var_name: "var1".to_string(),
                     only_local: false,
                 }),
             },
             TestCase {
                 string: "*var1",
-                expr: Expression::Deref(Box::new(Expression::Variable(VariableSelector::Name {
+                expr: DQE::Deref(Box::new(DQE::Variable(VariableSelector::Name {
                     var_name: "var1".to_string(),
                     only_local: false,
                 }))),
             },
             TestCase {
                 string: "**var1",
-                expr: Expression::Deref(Box::new(Expression::Deref(Box::new(
-                    Expression::Variable(VariableSelector::Name {
+                expr: DQE::Deref(Box::new(DQE::Deref(Box::new(DQE::Variable(
+                    VariableSelector::Name {
                         var_name: "var1".to_string(),
                         only_local: false,
-                    }),
-                )))),
+                    },
+                ))))),
             },
             TestCase {
                 string: "**var1.field1.field2",
-                expr: Expression::Deref(Box::new(Expression::Deref(Box::new(Expression::Field(
-                    Box::new(Expression::Field(
-                        Box::new(Expression::Variable(VariableSelector::Name {
+                expr: DQE::Deref(Box::new(DQE::Deref(Box::new(DQE::Field(
+                    Box::new(DQE::Field(
+                        Box::new(DQE::Variable(VariableSelector::Name {
                             var_name: "var1".to_string(),
                             only_local: false,
                         })),
@@ -408,9 +405,9 @@ mod test {
             },
             TestCase {
                 string: "**(var1.field1.field2)",
-                expr: Expression::Deref(Box::new(Expression::Deref(Box::new(Expression::Field(
-                    Box::new(Expression::Field(
-                        Box::new(Expression::Variable(VariableSelector::Name {
+                expr: DQE::Deref(Box::new(DQE::Deref(Box::new(DQE::Field(
+                    Box::new(DQE::Field(
+                        Box::new(DQE::Variable(VariableSelector::Name {
                             var_name: "var1".to_string(),
                             only_local: false,
                         })),
@@ -421,14 +418,14 @@ mod test {
             },
             TestCase {
                 string: "(**var1).field1.field2",
-                expr: Expression::Field(
-                    Box::new(Expression::Field(
-                        Box::new(Expression::Deref(Box::new(Expression::Deref(Box::new(
-                            Expression::Variable(VariableSelector::Name {
+                expr: DQE::Field(
+                    Box::new(DQE::Field(
+                        Box::new(DQE::Deref(Box::new(DQE::Deref(Box::new(DQE::Variable(
+                            VariableSelector::Name {
                                 var_name: "var1".to_string(),
                                 only_local: false,
-                            }),
-                        ))))),
+                            },
+                        )))))),
                         "field1".to_string(),
                     )),
                     "field2".to_string(),
@@ -436,11 +433,11 @@ mod test {
             },
             TestCase {
                 string: "*(*(var1.field1)).field2[1][2]",
-                expr: Expression::Deref(Box::new(Expression::Index(
-                    Box::new(Expression::Index(
-                        Box::new(Expression::Field(
-                            Box::new(Expression::Deref(Box::new(Expression::Field(
-                                Box::new(Expression::Variable(VariableSelector::Name {
+                expr: DQE::Deref(Box::new(DQE::Index(
+                    Box::new(DQE::Index(
+                        Box::new(DQE::Field(
+                            Box::new(DQE::Deref(Box::new(DQE::Field(
+                                Box::new(DQE::Variable(VariableSelector::Name {
                                     var_name: "var1".to_string(),
                                     only_local: false,
                                 })),
@@ -455,9 +452,9 @@ mod test {
             },
             TestCase {
                 string: "var1.field1[5..]",
-                expr: Expression::Slice(
-                    Box::new(Expression::Field(
-                        Box::new(Expression::Variable(VariableSelector::Name {
+                expr: DQE::Slice(
+                    Box::new(DQE::Field(
+                        Box::new(DQE::Variable(VariableSelector::Name {
                             var_name: "var1".to_string(),
                             only_local: false,
                         })),
@@ -469,9 +466,9 @@ mod test {
             },
             TestCase {
                 string: "var1.field1[..5]",
-                expr: Expression::Slice(
-                    Box::new(Expression::Field(
-                        Box::new(Expression::Variable(VariableSelector::Name {
+                expr: DQE::Slice(
+                    Box::new(DQE::Field(
+                        Box::new(DQE::Variable(VariableSelector::Name {
                             var_name: "var1".to_string(),
                             only_local: false,
                         })),
@@ -483,9 +480,9 @@ mod test {
             },
             TestCase {
                 string: "var1.field1[5..5]",
-                expr: Expression::Slice(
-                    Box::new(Expression::Field(
-                        Box::new(Expression::Variable(VariableSelector::Name {
+                expr: DQE::Slice(
+                    Box::new(DQE::Field(
+                        Box::new(DQE::Variable(VariableSelector::Name {
                             var_name: "var1".to_string(),
                             only_local: false,
                         })),
@@ -497,9 +494,9 @@ mod test {
             },
             TestCase {
                 string: "var1.field1[..]",
-                expr: Expression::Slice(
-                    Box::new(Expression::Field(
-                        Box::new(Expression::Variable(VariableSelector::Name {
+                expr: DQE::Slice(
+                    Box::new(DQE::Field(
+                        Box::new(DQE::Variable(VariableSelector::Name {
                             var_name: "var1".to_string(),
                             only_local: false,
                         })),
@@ -511,9 +508,9 @@ mod test {
             },
             TestCase {
                 string: "enum1.0.a",
-                expr: Expression::Field(
-                    Box::new(Expression::Field(
-                        Box::new(Expression::Variable(VariableSelector::Name {
+                expr: DQE::Field(
+                    Box::new(DQE::Field(
+                        Box::new(DQE::Variable(VariableSelector::Name {
                             var_name: "enum1".to_string(),
                             only_local: false,
                         })),
@@ -524,35 +521,32 @@ mod test {
             },
             TestCase {
                 string: "(*mut SomeType)0x123AABCD",
-                expr: Expression::PtrCast(0x123AABCD, "*mut SomeType".to_string()),
+                expr: DQE::PtrCast(0x123AABCD, "*mut SomeType".to_string()),
             },
             TestCase {
                 string: "(&abc::def::SomeType)0x123AABCD",
-                expr: Expression::PtrCast(0x123AABCD, "&abc::def::SomeType".to_string()),
+                expr: DQE::PtrCast(0x123AABCD, "&abc::def::SomeType".to_string()),
             },
             TestCase {
                 string: "(*const abc::def::SomeType)  0x123AABCD",
-                expr: Expression::PtrCast(0x123AABCD, "*const abc::def::SomeType".to_string()),
+                expr: DQE::PtrCast(0x123AABCD, "*const abc::def::SomeType".to_string()),
             },
             TestCase {
                 string: "*((*const abc::def::SomeType) 0x123AABCD)",
-                expr: Expression::Deref(
-                    Expression::PtrCast(0x123AABCD, "*const abc::def::SomeType".to_string())
-                        .boxed(),
+                expr: DQE::Deref(
+                    DQE::PtrCast(0x123AABCD, "*const abc::def::SomeType".to_string()).boxed(),
                 ),
             },
             TestCase {
                 string: "*(*const i32)0x007FFFFFFFDC94",
-                expr: Expression::Deref(
-                    Expression::PtrCast(0x7FFFFFFFDC94, "*const i32".to_string()).boxed(),
-                ),
+                expr: DQE::Deref(DQE::PtrCast(0x7FFFFFFFDC94, "*const i32".to_string()).boxed()),
             },
             TestCase {
                 string: "var.arr[0].some_val",
-                expr: Expression::Field(
-                    Expression::Index(
-                        Expression::Field(
-                            Expression::Variable(VariableSelector::Name {
+                expr: DQE::Field(
+                    DQE::Index(
+                        DQE::Field(
+                            DQE::Variable(VariableSelector::Name {
                                 var_name: "var".to_string(),
                                 only_local: false,
                             })
@@ -568,12 +562,12 @@ mod test {
             },
             TestCase {
                 string: "arr[0][..][1..][0].some_val",
-                expr: Expression::Field(
-                    Expression::Index(
-                        Expression::Slice(
-                            Expression::Slice(
-                                Expression::Index(
-                                    Expression::Variable(VariableSelector::Name {
+                expr: DQE::Field(
+                    DQE::Index(
+                        DQE::Slice(
+                            DQE::Slice(
+                                DQE::Index(
+                                    DQE::Variable(VariableSelector::Name {
                                         var_name: "arr".to_string(),
                                         only_local: false,
                                     })
@@ -597,12 +591,12 @@ mod test {
             },
             TestCase {
                 string: "map[\"key\"][-5][1.1][false][0x12]",
-                expr: Expression::Index(
-                    Expression::Index(
-                        Expression::Index(
-                            Expression::Index(
-                                Expression::Index(
-                                    Expression::Variable(VariableSelector::Name {
+                expr: DQE::Index(
+                    DQE::Index(
+                        DQE::Index(
+                            DQE::Index(
+                                DQE::Index(
+                                    DQE::Variable(VariableSelector::Name {
                                         var_name: "map".to_string(),
                                         only_local: false,
                                     })
@@ -624,8 +618,8 @@ mod test {
             },
             TestCase {
                 string: "map[Some(true)]",
-                expr: Expression::Index(
-                    Expression::Variable(VariableSelector::Name {
+                expr: DQE::Index(
+                    DQE::Variable(VariableSelector::Name {
                         var_name: "map".to_string(),
                         only_local: false,
                     })

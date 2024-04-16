@@ -40,7 +40,7 @@ use crate::debugger::error::Error::{
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::step::StepResult;
-use crate::debugger::variable::select::{Expression, VariableSelector};
+use crate::debugger::variable::select::{VariableSelector, DQE};
 use crate::debugger::variable::VariableIR;
 use crate::debugger::Error::Syscall;
 use crate::oracle::Oracle;
@@ -782,7 +782,7 @@ impl Debugger {
 
         let evaluator = variable::select::SelectExpressionEvaluator::new(
             self,
-            Expression::Variable(VariableSelector::Any),
+            DQE::Variable(VariableSelector::Any),
         );
         evaluator.evaluate()
     }
@@ -793,7 +793,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_variable(&self, select_expr: Expression) -> Result<Vec<VariableIR>, Error> {
+    pub fn read_variable(&self, select_expr: DQE) -> Result<Vec<VariableIR>, Error> {
         disable_when_not_stared!(self);
         let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
         evaluator.evaluate()
@@ -805,7 +805,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_variable_names(&self, select_expr: Expression) -> Result<Vec<String>, Error> {
+    pub fn read_variable_names(&self, select_expr: DQE) -> Result<Vec<String>, Error> {
         disable_when_not_stared!(self);
         let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
         evaluator.evaluate_names()
@@ -817,7 +817,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_argument(&self, select_expr: Expression) -> Result<Vec<VariableIR>, Error> {
+    pub fn read_argument(&self, select_expr: DQE) -> Result<Vec<VariableIR>, Error> {
         disable_when_not_stared!(self);
         let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
         evaluator.evaluate_on_arguments()
@@ -829,7 +829,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_argument_names(&self, select_expr: Expression) -> Result<Vec<String>, Error> {
+    pub fn read_argument_names(&self, select_expr: DQE) -> Result<Vec<String>, Error> {
         disable_when_not_stared!(self);
         let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
         evaluator.evaluate_on_arguments_names()
