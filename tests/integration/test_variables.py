@@ -464,10 +464,10 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('var *((*ref_f).foo)')
         self.debugger.expect_exact('*foo = i32(2)')
 
-        self.debugger.sendline('break vars.rs:261')
+        self.debugger.sendline('break vars.rs:290')
         self.debugger.expect_exact('New breakpoint')
         self.debugger.sendline('continue')
-        self.debugger.expect_exact('261     let nop: Option<u8> = None;')
+        self.debugger.expect_exact('290     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var hm2.abc')
         self.debugger.expect_exact('abc = Vec<i32, alloc::alloc::Global> {')
@@ -478,10 +478,57 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('cap: usize(3)')
         self.debugger.expect_exact('}')
 
-        self.debugger.sendline('break vars.rs:394')
+        self.debugger.sendline('var hm1[false]')
+        self.debugger.expect_exact('value = i64(5)')
+        self.debugger.sendline('var hm2["abc"]')
+        self.debugger.expect_exact('value = Vec<i32, alloc::alloc::Global> {')
+        self.debugger.sendline('var hm3[55]')
+        self.debugger.expect_exact('value = i32(55)')
+        self.debugger.sendline('var hm4["1"][1]')
+        self.debugger.expect_exact('value = i32(1)')
+
+        self.debugger.sendline('var a')
+        addr = 0
+        for x in range(10):
+            line = self.debugger.readline().decode("utf-8")
+            result = re.search(r'a = &i32 \[(.*)\]', line)
+            if result:
+                addr = result.group(1)
+                break
+        self.debugger.sendline('var hm5[' + addr + ']')
+        self.debugger.expect_exact('value = &str(a)')
+
+        self.debugger.sendline('break vars.rs:307')
         self.debugger.expect_exact('New breakpoint')
         self.debugger.sendline('continue')
-        self.debugger.expect_exact('394     let nop: Option<u8> = None;')
+        self.debugger.expect_exact('307     let nop: Option<u8> = None;')
+
+        self.debugger.sendline('var hs1[1]')
+        self.debugger.expect_exact('contains = bool(true)')
+        self.debugger.sendline('var hs1[11]')
+        self.debugger.expect_exact('contains = bool(false)')
+        self.debugger.sendline('var hs2[22]')
+        self.debugger.expect_exact('contains = bool(true)')
+        self.debugger.sendline('var hs2[222]')
+        self.debugger.expect_exact('contains = bool(false)')
+
+        self.debugger.sendline('var b')
+        addr = 0
+        for x in range(10):
+            line = self.debugger.readline().decode("utf-8")
+            result = re.search(r'b = &i32 \[(.*)\]', line)
+            if result:
+                addr = result.group(1)
+                break
+        self.debugger.sendline('var hs4[' + addr + ']')
+        self.debugger.expect_exact('contains = bool(true)')
+        self.debugger.sendline('var hs4[0x000]')
+        self.debugger.expect_exact('contains = bool(false)')
+
+        self.debugger.sendline('break vars.rs:460')
+        self.debugger.expect_exact('New breakpoint')
+        self.debugger.sendline('continue')
+        self.debugger.expect_exact('460     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var ptr[..4]')
         self.debugger.expect_exact('[*ptr] = [i32] {')
@@ -493,11 +540,11 @@ class VariablesTestCase(unittest.TestCase):
 
     def test_zst_types(self):
         """Read variables of zero sized types"""
-        self.debugger.sendline('break vars.rs:430')
+        self.debugger.sendline('break vars.rs:496')
         self.debugger.expect_exact('New breakpoint')
 
         self.debugger.sendline('run')
-        self.debugger.expect_exact('430     let nop: Option<u8> = None;')
+        self.debugger.expect_exact('496     let nop: Option<u8> = None;')
 
         self.debugger.sendline('var locals')
 
@@ -527,7 +574,8 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('0: ()(())')
         self.debugger.expect_exact('}')
 
-        self.debugger.expect_exact('vecdeque_zst = VecDeque<(), alloc::alloc::Global> {')
+        self.debugger.expect_exact(
+            'vecdeque_zst = VecDeque<(), alloc::alloc::Global> {')
         self.debugger.expect_exact('buf: [()] {')
         self.debugger.expect_exact('0: ()(())')
         self.debugger.expect_exact('1: ()(())')
@@ -538,30 +586,38 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.expect_exact('cap: usize(0)')
         self.debugger.expect_exact('}')
 
-        self.debugger.expect(re.compile(b"hash_map_zst_key = HashMap<\(\), i32, .*::RandomState> {"))
+        self.debugger.expect(re.compile(
+            b"hash_map_zst_key = HashMap<\(\), i32, .*::RandomState> {"))
         self.debugger.expect_exact('()(()): i32(1)')
         self.debugger.expect_exact('}')
-        self.debugger.expect(re.compile(b"hash_map_zst_val = HashMap<i32, \(\), .*::RandomState> {"))
+        self.debugger.expect(re.compile(
+            b"hash_map_zst_val = HashMap<i32, \(\), .*::RandomState> {"))
         self.debugger.expect_exact('i32(1): ()(())')
         self.debugger.expect_exact('}')
-        self.debugger.expect(re.compile(b"hash_map_zst = HashMap<\(\), \(\), .*::RandomState> {"))
+        self.debugger.expect(re.compile(
+            b"hash_map_zst = HashMap<\(\), \(\), .*::RandomState> {"))
         self.debugger.expect_exact('()(()): ()(())')
         self.debugger.expect_exact('}')
-        self.debugger.expect(re.compile(b"hash_set_zst = HashSet<\(\), .*::RandomState> {"))
+        self.debugger.expect(
+            re.compile(b"hash_set_zst = HashSet<\(\), .*::RandomState> {"))
         self.debugger.expect_exact('()(())')
         self.debugger.expect_exact('}')
 
-        self.debugger.expect_exact('btree_map_zst_key = BTreeMap<(), i32, alloc::alloc::Global> {')
+        self.debugger.expect_exact(
+            'btree_map_zst_key = BTreeMap<(), i32, alloc::alloc::Global> {')
         self.debugger.expect_exact('()(()): i32(1)')
         self.debugger.expect_exact('}')
-        self.debugger.expect_exact('btree_map_zst_val = BTreeMap<i32, (), alloc::alloc::Global> {')
+        self.debugger.expect_exact(
+            'btree_map_zst_val = BTreeMap<i32, (), alloc::alloc::Global> {')
         self.debugger.expect_exact('i32(1): ()(())')
         self.debugger.expect_exact('i32(2): ()(())')
         self.debugger.expect_exact('}')
-        self.debugger.expect_exact('btree_map_zst = BTreeMap<(), (), alloc::alloc::Global> {')
+        self.debugger.expect_exact(
+            'btree_map_zst = BTreeMap<(), (), alloc::alloc::Global> {')
         self.debugger.expect_exact('()(()): ()(())')
         self.debugger.expect_exact('}')
-        self.debugger.expect_exact('btree_set_zst = BTreeSet<(), alloc::alloc::Global> {')
+        self.debugger.expect_exact(
+            'btree_set_zst = BTreeSet<(), alloc::alloc::Global> {')
         self.debugger.expect_exact('()(())')
         self.debugger.expect_exact('}')
 
@@ -580,13 +636,15 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.sendline('arg vec')
         self.debugger.expect_exact('vec = Vec<u8, alloc::alloc::Global> {')
         self.debugger.sendline('arg box_arr')
-        self.debugger.expect_exact('box_arr = alloc::boxed::Box<[u8], alloc::alloc::Global> {')
+        self.debugger.expect_exact(
+            'box_arr = alloc::boxed::Box<[u8], alloc::alloc::Global> {')
 
         self.debugger.sendline('arg all')
         self.debugger.expect_exact('by_val = i32(1)')
         self.debugger.expect_exact('by_ref = &i32')
         self.debugger.expect_exact('vec = Vec<u8, alloc::alloc::Global> {')
-        self.debugger.expect_exact('box_arr = alloc::boxed::Box<[u8], alloc::alloc::Global> {')
+        self.debugger.expect_exact(
+            'box_arr = alloc::boxed::Box<[u8], alloc::alloc::Global> {')
 
     def test_ptr_cast(self):
         """Cast const address to a typed pointer"""
@@ -604,9 +662,8 @@ class VariablesTestCase(unittest.TestCase):
             result = re.search(r'ref_a = &i32 \[0x(.*)\]', line)
             if result:
                 addr = result.group(1)
-                addr = "0x"+addr[:14]
+                addr = "0x" + addr[:14]
                 break
 
-        self.debugger.sendline('var *(*const i32)'+addr)
+        self.debugger.sendline('var *(*const i32)' + addr)
         self.debugger.expect_exact('{unknown} = i32(2)')
-

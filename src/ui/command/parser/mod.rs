@@ -253,7 +253,7 @@ impl Command {
             .boxed();
 
         let help = op2(HELP_COMMAND, HELP_COMMAND_SHORT)
-            .ignore_then(text::ident().or_not())
+            .ignore_then(any().repeated().at_least(1).padded().to_slice().or_not())
             .map(|s| Command::Help {
                 command: s.map(ToOwned::to_owned),
                 reason: None,

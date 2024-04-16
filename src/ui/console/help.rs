@@ -28,7 +28,7 @@ tui                                         -- change ui mode to tui
 q, quit                                     -- exit the BugStalker 
 "#;
 
-pub const DATA_QUERY_DESCRIPTION: &str = "
+pub const DQE_DESCRIPTION: &str = "
 \x1b[;1mData query expression\x1b[0m
 To analyze data in a program, you often need a tool for introspection of variables, which allows, 
 for example, dereference a pointer or taking an array element by index. BugStalker provides a data 
@@ -36,25 +36,56 @@ query expressions as such a tool.
 
 Available operators:
 `*` - dereference, available for references, pointers and smart pointers (Rc and Arc)
-`[{digit}]` - index operator, available for arrays, enums, vectors and veqdequeues
 `[{left}..{right}]` - slice operator, available for pointers
 `.` - get field, available for structs, enums and hashmaps (with string keys)
 `(` and `)` - parentheses to prioritize operations
 `({ptr/ref type})` - cast constant address to typed pointer or reference
+`[{literal}]` - index operator, available for arrays, enums, vectors, veqdequeues, hashmaps, hashsets, btreemaps and btreesets. 
+Literal is a json-like object (with wildcards feature), that can be used for matching with real data. 
+See `help dqe literal` for more information
 
 Examples:
 `**var1` - print the value pointed to by the pointer `*var1`
 `**var1.field1` - print the value pointed to by the pointer `*var1.field1`
 `(**var1).field1` - print field `field1` in struct pointed to by the pointer `*var1`
 `*(*const i32)0x1234AA332` - cast memory address to `*const i32` pointer, then dereference it 
+`hashmap[0x1337]` - get value by pointer key 0x1337 from hashmap 
+`hashmap[{\"a\", \"b\"}]` - get value by array key {\"a\", \"b\"} from hashmap
 `*(*(var1.field1)).field2[1][2]` - get `field1` from struct `var1`, dereference it, 
 then get `field2` from dereference result, then get element by index 1, and get element 2 from it,
 finally print dereference of this value
 ";
 
+pub const DQE_LITERAL_DESCRIPTION: &str = "
+\x1b[;1mLiterals in data query expression\x1b[0m
+For advanced search of elements in containers (hashmaps, hashsets, etc.), debugger provides an index 
+operator that accepts a literal object. This object is very similar to a regular json object, 
+but, among other things, it supports wildcards (*) in arrays and associated arrays. 
+
+Scalar literal objects:
+- numbers (`123`) - matches with any rust integer values
+- strings (`\"abc\") - matches with rust strings or &str's
+- float numbers (`123.5`) - matches with rust floats equals with little epsilon
+- booleans (`true`) - matches with bool's
+- addresses (`0x1337`) - matches with pointers (smart pointers too) and referenses
+
+Complex literal objects:
+- arrays (`{1, 2, 3, *, 5}`) - matches with arrays, vectors, tuples, sets
+- assoc arrays (`{field_1: 1, field_2: *}`) - matches with structures
+- enum variants (`None`) - matches with enums identifiers
+- enum variants with values (`Some({true, 12})`) - matches with enums identifiers with items
+
+Example of usage of literal objects:
+`map[1]` - get value by int key `1` from hashmap 
+`map[\"key_1\"]` - get value by string key `key_1` from hashmap
+`set[{*, *, *}]` - checks that there is a vector of any three elements in set
+`map[{field_1: 1, field_2: Some({true}), field_3: *}]` - get value by key that matches 3-field structure with
+field `field_1` equals to 1, field `field_2` equals to `Option::Some(true)` and field `field_3` equals to any value
+";
+
 pub const HELP_VAR: &str = "\
 \x1b[32;1mvar\x1b[0m
-Show local and global variables, supports data queries expressions over variables (see `help data_query`).
+Show local and global variables, supports data queries expressions over variables (see `help dqe`).
 
 Available subcomands:
 var locals - print current stack frame local variables
@@ -72,7 +103,7 @@ var (*some_array)[0] - print first element of *some_array
 
 pub const HELP_ARG: &str = "\
 \x1b[32;1marg\x1b[0m
-Show current stack frame arguments, supports data queries expressions over arguments (see `help data_query`).
+Show current stack frame arguments, supports data queries expressions over arguments (see `help dqe`).
 
 Available subcomands:
 arg all - print all arguments
@@ -243,7 +274,8 @@ impl Helper {
     pub fn help_for_command(&mut self, debugger: &Debugger, command: Option<&str>) -> &str {
         match command {
             None => HELP,
-            Some("data_query") => DATA_QUERY_DESCRIPTION,
+            Some("dqe") => DQE_DESCRIPTION,
+            Some("dqe literal") => DQE_LITERAL_DESCRIPTION,
             Some(parser::VAR_COMMAND) => HELP_VAR,
             Some(parser::ARG_COMMAND) => HELP_ARG,
             Some(parser::BACKTRACE_COMMAND) | Some(parser::BACKTRACE_COMMAND_SHORT) => {
