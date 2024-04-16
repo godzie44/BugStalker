@@ -316,13 +316,10 @@ impl Tracer {
                             let new_tracee = self.tracee_ctl.add(new_thread_id);
                             let new_trace_status = new_tracee.wait_one()?;
 
-                            let _new_thread_id = new_thread_id;
                             debug_assert!(
-                                matches!(
-                                new_trace_status,
-                                WaitStatus::PtraceEvent(_new_thread_id, _, libc::PTRACE_EVENT_STOP)
-                            ),
-                                "the newly cloned thread must start with PTRACE_EVENT_STOP (cause PTRACE_SEIZE was used)"
+                                matches!(new_trace_status, WaitStatus::PtraceEvent(_, _, libc::PTRACE_EVENT_STOP)) &&
+                                    new_trace_status.pid() == Some(new_thread_id),
+                                "the newly cloned thread must start with PTRACE_EVENT_STOP (cause PTRACE_SEIZE was used), got {new_trace_status:?}"
                             )
                         }
                     }
