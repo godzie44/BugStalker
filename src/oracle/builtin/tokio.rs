@@ -1,5 +1,5 @@
 use crate::debugger::unwind::{Backtrace, FrameSpan};
-use crate::debugger::variable::select::{Expression, VariableSelector};
+use crate::debugger::variable::select::{VariableSelector, DQE};
 use crate::debugger::variable::{ScalarVariable, StructVariable, SupportedScalar, VariableIR};
 use crate::debugger::CreateTransparentBreakpointRequest;
 use crate::debugger::{Debugger, Error};
@@ -306,8 +306,8 @@ impl TokioOracle {
             .filter(|(_, task)| task.dropped_at.is_none())
             .for_each(|(_, task)| {
                 if let Some(ptr) = task.ptr {
-                    let var = dbg.read_variable(Expression::Deref(
-                        Expression::PtrCast(
+                    let var = dbg.read_variable(DQE::Deref(
+                        DQE::PtrCast(
                             ptr as usize,
                             "*const tokio::runtime::task::core::Header".to_string(),
                         )
@@ -339,9 +339,9 @@ impl TokioOracle {
 
     /// Read `self` function argument, interpret it as a task and return (task_id, task pointer) pair.
     fn get_header_from_self(dbg: &mut Debugger) -> Result<Option<(u64, *const ())>, Error> {
-        let header_pointer_expr = Expression::Field(
-            Expression::Field(
-                Expression::Variable(VariableSelector::Name {
+        let header_pointer_expr = DQE::Field(
+            DQE::Field(
+                DQE::Variable(VariableSelector::Name {
                     var_name: "self".to_string(),
                     only_local: true,
                 })
@@ -357,10 +357,10 @@ impl TokioOracle {
             return Ok(None);
         };
 
-        let id_offset_args = dbg.read_argument(Expression::Field(
-            Expression::Deref(
-                Expression::Field(
-                    Expression::Deref(header_pointer_expr.boxed()).boxed(),
+        let id_offset_args = dbg.read_argument(DQE::Field(
+            DQE::Deref(
+                DQE::Field(
+                    DQE::Deref(header_pointer_expr.boxed()).boxed(),
                     "vtable".to_string(),
                 )
                 .boxed(),
@@ -408,8 +408,8 @@ impl TokioOracle {
     }
 
     fn on_new(&self, debugger: &mut Debugger) -> Result<(), Error> {
-        let id_args = debugger.read_argument(Expression::Field(
-            Box::new(Expression::Variable(VariableSelector::Name {
+        let id_args = debugger.read_argument(DQE::Field(
+            Box::new(DQE::Variable(VariableSelector::Name {
                 var_name: "id".to_string(),
                 only_local: true,
             })),

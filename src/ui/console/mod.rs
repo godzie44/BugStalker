@@ -1,6 +1,6 @@
 use crate::debugger;
 use crate::debugger::process::{Child, Installed};
-use crate::debugger::variable::select::{Expression, VariableSelector};
+use crate::debugger::variable::select::{VariableSelector, DQE};
 use crate::debugger::{Debugger, DebuggerBuilder};
 use crate::ui::command::arguments::Handler as ArgumentsHandler;
 use crate::ui::command::backtrace::Handler as BacktraceHandler;
@@ -359,10 +359,10 @@ impl AppLoop {
     fn update_completer_variables(&self) -> anyhow::Result<()> {
         let vars = self
             .debugger
-            .read_variable_names(Expression::Variable(VariableSelector::Any))?;
+            .read_variable_names(DQE::Variable(VariableSelector::Any))?;
         let args = self
             .debugger
-            .read_argument_names(Expression::Variable(VariableSelector::Any))?;
+            .read_argument_names(DQE::Variable(VariableSelector::Any))?;
 
         let mut completer = self.completer.lock().unwrap();
         completer.replace_local_var_hints(vars);

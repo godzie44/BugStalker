@@ -3,7 +3,7 @@ pub mod expression;
 use super::r#break::BreakpointIdentity;
 use super::{frame, memory, register, source_code, thread, Command, CommandError};
 use super::{r#break, CommandResult};
-use crate::debugger::variable::select::{Expression, VariableSelector};
+use crate::debugger::variable::select::{VariableSelector, DQE};
 use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 use chumsky::error::{Rich, RichPattern, RichReason};
 use chumsky::prelude::{any, choice, end, just};
@@ -211,7 +211,7 @@ impl Command {
 
         let print_local_vars = op_w_arg(VAR_COMMAND)
             .then(sub_op(VAR_LOCAL_KEY))
-            .map(|_| Command::PrintVariables(Expression::Variable(VariableSelector::Any)));
+            .map(|_| Command::PrintVariables(DQE::Variable(VariableSelector::Any)));
         let print_var = op_w_arg(VAR_COMMAND)
             .ignore_then(expression::parser())
             .map(Command::PrintVariables);
@@ -220,7 +220,7 @@ impl Command {
 
         let print_all_args = op_w_arg(ARG_COMMAND)
             .then(sub_op(ARG_ALL_KEY))
-            .map(|_| Command::PrintArguments(Expression::Variable(VariableSelector::Any)));
+            .map(|_| Command::PrintArguments(DQE::Variable(VariableSelector::Any)));
         let print_arg = op_w_arg(ARG_COMMAND)
             .ignore_then(expression::parser())
             .map(Command::PrintArguments);
@@ -481,7 +481,7 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintVariables(Expression::Variable(VariableSelector::Any))
+                    Command::PrintVariables(DQE::Variable(VariableSelector::Any))
                 ));
             },
         },
@@ -490,7 +490,7 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintVariables(Expression::Deref(_))
+                    Command::PrintVariables(DQE::Deref(_))
                 ));
             },
         },
@@ -499,7 +499,7 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintVariables(Expression::Variable(VariableSelector::Name { var_name, .. })) if var_name == "locals_var"
+                    Command::PrintVariables(DQE::Variable(VariableSelector::Name { var_name, .. })) if var_name == "locals_var"
                 ));
             },
         },
@@ -528,7 +528,7 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintArguments(Expression::Variable(VariableSelector::Any))
+                    Command::PrintArguments(DQE::Variable(VariableSelector::Any))
                 ));
             },
         },
@@ -537,7 +537,7 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintArguments(Expression::Variable(VariableSelector::Name { var_name, .. })) if var_name == "all_arg"
+                    Command::PrintArguments(DQE::Variable(VariableSelector::Name { var_name, .. })) if var_name == "all_arg"
                 ));
             },
         },
