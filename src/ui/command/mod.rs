@@ -24,7 +24,7 @@ pub mod symbol;
 pub mod thread;
 pub mod variables;
 
-use crate::debugger::variable::select::Expression;
+use crate::debugger::variable::select::DQE;
 use crate::debugger::Error;
 
 #[derive(thiserror::Error, Debug)]
@@ -42,8 +42,8 @@ pub type CommandResult<T> = Result<T, CommandError>;
 /// External commands that can be processed by the debugger.
 #[derive(Debug, Clone)]
 pub enum Command {
-    PrintVariables(Expression),
-    PrintArguments(Expression),
+    PrintVariables(DQE),
+    PrintArguments(DQE),
     PrintBacktrace(backtrace::Command),
     Continue,
     Frame(frame::Command),

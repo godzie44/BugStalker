@@ -3,9 +3,7 @@ use crate::common::{rust_version, DebugeeRunInfo};
 use crate::VARS_APP;
 use crate::{assert_no_proc, prepare_debugee_process};
 use bugstalker::debugger::variable::render::RenderRepr;
-use bugstalker::debugger::variable::select::{
-    Expression, Literal, LiteralOrWildcard, VariableSelector,
-};
+use bugstalker::debugger::variable::select::{Literal, LiteralOrWildcard, VariableSelector, DQE};
 use bugstalker::debugger::variable::{select, VariableIR};
 use bugstalker::debugger::{variable, Debugger, DebuggerBuilder};
 use bugstalker::ui::command::parser::expression;
@@ -601,7 +599,7 @@ fn test_read_enum() {
     assert_no_proc!(debugee_pid);
 }
 
-fn make_select_plan(expr: &str) -> Expression {
+fn make_select_plan(expr: &str) -> DQE {
     expression::parser().parse(expr).unwrap()
 }
 
@@ -911,7 +909,7 @@ fn test_read_static_variables() {
     assert_eq!(info.line.take(), Some(168));
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "GLOB_1".to_string(),
             only_local: false,
         }))
@@ -920,7 +918,7 @@ fn test_read_static_variables() {
     assert_str(&vars[0], "vars::GLOB_1", "glob_1");
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "GLOB_2".to_string(),
             only_local: false,
         }))
@@ -952,7 +950,7 @@ fn test_read_only_local_variables() {
     assert_eq!(info.line.take(), Some(168));
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "GLOB_1".to_string(),
             only_local: true,
         }))
@@ -978,7 +976,7 @@ fn test_read_static_variables_different_modules() {
     assert_eq!(info.line.take(), Some(179));
 
     let mut vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "GLOB_3".to_string(),
             only_local: false,
         }))
@@ -1013,7 +1011,7 @@ fn test_read_tls_variables() {
     assert_eq!(info.line.take(), Some(194));
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "THREAD_LOCAL_VAR_1".to_string(),
             only_local: false,
         }))
@@ -1025,7 +1023,7 @@ fn test_read_tls_variables() {
     });
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "THREAD_LOCAL_VAR_2".to_string(),
             only_local: false,
         }))
@@ -1042,7 +1040,7 @@ fn test_read_tls_variables() {
     assert_eq!(info.line.take(), Some(199));
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "THREAD_LOCAL_VAR_1".to_string(),
             only_local: false,
         }))
@@ -1055,7 +1053,7 @@ fn test_read_tls_variables() {
     assert_eq!(info.line.take(), Some(203));
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "THREAD_LOCAL_VAR_1".to_string(),
             only_local: false,
         }))
@@ -1205,7 +1203,7 @@ fn test_arguments() {
     assert_eq!(info.line.take(), Some(232));
 
     let args = debugger
-        .read_argument(select::Expression::Variable(VariableSelector::Any))
+        .read_argument(select::DQE::Variable(VariableSelector::Any))
         .unwrap();
     assert_scalar(&args[0], "by_val", "i32", Some(SupportedScalar::I32(1)));
     assert_pointer(&args[1], "by_ref", "&i32");
@@ -1396,8 +1394,8 @@ fn test_read_hashmap() {
     });
 
     let make_idx_dqe = |var: &str, literal| {
-        Expression::Index(
-            Expression::Variable(VariableSelector::Name {
+        DQE::Index(
+            DQE::Variable(VariableSelector::Name {
                 var_name: var.to_string(),
                 only_local: true,
             })
@@ -1436,7 +1434,7 @@ fn test_read_hashmap() {
 
     // get by pointer key
     let key = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "b".to_string(),
             only_local: true,
         }))
@@ -1549,8 +1547,8 @@ fn test_read_hashset() {
     });
 
     let make_idx_dqe = |var: &str, literal| {
-        Expression::Index(
-            Expression::Variable(VariableSelector::Name {
+        DQE::Index(
+            DQE::Variable(VariableSelector::Name {
                 var_name: var.to_string(),
                 only_local: true,
             })
@@ -1574,7 +1572,7 @@ fn test_read_hashset() {
 
     // get by pointer key
     let key = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "b".to_string(),
             only_local: true,
         }))
@@ -1851,8 +1849,8 @@ fn test_btree_map() {
         });
 
     let make_idx_dqe = |var: &str, literal| {
-        Expression::Index(
-            Expression::Variable(VariableSelector::Name {
+        DQE::Index(
+            DQE::Variable(VariableSelector::Name {
                 var_name: var.to_string(),
                 only_local: true,
             })
@@ -1891,7 +1889,7 @@ fn test_btree_map() {
 
     // get by pointer key
     let key = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "b".to_string(),
             only_local: true,
         }))
@@ -1998,8 +1996,8 @@ fn test_read_btree_set() {
     );
 
     let make_idx_dqe = |var: &str, literal| {
-        Expression::Index(
-            Expression::Variable(VariableSelector::Name {
+        DQE::Index(
+            DQE::Variable(VariableSelector::Name {
                 var_name: var.to_string(),
                 only_local: true,
             })
@@ -2023,7 +2021,7 @@ fn test_read_btree_set() {
 
     // get by pointer key
     let key = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "b".to_string(),
             only_local: true,
         }))
@@ -2518,7 +2516,7 @@ fn test_read_static_in_fn_variable() {
     assert_eq!(info.line.take(), Some(504));
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "INNER_STATIC".to_string(),
             only_local: false,
         }))
@@ -2534,7 +2532,7 @@ fn test_read_static_in_fn_variable() {
     assert_eq!(info.line.take(), Some(551));
 
     let vars = debugger
-        .read_variable(Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Variable(VariableSelector::Name {
             var_name: "INNER_STATIC".to_string(),
             only_local: false,
         }))
@@ -2565,8 +2563,8 @@ fn test_slice_operator() {
     assert_eq!(info.line.take(), Some(61));
 
     let vars = debugger
-        .read_variable(Expression::Slice(
-            Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Slice(
+            DQE::Variable(VariableSelector::Name {
                 var_name: "arr_1".to_string(),
                 only_local: true,
             })
@@ -2585,8 +2583,8 @@ fn test_slice_operator() {
     });
 
     let vars = debugger
-        .read_variable(Expression::Slice(
-            Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Slice(
+            DQE::Variable(VariableSelector::Name {
                 var_name: "arr_1".to_string(),
                 only_local: true,
             })
@@ -2602,8 +2600,8 @@ fn test_slice_operator() {
     });
 
     let vars = debugger
-        .read_variable(Expression::Slice(
-            Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Slice(
+            DQE::Variable(VariableSelector::Name {
                 var_name: "arr_1".to_string(),
                 only_local: true,
             })
@@ -2619,8 +2617,8 @@ fn test_slice_operator() {
     });
 
     let vars = debugger
-        .read_variable(Expression::Slice(
-            Expression::Variable(VariableSelector::Name {
+        .read_variable(DQE::Slice(
+            DQE::Variable(VariableSelector::Name {
                 var_name: "arr_1".to_string(),
                 only_local: true,
             })
@@ -2664,8 +2662,8 @@ fn test_cast_pointers() {
     let raw_ptr = pointer.value.unwrap();
 
     let var = debugger
-        .read_variable(Expression::Deref(
-            Expression::PtrCast(raw_ptr as usize, "*const i32".to_string()).boxed(),
+        .read_variable(DQE::Deref(
+            DQE::PtrCast(raw_ptr as usize, "*const i32".to_string()).boxed(),
         ))
         .unwrap();
     assert_scalar(&var[0], "{unknown}", "i32", Some(SupportedScalar::I32(2)));

@@ -1,5 +1,5 @@
 use crate::debugger::variable::render::{RenderRepr, ValueLayout};
-use crate::debugger::variable::select::{Expression, Literal, VariableSelector};
+use crate::debugger::variable::select::{Literal, VariableSelector, DQE};
 use crate::debugger::variable::{select, VariableIR};
 use crate::ui::command;
 use crate::ui::tui::app::port::UserEvent;
@@ -31,7 +31,7 @@ impl Variables {
         recursion: u32,
         node_name: &str,
         var: &VariableIR,
-        select_path: Option<Expression>,
+        select_path: Option<DQE>,
     ) -> Node {
         let name = var.name();
         let typ = var.r#type();
@@ -53,7 +53,7 @@ impl Variables {
                         Node::new(node_name.to_string(), format!("{name} {typ}({view})"));
 
                     if let Some(path) = select_path {
-                        let deref_expr = Expression::Deref(Box::new(path));
+                        let deref_expr = DQE::Deref(Box::new(path));
 
                         let variables = {
                             let deref_expr = deref_expr.clone();
@@ -100,7 +100,7 @@ impl Variables {
                                 member,
                                 select_path
                                     .clone()
-                                    .map(|expr| Expression::Field(Box::new(expr), member.name())),
+                                    .map(|expr| DQE::Field(Box::new(expr), member.name())),
                             ),
                         );
                     }
@@ -128,7 +128,7 @@ impl Variables {
                                 // todo works only if key is a String or &str, need better support of field expr on maps
                                 select_path
                                     .clone()
-                                    .map(|expr| Expression::Field(Box::new(expr), key.name())),
+                                    .map(|expr| DQE::Field(Box::new(expr), key.name())),
                             ),
                         );
                         node.add_child(kv_pair);
@@ -141,9 +141,8 @@ impl Variables {
                         let el_path = if indexed {
                             select_path.clone().and_then(|expr| {
                                 let mb_idx: Option<u64> = member.name().parse().ok();
-                                mb_idx.map(|idx| {
-                                    Expression::Index(Box::new(expr), Literal::Int(idx as i64))
-                                })
+                                mb_idx
+                                    .map(|idx| DQE::Index(Box::new(expr), Literal::Int(idx as i64)))
                             })
                         } else {
                             None
@@ -164,7 +163,7 @@ impl Variables {
 
     fn update(&mut self) {
         let Ok(variables) = self.exchanger.request_sync(|dbg| {
-            let expr = select::Expression::Variable(VariableSelector::Any);
+            let expr = select::DQE::Variable(VariableSelector::Any);
             let vars = command::variables::Handler::new(dbg)
                 .handle(expr)
                 .unwrap_or_default();
@@ -173,7 +172,7 @@ impl Variables {
             return;
         };
         let Ok(arguments) = self.exchanger.request_sync(|dbg| {
-            let expr = select::Expression::Variable(VariableSelector::Any);
+            let expr = select::DQE::Variable(VariableSelector::Any);
             let args = command::arguments::Handler::new(dbg)
                 .handle(expr)
                 .unwrap_or_default();
@@ -191,7 +190,7 @@ impl Variables {
                 0,
                 node_name.as_str(),
                 arg,
-                Some(Expression::Variable(VariableSelector::Name {
+                Some(DQE::Variable(VariableSelector::Name {
                     var_name: arg.name(),
                     only_local: false,
                 })),
@@ -207,7 +206,7 @@ impl Variables {
                 0,
                 node_name.as_str(),
                 var,
-                Some(Expression::Variable(VariableSelector::Name {
+                Some(DQE::Variable(VariableSelector::Name {
                     var_name: var.name(),
                     only_local: true,
                 })),
