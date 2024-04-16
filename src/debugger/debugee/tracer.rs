@@ -324,7 +324,7 @@ impl Tracer {
                                         new_trace_status,
                                         WaitStatus::PtraceEvent(tid, _, libc::PTRACE_EVENT_STOP) if tid == new_thread_id
                                     ),
-                                    "the newly cloned thread must start with PTRACE_EVENT_STOP (cause PTRACE_SEIZE was used)"
+                                    "the newly cloned thread must start with PTRACE_EVENT_STOP (cause PTRACE_SEIZE was used), got {new_trace_status:?}"
                                 )
                             }
                         }
