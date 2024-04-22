@@ -76,6 +76,21 @@ cargo install bugstalker --no-default-features
 ```
 </details>
 
+### Distro Packages
+
+<details>
+  <summary>Packaging status</summary>
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/bugstalker.svg)](https://repology.org/project/bugstalker/versions)
+
+</details>
+
+#### Arch Linux
+
+```shell
+pacman -S bugstalker
+```
+
 ---
 
 ## Start debugger session
