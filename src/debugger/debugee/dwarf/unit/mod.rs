@@ -23,6 +23,7 @@ use uuid::Uuid;
 /// A row in the line number program's resulting matrix.
 #[derive(PartialEq, Debug, Clone)]
 #[repr(packed)]
+// TODO use flags instead (or with) of packed representation
 pub(super) struct LineRow {
     pub(super) address: u64,
     pub(super) file_index: u64,
@@ -31,6 +32,7 @@ pub(super) struct LineRow {
     pub(super) is_stmt: bool,
     pub(super) prolog_end: bool,
     pub(super) epilog_begin: bool,
+    pub(super) end_sequence: bool,
 }
 
 /// An address range of debug information entry,
@@ -51,6 +53,7 @@ pub struct PlaceDescriptor<'a> {
     pub is_stmt: bool,
     pub column_number: u64,
     pub epilog_begin: bool,
+    pub end_sequence: bool,
     pub prolog_end: bool,
     unit: &'a Unit,
 }
@@ -592,6 +595,7 @@ impl Unit {
             is_stmt: line.is_stmt,
             prolog_end: line.prolog_end,
             epilog_begin: line.epilog_begin,
+            end_sequence: line.end_sequence,
             unit: self,
         })
     }
@@ -615,6 +619,7 @@ impl Unit {
             is_stmt: line.is_stmt,
             prolog_end: line.prolog_end,
             epilog_begin: line.epilog_begin,
+            end_sequence: line.end_sequence,
             unit: self,
         })
     }

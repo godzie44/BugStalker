@@ -480,6 +480,7 @@ where
             is_stmt: line_row.is_stmt(),
             prolog_end: line_row.prologue_end(),
             epilog_begin: line_row.epilogue_begin(),
+            end_sequence: line_row.end_sequence(),
         })
     }
 
