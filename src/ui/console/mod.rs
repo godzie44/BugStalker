@@ -376,6 +376,7 @@ impl AppLoop {
         }
 
         match Command::parse(cmd)? {
+            Command::Watchpoint(_) => {}
             Command::PrintVariables(print_var_command) => VariablesHandler::new(&self.debugger)
                 .handle(print_var_command)?
                 .into_iter()

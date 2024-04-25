@@ -11,6 +11,8 @@ use crate::ui::command::parser::{
     STEP_INTO_COMMAND_SHORT, STEP_OUT_COMMAND, STEP_OUT_COMMAND_SHORT, STEP_OVER_COMMAND,
     STEP_OVER_COMMAND_SHORT, SYMBOL_COMMAND, THREAD_COMMAND, THREAD_COMMAND_CURRENT_SUBCOMMAND,
     THREAD_COMMAND_INFO_SUBCOMMAND, THREAD_COMMAND_SWITCH_SUBCOMMAND, VAR_COMMAND, VAR_LOCAL_KEY,
+    WATCH_COMMAND, WATCH_COMMAND_SHORT, WATCH_INFO_SUBCOMMAND, WATCH_REMOVE_SUBCOMMAND,
+    WATCH_REMOVE_SUBCOMMAND_SHORT,
 };
 use chumsky::prelude::{any, choice, just};
 use chumsky::text::whitespace;
@@ -357,6 +359,15 @@ pub fn create_editor(
         (STEP_OVER_COMMAND_SHORT, STEP_OVER_COMMAND).into(),
         SYMBOL_COMMAND.into(),
         (BREAK_COMMAND_SHORT, BREAK_COMMAND).into(),
+        CommandHint {
+            short: Some(WATCH_COMMAND_SHORT.to_string()),
+            long: WATCH_COMMAND.to_string(),
+            subcommands: vec![
+                WATCH_REMOVE_SUBCOMMAND.to_string(),
+                WATCH_REMOVE_SUBCOMMAND_SHORT.to_string(),
+                WATCH_INFO_SUBCOMMAND.to_string(),
+            ],
+        },
         CommandHint {
             short: Some(BACKTRACE_COMMAND_SHORT.to_string()),
             long: BACKTRACE_COMMAND.to_string(),
