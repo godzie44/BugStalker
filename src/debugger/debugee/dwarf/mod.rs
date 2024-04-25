@@ -26,9 +26,9 @@ use crate::debugger::error::Error::{
     DebugIDFormat, FBANotAnExpression, FunctionNotFound, NoFBA, NoFunctionRanges, UnitNotFound,
 };
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
+use crate::debugger::variable::select::ObjectBinaryRepr;
 use crate::debugger::ExplorationContext;
 use crate::{muted_error, resolve_unit_call, weak_error};
-use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;
 use gimli::{
@@ -1170,7 +1170,7 @@ impl<'ctx, D: AsAllocatedData> ContextualDieRef<'ctx, D> {
         ctx: &ExplorationContext,
         debugee: &Debugee,
         r#type: &ComplexType,
-    ) -> Option<Bytes> {
+    ) -> Option<ObjectBinaryRepr> {
         self.die
             .location_expr(self.debug_info, self.unit(), ctx.location().global_pc)
             .and_then(|expr| {
@@ -1183,7 +1183,13 @@ impl<'ctx, D: AsAllocatedData> ContextualDieRef<'ctx, D> {
                     },
                     r#type.root,
                 )? as usize;
-                weak_error!(eval_result.into_raw_buffer(type_size, AddressKind::MemoryAddress))
+                let (address, raw_data) =
+                    weak_error!(eval_result.into_raw_bytes(type_size, AddressKind::MemoryAddress))?;
+                Some(ObjectBinaryRepr {
+                    raw_data,
+                    size: type_size,
+                    address,
+                })
             })
     }
 }

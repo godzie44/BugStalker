@@ -2,6 +2,7 @@ use crate::debugger;
 use crate::debugger::debugee::dwarf::r#type::{
     ComplexType, EvaluationContext, StructureMember, TypeIdentity,
 };
+use crate::debugger::variable::select::ObjectBinaryRepr;
 use crate::debugger::variable::AssumeError::NoType;
 use crate::debugger::variable::ParsingError::ReadDebugeeMemory;
 use crate::debugger::variable::{AssumeError, ParsingError};
@@ -147,7 +148,9 @@ struct Leaf {
     parent: Option<NonNull<()>>,
     parent_idx: u16,
     len: u16,
+    keys_debugee_location: Option<usize>,
     keys_raw: Vec<u8>,
+    vals_debugee_location: Option<usize>,
     vals_raw: Vec<u8>,
 }
 
@@ -164,13 +167,18 @@ impl Leaf {
             markup.size,
         )
         .map_err(ReadDebugeeMemory)?;
-        Ok(Self::from_bytes(eval_ctx, r#type, leaf_bytes, markup)?)
+        let data = ObjectBinaryRepr {
+            raw_data: bytes::Bytes::from(leaf_bytes),
+            address: Some(ptr as usize),
+            size: markup.size,
+        };
+        Ok(Self::from_bytes(eval_ctx, r#type, data, markup)?)
     }
 
     fn from_bytes(
         eval_ctx: &EvaluationContext,
         r#type: &ComplexType,
-        bytes: Vec<u8>,
+        data: ObjectBinaryRepr,
         markup: &LeafNodeMarkup,
     ) -> Result<Leaf, AssumeError> {
         let parent = unsafe {
@@ -178,8 +186,9 @@ impl Leaf {
             mem::transmute::<[u8; EXPECTED_SIZE], Option<NonNull<()>>>(
                 markup
                     .parent
-                    .value(eval_ctx, r#type, bytes.as_ptr() as usize)
+                    .value(eval_ctx, r#type, &data)
                     .ok_or(AssumeError::NoData("leaf node (parent)"))?
+                    .raw_data
                     .to_vec()
                     .try_into()
                     .map_err(|data: Vec<_>| {
@@ -194,39 +203,41 @@ impl Leaf {
 
         let len_bytes = markup
             .len
-            .value(eval_ctx, r#type, bytes.as_ptr() as usize)
+            .value(eval_ctx, r#type, &data)
             .ok_or(AssumeError::NoData("leaf node (len)"))?
+            .raw_data
             .to_vec();
         let len = u16::from_ne_bytes(len_bytes.try_into().map_err(|data: Vec<_>| {
             AssumeError::UnexpectedBinaryRepr("leaf node len", 2, data.len())
         })?);
         let parent_idx_bytes = markup
             .parent_idx
-            .value(eval_ctx, r#type, bytes.as_ptr() as usize)
+            .value(eval_ctx, r#type, &data)
             .ok_or(AssumeError::NoData("leaf node (parent index)"))?
+            .raw_data
             .to_vec();
         let parent_idx =
             u16::from_ne_bytes(parent_idx_bytes.try_into().map_err(|data: Vec<_>| {
                 AssumeError::UnexpectedBinaryRepr("leaf node parent index", 2, data.len())
             })?);
 
-        let keys_raw = markup
+        let keys_data = markup
             .keys
-            .value(eval_ctx, r#type, bytes.as_ptr() as usize)
-            .ok_or(AssumeError::NoData("leaf node (keys)"))?
-            .to_vec();
-        let vals_raw = markup
+            .value(eval_ctx, r#type, &data)
+            .ok_or(AssumeError::NoData("leaf node (keys)"))?;
+        let vals_data = markup
             .vals
-            .value(eval_ctx, r#type, bytes.as_ptr() as usize)
-            .ok_or(AssumeError::NoData("leaf node (vals)"))?
-            .to_vec();
+            .value(eval_ctx, r#type, &data)
+            .ok_or(AssumeError::NoData("leaf node (vals)"))?;
 
         Ok(Leaf {
             parent,
             parent_idx,
             len,
-            keys_raw,
-            vals_raw,
+            keys_debugee_location: keys_data.address,
+            keys_raw: keys_data.raw_data.to_vec(),
+            vals_debugee_location: vals_data.address,
+            vals_raw: vals_data.raw_data.to_vec(),
         })
     }
 }
@@ -251,11 +262,16 @@ impl Internal {
             i_markup.size,
         )
         .map_err(ReadDebugeeMemory)?;
-
+        let data = ObjectBinaryRepr {
+            raw_data: bytes::Bytes::from(bytes),
+            address: Some(ptr as usize),
+            size: i_markup.size,
+        };
         let edges_v = i_markup
             .edges
-            .value(eval_ctx, r#type, bytes.as_ptr() as usize)
+            .value(eval_ctx, r#type, &data)
             .ok_or(AssumeError::NoData("internal node (edges_v)"))?
+            .raw_data
             .to_vec()
             .chunks_exact(mem::size_of::<usize>())
             .map(|chunk| {
@@ -272,11 +288,11 @@ impl Internal {
 
         let leaf_bytes = i_markup
             .data
-            .value(eval_ctx, r#type, bytes.as_ptr() as usize)
+            .value(eval_ctx, r#type, &data)
             .ok_or(AssumeError::NoData("internal node (leaf_bytes)"))?;
 
         Ok(Internal {
-            leaf: Leaf::from_bytes(eval_ctx, r#type, leaf_bytes.to_vec(), l_markup)?,
+            leaf: Leaf::from_bytes(eval_ctx, r#type, leaf_bytes, l_markup)?,
             edges,
         })
     }
@@ -335,11 +351,28 @@ impl Handle {
     }
 
     /// Returns underline key and value.
-    fn data(&self, k_size: usize, v_size: usize) -> nix::Result<(Vec<u8>, Vec<u8>)> {
+    fn data(
+        &self,
+        k_size: usize,
+        v_size: usize,
+    ) -> nix::Result<(ObjectBinaryRepr, ObjectBinaryRepr)> {
         let leaf = self.node.data.leaf();
-        let key = leaf.keys_raw[k_size * self.idx..k_size * (self.idx + 1)].to_vec();
-        let val = leaf.vals_raw[v_size * self.idx..v_size * (self.idx + 1)].to_vec();
-        Ok((key, val))
+        let key_offset = k_size * self.idx;
+        let key_raw = leaf.keys_raw[key_offset..k_size * (self.idx + 1)].to_vec();
+        let key_data = ObjectBinaryRepr {
+            raw_data: bytes::Bytes::from(key_raw),
+            address: leaf.keys_debugee_location.map(|addr| addr + key_offset),
+            size: k_size,
+        };
+        let val_offset = v_size * self.idx;
+        let val_raw = leaf.vals_raw[val_offset..v_size * (self.idx + 1)].to_vec();
+        let val_data = ObjectBinaryRepr {
+            raw_data: bytes::Bytes::from(val_raw),
+            address: leaf.vals_debugee_location.map(|addr| addr + val_offset),
+            size: v_size,
+        };
+
+        Ok((key_data, val_data))
     }
 
     fn next_leaf_edge(
@@ -501,7 +534,7 @@ pub struct KVIterator<'a> {
 }
 
 impl<'a> FallibleIterator for KVIterator<'a> {
-    type Item = (Vec<u8>, Vec<u8>);
+    type Item = (ObjectBinaryRepr, ObjectBinaryRepr);
     type Error = ParsingError;
 
     fn next(&mut self) -> Result<Option<Self::Item>, Self::Error> {
