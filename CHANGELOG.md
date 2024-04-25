@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - debugger: now containers (hashmaps, hashsets, etc.) can be indexed by literal
   objects for advanced searching
 - console: improve index operation, now index accepts literal objects
+- debugger: added address operator in data query expressions
 
 ### Changed
 

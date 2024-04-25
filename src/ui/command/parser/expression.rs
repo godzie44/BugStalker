@@ -12,7 +12,21 @@ fn ptr_cast<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> + Clone {
 
     // try to interp any string between brackets as a type
     let any = any::<_, Err>()
-        .filter(|c| *c != ')')
+        .filter(|c| {
+            // this is a filter rule for a type identifier
+            // may be it is good enough,
+            // if it's not - something like `syn::parse_str` may be used
+            char::is_ascii_alphanumeric(c)
+                || *c == ':'
+                || *c == '<'
+                || *c == '>'
+                || *c == ' '
+                || *c == '*'
+                || *c == '&'
+                || *c == '_'
+                || *c == ','
+                || *c == '\''
+        })
         .repeated()
         .at_least(1)
         .to_slice();
@@ -110,17 +124,22 @@ fn literal<'a>() -> impl Parser<'a, &'a str, Literal, Err<'a>> + Clone {
 }
 
 pub fn parser<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> {
-    let selector = rust_identifier().padded().map(|name: &str| {
-        DQE::Variable(VariableSelector::Name {
-            var_name: name.to_string(),
-            only_local: false,
+    let base_selector = rust_identifier()
+        .padded()
+        .map(|name: &str| {
+            DQE::Variable(VariableSelector::Name {
+                var_name: name.to_string(),
+                only_local: false,
+            })
         })
-    });
+        .or(ptr_cast());
 
     let expr = recursive(|expr| {
         let op = |c| just(c).padded();
 
-        let atom = selector.or(expr.delimited_by(op('('), op(')'))).padded();
+        let atom = base_selector
+            .or(expr.delimited_by(op('('), op(')')))
+            .padded();
 
         let field = text::ascii::ident()
             .or(text::int(10))
@@ -157,16 +176,16 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> {
             })
             .boxed();
 
-        let expr = atom
-            .foldl(
-                field_op.or(index_op).or(slice_op).repeated(),
-                |r, expr_fn| expr_fn(r),
-            )
-            .or(ptr_cast());
+        let expr = atom.foldl(
+            field_op.or(index_op).or(slice_op).repeated(),
+            |r, expr_fn| expr_fn(r),
+        );
 
         op('*')
+            .to(DQE::Deref as fn(_) -> _)
+            .or(op('&').to(DQE::Address as fn(_) -> _))
             .repeated()
-            .foldr(expr, |_op, rhs| DQE::Deref(Box::new(rhs)))
+            .foldr(expr, |op, rhs| op(Box::new(rhs)))
     });
 
     expr.then_ignore(end())
@@ -627,11 +646,44 @@ mod test {
                     Literal::EnumVariant("Some".to_string(), Some(Box::new(Literal::Bool(true)))),
                 ),
             },
+            TestCase {
+                string: "&a",
+                expr: DQE::Address(
+                    DQE::Variable(VariableSelector::Name {
+                        var_name: "a".to_string(),
+                        only_local: false,
+                    })
+                    .boxed(),
+                ),
+            },
+            TestCase {
+                string: "&*a.b",
+                expr: DQE::Address(
+                    DQE::Deref(
+                        DQE::Field(
+                            DQE::Variable(VariableSelector::Name {
+                                var_name: "a".to_string(),
+                                only_local: false,
+                            })
+                            .boxed(),
+                            "b".to_string(),
+                        )
+                        .boxed(),
+                    )
+                    .boxed(),
+                ),
+            },
+            TestCase {
+                string: "&&(*i32)0x123",
+                expr: DQE::Address(
+                    DQE::Address(DQE::PtrCast(0x123, "*i32".to_string()).boxed()).boxed(),
+                ),
+            },
         ];
 
         for tc in test_cases {
             let expr = parser().parse(tc.string).into_result().unwrap();
-            assert_eq!(expr, tc.expr);
+            assert_eq!(expr, tc.expr, "case: {}", tc.string);
         }
     }
 
@@ -656,19 +708,19 @@ mod test {
             },
             TestCase {
                 string: "(var1.)field1",
-                err_text: "found ')' expected field name or tuple index, or '0'",
+                err_text: "found ')' expected field name or tuple index",
             },
             TestCase {
                 string: "((var1)",
-                err_text: "found end of input expected '.', '[', ')', or '0'",
+                err_text: "found end of input expected '0', '.', '[', or ')'",
             },
             TestCase {
                 string: "(var1))",
-                err_text: "found ')' expected '.', '[', or end of input",
+                err_text: "found end of input expected '0', '.', '[', or end of input",
             },
             TestCase {
                 string: "*",
-                err_text: "found end of input expected '*', ':', or '('",
+                err_text: "found end of input expected '*', '&', ':', or '('",
             },
         ];
 

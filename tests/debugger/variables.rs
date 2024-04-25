@@ -86,7 +86,7 @@ fn assert_pointer(var: &VariableIR, exp_name: &str, exp_type: &str) {
     let VariableIR::Pointer(ptr) = var else {
         panic!("not a pointer");
     };
-    assert_eq!(ptr.identity.name.as_ref().unwrap(), exp_name);
+    assert_eq!(var.name(), exp_name);
     assert_eq!(ptr.type_name.as_ref().unwrap(), exp_type);
 }
 
@@ -2689,6 +2689,156 @@ fn test_read_uuid() {
     let vars = debugger.read_local_variables().unwrap();
     assert_uuid(&vars[0], "uuid_v4", "Uuid");
     assert_uuid(&vars[1], "uuid_v7", "Uuid");
+
+    debugger.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_address_operator() {
+    let process = prepare_debugee_process(VARS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = DebugeeRunInfo::default();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
+
+    debugger.set_breakpoint_at_line("vars.rs", 119).unwrap();
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(119));
+
+    fn addr_of(name: &str, loc: bool) -> DQE {
+        DQE::Address(
+            DQE::Variable(VariableSelector::Name {
+                var_name: name.to_string(),
+                only_local: loc,
+            })
+            .boxed(),
+        )
+    }
+    fn addr_of_index(name: &str, index: i32) -> DQE {
+        DQE::Address(
+            DQE::Index(
+                DQE::Variable(VariableSelector::Name {
+                    var_name: name.to_string(),
+                    only_local: true,
+                })
+                .boxed(),
+                Literal::Int(index as i64),
+            )
+            .boxed(),
+        )
+    }
+    fn addr_of_field(name: &str, field: &str) -> DQE {
+        DQE::Address(
+            DQE::Field(
+                DQE::Variable(VariableSelector::Name {
+                    var_name: name.to_string(),
+                    only_local: true,
+                })
+                .boxed(),
+                field.to_string(),
+            )
+            .boxed(),
+        )
+    }
+
+    // get address of scalar variable and deref it
+    let addr_a_dqe = addr_of("a", true);
+    let addr_a = debugger.read_variable(addr_a_dqe.clone()).unwrap();
+    assert_pointer(&addr_a[0], "{unknown}", "&i32");
+    let a = debugger
+        .read_variable(DQE::Deref(addr_a_dqe.boxed()))
+        .unwrap();
+    assert_scalar(&a[0], "{unknown}", "i32", Some(SupportedScalar::I32(2)));
+
+    let addr_ptr_a = debugger.read_variable(addr_of("ref_a", true)).unwrap();
+    assert_pointer(&addr_ptr_a[0], "{unknown}", "&&i32");
+    let a = debugger
+        .read_variable(DQE::Deref(
+            DQE::Deref(addr_of("ref_a", true).boxed()).boxed(),
+        ))
+        .unwrap();
+    assert_scalar(&a[0], "{unknown}", "i32", Some(SupportedScalar::I32(2)));
+
+    // get address of structure field and deref it
+    let addr_f = debugger.read_variable(addr_of("f", true)).unwrap();
+    assert_pointer(&addr_f[0], "{unknown}", "&Foo");
+    let f = debugger
+        .read_variable(DQE::Deref(addr_of("f", true).boxed()))
+        .unwrap();
+    assert_struct(&f[0], "{unknown}", "Foo", |i, member| match i {
+        0 => assert_scalar(member, "bar", "i32", Some(SupportedScalar::I32(1))),
+        1 => assert_array(member, "baz", "[i32]", |i, item| match i {
+            0 => assert_scalar(item, "0", "i32", Some(SupportedScalar::I32(1))),
+            1 => assert_scalar(item, "1", "i32", Some(SupportedScalar::I32(2))),
+            _ => panic!("2 items expected"),
+        }),
+        2 => {
+            assert_pointer(member, "foo", "&i32");
+            let deref = read_single_var(&debugger, "*f.foo");
+            assert_scalar(&deref, "*foo", "i32", Some(SupportedScalar::I32(2)));
+        }
+        _ => panic!("3 members expected"),
+    });
+    let addr_f_bar = debugger.read_variable(addr_of_field("f", "bar")).unwrap();
+    assert_pointer(&addr_f_bar[0], "{unknown}", "&i32");
+    let f_bar = debugger
+        .read_variable(DQE::Deref(addr_of_field("f", "bar").boxed()))
+        .unwrap();
+    assert_scalar(&f_bar[0], "{unknown}", "i32", Some(SupportedScalar::I32(1)));
+
+    // get address of an array element and deref it
+    debugger.set_breakpoint_at_line("vars.rs", 151).unwrap();
+    debugger.continue_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(151));
+
+    let addr_vec1 = debugger.read_variable(addr_of("vec1", true)).unwrap();
+    assert_pointer(
+        &addr_vec1[0],
+        "{unknown}",
+        "&Vec<i32, alloc::alloc::Global>",
+    );
+
+    let addr_el_1 = debugger.read_variable(addr_of_index("vec1", 1)).unwrap();
+    assert_pointer(&addr_el_1[0], "{unknown}", "&i32");
+    let el_1 = debugger
+        .read_variable(DQE::Deref(addr_of_index("vec1", 1).boxed()))
+        .unwrap();
+    assert_scalar(&el_1[0], "{unknown}", "i32", Some(SupportedScalar::I32(2)));
+
+    // get an address of a hashmap element and deref it
+    debugger.set_breakpoint_at_line("vars.rs", 290).unwrap();
+    debugger.continue_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(290));
+
+    let addr_hm3 = debugger.read_variable(addr_of("hm3", true)).unwrap();
+    let inner_hash_map_type = version_switch!(
+            rust_version(VARS_APP).unwrap(),
+            (1, 0, 0) ..= (1, 75, u32::MAX) => "&HashMap<i32, i32, std::collections::hash::map::RandomState>",
+            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "&HashMap<i32, i32, std::hash::random::RandomState>",
+    ).unwrap();
+    assert_pointer(&addr_hm3[0], "{unknown}", inner_hash_map_type);
+
+    let addr_el_11 = debugger.read_variable(addr_of_index("hm3", 11)).unwrap();
+    assert_pointer(&addr_el_11[0], "{unknown}", "&i32");
+    let el_11 = debugger
+        .read_variable(DQE::Deref(addr_of_index("hm3", 11).boxed()))
+        .unwrap();
+    assert_scalar(
+        &el_11[0],
+        "{unknown}",
+        "i32",
+        Some(SupportedScalar::I32(11)),
+    );
+
+    // get address of global variable and deref it
+    let addr_glob_1 = debugger.read_variable(addr_of("GLOB_1", false)).unwrap();
+    assert_pointer(&addr_glob_1[0], "{unknown}", "&&str");
+    let glob_1 = debugger
+        .read_variable(DQE::Deref(addr_of("GLOB_1", false).boxed()))
+        .unwrap();
+    assert_str(&glob_1[0], "{unknown}", "glob_1");
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);

@@ -107,6 +107,17 @@ impl Literal {
     }
 }
 
+/// Information about object location in debugee memory.
+pub struct ObjectBinaryRepr {
+    /// Binary in memory representation.
+    pub raw_data: Bytes,
+    /// Possible address of object data in debugee memory.
+    /// It may not exist if there is no debug information, or if an object is allocated in registers.
+    pub address: Option<usize>,
+    /// Size of the object in memory.
+    pub size: usize,
+}
+
 /// Data query expression.
 /// List of operations for select variables and their properties.
 /// Expression can be parsed from an input string like `*(*variable1.field2)[1]` (see debugger::command module)
@@ -120,6 +131,7 @@ pub enum DQE {
     Index(Box<DQE>, Literal),
     Slice(Box<DQE>, Option<usize>, Option<usize>),
     Deref(Box<DQE>),
+    Address(Box<DQE>),
 }
 
 impl DQE {
@@ -266,7 +278,8 @@ impl<'a> SelectExpressionEvaluator<'a> {
             DQE::Field(expr, _)
             | DQE::Index(expr, _)
             | DQE::Slice(expr, _, _)
-            | DQE::Deref(expr) => self.evaluate_inner(expr),
+            | DQE::Deref(expr)
+            | DQE::Address(expr) => self.evaluate_inner(expr),
         }
     }
 
@@ -285,7 +298,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
         Ok(vec![])
     }
 
-    /// Evaluate select expression and returns list of matched variables.
+    /// Evaluate a select expression and returns list of matched variables.
     pub fn evaluate(&self) -> Result<Vec<VariableIR>, Error> {
         self.evaluate_inner(&self.expression)
     }
@@ -358,7 +371,8 @@ impl<'a> SelectExpressionEvaluator<'a> {
             DQE::Field(expr, _)
             | DQE::Index(expr, _)
             | DQE::Slice(expr, _, _)
-            | DQE::Deref(expr) => self.evaluate_on_arguments_inner(expr),
+            | DQE::Deref(expr)
+            | DQE::Address(expr) => self.evaluate_on_arguments_inner(expr),
         }
     }
 
@@ -377,21 +391,28 @@ impl<'a> SelectExpressionEvaluator<'a> {
         };
 
         match expression {
-            DQE::Variable(_) => Some(parser.parse(
-                evaluation_context,
-                VariableIdentity::from_variable_die(variable_die),
-                variable_die.read_value(
+            DQE::Variable(_) => {
+                let data = variable_die.read_value(
                     self.debugger.exploration_ctx(),
                     &self.debugger.debugee,
                     r#type,
-                ),
-            )),
+                );
+                Some(parser.parse(
+                    evaluation_context,
+                    VariableIdentity::from_variable_die(variable_die),
+                    data,
+                ))
+            }
             DQE::PtrCast(addr, ..) => {
-                let value = Bytes::copy_from_slice(&(*addr).to_le_bytes());
+                let data = ObjectBinaryRepr {
+                    raw_data: Bytes::copy_from_slice(&(*addr).to_le_bytes()),
+                    address: None,
+                    size: std::mem::size_of::<usize>(),
+                };
                 Some(parser.parse(
                     evaluation_context,
                     VariableIdentity::new(NamespaceHierarchy::default(), None),
-                    Some(value),
+                    Some(data),
                 ))
             }
             DQE::Field(expr, field) => {
@@ -409,6 +430,10 @@ impl<'a> SelectExpressionEvaluator<'a> {
             DQE::Deref(expr) => {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
                 var.deref(evaluation_context, &parser)
+            }
+            DQE::Address(expr) => {
+                let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
+                var.address()
             }
         }
     }

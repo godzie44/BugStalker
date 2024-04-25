@@ -3,6 +3,7 @@ mod hashbrown;
 
 use crate::debugger::debugee::dwarf::r#type::{EvaluationContext, TypeIdentity};
 use crate::debugger::variable::render::RenderRepr;
+use crate::debugger::variable::select::ObjectBinaryRepr;
 use crate::debugger::variable::specialization::btree::BTreeReflection;
 use crate::debugger::variable::specialization::hashbrown::HashmapReflection;
 use crate::debugger::variable::AssumeError::{
@@ -164,6 +165,46 @@ pub enum SpecializedVariableIR {
     },
 }
 
+impl SpecializedVariableIR {
+    pub(super) fn in_memory_location(&self) -> Option<usize> {
+        match self {
+            SpecializedVariableIR::Vector { original, .. } => original.raw_address,
+            SpecializedVariableIR::VecDeque { original, .. } => original.raw_address,
+            SpecializedVariableIR::HashMap { original, .. } => original.raw_address,
+            SpecializedVariableIR::HashSet { original, .. } => original.raw_address,
+            SpecializedVariableIR::BTreeMap { original, .. } => original.raw_address,
+            SpecializedVariableIR::BTreeSet { original, .. } => original.raw_address,
+            SpecializedVariableIR::String { original, .. } => original.raw_address,
+            SpecializedVariableIR::Str { original, .. } => original.raw_address,
+            SpecializedVariableIR::Tls { original, .. } => original.raw_address,
+            SpecializedVariableIR::Cell { original, .. } => original.raw_address,
+            SpecializedVariableIR::RefCell { original, .. } => original.raw_address,
+            SpecializedVariableIR::Rc { original, .. } => original.raw_address,
+            SpecializedVariableIR::Arc { original, .. } => original.raw_address,
+            SpecializedVariableIR::Uuid { original, .. } => original.raw_address,
+        }
+    }
+
+    pub(super) fn type_id(&self) -> Option<TypeIdentity> {
+        match self {
+            SpecializedVariableIR::Vector { original, .. } => original.type_id,
+            SpecializedVariableIR::VecDeque { original, .. } => original.type_id,
+            SpecializedVariableIR::HashMap { original, .. } => original.type_id,
+            SpecializedVariableIR::HashSet { original, .. } => original.type_id,
+            SpecializedVariableIR::BTreeMap { original, .. } => original.type_id,
+            SpecializedVariableIR::BTreeSet { original, .. } => original.type_id,
+            SpecializedVariableIR::String { original, .. } => original.type_id,
+            SpecializedVariableIR::Str { original, .. } => original.type_id,
+            SpecializedVariableIR::Tls { original, .. } => original.type_id,
+            SpecializedVariableIR::Cell { original, .. } => original.type_id,
+            SpecializedVariableIR::RefCell { original, .. } => original.type_id,
+            SpecializedVariableIR::Rc { original, .. } => original.type_id,
+            SpecializedVariableIR::Arc { original, .. } => original.type_id,
+            SpecializedVariableIR::Uuid { original, .. } => original.type_id,
+        }
+    }
+}
+
 pub struct VariableParserExtension<'a> {
     parser: &'a VariableParser<'a>,
 }
@@ -274,25 +315,25 @@ impl<'a> VariableParserExtension<'a> {
         let cap = extract_capacity(eval_ctx, &ir)? as i64;
         let cap = guard_cap(cap);
 
-        let data_ptr = ir.assume_field_as_pointer("pointer")?;
+        let data_ptr = ir.assume_field_as_pointer("pointer")? as usize;
 
         let el_type = self.parser.r#type;
         let el_type_size = el_type
             .type_size_in_bytes(eval_ctx, inner_type)
             .ok_or(UnknownSize(
                 el_type.type_name(inner_type).unwrap_or_default(),
-            ))?;
+            ))? as usize;
 
-        let data = debugger::read_memory_by_pid(
+        let raw_data = debugger::read_memory_by_pid(
             eval_ctx.expl_ctx.pid_on_focus(),
-            data_ptr as usize,
-            len as usize * el_type_size as usize,
+            data_ptr,
+            len as usize * el_type_size,
         )
         .map(Bytes::from)?;
 
         let (mut bytes_chunks, mut empty_chunks);
         let raw_items_iter: &mut dyn Iterator<Item = (usize, &[u8])> = if el_type_size != 0 {
-            bytes_chunks = data.chunks(el_type_size as usize).enumerate();
+            bytes_chunks = raw_data.chunks(el_type_size).enumerate();
             &mut bytes_chunks
         } else {
             // if an item type is zst
@@ -303,10 +344,15 @@ impl<'a> VariableParserExtension<'a> {
 
         let items = raw_items_iter
             .map(|(i, chunk)| {
+                let data = ObjectBinaryRepr {
+                    raw_data: raw_data.slice_ref(chunk),
+                    address: Some(data_ptr + (i * el_type_size)),
+                    size: el_type_size,
+                };
                 self.parser.parse_inner(
                     eval_ctx,
                     VariableIdentity::no_namespace(Some(format!("{}", i as i64))),
-                    Some(data.slice_ref(chunk)),
+                    Some(data),
                     inner_type,
                 )
             })
@@ -315,24 +361,33 @@ impl<'a> VariableParserExtension<'a> {
         Ok(VecVariable {
             structure: StructVariable {
                 identity: ir.identity().clone(),
+                type_id: None,
                 type_name: Some(ir.r#type().to_owned()),
                 members: vec![
                     VariableIR::Array(ArrayVariable {
                         identity: VariableIdentity::no_namespace(Some("buf".to_owned())),
+                        type_id: None,
                         type_name: self
                             .parser
                             .r#type
                             .type_name(inner_type)
                             .map(|tp| format!("[{tp}]")),
                         items: Some(items),
+                        // this address is not used in dqe, set it to `None`
+                        raw_address: None,
                     }),
                     VariableIR::Scalar(ScalarVariable {
                         identity: VariableIdentity::no_namespace(Some("cap".to_owned())),
+                        type_id: None,
                         type_name: Some("usize".to_owned()),
                         value: Some(SupportedScalar::Usize(cap as usize)),
+                        // this address is not used in dqe, set it to `None`
+                        raw_address: None,
                     }),
                 ],
                 type_params: type_params.clone(),
+                // this address is not used in dqe, set it to `None`
+                raw_address: None,
             },
         })
     }
@@ -441,11 +496,17 @@ impl<'a> VariableParserExtension<'a> {
         let kv_items = iterator
             .map_err(ParsingError::from)
             .filter_map(|bucket| {
-                let data = bucket.read(eval_ctx.expl_ctx.pid_on_focus());
+                let raw_data = bucket.read(eval_ctx.expl_ctx.pid_on_focus());
+                let data = weak_error!(raw_data).map(|d| ObjectBinaryRepr {
+                    raw_data: Bytes::from(d),
+                    address: Some(bucket.data_location()),
+                    size: bucket.data_size(),
+                });
+
                 let tuple = self.parser.parse_inner(
                     eval_ctx,
                     VariableIdentity::no_namespace(Some("kv".to_string())),
-                    weak_error!(data).map(Bytes::from),
+                    data,
                     kv_type,
                 );
 
@@ -509,12 +570,17 @@ impl<'a> VariableParserExtension<'a> {
         let items = iterator
             .map_err(ParsingError::from)
             .filter_map(|bucket| {
-                let data = bucket.read(eval_ctx.expl_ctx.pid_on_focus());
+                let raw_data = bucket.read(eval_ctx.expl_ctx.pid_on_focus());
+                let data = weak_error!(raw_data).map(|d| ObjectBinaryRepr {
+                    raw_data: Bytes::from(d),
+                    address: Some(bucket.data_location()),
+                    size: bucket.data_size(),
+                });
 
                 let tuple = self.parser.parse_inner(
                     eval_ctx,
                     VariableIdentity::no_namespace(Some("kv".to_string())),
-                    weak_error!(data).map(Bytes::from),
+                    data,
                     kv_type,
                 );
 
@@ -591,14 +657,14 @@ impl<'a> VariableParserExtension<'a> {
                 let key = self.parser.parse_inner(
                     eval_ctx,
                     VariableIdentity::no_namespace(Some("k".to_string())),
-                    Some(Bytes::from(k)),
+                    Some(k),
                     k_type,
                 );
 
                 let value = self.parser.parse_inner(
                     eval_ctx,
                     VariableIdentity::no_namespace(Some("v".to_string())),
-                    Some(Bytes::from(v)),
+                    Some(v),
                     v_type,
                 );
 
@@ -699,11 +765,11 @@ impl<'a> VariableParserExtension<'a> {
             (wrapped_start..cap, 0..tail_len)
         };
 
-        let data_ptr = ir.assume_field_as_pointer("pointer")?;
+        let data_ptr = ir.assume_field_as_pointer("pointer")? as usize;
 
         let data = debugger::read_memory_by_pid(
             eval_ctx.expl_ctx.pid_on_focus(),
-            data_ptr as usize,
+            data_ptr,
             cap * el_type_size,
         )
         .map(Bytes::from)?;
@@ -713,11 +779,17 @@ impl<'a> VariableParserExtension<'a> {
             .chain(slice_ranges.1)
             .enumerate()
             .map(|(i, real_idx)| {
-                let el_data = &data[real_idx * el_type_size..(real_idx + 1) * el_type_size];
+                let offset = real_idx * el_type_size;
+                let el_raw_data = &data[offset..(real_idx + 1) * el_type_size];
+                let el_data = ObjectBinaryRepr {
+                    raw_data: data.slice_ref(el_raw_data),
+                    address: Some(data_ptr + offset),
+                    size: el_type_size,
+                };
                 self.parser.parse_inner(
                     eval_ctx,
                     VariableIdentity::no_namespace(Some(format!("{}", i as i64))),
-                    Some(data.slice_ref(el_data)),
+                    Some(el_data),
                     inner_type,
                 )
             })
@@ -726,28 +798,37 @@ impl<'a> VariableParserExtension<'a> {
         Ok(VecVariable {
             structure: StructVariable {
                 identity: ir.identity().clone(),
+                type_id: None,
                 type_name: Some(ir.r#type().to_owned()),
                 members: vec![
                     VariableIR::Array(ArrayVariable {
                         identity: VariableIdentity::no_namespace(Some("buf".to_owned())),
+                        type_id: None,
                         type_name: self
                             .parser
                             .r#type
                             .type_name(inner_type)
                             .map(|tp| format!("[{tp}]")),
                         items: Some(items),
+                        // this address is not used in dqe, set it to `None`
+                        raw_address: None,
                     }),
                     VariableIR::Scalar(ScalarVariable {
                         identity: VariableIdentity::no_namespace(Some("cap".to_owned())),
+                        type_id: None,
                         type_name: Some("usize".to_owned()),
                         value: Some(SupportedScalar::Usize(if el_type_size == 0 {
                             0
                         } else {
                             cap
                         })),
+                        // this address is not used in dqe, set it to `None`
+                        raw_address: None,
                     }),
                 ],
                 type_params: type_params.clone(),
+                // this address is not used in dqe, set it to `None`
+                raw_address: None,
             },
         })
     }
@@ -809,9 +890,12 @@ impl<'a> VariableParserExtension<'a> {
 
         Ok(VariableIR::Struct(StructVariable {
             identity: ir.identity().clone(),
+            type_id: None,
             type_name: Some(ir.r#type().to_owned()),
             members: vec![borrow, value.clone()],
             type_params: Default::default(),
+            // this address is not used in dqe, set it to `None`
+            raw_address: None,
         }))
     }
 

@@ -347,7 +347,7 @@ pub struct CompletedResult<'a> {
     ctx: &'a ExplorationContext,
 }
 
-/// Determine how interpret [`Location::Address`] in piece location field,
+/// Determine how to interpret [`Location::Address`] in piece location field,
 /// as value or as address in debugee memory.
 /// This information is context dependent (depending on what exactly is being calculated).
 ///
@@ -360,19 +360,29 @@ pub enum AddressKind {
 
 impl<'a> CompletedResult<'a> {
     pub fn into_scalar<T: Copy>(self, address_kind: AddressKind) -> Result<T, Error> {
-        let bytes = self.into_raw_buffer(mem::size_of::<T>(), address_kind)?;
+        let (_, bytes) = self.into_raw_bytes(mem::size_of::<T>(), address_kind)?;
         Ok(scalar_from_bytes(&bytes))
     }
 
-    pub fn into_raw_buffer(
+    /// Return a value selected from DWARF expression as raw bytes, and an address of this value
+    /// in debugee memory (if possible).
+    ///
+    /// # Arguments
+    ///
+    /// * `byte_size`: length of expected value in bytes
+    /// * `address_kind`: Determine how to interpret [`Location::Address`] in piece location field
+    pub fn into_raw_bytes(
         self,
         byte_size: usize,
         address_kind: AddressKind,
-    ) -> Result<Bytes, Error> {
-        let mut buf = BytesMut::with_capacity(byte_size);
+    ) -> Result<(Option<usize>, Bytes), Error> {
+        let mut data = BytesMut::with_capacity(byte_size);
+        let mut data_addr = None;
+
         self.inner
             .into_iter()
-            .try_for_each(|piece| -> Result<(), Error> {
+            .enumerate()
+            .try_for_each(|(i, piece)| -> Result<(), Error> {
                 let read_size = piece
                     .size_in_bits
                     .map(|bits| bits as usize / 8)
@@ -381,7 +391,7 @@ impl<'a> CompletedResult<'a> {
 
                 match piece.location {
                     Location::Register { register } => {
-                        buf.put(read_register(
+                        data.put(read_register(
                             self.debugee,
                             self.ctx,
                             register,
@@ -390,6 +400,9 @@ impl<'a> CompletedResult<'a> {
                         )?);
                     }
                     Location::Address { address } => {
+                        if i == 0 {
+                            data_addr = Some(address as usize);
+                        }
                         match address_kind {
                             AddressKind::MemoryAddress => {
                                 let memory = debugger::read_memory_by_pid(
@@ -398,29 +411,29 @@ impl<'a> CompletedResult<'a> {
                                     read_size,
                                 )
                                 .map_err(Ptrace)?;
-                                buf.put(Bytes::from(memory))
+                                data.put(Bytes::from(memory))
                             }
                             AddressKind::Value => {
-                                buf.put_slice(&address.to_ne_bytes());
+                                data.put_slice(&address.to_ne_bytes());
                             }
                         };
                     }
                     Location::Value { value } => {
                         match value {
-                            Value::Generic(v) | Value::U64(v) => buf.put_slice(&v.to_ne_bytes()),
-                            Value::I8(v) => buf.put_slice(&v.to_ne_bytes()),
-                            Value::U8(v) => buf.put_slice(&v.to_ne_bytes()),
-                            Value::I16(v) => buf.put_slice(&v.to_ne_bytes()),
-                            Value::U16(v) => buf.put_slice(&v.to_ne_bytes()),
-                            Value::I32(v) => buf.put_slice(&v.to_ne_bytes()),
-                            Value::U32(v) => buf.put_slice(&v.to_ne_bytes()),
-                            Value::I64(v) => buf.put_slice(&v.to_ne_bytes()),
-                            Value::F32(v) => buf.put_slice(&v.to_ne_bytes()),
-                            Value::F64(v) => buf.put_slice(&v.to_ne_bytes()),
+                            Value::Generic(v) | Value::U64(v) => data.put_slice(&v.to_ne_bytes()),
+                            Value::I8(v) => data.put_slice(&v.to_ne_bytes()),
+                            Value::U8(v) => data.put_slice(&v.to_ne_bytes()),
+                            Value::I16(v) => data.put_slice(&v.to_ne_bytes()),
+                            Value::U16(v) => data.put_slice(&v.to_ne_bytes()),
+                            Value::I32(v) => data.put_slice(&v.to_ne_bytes()),
+                            Value::U32(v) => data.put_slice(&v.to_ne_bytes()),
+                            Value::I64(v) => data.put_slice(&v.to_ne_bytes()),
+                            Value::F32(v) => data.put_slice(&v.to_ne_bytes()),
+                            Value::F64(v) => data.put_slice(&v.to_ne_bytes()),
                         };
                     }
                     Location::Bytes { value, .. } => {
-                        buf.put_slice(value.bytes());
+                        data.put_slice(value.bytes());
                     }
                     Location::ImplicitPointer { value, byte_offset } => {
                         let die_ref = DieRef::Global(value);
@@ -436,13 +449,14 @@ impl<'a> CompletedResult<'a> {
                                 die: variable,
                             };
                             let r#type = ctx_die.r#type().ok_or(NoDieType)?;
-                            let bytes = ctx_die
+                            let repr = ctx_die
                                 .read_value(self.ctx, self.debugee, &r#type)
                                 .ok_or(ImplicitPointer)?;
-                            let bytes: &[u8] = bytes
+                            let bytes: &[u8] = repr
+                                .raw_data
                                 .read_slice_at(byte_offset as u64, byte_size)
                                 .map_err(|_| ImplicitPointer)?;
-                            buf.put_slice(bytes)
+                            data.put_slice(bytes)
                         }
                     }
                     Location::Empty => {}
@@ -450,7 +464,7 @@ impl<'a> CompletedResult<'a> {
                 Ok(())
             })?;
 
-        Ok(buf.freeze())
+        Ok((data_addr, data.freeze()))
     }
 }
 
