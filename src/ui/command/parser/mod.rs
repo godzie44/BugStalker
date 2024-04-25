@@ -1,9 +1,10 @@
 pub mod expression;
 
 use super::r#break::BreakpointIdentity;
-use super::{frame, memory, register, source_code, thread, Command, CommandError};
+use super::{frame, memory, register, source_code, thread, watch, Command, CommandError};
 use super::{r#break, CommandResult};
 use crate::debugger::variable::select::{VariableSelector, DQE};
+use crate::ui::command::watch::WatchpointIdentity;
 use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 use chumsky::error::{Rich, RichPattern, RichReason};
 use chumsky::prelude::{any, choice, end, just};
@@ -38,6 +39,12 @@ pub const BREAK_COMMAND: &str = "break";
 pub const BREAK_COMMAND_SHORT: &str = "b";
 pub const BREAK_REMOVE_SUBCOMMAND: &str = "remove";
 pub const BREAK_REMOVE_SUBCOMMAND_SHORT: &str = "r";
+pub const BREAK_INFO_SUBCOMMAND: &str = "info";
+pub const WATCH_COMMAND: &str = "watch";
+pub const WATCH_COMMAND_SHORT: &str = "w";
+pub const WATCH_REMOVE_SUBCOMMAND: &str = "remove";
+pub const WATCH_REMOVE_SUBCOMMAND_SHORT: &str = "r";
+pub const WATCH_INFO_SUBCOMMAND: &str = "info";
 pub const MEMORY_COMMAND: &str = "memory";
 pub const MEMORY_COMMAND_SHORT: &str = "mem";
 pub const MEMORY_COMMAND_READ_SUBCOMMAND: &str = "read";
@@ -287,13 +294,36 @@ impl Command {
                         brkpt_at_fn(),
                     )))
                     .map(|brkpt| Command::Breakpoint(r#break::Command::Remove(brkpt))),
-                sub_op("info").to(Command::Breakpoint(r#break::Command::Info)),
+                sub_op(BREAK_INFO_SUBCOMMAND).to(Command::Breakpoint(r#break::Command::Info)),
                 choice((
                     brkpt_at_addr_parser(),
                     brkpt_at_line_parser(),
                     brkpt_at_fn(),
                 ))
                 .map(|brkpt| Command::Breakpoint(r#break::Command::Add(brkpt))),
+            )))
+            .boxed();
+
+        let watchpoint = op2_w_arg(WATCH_COMMAND, WATCH_COMMAND_SHORT)
+            .ignore_then(choice((
+                sub_op2_w_arg(WATCH_REMOVE_SUBCOMMAND, WATCH_REMOVE_SUBCOMMAND_SHORT)
+                    .ignore_then(choice((
+                        text::int(10)
+                            .from_str()
+                            .unwrapped()
+                            .map(|number: u32| WatchpointIdentity::Number(number))
+                            .padded(),
+                        rust_identifier()
+                            .padded()
+                            .map(|ident| WatchpointIdentity::Variable(ident.to_string())),
+                    )))
+                    .map(|ident| Command::Watchpoint(watch::Command::Remove(ident))),
+                sub_op(BREAK_INFO_SUBCOMMAND).to(Command::Watchpoint(watch::Command::Info)),
+                rust_identifier().padded().map(|ident| {
+                    Command::Watchpoint(watch::Command::Add(WatchpointIdentity::Variable(
+                        ident.to_string(),
+                    )))
+                }),
             )))
             .boxed();
 
@@ -387,6 +417,7 @@ impl Command {
             command(FRAME_COMMAND, frame),
             command(SHARED_LIB_COMMAND, shared_lib),
             command(ORACLE_COMMAND, oracle),
+            command(WATCH_COMMAND, watchpoint),
         ))
     }
 
@@ -720,6 +751,55 @@ fn test_parser() {
                 assert!(matches!(
                     result.unwrap(),
                     Command::Breakpoint(r#break::Command::Info)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["watch var1", "watch var1 ", "   w   var1   "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Watchpoint(watch::Command::Add(WatchpointIdentity::Variable(v))) if v == "var1"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec![
+                "watch ns1::ns2::var1",
+                "watch ns1::ns2::var1 ",
+                "   w   ns1::ns2::var1   ",
+            ],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Watchpoint(watch::Command::Add(WatchpointIdentity::Variable(v))) if v == "ns1::ns2::var1"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["watch info", "watch info ", "   w   info   "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Watchpoint(watch::Command::Info)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["watch r var1", "watch remove var1 ", "   w   r var1   "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Watchpoint(watch::Command::Remove(WatchpointIdentity::Variable(v))) if v == "var1"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["watch r 2", "watch remove 2 ", "   w   r 2   "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Watchpoint(watch::Command::Remove(WatchpointIdentity::Number(n))) if n == 2
                 ));
             },
         },
