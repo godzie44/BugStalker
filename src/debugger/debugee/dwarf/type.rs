@@ -6,6 +6,7 @@ use crate::debugger::debugee::dwarf::unit::{
 };
 use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::error::Error;
+use crate::debugger::variable::select::ObjectBinaryRepr;
 use crate::debugger::ExplorationContext;
 use crate::version::Version;
 use crate::{ctx_resolve_unit_call, weak_error};
@@ -65,17 +66,23 @@ pub struct StructureMember {
 }
 
 impl StructureMember {
-    /// Calculate structure member value.
-    /// `base_entity_addr` must points to first byte of entity value in debugger memory,
-    /// typically its points to start of the buffer.
+    ///  Calculate structure member data.
+    ///
+    /// # Arguments
+    ///
+    /// * `eval_ctx`: evaluation context
+    /// * `r#type`: member data type
+    /// * `base_data`: should point to the first byte of entity value in debugger memory,
+    /// typically points to the start of the buffer
     pub fn value(
         &self,
         eval_ctx: &EvaluationContext,
         r#type: &ComplexType,
-        base_entity_addr: usize,
-    ) -> Option<Bytes> {
+        base_data: &ObjectBinaryRepr,
+    ) -> Option<ObjectBinaryRepr> {
         let type_size = r#type.type_size_in_bytes(eval_ctx, self.type_ref?)? as usize;
 
+        let base_entity_addr = base_data.raw_data.as_ptr() as usize;
         let addr = match self.in_struct_location.as_ref()? {
             MemberLocation::Offset(offset) => {
                 Some((base_entity_addr as isize + (*offset as isize)) as usize)
@@ -85,9 +92,18 @@ impl StructureMember {
             }
         }? as *const u8;
 
-        Some(Bytes::from(unsafe {
-            std::slice::from_raw_parts(addr, type_size)
-        }))
+        let offset = addr as isize - base_entity_addr as isize;
+        let new_in_debugee_addr = base_data
+            .address
+            .map(|addr| (addr as isize + offset) as usize);
+
+        let raw_data = Bytes::from(unsafe { std::slice::from_raw_parts(addr, type_size) });
+
+        Some(ObjectBinaryRepr {
+            raw_data,
+            address: new_in_debugee_addr,
+            size: type_size,
+        })
     }
 }
 
@@ -263,7 +279,7 @@ pub enum TypeDeclaration {
 
 /// Type representation. This is a graph of types where vertexes is a type declaration and edges
 /// is a dependencies between types. Type linking implemented by `TypeIdentity` references.
-/// Root is a identity of a main type.
+/// Root is an identity of a main type.
 #[derive(Clone)]
 pub struct ComplexType {
     pub types: HashMap<TypeIdentity, TypeDeclaration>,
