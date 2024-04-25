@@ -23,6 +23,7 @@ pub mod step_over;
 pub mod symbol;
 pub mod thread;
 pub mod variables;
+pub mod watch;
 
 use crate::debugger::variable::select::DQE;
 use crate::debugger::Error;
@@ -54,6 +55,7 @@ pub enum Command {
     StepOver,
     PrintSymbol(String),
     Breakpoint(r#break::Command),
+    Watchpoint(watch::Command),
     Memory(memory::Command),
     Register(register::Command),
     Thread(thread::Command),
