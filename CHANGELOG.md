@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- debugger: now tracer doesn't add new tracee to tracee_ctl if first
+  tracee.wait() return exited status instead of ptrace event status
+
 ### Deprecated
 
 ### Breaking changes

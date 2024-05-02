@@ -114,7 +114,7 @@ impl Tracer {
             let status = match waitpid(Pid::from_raw(-1), None) {
                 Ok(status) => status,
                 Err(Errno::ECHILD) => {
-                    return Ok(StopReason::NoSuchProcess(self.tracee_ctl.proc_pid()))
+                    return Ok(StopReason::NoSuchProcess(self.tracee_ctl.proc_pid()));
                 }
                 Err(e) => return Err(Waitpid(e)),
             };
@@ -315,15 +315,18 @@ impl Tracer {
                         if self.tracee_ctl.tracee_mut(new_thread_id).is_none() {
                             let new_tracee = self.tracee_ctl.add(new_thread_id);
                             let new_trace_status = new_tracee.wait_one()?;
-
-                            let _new_thread_id = new_thread_id;
-                            debug_assert!(
-                                matches!(
-                                new_trace_status,
-                                WaitStatus::PtraceEvent(_new_thread_id, _, libc::PTRACE_EVENT_STOP)
-                            ),
-                                "the newly cloned thread must start with PTRACE_EVENT_STOP (cause PTRACE_SEIZE was used)"
-                            )
+                            if matches!(new_trace_status, WaitStatus::Exited(_, _)) {
+                                // this situation can occur if the process has already completed
+                                self.tracee_ctl.remove(new_thread_id);
+                            } else {
+                                debug_assert!(
+                                    matches!(
+                                        new_trace_status,
+                                        WaitStatus::PtraceEvent(tid, _, libc::PTRACE_EVENT_STOP) if tid == new_thread_id
+                                    ),
+                                    "the newly cloned thread must start with PTRACE_EVENT_STOP (cause PTRACE_SEIZE was used)"
+                                )
+                            }
                         }
                     }
                     libc::PTRACE_EVENT_STOP => {
