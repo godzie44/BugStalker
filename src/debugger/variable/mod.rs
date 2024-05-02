@@ -982,7 +982,8 @@ impl<'a> VariableParser<'a> {
                 let is_tls_type = version_switch!(
                     rust_version,
                     (1, 0, 0) ..= (1, 76, u32::MAX) => type_ns_h.contains(&["std", "sys", "common", "thread_local", "fast_local"]),
-                    (1, 77, 0) ..= (1, u32::MAX, u32::MAX) => type_ns_h.contains(&["std", "sys", "pal", "common", "thread_local", "fast_local"])
+                    (1, 77, 0) ..= (1, 77, u32::MAX) => type_ns_h.contains(&["std", "sys", "pal", "common", "thread_local", "fast_local"]),
+                    (1, 78, 0) ..= (1, u32::MAX, u32::MAX) => type_ns_h.contains(&["std", "sys", "thread_local", "fast_local"]),
                 );
                 if is_tls_type == Some(true) {
                     return VariableIR::Specialized(parser_ext.parse_tls(struct_var, type_params));
