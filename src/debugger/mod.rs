@@ -964,15 +964,17 @@ impl Drop for Debugger {
 
                 // todo currently ok only if all threads in group stop
                 // continue all threads with SIGSTOP
-                current_tids.iter().for_each(|tid| {
-                    sys::ptrace::cont(*tid, Signal::SIGSTOP).expect("cont debugee");
-                });
-                current_tids.iter().for_each(|tid| {
-                    waitpid(*tid, None).expect("waiting debugee");
-                });
+                let prepare_stopped: Vec<_> = current_tids
+                    .into_iter()
+                    .filter(|&tid| sys::ptrace::cont(tid, Signal::SIGSTOP).is_ok())
+                    .collect();
+                let stopped: Vec<_> = prepare_stopped
+                    .into_iter()
+                    .filter(|&tid| waitpid(tid, None).is_ok())
+                    .collect();
                 // detach ptrace
-                current_tids.iter().for_each(|tid| {
-                    sys::ptrace::detach(*tid, None).expect("detach debugee");
+                stopped.into_iter().for_each(|tid| {
+                    sys::ptrace::detach(tid, None).expect("detach tracee");
                 });
                 // kill debugee process
                 signal::kill(self.debugee.tracee_ctl().proc_pid(), Signal::SIGKILL)
