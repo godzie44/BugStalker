@@ -6,18 +6,26 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- debugger: added support for rustc 1.78
-
 ### Changed
+
+### Fixed
+
+### Deprecated
+
+### Breaking changes
+
+---
+
+# [0.1.5] May 3 2024
+
+### Added
+
+- debugger: added support for rustc 1.78
 
 ### Fixed
 
 - debugger: now tracer doesn't add new tracee to tracee_ctl if first
   tracee.wait() return exited status instead of ptrace event status
-
-### Deprecated
-
-### Breaking changes
 
 ---
 
