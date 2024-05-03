@@ -1,4 +1,4 @@
-on: [push, pull_request]
+on: [ push, pull_request ]
 
 name: CI
 
@@ -6,7 +6,7 @@ jobs:
   test:
     strategy:
       matrix:
-        rustc_version: [ 1.75.0, 1.76.0, 1.77.0 ]
+        rustc_version: [ 1.75.0, 1.76.0, 1.77.0, 1.78.0 ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
