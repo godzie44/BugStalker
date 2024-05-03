@@ -346,4 +346,5 @@ Currently, there is only one builtin oracle - tokio oracle.
 
 Feel free to suggest changes, ask a question or implement a new feature.
 Any contributions are very welcome.
+
 [How to contribute](https://github.com/godzie44/BugStalker/blob/master/CONTRIBUTING.md).

@@ -22,10 +22,9 @@ The former is completely okay to be asked via an issue.
 
 The main purpose of the BugStalker development model is to provide two things:
 
-1) all updates related to the release of new versions of `rustc` must
-   be released as quickly as possible
-2) the development and addition of new features
-   shouldn't interfere with the first point
+1) All updates related to the release of new `rustc` versions must
+   be released as quickly as possible.
+2) Implementing of new features shouldn't interfere with the first point.
 
 That is why BugStalker using a developing model similar to GitFlow.
 There is a stable `master` branch and a `develop` branch with development
