@@ -64,6 +64,12 @@ For example, ubuntu/debian:
 apt install pkg-config libunwind-dev
 ```
 
+For example, fedora:
+
+```shell
+dnf install pkg-config libunwind-devel
+```
+
 Now install debugger:
 
 ```shell
