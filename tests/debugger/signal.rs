@@ -1,5 +1,5 @@
-use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
+use crate::common::TestInfo;
 use crate::{assert_no_proc, prepare_debugee_process, SIGNALS_APP, SLEEPER_APP};
 use bugstalker::debugger::DebuggerBuilder;
 use nix::sys::signal;
@@ -13,7 +13,7 @@ use std::time::Duration;
 fn test_signal_stop_single_thread() {
     let process = prepare_debugee_process(SIGNALS_APP, &["single_thread"]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
@@ -41,7 +41,7 @@ fn test_signal_stop_single_thread() {
 fn test_signal_stop_multi_thread() {
     let process = prepare_debugee_process(SIGNALS_APP, &["multi_thread"]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
@@ -67,7 +67,7 @@ fn test_signal_stop_multi_thread() {
 fn test_signal_stop_multi_thread_multiple_signal() {
     let process = prepare_debugee_process(SIGNALS_APP, &["multi_thread_multi_signal"]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
@@ -97,7 +97,7 @@ fn test_signal_stop_multi_thread_multiple_signal() {
 fn test_transparent_signals() {
     let process = prepare_debugee_process(SLEEPER_APP, &["-s", "1"]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 

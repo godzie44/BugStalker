@@ -54,7 +54,7 @@ fn guard_cap(cap: i64) -> i64 {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct VecVariable {
     pub structure: StructVariable,
 }
@@ -72,40 +72,40 @@ impl VecVariable {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct StringVariable {
     pub identity: VariableIdentity,
     pub value: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct HashMapVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
     pub kv_items: Vec<(VariableIR, VariableIR)>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct HashSetVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
     pub items: Vec<VariableIR>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct StrVariable {
     pub identity: VariableIdentity,
     pub value: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct TlsVariable {
     pub identity: VariableIdentity,
     pub inner_value: Option<Box<VariableIR>>,
     pub inner_type: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum SpecializedVariableIR {
     Vector {
         vec: Option<VecVariable>,
@@ -373,7 +373,7 @@ impl<'a> VariableParserExtension<'a> {
                             .type_name(inner_type)
                             .map(|tp| format!("[{tp}]")),
                         items: Some(items),
-                        // this address is not used in dqe, set it to `None`
+                        // set to `None` because the address operator unavailable for spec vars
                         raw_address: None,
                     }),
                     VariableIR::Scalar(ScalarVariable {
@@ -381,12 +381,12 @@ impl<'a> VariableParserExtension<'a> {
                         type_id: None,
                         type_name: Some("usize".to_owned()),
                         value: Some(SupportedScalar::Usize(cap as usize)),
-                        // this address is not used in dqe, set it to `None`
+                        // set to `None` because the address operator unavailable for spec vars
                         raw_address: None,
                     }),
                 ],
                 type_params: type_params.clone(),
-                // this address is not used in dqe, set it to `None`
+                // set to `None` because the address operator unavailable for spec vars
                 raw_address: None,
             },
         })
@@ -499,8 +499,8 @@ impl<'a> VariableParserExtension<'a> {
                 let raw_data = bucket.read(eval_ctx.expl_ctx.pid_on_focus());
                 let data = weak_error!(raw_data).map(|d| ObjectBinaryRepr {
                     raw_data: Bytes::from(d),
-                    address: Some(bucket.data_location()),
-                    size: bucket.data_size(),
+                    address: Some(bucket.location()),
+                    size: bucket.size(),
                 });
 
                 let tuple = self.parser.parse_inner(
@@ -573,8 +573,8 @@ impl<'a> VariableParserExtension<'a> {
                 let raw_data = bucket.read(eval_ctx.expl_ctx.pid_on_focus());
                 let data = weak_error!(raw_data).map(|d| ObjectBinaryRepr {
                     raw_data: Bytes::from(d),
-                    address: Some(bucket.data_location()),
-                    size: bucket.data_size(),
+                    address: Some(bucket.location()),
+                    size: bucket.size(),
                 });
 
                 let tuple = self.parser.parse_inner(
@@ -810,7 +810,7 @@ impl<'a> VariableParserExtension<'a> {
                             .type_name(inner_type)
                             .map(|tp| format!("[{tp}]")),
                         items: Some(items),
-                        // this address is not used in dqe, set it to `None`
+                        // set to `None` because the address operator unavailable for spec vars
                         raw_address: None,
                     }),
                     VariableIR::Scalar(ScalarVariable {
@@ -822,12 +822,12 @@ impl<'a> VariableParserExtension<'a> {
                         } else {
                             cap
                         })),
-                        // this address is not used in dqe, set it to `None`
+                        // set to `None` because the address operator unavailable for spec vars
                         raw_address: None,
                     }),
                 ],
                 type_params: type_params.clone(),
-                // this address is not used in dqe, set it to `None`
+                // set to `None` because the address operator unavailable for spec vars
                 raw_address: None,
             },
         })
@@ -894,7 +894,7 @@ impl<'a> VariableParserExtension<'a> {
             type_name: Some(ir.r#type().to_owned()),
             members: vec![borrow, value.clone()],
             type_params: Default::default(),
-            // this address is not used in dqe, set it to `None`
+            // set to `None` because the address operator unavailable for spec vars
             raw_address: None,
         }))
     }

@@ -67,6 +67,26 @@ pub enum Error {
     #[error("multiple syscall errors {0:?}")]
     MultipleErrors(Vec<Self>),
 
+    // --------------------------------- watchpoint errors -----------------------------------------
+    #[error("variable or argument to watch not found")]
+    WatchSubjectNotFound,
+    #[error("there is more than one watchpoint candidate, try to specify the expression")]
+    WatchpointCollision,
+    #[error("there is no memory address for watchpoint")]
+    WatchpointNoAddress,
+    #[error("size of watch object is undefined")]
+    WatchpointUndefinedSize,
+    #[error("the size of the watch object does not fit into one of the size class (1, 2, 4, 8 bytes), try to specify a field to observ")]
+    WatchpointWrongSize,
+    #[error("watchpoint limit is reached (maximum 4 watchpoints), try to remove unused")]
+    WatchpointLimitReached,
+    #[error("memory location observed by another watchpoint")]
+    AddressAlreadyObserved,
+    #[error("unknown expression scope")]
+    UnknownScope,
+    #[error("variable frame is unavailable")]
+    VarFrameNotFound,
+
     // --------------------------------- parsing errors --------------------------------------------
     #[error("dwarf file parsing error: {0}")]
     DwarfParsing(#[from] gimli::Error),
@@ -197,6 +217,15 @@ impl Error {
             Error::DisAsm(_) => false,
             Error::InvalidSpecification(_) => false,
             Error::FunctionRangeNotFound => false,
+            Error::WatchpointCollision => false,
+            Error::WatchpointNoAddress => false,
+            Error::WatchpointUndefinedSize => false,
+            Error::WatchpointWrongSize => false,
+            Error::WatchpointLimitReached => false,
+            Error::WatchSubjectNotFound => false,
+            Error::AddressAlreadyObserved => false,
+            Error::UnknownScope => false,
+            Error::VarFrameNotFound => false,
 
             // currently fatal errors
             Error::DwarfParsing(_) => true,

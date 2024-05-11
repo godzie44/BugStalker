@@ -63,7 +63,7 @@ pub enum ParsingError {
 
 /// Identifier of debugee variables.
 /// Consists of the name and namespace of the variable.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct VariableIdentity {
     namespace: NamespaceHierarchy,
     pub name: Option<String>,
@@ -78,7 +78,7 @@ impl VariableIdentity {
         Self::new(var.namespaces(), var.die.name().map(String::from))
     }
 
-    fn no_namespace(name: Option<String>) -> Self {
+    pub fn no_namespace(name: Option<String>) -> Self {
         Self {
             namespace: NamespaceHierarchy::default(),
             name,
@@ -180,7 +180,7 @@ impl SupportedScalar {
 }
 
 /// Represents scalars: integer's, float's, bool, char and () types.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct ScalarVariable {
     pub identity: VariableIdentity,
     pub value: Option<SupportedScalar>,
@@ -208,7 +208,7 @@ impl ScalarVariable {
 }
 
 /// Represents structures.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct StructVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
@@ -221,7 +221,7 @@ pub struct StructVariable {
 }
 
 /// Represents arrays.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct ArrayVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
@@ -246,7 +246,7 @@ impl ArrayVariable {
 }
 
 /// Simple c-style enums (each option in which does not contain the underlying values).
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct CEnumVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
@@ -257,7 +257,7 @@ pub struct CEnumVariable {
 }
 
 /// Represents all enum's that more complex then c-style enums.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct RustEnumVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
@@ -268,7 +268,7 @@ pub struct RustEnumVariable {
 }
 
 /// Raw pointers, references, Box.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct PointerVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
@@ -276,7 +276,8 @@ pub struct PointerVariable {
     /// Raw pointer to underline value.
     pub value: Option<*const ()>,
     /// Underline type identity.
-    target_type: Option<TypeIdentity>,
+    pub target_type: Option<TypeIdentity>,
+    pub target_type_size: Option<u64>,
     pub raw_address: Option<usize>,
 }
 
@@ -287,10 +288,10 @@ impl PointerVariable {
         eval_ctx: &EvaluationContext,
         parser: &VariableParser,
     ) -> Option<VariableIR> {
-        let deref_size = self
-            .target_type
-            .and_then(|t| parser.r#type.type_size_in_bytes(eval_ctx, t));
         let target_type = self.target_type?;
+        let deref_size = self
+            .target_type_size
+            .or_else(|| parser.r#type.type_size_in_bytes(eval_ctx, target_type));
 
         let target_type_decl = parser.r#type.types.get(&target_type);
         if matches!(target_type_decl, Some(TypeDeclaration::Subroutine { .. })) {
@@ -376,7 +377,7 @@ impl PointerVariable {
 }
 
 /// Represents subroutine.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct SubroutineVariable {
     pub identity: VariableIdentity,
     pub type_id: Option<TypeIdentity>,
@@ -385,7 +386,7 @@ pub struct SubroutineVariable {
 }
 
 /// Represent a variable with C modifiers (volatile, const, typedef, etc)
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct CModifiedVariable {
     pub identity: VariableIdentity,
     pub type_name: Option<String>,
@@ -396,7 +397,7 @@ pub struct CModifiedVariable {
 }
 
 /// Variable intermediate representation.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum VariableIR {
     Scalar(ScalarVariable),
     Struct(StructVariable),
@@ -548,7 +549,7 @@ impl VariableIR {
         }
     }
 
-    fn identity_mut(&mut self) -> &mut VariableIdentity {
+    pub fn identity_mut(&mut self) -> &mut VariableIdentity {
         match self {
             VariableIR::Scalar(s) => &mut s.identity,
             VariableIR::Struct(s) => &mut s.identity,
@@ -599,13 +600,20 @@ impl VariableIR {
     }
 
     /// Return address (as pointer variable) of raw data in debugee memory.
-    fn address(self) -> Option<Self> {
+    fn address(
+        self,
+        eval_ctx: &EvaluationContext,
+        variable_parser: &VariableParser,
+    ) -> Option<Self> {
         let addr = self.in_memory_location()?;
         Some(VariableIR::Pointer(PointerVariable {
             identity: VariableIdentity::no_namespace(None),
             type_name: Some(format!("&{}", self.r#type())),
             value: Some(addr as *const ()),
             target_type: self.type_identity(),
+            target_type_size: self
+                .type_identity()
+                .and_then(|t| variable_parser.r#type.type_size_in_bytes(eval_ctx, t)),
             raw_address: None,
             type_id: None,
         }))
@@ -1274,6 +1282,7 @@ impl<'a> VariableParser<'a> {
             }),
             value: mb_ptr,
             target_type,
+            target_type_size: None,
             raw_address: data.and_then(|d| d.address),
         }
     }
@@ -1740,6 +1749,7 @@ mod test {
                             type_name: None,
                             value: None,
                             target_type: None,
+                            target_type_size: None,
                             raw_address: None,
                         }),
                     ],
@@ -1964,6 +1974,7 @@ mod test {
                     type_name: Some("ptr".into()),
                     value: Some(123usize as *const ()),
                     raw_address: None,
+                    target_type_size: None,
                 }),
                 eq_literal: Literal::Address(123),
                 neq_literals: vec![Literal::Address(124), Literal::Int(123)],
@@ -1976,6 +1987,7 @@ mod test {
                     type_name: Some("MyPtr".into()),
                     value: Some(123usize as *const ()),
                     raw_address: None,
+                    target_type_size: None,
                 }),
                 eq_literal: Literal::Address(123),
                 neq_literals: vec![Literal::Address(124), Literal::Int(123)],

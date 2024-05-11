@@ -478,6 +478,10 @@ pub enum BrkptType {
     EntryPoint,
     /// User defined breakpoint
     UserDefined,
+    /// This breakpoint created as a companion to the watchpoint.
+    /// Stops the program when the watchpoint expression leaves a scope where it is valid.
+    /// Contains linked watchpoint numbers.
+    WatchpointCompanion(Vec<u32>),
     /// Auxiliary breakpoints, using, for example, in step-over implementation
     Temporary,
     /// Breakpoint at linker internal function that will always be called when the linker
@@ -496,6 +500,7 @@ impl Debug for BrkptType {
             BrkptType::Temporary => f.write_str("temporary"),
             BrkptType::LinkerMapFn => f.write_str("linker-map"),
             BrkptType::Transparent(_) => f.write_str("transparent"),
+            BrkptType::WatchpointCompanion(_) => f.write_str("watchpoint-companion"),
         }
     }
 }
@@ -517,6 +522,9 @@ impl PartialEq for BrkptType {
             }
             BrkptType::Transparent(_) => {
                 matches!(other, BrkptType::Transparent(_))
+            }
+            BrkptType::WatchpointCompanion(nums) => {
+                matches!(other, BrkptType::WatchpointCompanion(other_nums) if nums == other_nums)
             }
         }
     }
@@ -548,6 +556,7 @@ impl Breakpoint {
 impl Breakpoint {
     const INT3: u64 = 0xCC_u64;
 
+    #[inline(always)]
     fn new_inner(
         addr: RelocatedAddress,
         pid: Pid,
@@ -568,6 +577,7 @@ impl Breakpoint {
         }
     }
 
+    #[inline(always)]
     pub fn new(
         debug_info_file: impl Into<PathBuf>,
         addr: RelocatedAddress,
@@ -584,6 +594,7 @@ impl Breakpoint {
         )
     }
 
+    #[inline(always)]
     pub fn new_entry_point(
         debug_info_file: impl Into<PathBuf>,
         addr: RelocatedAddress,
@@ -599,6 +610,7 @@ impl Breakpoint {
         )
     }
 
+    #[inline(always)]
     pub fn new_temporary(
         debug_info_file: impl Into<PathBuf>,
         addr: RelocatedAddress,
@@ -614,6 +626,7 @@ impl Breakpoint {
         )
     }
 
+    #[inline(always)]
     pub fn new_linker_map(addr: RelocatedAddress, pid: Pid) -> Self {
         Self::new_inner(
             addr,
@@ -625,6 +638,7 @@ impl Breakpoint {
         )
     }
 
+    #[inline(always)]
     pub fn new_transparent(
         debug_info_file: impl Into<PathBuf>,
         addr: RelocatedAddress,
@@ -642,6 +656,40 @@ impl Breakpoint {
     }
 
     #[inline(always)]
+    pub(super) fn new_watchpoint_companion(
+        registry: &BreakpointRegistry,
+        wp_num: u32,
+        addr: RelocatedAddress,
+        pid: Pid,
+    ) -> Self {
+        let (wp_nums, brkpt_num) = if let Some(Breakpoint {
+            r#type: BrkptType::WatchpointCompanion(nums),
+            number,
+            ..
+        }) = registry.get_enabled(addr)
+        {
+            // reuse if a companion already exists
+            let mut nums = nums.to_vec();
+            nums.push(wp_num);
+            (nums, *number)
+        } else {
+            (
+                vec![wp_num],
+                GLOBAL_BP_COUNTER.fetch_add(1, Ordering::Relaxed),
+            )
+        };
+
+        Self::new_inner(
+            addr,
+            pid,
+            brkpt_num,
+            None,
+            BrkptType::WatchpointCompanion(wp_nums),
+            PathBuf::default(),
+        )
+    }
+
+    #[inline(always)]
     pub fn number(&self) -> u32 {
         self.number
     }
@@ -649,6 +697,7 @@ impl Breakpoint {
     /// Return breakpoint place information.
     ///
     /// # Panics
+    ///
     /// Panic if a breakpoint is not a user defined.
     /// It is the caller's responsibility to check that the type is [`BrkptType::UserDefined`].
     pub fn place(&self) -> Option<&PlaceDescriptorOwned> {
@@ -657,6 +706,7 @@ impl Breakpoint {
             BrkptType::EntryPoint
             | BrkptType::Temporary
             | BrkptType::LinkerMapFn
+            | BrkptType::WatchpointCompanion(_)
             | BrkptType::Transparent(_) => {
                 panic!("only user defined breakpoint has a place attribute")
             }
@@ -665,6 +715,10 @@ impl Breakpoint {
 
     pub fn is_entry_point(&self) -> bool {
         self.r#type == BrkptType::EntryPoint
+    }
+
+    pub fn is_wp_companion(&self) -> bool {
+        matches!(self.r#type, BrkptType::WatchpointCompanion(_))
     }
 
     #[inline(always)]
@@ -1045,7 +1099,10 @@ impl BreakpointRegistry {
                         brkpt.place,
                     ));
                 }
-                BrkptType::Temporary | BrkptType::LinkerMapFn | BrkptType::Transparent(_) => {}
+                BrkptType::Temporary
+                | BrkptType::LinkerMapFn
+                | BrkptType::Transparent(_)
+                | BrkptType::WatchpointCompanion(_) => {}
             }
         }
         Ok(errors)

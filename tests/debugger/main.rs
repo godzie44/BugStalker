@@ -7,8 +7,9 @@ mod signal;
 mod steps;
 mod symbol;
 mod variables;
+mod watchpoint;
 
-use crate::common::{DebugeeRunInfo, TestHooks};
+use crate::common::{TestHooks, TestInfo};
 use bugstalker::debugger::process::{Child, Installed};
 use bugstalker::debugger::register::{Register, RegisterMap};
 use bugstalker::debugger::{rust, DebuggerBuilder};
@@ -45,6 +46,7 @@ const SIGNALS_APP: &str = "./examples/target/debug/signals";
 const SHARED_LIB_APP: &str = "./examples/target/debug/calc_bin";
 const SLEEPER_APP: &str = "./examples/target/debug/sleeper";
 const FIZZBUZZ_APP: &str = "./examples/target/debug/fizzbuzz";
+const CALCULATIONS_APP: &str = "./examples/target/debug/calculations";
 
 #[test]
 #[serial]
@@ -84,7 +86,7 @@ fn test_frame_cfa() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
 
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
     debugger
@@ -117,7 +119,7 @@ fn test_registers() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
 
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
     debugger

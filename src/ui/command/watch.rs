@@ -1,29 +1,32 @@
+use crate::debugger::address::RelocatedAddress;
+use crate::debugger::register::debug::{BreakCondition, BreakSize};
+use crate::debugger::variable::select::DQE;
 use crate::debugger::Debugger;
 use crate::debugger::Error;
+use crate::debugger::WatchpointView;
 
 #[derive(Debug, Clone)]
 pub enum WatchpointIdentity {
-    Variable(String),
-    Address(usize),
+    DQE(String, DQE),
+    Address(usize, u8),
     Number(u32),
 }
 
 #[derive(Debug, Clone)]
 pub enum Command {
-    Add(WatchpointIdentity),
+    Add(WatchpointIdentity, BreakCondition),
     Remove(WatchpointIdentity),
     Info,
 }
 
 pub struct Handler<'a> {
-    #[allow(unused)]
     dbg: &'a mut Debugger,
 }
 
-pub enum ExecutionResult {
-    New,
-    Removed,
-    Dump,
+pub enum ExecutionResult<'a> {
+    New(WatchpointView<'a>),
+    Removed(Option<WatchpointView<'a>>),
+    Dump(Vec<WatchpointView<'a>>),
 }
 
 impl<'a> Handler<'a> {
@@ -31,25 +34,38 @@ impl<'a> Handler<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&mut self, cmd: &Command) -> Result<ExecutionResult, Error> {
+    pub fn handle(&mut self, cmd: Command) -> Result<ExecutionResult, Error> {
         match cmd {
-            Command::Add(ident) => match ident {
-                WatchpointIdentity::Variable(_) => {
-                    unimplemented!()
-                }
-                WatchpointIdentity::Address(_) => {
-                    unimplemented!()
-                }
-                WatchpointIdentity::Number(_) => {
-                    unreachable!()
-                }
-            },
-            Command::Remove(_) => {
-                todo!()
+            Command::Add(ident, cond) => {
+                let new = match ident {
+                    WatchpointIdentity::DQE(expr_string, dqe) => {
+                        self.dbg.set_watchpoint_on_expr(&expr_string, dqe, cond)
+                    }
+                    WatchpointIdentity::Address(addr, size) => self.dbg.set_watchpoint_on_memory(
+                        RelocatedAddress::from(addr),
+                        BreakSize::try_from(size).expect("infallible (checked by parser)"),
+                        cond,
+                    ),
+                    WatchpointIdentity::Number(_) => {
+                        unreachable!()
+                    }
+                }?;
+                Ok(ExecutionResult::New(new))
+            }
+            Command::Remove(ident) => {
+                let rem = match ident {
+                    WatchpointIdentity::DQE(_, dqe) => self.dbg.remove_watchpoint_by_expr(dqe),
+                    WatchpointIdentity::Address(addr, _) => self
+                        .dbg
+                        .remove_watchpoint_by_addr(RelocatedAddress::from(addr)),
+                    WatchpointIdentity::Number(num) => self.dbg.remove_watchpoint_by_number(num),
+                }?;
+                Ok(ExecutionResult::Removed(rem))
             }
             Command::Info => {
-                todo!()
+                let list = self.dbg.watchpoint_list()?;
+                Ok(ExecutionResult::Dump(list))
             }
-        };
+        }
     }
 }

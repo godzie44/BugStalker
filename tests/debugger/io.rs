@@ -1,5 +1,5 @@
-use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
+use crate::common::TestInfo;
 use crate::HW_APP;
 use crate::{assert_no_proc, prepare_debugee_process, CALC_APP};
 use bugstalker::debugger::variable::render::{RenderRepr, ValueLayout};
@@ -36,7 +36,7 @@ fn test_read_register_write() {
 fn test_backtrace() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
@@ -66,7 +66,7 @@ fn test_backtrace() {
 fn test_read_value_u64() {
     let process = prepare_debugee_process(CALC_APP, &["1", "2", "3", "--description", "result"]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
     debugger.set_breakpoint_at_line("main.rs", 15).unwrap();

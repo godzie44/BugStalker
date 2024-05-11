@@ -275,6 +275,10 @@ impl TraceeCtl {
         self.threads_state.values().cloned().collect()
     }
 
+    pub fn tracee_iter(&self) -> impl Iterator<Item = &Tracee> {
+        self.threads_state.values()
+    }
+
     /// Attach libthread_db to process.
     /// At least one thread must be created before process is attached to libthread_db.
     pub(super) fn attach_thread_db(&mut self, lib: Arc<thread_db::Lib>) -> Result<(), Error> {

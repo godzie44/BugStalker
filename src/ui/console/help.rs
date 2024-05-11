@@ -16,6 +16,7 @@ step, stepinto                              -- step program until it reaches a d
 finish, stepout                             -- execute program until selected stack frame returns
 next, stepover                              -- step program, stepping over subroutine calls
 b, break <addr>|<file:line>|<function>      -- manage breakpoints
+w, watch +w|+rw| <expression>|<addr:size>   -- manage write or read-write watchpoints
 symbol <name>                               -- print symbol kind and address
 mem, memory read|write <addr>               -- read or write into debugged program memory
 reg, register read|write|info <addr>        -- read, write, or view debugged program registers
@@ -196,6 +197,27 @@ all matching functions). Examples:
 - a breakpoint number (only for `remove` subcommand)
 ";
 
+pub const HELP_WATCH: &str = "\
+\x1b[32;1mw, watch\x1b[0m
+Manage watchpoints. Note that watchpoints for local variables and watchpoints for global varibales
+or raw memory region have a different lifetimes. Watchpoints for global variables or memory locations
+are lives until BugStalker session is alive. On the contrary, watchpoints for local variables
+are lives until debugee is not restarted, and will be removed automatically.
+
+Available subcomands:
+watch +rw|+w| <addr:size> - set write or read-write watchpoint (write by default) to memory location [addr; addr+size], size must be one of [1,2,4,8] bytes
+watch +rw|+w| <expression> - set write or read-write watchpoint (write by default) to DQE result (see `help dqe`), expression result must one of [1,2,4,8] bytes
+watch remove <addr:size>|<expression>|<number> - deactivate and delete selected watchpoint
+watch info - show all watchpoints
+
+Examples:
+* watch 0x00000004:4 - set watchpoint to memory region [0x0..04:0x0..08]
+* watch var1 - set watchpoint (write condition) to variable `var1`
+* watch +rw var1 - set watchpoint (read-write condition) to variable `var1`
+* watch struct1.field1 - set watchpoint to `field1` of variable `struct1`
+* watch arr[2] - set watchpoint to 2nd element of variable `arr`
+";
+
 pub const HELP_SYMBOL: &str = "\
 \x1b[32;1msymbol\x1b[0m
 Print symbols matched by regular expression.
@@ -296,6 +318,7 @@ impl Helper {
                 HELP_STEPOVER
             }
             Some(parser::BREAK_COMMAND) | Some(parser::BREAK_COMMAND_SHORT) => HELP_BREAK,
+            Some(parser::WATCH_COMMAND) | Some(parser::WATCH_COMMAND_SHORT) => HELP_WATCH,
             Some(parser::SYMBOL_COMMAND) => HELP_SYMBOL,
             Some(parser::MEMORY_COMMAND) | Some(parser::MEMORY_COMMAND_SHORT) => HELP_MEMORY,
             Some(parser::REGISTER_COMMAND) | Some(parser::REGISTER_COMMAND_SHORT) => HELP_REGISTER,

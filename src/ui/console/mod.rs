@@ -17,6 +17,8 @@ use crate::ui::command::source_code::{DisAsmHandler, FunctionLineRangeHandler};
 use crate::ui::command::symbol::Handler as SymbolHandler;
 use crate::ui::command::thread::ExecutionResult as ThreadResult;
 use crate::ui::command::variables::Handler as VariablesHandler;
+use crate::ui::command::watch::ExecutionResult as WatchpointExecutionResult;
+use crate::ui::command::watch::Handler as WatchpointHandler;
 use crate::ui::command::{
     r#break, source_code, step_instruction, step_into, step_out, step_over, CommandError,
 };
@@ -27,6 +29,7 @@ use crate::ui::console::help::*;
 use crate::ui::console::hook::TerminalHook;
 use crate::ui::console::print::style::{
     AddressView, AsmInstructionView, AsmOperandsView, ErrorView, FilePathView, FunctionNameView,
+    KeywordView,
 };
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::variable::render_variable;
@@ -376,7 +379,6 @@ impl AppLoop {
         }
 
         match Command::parse(cmd)? {
-            Command::Watchpoint(_) => {}
             Command::PrintVariables(print_var_command) => VariablesHandler::new(&self.debugger)
                 .handle(print_var_command)?
                 .into_iter()
@@ -527,10 +529,10 @@ impl AppLoop {
                         Err(Error::NoSuitablePlace) => {
                             if self.yes("Add deferred breakpoint for future shared library load?") {
                                 brkpt_cmd = BreakpointCommand::AddDeferred(
-                                        brkpt_cmd
-                                            .identity()
-                                            .expect("unreachable: deferred breakpoint must based on exists breakpoint"),
-                                    );
+                                    brkpt_cmd
+                                        .identity()
+                                        .expect("unreachable: deferred breakpoint must based on exists breakpoint"),
+                                );
                                 continue;
                             }
                         }
@@ -540,6 +542,41 @@ impl AppLoop {
                         Err(e) => return Err(e.into()),
                     }
                     break;
+                }
+            }
+            Command::Watchpoint(cmd) => {
+                let print_wp = |prefix: &str, wp: debugger::WatchpointView| {
+                    let source_expr = wp
+                        .source_dqe
+                        .map(|dqe| format!(", expression: {dqe}"))
+                        .unwrap_or_default();
+                    let (addr, cond) = (
+                        AddressView::from(wp.address),
+                        KeywordView::from(wp.condition),
+                    );
+                    self.printer.println(format!(
+                        "{prefix} {} at {}, condition: {}, watch size: {}{source_expr}",
+                        wp.number, addr, cond, wp.size
+                    ))
+                };
+
+                let mut handler = WatchpointHandler::new(&mut self.debugger);
+                let res = handler.handle(cmd)?;
+                match res {
+                    WatchpointExecutionResult::New(wp) => print_wp("New watchpoint", wp),
+                    WatchpointExecutionResult::Removed(Some(wp)) => {
+                        print_wp("Removed watchpoint", wp)
+                    }
+                    WatchpointExecutionResult::Removed(_) => {
+                        self.printer.println("No watchpoint found")
+                    }
+                    WatchpointExecutionResult::Dump(wps) => {
+                        self.printer
+                            .println(format!("{}/4 active watchpoints:", wps.len()));
+                        for wp in wps {
+                            print_wp("- Watchpoint", wp)
+                        }
+                    }
                 }
             }
             Command::Memory(mem_cmd) => {

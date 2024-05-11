@@ -337,3 +337,279 @@ impl From<RegisterMap> for DwarfRegisterMap {
         DwarfRegisterMap(dwarf_map)
     }
 }
+
+pub mod debug {
+    use crate::debugger::Error;
+    use crate::debugger::Error::Ptrace;
+    use bit_field::BitField;
+    use nix::sys;
+    use nix::sys::ptrace::AddressType;
+    use nix::unistd::Pid;
+    use std::ffi::c_void;
+    use std::fmt::{Display, Formatter};
+    use std::mem::offset_of;
+    use strum_macros::FromRepr;
+
+    /// Debug register representation.
+    #[repr(usize)]
+    #[derive(Clone, Copy, Debug, PartialEq, FromRepr)]
+    pub enum DebugRegisterNumber {
+        DR0,
+        DR1,
+        DR2,
+        DR3,
+    }
+
+    pub type DebugAddressRegister = usize;
+
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    pub struct DebugStatusRegister(usize);
+
+    macro_rules! impl_trap {
+        ($fn_name: ident, $trap: path) => {
+            #[doc = "Return true if breakpoint X condition was detected."]
+            #[doc = "Reset the corresponding flag."]
+            pub fn $fn_name(&mut self) -> bool {
+                let is_set = (self.0 & $trap) == $trap;
+                self.0 &= !$trap;
+                is_set
+            }
+        };
+    }
+
+    impl DebugStatusRegister {
+        /// Breakpoint condition 0 was detected.
+        const TRAP0: usize = 1;
+        /// Breakpoint condition 1 was detected.
+        const TRAP1: usize = 1 << 1;
+        /// Breakpoint condition 2 was detected.
+        const TRAP2: usize = 1 << 2;
+        /// Breakpoint condition 3 was detected.
+        const TRAP3: usize = 1 << 3;
+
+        impl_trap!(trap0, Self::TRAP0);
+        impl_trap!(trap1, Self::TRAP1);
+        impl_trap!(trap2, Self::TRAP2);
+        impl_trap!(trap3, Self::TRAP3);
+
+        /// Return debug register number and flush it if breakpoint was hit.
+        pub fn detect_and_flush(&mut self) -> Option<DebugRegisterNumber> {
+            let dr = if self.trap0() {
+                DebugRegisterNumber::DR0
+            } else if self.trap1() {
+                DebugRegisterNumber::DR1
+            } else if self.trap2() {
+                DebugRegisterNumber::DR2
+            } else if self.trap3() {
+                DebugRegisterNumber::DR3
+            } else {
+                return None;
+            };
+            Some(dr)
+        }
+    }
+
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    pub struct DebugControlRegister(usize);
+
+    impl DebugControlRegister {
+        /// Enable detection of exact instruction causing a data breakpoint condition for the current task.
+        /// This is not supported by `x86_64` processors,
+        /// but is recommended to be enabled for backward and forward compatibility.
+        const LOCAL_EXACT_BREAKPOINT_ENABLE_BIT: usize = 8;
+        /// Enable detection of exact instruction causing a data breakpoint condition for all tasks.
+        /// This is not supported by `x86_64` processors,
+        /// but is recommended to be enabled for backward and forward compatibility.
+        const GLOBAL_EXACT_BREAKPOINT_ENABLE_BIT: usize = 9;
+
+        /// Return true if breakpoint enabled.
+        ///
+        /// # Arguments
+        ///
+        /// * `dr_num`: address debug register number
+        /// * `global`: whether the breakpoint is global or local
+        #[inline(always)]
+        pub fn dr_enabled(&self, dr: DebugRegisterNumber, global: bool) -> bool {
+            let dr = dr as usize;
+            let idx = if global { dr * 2 + 1 } else { dr * 2 };
+            debug_assert!(idx <= 7);
+            self.0.get_bit(idx)
+        }
+
+        /// Configures a breakpoint condition and size for the associated breakpoint.
+        ///
+        /// # Arguments
+        ///
+        /// * `dr`: address debug register number
+        /// * `cond`: breakpoint condition
+        /// * `size`: breakpoint size
+        #[inline(always)]
+        pub fn configure_bp(
+            &mut self,
+            dr: DebugRegisterNumber,
+            cond: BreakCondition,
+            size: BreakSize,
+        ) {
+            let dr = dr as usize;
+            // set condition
+            let idx = 16 + (dr * 4);
+            self.0.set_bits(idx..=idx + 1, cond as usize);
+            // set size
+            let idx = 18 + (dr * 4);
+            self.0.set_bits(idx..=idx + 1, size as usize);
+        }
+
+        /// Enable/disable a breakpoint either as global or local.
+        ///
+        /// # Arguments
+        /// * `dr_num` - address debug register to enable/disable
+        /// * `global` - whether the breakpoint is global or local
+        /// * `enable` - whether to enable or disable the breakpoint
+        #[inline(always)]
+        pub fn set_dr(&mut self, dr: DebugRegisterNumber, global: bool, enable: bool) {
+            let dr = dr as usize;
+            let idx = if global { dr * 2 + 1 } else { dr * 2 };
+            self.0.set_bit(idx, enable);
+
+            let detection_bit = if global {
+                Self::GLOBAL_EXACT_BREAKPOINT_ENABLE_BIT
+            } else {
+                Self::LOCAL_EXACT_BREAKPOINT_ENABLE_BIT
+            };
+
+            if enable {
+                self.0.set_bit(detection_bit, true);
+            } else {
+                let all_disabled = [0, 1, 2, 3].iter().all(|&n| {
+                    !self.dr_enabled(
+                        DebugRegisterNumber::from_repr(n).expect("infallible"),
+                        global,
+                    )
+                });
+                if all_disabled {
+                    self.0.set_bit(detection_bit, false);
+                }
+            }
+        }
+    }
+
+    #[derive(PartialEq, Debug)]
+    pub struct HardwareDebugState {
+        /// Four (dr0, dr1, dr2, dr3 for x86_64) address debug registers.
+        pub address_regs: [DebugAddressRegister; 4],
+        /// Debug status register.
+        pub dr6: DebugStatusRegister,
+        /// Debug control register.
+        pub dr7: DebugControlRegister,
+    }
+
+    impl HardwareDebugState {
+        /// Return the current state of hardware debug registers.
+        ///
+        /// # Arguments
+        ///
+        /// * `pid`: thread id for which state is loaded
+        pub fn current(pid: Pid) -> Result<Self, Error> {
+            use nix::libc::user;
+
+            fn get_dr(pid: Pid, num: usize) -> Result<usize, Error> {
+                let offset = offset_of!(user, u_debugreg) + num * 8;
+                Ok(sys::ptrace::read_user(pid, offset as AddressType).map_err(Ptrace)? as usize)
+            }
+
+            Ok(Self {
+                address_regs: [
+                    get_dr(pid, 0)?,
+                    get_dr(pid, 1)?,
+                    get_dr(pid, 2)?,
+                    get_dr(pid, 3)?,
+                ],
+                dr6: DebugStatusRegister(get_dr(pid, 6)?),
+                dr7: DebugControlRegister(get_dr(pid, 7)?),
+            })
+        }
+
+        /// Synchronize state and debug registers.
+        ///
+        /// # Arguments
+        ///
+        /// * `pid`: thread id into which registers data is saved
+        pub fn sync(&self, pid: Pid) -> Result<(), Error> {
+            fn set_dr(pid: Pid, num: usize, data: usize) -> Result<(), Error> {
+                let offset = offset_of!(nix::libc::user, u_debugreg);
+                let offset = offset + num * 8;
+                unsafe {
+                    sys::ptrace::write_user(pid, offset as AddressType, data as *mut c_void)
+                        .map_err(Ptrace)
+                }
+            }
+
+            for (reg_num, val) in self.address_regs.iter().enumerate() {
+                set_dr(pid, reg_num, *val)?;
+            }
+            set_dr(pid, 6, self.dr6.0)?;
+            set_dr(pid, 7, self.dr7.0)?;
+            Ok(())
+        }
+    }
+
+    /// Specifies the breakpoint condition for a corresponding breakpoint.
+    ///
+    /// Instruction and i/o read-write conditions are unused and aren't presented here.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum BreakCondition {
+        /// 01 — Break on data writes only.
+        DataWrites = 0b01,
+        /// 11 — Break on data reads or writes but not instruction fetches.
+        DataReadsWrites = 0b11,
+    }
+
+    impl Display for BreakCondition {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            match self {
+                BreakCondition::DataWrites => f.write_str("w"),
+                BreakCondition::DataReadsWrites => f.write_str("rw"),
+            }
+        }
+    }
+
+    /// Specify the size of the memory location at the address specified in the
+    /// corresponding breakpoint address register (DR0 through DR3).
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum BreakSize {
+        /// 1-byte length.
+        Bytes1 = 0b00,
+        /// 2-byte length.
+        Bytes2 = 0b01,
+        /// 8 byte length (or undefined, on older processors).
+        Bytes8 = 0b10,
+        /// 4-byte length.
+        Bytes4 = 0b11,
+    }
+
+    impl TryFrom<u8> for BreakSize {
+        type Error = Error;
+
+        fn try_from(value: u8) -> Result<Self, Self::Error> {
+            let size = match value {
+                1 => BreakSize::Bytes1,
+                2 => BreakSize::Bytes2,
+                4 => BreakSize::Bytes4,
+                8 => BreakSize::Bytes8,
+                _ => return Err(Error::WatchpointWrongSize),
+            };
+            Ok(size)
+        }
+    }
+
+    impl Display for BreakSize {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            match self {
+                BreakSize::Bytes1 => f.write_str("1b"),
+                BreakSize::Bytes2 => f.write_str("2b"),
+                BreakSize::Bytes8 => f.write_str("8b"),
+                BreakSize::Bytes4 => f.write_str("4b"),
+            }
+        }
+    }
+}

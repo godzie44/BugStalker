@@ -1,9 +1,12 @@
 use crate::debugger::address::RelocatedAddress;
+use crate::debugger::register::debug::BreakCondition;
+use crate::debugger::variable::VariableIR;
 use crate::debugger::PlaceDescriptor;
 use crate::debugger::{EventHook, FunctionDie};
 use crate::ui::console::file::FileView;
 use crate::ui::console::print::style::{AddressView, FilePathView, FunctionNameView, KeywordView};
 use crate::ui::console::print::ExternalPrinter;
+use crate::ui::console::variable::render_variable;
 use crate::version;
 use log::warn;
 use nix::sys::signal::Signal;
@@ -60,6 +63,57 @@ impl EventHook for TerminalHook {
         }
 
         self.context.borrow_mut().prev_func = mb_func.cloned();
+
+        Ok(())
+    }
+
+    fn on_watchpoint(
+        &self,
+        pc: RelocatedAddress,
+        num: u32,
+        mb_place: Option<PlaceDescriptor>,
+        cond: BreakCondition,
+        old: Option<&VariableIR>,
+        new: Option<&VariableIR>,
+        end_of_scope: bool,
+    ) -> anyhow::Result<()> {
+        let msg = if end_of_scope {
+            format!(
+                "Watchpoint {num} end of scope (and it will be removed)\n{}:",
+                AddressView::from(pc)
+            )
+        } else {
+            format!(
+                "Hit watchpoint {num} ({cond}) at {}:",
+                AddressView::from(pc)
+            )
+        };
+
+        if let Some(place) = mb_place {
+            self.printer.println(format!(
+                "{msg} {}:{}",
+                FilePathView::from(place.file.to_string_lossy()),
+                place.line_number
+            ))
+        } else {
+            self.printer.println(format!("{msg} undefined place"));
+        };
+
+        if cond == BreakCondition::DataReadsWrites && old == new {
+            if let Some(old) = old {
+                let val = render_variable(old)?;
+                self.printer.println(format!("value: {val}"));
+            }
+        } else {
+            if let Some(old) = old {
+                let old = render_variable(old)?;
+                self.printer.println(format!("old value: {old}"));
+            }
+            if let Some(new) = new {
+                let new = render_variable(new)?;
+                self.printer.println(format!("new value: {new}"));
+            }
+        }
 
         Ok(())
     }

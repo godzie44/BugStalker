@@ -1,5 +1,5 @@
-use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
+use crate::common::TestInfo;
 use crate::{assert_no_proc, FIZZBUZZ_APP, HW_APP, SHARED_LIB_APP, VARS_APP};
 use crate::{prepare_debugee_process, CALC_APP};
 use bugstalker::debugger::DebuggerBuilder;
@@ -21,7 +21,7 @@ fn test_debugee_run() {
 fn test_multiple_brkpt_on_addr() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let atempt_1_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut dbg = builder.build(process).unwrap();
     dbg.set_breakpoint_at_line("hello_world.rs", 5).unwrap();
@@ -64,7 +64,7 @@ fn test_multiple_brkpt_on_addr() {
 fn test_brkpt_on_function() {
     let process = prepare_debugee_process(CALC_APP, &["1", "2", "3", "--description", "result"]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
     debugger.set_breakpoint_at_fn("sum2").unwrap();
@@ -89,7 +89,7 @@ fn test_brkpt_on_function() {
 #[serial]
 fn test_brkpt_on_function_name_collision() {
     let process = prepare_debugee_process(CALC_APP, &[]);
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info));
     let mut debugger = builder.build(process).unwrap();
 
@@ -121,7 +121,7 @@ fn test_brkpt_on_function_name_collision() {
 #[serial]
 fn test_brkpt_on_line_collision() {
     let process = prepare_debugee_process(SHARED_LIB_APP, &[]);
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
     debugger.set_breakpoint_at_line("main.rs", 14).unwrap();
@@ -151,7 +151,7 @@ fn test_brkpt_on_line_collision() {
 fn test_brkpt_on_line() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
     debugger
@@ -177,7 +177,7 @@ fn test_brkpt_on_line() {
 fn test_brkpt_on_line2() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
     debugger.set_breakpoint_at_line("vars.rs", 144).unwrap();
@@ -198,7 +198,7 @@ fn test_brkpt_on_line2() {
 fn test_set_breakpoint_idempotence() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
     debugger
@@ -224,7 +224,7 @@ fn test_set_breakpoint_idempotence() {
 #[serial]
 fn test_deferred_breakpoint() {
     let process = prepare_debugee_process(SHARED_LIB_APP, &[]);
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
@@ -240,7 +240,7 @@ fn test_deferred_breakpoint() {
 fn test_breakpoint_at_fn_with_monomorphization() {
     let process = prepare_debugee_process(FIZZBUZZ_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
@@ -273,7 +273,7 @@ fn test_breakpoint_at_fn_with_monomorphization() {
 fn test_breakpoint_at_line_with_monomorphization() {
     let process = prepare_debugee_process(FIZZBUZZ_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
