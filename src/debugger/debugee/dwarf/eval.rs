@@ -124,7 +124,7 @@ impl<'a> RequirementsResolver<'a> {
                     global_pc: entry_pc,
                 };
                 Ok(unwinder
-                    .context_for(&ExplorationContext::new(location, ctx.focus_frame))?
+                    .context_for(&ExplorationContext::new(location, ctx.frame_num()))?
                     .ok_or(UnwindNoContext)?
                     .registers())
             })
@@ -236,7 +236,7 @@ impl<'a> ExpressionEvaluator<'a> {
                             self.resolver.debugee.restore_registers_at_frame(
                                 ctx.pid_on_focus(),
                                 &mut registers,
-                                ctx.frame(),
+                                ctx.frame_num(),
                             )?;
                             registers.value(register)?
                         };
@@ -370,7 +370,7 @@ impl<'a> CompletedResult<'a> {
     /// # Arguments
     ///
     /// * `byte_size`: length of expected value in bytes
-    /// * `address_kind`: Determine how to interpret [`Location::Address`] in piece location field
+    /// * `address_kind`: determine how to interpret [`Location::Address`] in piece location field
     pub fn into_raw_bytes(
         self,
         byte_size: usize,
@@ -478,7 +478,7 @@ fn read_register(
     let pid = ctx.pid_on_focus();
     let mut registers = DwarfRegisterMap::from(RegisterMap::current(pid)?);
     // try to use registers for in focus frame
-    debugee.restore_registers_at_frame(ctx.pid_on_focus(), &mut registers, ctx.frame())?;
+    debugee.restore_registers_at_frame(ctx.pid_on_focus(), &mut registers, ctx.frame_num())?;
     let register_value = registers.value(reg)?;
     let bytes = (register_value >> offset).to_ne_bytes();
     let write_size = min(size_in_bytes, std::mem::size_of::<u64>());

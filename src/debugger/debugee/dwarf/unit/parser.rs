@@ -260,11 +260,24 @@ impl<'a> DwarfUnitParser<'a> {
                         call_column: die.attr(DW_AT_call_column)?.and_then(|v| v.udata_value()),
                     })
                 }
-                gimli::DW_TAG_formal_parameter => DieVariant::Parameter(ParameterDie {
-                    base_attributes: base_attrs,
-                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                    location: die.attr(DW_AT_location)?,
-                }),
+                gimli::DW_TAG_formal_parameter => {
+                    let mut fn_block_idx = None;
+                    let mut mb_parent_idx = parent_idx;
+                    while let Some(parent_idx) = mb_parent_idx {
+                        if let DieVariant::Function(_) = entries[parent_idx].die {
+                            fn_block_idx = Some(parent_idx);
+                            break;
+                        }
+                        mb_parent_idx = entries[parent_idx].node.parent;
+                    }
+
+                    DieVariant::Parameter(ParameterDie {
+                        base_attributes: base_attrs,
+                        type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
+                        location: die.attr(DW_AT_location)?,
+                        fn_block_idx,
+                    })
+                }
                 gimli::DW_TAG_variable => {
                     let mut lexical_block_idx = None;
                     let mut fn_block_idx = None;

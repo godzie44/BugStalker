@@ -1,4 +1,6 @@
 use crate::debugger::address::RelocatedAddress;
+use crate::debugger::register::debug::BreakCondition;
+use crate::debugger::variable::VariableIR;
 use crate::debugger::{EventHook, FunctionDie, PlaceDescriptor};
 use crate::ui::tui::output::OutputLine;
 use crate::ui::tui::proto::ClientExchanger;
@@ -116,6 +118,30 @@ impl EventHook for TuiHook {
                 file: place.as_ref().map(|p| p.file.to_string_lossy().to_string()),
                 line: place.as_ref().map(|p| p.line_number),
                 function: function.and_then(|f| f.base_attributes.name.clone()),
+            });
+        Ok(())
+    }
+
+    fn on_watchpoint(
+        &self,
+        pc: RelocatedAddress,
+        num: u32,
+        place: Option<PlaceDescriptor>,
+        _: BreakCondition,
+        _old: Option<&VariableIR>,
+        _new: Option<&VariableIR>,
+        _end_of_scope: bool,
+    ) -> anyhow::Result<()> {
+        // TODO
+        self.event_queue
+            .lock()
+            .unwrap()
+            .push(UserEvent::Breakpoint {
+                pc,
+                num,
+                file: place.as_ref().map(|p| p.file.to_string_lossy().to_string()),
+                line: place.as_ref().map(|p| p.line_number),
+                function: None,
             });
         Ok(())
     }

@@ -1,9 +1,12 @@
 use crate::debugger::address::RelocatedAddress;
-use crate::debugger::breakpoint::Breakpoint;
-use crate::debugger::code;
+use crate::debugger::breakpoint::{Breakpoint, BrkptType};
 use crate::debugger::debugee::tracee::{StopType, TraceeCtl, TraceeStatus};
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::{MultipleErrors, ProcessExit, Ptrace, Waitpid};
+use crate::debugger::register::debug::DebugRegisterNumber;
+use crate::debugger::watchpoint::WatchpointRegistry;
+use crate::debugger::{code, register};
+use crate::weak_error;
 use log::{debug, warn};
 use nix::errno::Errno;
 use nix::libc::pid_t;
@@ -28,28 +31,45 @@ static QUIET_SIGNALS: &[Signal] = &[
 /// List of signals that may interrupt a debugging process but debugger will not inject it into.
 static TRANSPARENT_SIGNALS: &[Signal] = &[Signal::SIGINT];
 
+#[derive(Debug, Clone)]
+pub enum WatchpointHitType {
+    /// Hit of the underlying hardware breakpoint cause value changed.
+    DebugRegister(DebugRegisterNumber),
+    /// Hit of the underlying breakpoint at the end of the watchpoint scope.
+    EndOfScope(Vec<u32>),
+}
+
 #[derive(Debug)]
 pub enum StopReason {
-    /// Whole debugee process exited with code
+    /// Whole debugee process exited with code.
     DebugeeExit(i32),
-    /// Debugee just started
+    /// Debugee just started.
     DebugeeStart,
-    /// Debugee stopped at breakpoint
+    /// Debugee stopped at breakpoint.
     Breakpoint(Pid, RelocatedAddress),
-    /// Debugee stopped with OS signal
+    /// Debugee stopped at watchpoint.
+    Watchpoint(Pid, RelocatedAddress, WatchpointHitType),
+    /// Debugee stopped with OS signal.
     SignalStop(Pid, Signal),
-    /// Debugee stopped with Errno::ESRCH
+    /// Debugee stopped with Errno::ESRCH.
     NoSuchProcess(Pid),
 }
 
 #[derive(Clone, Copy)]
 pub struct TraceContext<'a> {
     pub breakpoints: &'a [&'a Breakpoint],
+    pub watchpoints: &'a WatchpointRegistry,
 }
 
 impl<'a> TraceContext<'a> {
-    pub fn new(breakpoints: &'a [&'a Breakpoint]) -> Self {
-        Self { breakpoints }
+    pub fn new(
+        breakpoints: &'a [&'a Breakpoint],
+        watchpoint_registry: &'a WatchpointRegistry,
+    ) -> Self {
+        Self {
+            breakpoints,
+            watchpoints: watchpoint_registry,
+        }
     }
 }
 
@@ -102,7 +122,7 @@ impl Tracer {
                 )?;
 
                 if let Some((pid, sign)) = self.inject_signal_queue.front().copied() {
-                    // if there is more signal stop debugee again
+                    // if there are more signals - stop debugee again
                     self.group_stop_interrupt(ctx, Pid::from_raw(-1))?;
                     return Ok(StopReason::SignalStop(pid, sign));
                 }
@@ -122,7 +142,7 @@ impl Tracer {
             debug!(target: "tracer", "received new thread status: {status:?}");
             if let Some(stop) = self.apply_new_status(ctx, status)? {
                 // if stop fired by quiet signal - go to next iteration, this will inject signal at
-                // tracee process and resume it
+                // a tracee process and resume it
                 if let StopReason::SignalStop(_, signal) = stop {
                     if QUIET_SIGNALS.contains(&signal) {
                         continue;
@@ -169,12 +189,11 @@ impl Tracer {
             self.tracee_ctl.snapshot()
         );
 
-        let non_stopped_exists = self
+        let non_stopped_exist = self
             .tracee_ctl
-            .snapshot()
-            .into_iter()
+            .tracee_iter()
             .any(|t| t.pid != initiator_pid);
-        if !non_stopped_exists {
+        if !non_stopped_exist {
             // no need to group-stop
             debug!(
                 target: "tracer",
@@ -220,8 +239,9 @@ impl Tracer {
                     let stop = self.apply_new_status(ctx, wait)?;
                     match stop {
                         None => {}
-                        Some(StopReason::Breakpoint(pid, _)) => {
-                            // tracee already stopped cause breakpoint reached
+                        Some(StopReason::Breakpoint(pid, _))
+                        | Some(StopReason::Watchpoint(pid, _, _)) => {
+                            // tracee already stopped cause breakpoint or watchpoint are reached
                             if pid == tracee.pid {
                                 break;
                             }
@@ -319,6 +339,9 @@ impl Tracer {
                                 // this situation can occur if the process has already completed
                                 self.tracee_ctl.remove(new_thread_id);
                             } else {
+                                // all watchpoints must be distributed to a new tracee
+                                weak_error!(ctx.watchpoints.distribute_to_tracee(new_tracee));
+
                                 debug_assert!(
                                     matches!(
                                         new_trace_status,
@@ -334,7 +357,8 @@ impl Tracer {
                         match self.tracee_ctl.tracee_mut(pid) {
                             Some(tracee) => tracee.set_stop(StopType::Interrupt),
                             None => {
-                                self.tracee_ctl.add(pid);
+                                let tracee = self.tracee_ctl.add(pid);
+                                weak_error!(ctx.watchpoints.distribute_to_tracee(tracee));
                             }
                         }
                     }
@@ -342,7 +366,15 @@ impl Tracer {
                         // Stop the tracee at exit
                         let tracee = self.tracee_ctl.remove(pid);
                         if let Some(mut tracee) = tracee {
-                            tracee.r#continue(None)?;
+                            // TODO
+                            // There is one interesting situation, when tracee may not exist
+                            // at this point (according to ptrace documentation, it must exist).
+                            // Tracee not exist when thread created inside `std::thread::scoped`.
+                            // This can be verified by running watchpoints functional tests.
+                            // It is a flaky behavior, but sometimes an error
+                            // will be returned at this point.
+                            // Currently error here muted, but this behaviour NFR.
+                            _ = tracee.r#continue(None);
                         }
                     }
                     _ => {
@@ -370,18 +402,25 @@ impl Tracer {
                                 tracee.pc()?
                             };
 
+                            let mb_hit_brkpt = ctx
+                                .breakpoints
+                                .iter()
+                                .find(|brkpt| brkpt.addr == current_pc);
+                            debug_assert!(
+                                mb_hit_brkpt.is_some(),
+                                "the interrupt caught but the breakpoint was not found"
+                            );
+                            let Some(&brkpt) = mb_hit_brkpt else {
+                                return Ok(None);
+                            };
+
                             let has_tmp_breakpoints =
                                 ctx.breakpoints.iter().any(|b| b.is_temporary());
                             if has_tmp_breakpoints {
-                                let brkpt = ctx
-                                    .breakpoints
-                                    .iter()
-                                    .find(|brkpt| brkpt.addr == current_pc)
-                                    .unwrap();
-
-                                if brkpt.is_temporary() && pid == brkpt.pid {
-                                } else {
-                                    let mut unusual_brkpt = (*brkpt).clone();
+                                let temporary_hit = brkpt.is_temporary() && pid == brkpt.pid;
+                                let watchpoint_hit = brkpt.is_wp_companion();
+                                if !temporary_hit && !watchpoint_hit {
+                                    let mut unusual_brkpt = brkpt.clone();
                                     unusual_brkpt.pid = pid;
                                     if unusual_brkpt.is_enabled() {
                                         unusual_brkpt.disable()?;
@@ -401,7 +440,32 @@ impl Tracer {
                                 .set_stop(StopType::Interrupt);
                             self.group_stop_interrupt(ctx, pid)?;
 
+                            if let BrkptType::WatchpointCompanion(wps) = brkpt.r#type() {
+                                return Ok(Some(StopReason::Watchpoint(
+                                    pid,
+                                    current_pc,
+                                    WatchpointHitType::EndOfScope(wps.clone()),
+                                )));
+                            }
+
                             Ok(Some(StopReason::Breakpoint(pid, current_pc)))
+                        }
+                        code::TRAP_HWBKPT => {
+                            let current_pc = {
+                                let tracee = self.tracee_ctl.tracee_ensure(pid);
+                                tracee.pc()?
+                            };
+
+                            self.tracee_ctl
+                                .tracee_ensure_mut(pid)
+                                .set_stop(StopType::Interrupt);
+                            self.group_stop_interrupt(ctx, pid)?;
+
+                            let mut state = register::debug::HardwareDebugState::current(pid)?;
+                            let reg = state.dr6.detect_and_flush().expect("should exists");
+                            state.sync(pid)?;
+                            let hit_type = WatchpointHitType::DebugRegister(reg);
+                            Ok(Some(StopReason::Watchpoint(pid, current_pc, hit_type)))
                         }
                         code => {
                             debug!(
@@ -443,8 +507,10 @@ impl Tracer {
     /// * `ctx`: trace context
     /// * `pid`: tracee pid
     ///
-    /// returns: a [`None`] if instruction step done successfully. A [`StopReason::SignalStop`] returned
-    /// if step interrupt cause tracee in a signal-stop. Error returned otherwise.
+    /// returns: [`None`] if an instruction step is done successfully.
+    /// A [`StopReason::SignalStop`] returned if step interrupt causes tracee in a signal-stop.
+    /// A [`StopReason::Watchpoint`] returned if step interrupt causes hardware breakpoint is hit.
+    /// Error returned otherwise.
     pub fn single_step(
         &mut self,
         ctx: TraceContext,
@@ -464,12 +530,28 @@ impl Tracer {
             let in_trap = matches!(status, WaitStatus::Stopped(_, Signal::SIGTRAP))
                 && (info.si_code == code::TRAP_TRACE
                     || info.si_code == code::TRAP_BRKPT
-                    || info.si_code == code::SI_KERNEL);
+                    || info.si_code == code::SI_KERNEL
+                    || info.si_code == code::TRAP_HWBKPT);
             if in_trap {
+                let pc = tracee.pc()?;
                 // check that we aren't on original pc value
-                if tracee.pc()? == initial_pc {
+                if pc == initial_pc {
                     tracee.step(None)?;
                     continue;
+                }
+
+                let mut state = register::debug::HardwareDebugState::current(pid)?;
+                let maybe_dr = state.dr6.detect_and_flush();
+                state.sync(pid)?;
+                if let Some(dr) = maybe_dr {
+                    let hit_type = WatchpointHitType::DebugRegister(dr);
+                    break Some(StopReason::Watchpoint(pid, pc, hit_type));
+                }
+
+                let mb_brkpt = ctx.breakpoints.iter().find(|brkpt| brkpt.addr == pc);
+                if let Some(BrkptType::WatchpointCompanion(wps)) = mb_brkpt.map(|b| b.r#type()) {
+                    let hit_type = WatchpointHitType::EndOfScope(wps.clone());
+                    break Some(StopReason::Watchpoint(pid, pc, hit_type));
                 }
 
                 break None;
@@ -505,6 +587,9 @@ impl Tracer {
                 None => {}
                 Some(StopReason::Breakpoint(_, _)) => {
                     unreachable!("breakpoints must be ignore");
+                }
+                Some(StopReason::Watchpoint(_, _, _)) => {
+                    unreachable!("watchpoints must be ignore");
                 }
                 Some(StopReason::DebugeeExit(code)) => return Err(ProcessExit(code)),
                 Some(StopReason::DebugeeStart) => {

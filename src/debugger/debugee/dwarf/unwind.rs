@@ -14,12 +14,22 @@ use gimli::{EhFrame, FrameDescriptionEntry, RegisterRule, UnwindSection};
 use nix::unistd::Pid;
 use std::mem;
 
-/// Represents information about single stack frame in unwind path.
+/// Unique frame identifier. It is just an address of the first instruction in function.
+pub type FrameID = RelocatedAddress;
+
+/// Represents information about single stack frame in the unwind path.
 #[derive(Debug, Default, Clone)]
 pub struct FrameSpan {
     pub func_name: Option<String>,
     pub fn_start_ip: Option<RelocatedAddress>,
     pub ip: RelocatedAddress,
+}
+
+impl FrameSpan {
+    #[inline(always)]
+    pub fn id(&self) -> Option<FrameID> {
+        self.fn_start_ip
+    }
 }
 
 pub type Backtrace = Vec<FrameSpan>;
@@ -288,7 +298,7 @@ impl<'a> DwarfUnwinder<'a> {
                 pid: unwind_ctx.location.pid,
             };
 
-            ctx = ExplorationContext::new(next_location, ctx.focus_frame + 1);
+            ctx = ExplorationContext::new(next_location, ctx.frame_num() + 1);
             unwind_ctx = match UnwindContext::next(unwind_ctx, &ctx)? {
                 None => break,
                 Some(ctx) => ctx,
@@ -352,7 +362,7 @@ impl<'a> DwarfUnwinder<'a> {
                     global_pc: ret_addr.into_global(self.debugee)?,
                     pid: ctx.pid_on_focus(),
                 },
-                ctx.focus_frame + 1,
+                ctx.frame_num() + 1,
             );
 
             unwind_ctx = UnwindContext::next(unwind_ctx, &ctx)?.ok_or(UnwindNoContext)?;

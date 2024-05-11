@@ -1,0 +1,12 @@
+[package]
+name = "calculations"
+version = "0.0.0"
+edition = "2021"
+workspace = "./.."
+publish = false
+
+[[bin]]
+name = "calculations"
+path = "src/calculations.rs"
+
+[dependencies]

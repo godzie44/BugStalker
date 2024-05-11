@@ -74,6 +74,12 @@ pub struct Location {
     pub pid: Pid,
 }
 
+impl Location {
+    pub fn new(pc: RelocatedAddress, global_pc: GlobalAddress, pid: Pid) -> Self {
+        Self { pc, global_pc, pid }
+    }
+}
+
 #[derive(PartialEq, Clone, Copy)]
 pub enum ExecutionStatus {
     Unload,

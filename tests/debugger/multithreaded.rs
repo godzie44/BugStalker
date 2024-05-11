@@ -1,5 +1,5 @@
-use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
+use crate::common::TestInfo;
 use crate::prepare_debugee_process;
 use crate::{assert_no_proc, MT_APP};
 use bugstalker::debugger::unwind::Backtrace;
@@ -25,7 +25,7 @@ fn test_multithreaded_app_running() {
 fn test_multithreaded_breakpoints() {
     let process = prepare_debugee_process(MT_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
@@ -66,7 +66,7 @@ fn backtrace_contains_fn(backtrace: &Backtrace, f_name: &str) -> bool {
 fn test_multithreaded_backtrace() {
     let process = prepare_debugee_process(MT_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
@@ -95,7 +95,7 @@ fn test_multithreaded_backtrace() {
 fn test_multithreaded_trace() {
     let process = prepare_debugee_process(MT_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 

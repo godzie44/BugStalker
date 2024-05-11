@@ -1,27 +1,31 @@
 use bugstalker::debugger::address::RelocatedAddress;
+use bugstalker::debugger::register::debug::BreakCondition;
+use bugstalker::debugger::variable::VariableIR;
 use bugstalker::debugger::{EventHook, FunctionDie, PlaceDescriptor};
 use bugstalker::version::Version;
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use object::{Object, ObjectSection};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::fs;
 use std::sync::Arc;
 
 #[derive(Clone, Default)]
-pub struct DebugeeRunInfo {
+pub struct TestInfo {
     pub addr: Arc<Cell<Option<RelocatedAddress>>>,
     pub line: Arc<Cell<Option<u64>>>,
     pub file: Arc<Cell<Option<String>>>,
+    pub old_value: Arc<RefCell<Option<VariableIR>>>,
+    pub new_value: Arc<RefCell<Option<VariableIR>>>,
 }
 
 #[derive(Default)]
 pub struct TestHooks {
-    info: DebugeeRunInfo,
+    info: TestInfo,
 }
 
 impl TestHooks {
-    pub fn new(info: DebugeeRunInfo) -> Self {
+    pub fn new(info: TestInfo) -> Self {
         Self { info }
     }
 }
@@ -38,6 +42,25 @@ impl EventHook for TestHooks {
         let file = &self.info.file;
         file.set(place.as_ref().map(|p| p.file.to_str().unwrap().to_string()));
         self.info.line.set(place.map(|p| p.line_number));
+        Ok(())
+    }
+
+    fn on_watchpoint(
+        &self,
+        pc: RelocatedAddress,
+        _: u32,
+        place: Option<PlaceDescriptor>,
+        _: BreakCondition,
+        old_value: Option<&VariableIR>,
+        new_value: Option<&VariableIR>,
+        _: bool,
+    ) -> anyhow::Result<()> {
+        self.info.addr.set(Some(pc));
+        let file = &self.info.file;
+        file.set(place.as_ref().map(|p| p.file.to_str().unwrap().to_string()));
+        self.info.line.set(place.map(|p| p.line_number));
+        self.info.old_value.replace(old_value.cloned());
+        self.info.new_value.replace(new_value.cloned());
         Ok(())
     }
 
