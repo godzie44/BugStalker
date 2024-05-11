@@ -1,5 +1,5 @@
-use crate::common::DebugeeRunInfo;
 use crate::common::TestHooks;
+use crate::common::TestInfo;
 use crate::CALC_APP;
 use crate::{assert_no_proc, prepare_debugee_process, HW_APP, RECURSION_APP, VARS_APP};
 use bugstalker::debugger::variable::{SupportedScalar, VariableIR};
@@ -14,7 +14,7 @@ use std::mem;
 fn test_step_into() {
     let process = prepare_debugee_process(CALC_APP, &["1", "2", "3", "--description", "result"]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
@@ -54,7 +54,7 @@ fn test_step_into() {
 fn test_step_into_recursion() {
     let process = prepare_debugee_process(RECURSION_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
@@ -94,7 +94,7 @@ fn test_step_into_recursion() {
 fn test_step_out() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
@@ -121,7 +121,7 @@ fn test_step_out() {
 fn test_step_over() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
@@ -146,7 +146,7 @@ fn test_step_over() {
 fn test_step_over_inline_code() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
@@ -166,7 +166,7 @@ fn test_step_over_inline_code() {
 fn test_step_over_on_fn_decl() {
     let process = prepare_debugee_process(HW_APP, &[]);
     let debugee_pid = process.pid();
-    let info = DebugeeRunInfo::default();
+    let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 

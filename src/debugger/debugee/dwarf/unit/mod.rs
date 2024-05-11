@@ -45,6 +45,7 @@ pub struct DieRange {
 
 /// Represent a place in program text identified by file name
 /// line number and column number.
+#[derive(Clone)]
 pub struct PlaceDescriptor<'a> {
     pub file: &'a Path,
     pub address: GlobalAddress,
@@ -83,6 +84,10 @@ impl<'a> Debug for PlaceDescriptor<'a> {
 impl<'a> PlaceDescriptor<'a> {
     pub fn next(&self) -> Option<PlaceDescriptor<'a>> {
         self.unit.find_place_by_idx(self.pos_in_unit + 1)
+    }
+
+    pub fn prev(&self) -> Option<PlaceDescriptor<'a>> {
+        self.unit.find_place_by_idx(self.pos_in_unit - 1)
     }
 
     pub fn line_eq(&self, other: &PlaceDescriptor) -> bool {
@@ -249,6 +254,7 @@ pub struct ParameterDie {
     pub base_attributes: DieAttributes,
     pub type_ref: Option<DieRef>,
     pub location: Option<Attribute<EndianArcSlice>>,
+    pub fn_block_idx: Option<usize>,
 }
 
 #[derive(Debug, Clone)]

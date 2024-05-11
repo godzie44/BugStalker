@@ -11,7 +11,7 @@ use crate::debugger::Error::TypeNotFound;
 use crate::debugger::{variable, Debugger};
 use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
-use gimli::{Attribute, DebugInfoOffset, UnitOffset};
+use gimli::{Attribute, DebugInfoOffset, Range, UnitOffset};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
@@ -48,6 +48,15 @@ impl AsAllocatedData for VirtualVariableDie {
 pub enum VariableSelector {
     Name { var_name: String, only_local: bool },
     Any,
+}
+
+impl VariableSelector {
+    pub fn by_name(name: &str, only_local: bool) -> Self {
+        Self::Name {
+            var_name: name.to_string(),
+            only_local,
+        }
+    }
 }
 
 /// Literal object. Using it for a searching element by key in key-value containers.
@@ -107,20 +116,22 @@ impl Literal {
     }
 }
 
-/// Information about object location in debugee memory.
+/// Object binary representation in debugee memory.
 pub struct ObjectBinaryRepr {
-    /// Binary in memory representation.
+    /// Binary representation.
     pub raw_data: Bytes,
     /// Possible address of object data in debugee memory.
     /// It may not exist if there is no debug information, or if an object is allocated in registers.
     pub address: Option<usize>,
-    /// Size of the object in memory.
+    /// Binary size.
     pub size: usize,
 }
 
 /// Data query expression.
 /// List of operations for select variables and their properties.
-/// Expression can be parsed from an input string like `*(*variable1.field2)[1]` (see debugger::command module)
+///
+/// Expression can be parsed from an input string like `*(*variable1.field2)[1]`
+/// (see [`crate::ui::command`] module)
 ///
 /// Supported operations are: dereference, get an element by index, get field by name, make slice from a pointer.
 #[derive(Debug, PartialEq, Clone)]
@@ -139,6 +150,14 @@ impl DQE {
     pub fn boxed(self) -> Box<Self> {
         Box::new(self)
     }
+}
+
+/// Result of DQE evaluation.
+pub struct DqeResult {
+    /// Variable intermediate representation.
+    pub variable: VariableIR,
+    /// PC ranges where value is valid, `None` for global or virtual variables.
+    pub scope: Option<Box<[Range]>>,
 }
 
 /// Evaluate `Expression` at current breakpoint (for current debugee location).
@@ -244,7 +263,9 @@ impl<'a> SelectExpressionEvaluator<'a> {
     /// Only filter expression supported.
     ///
     /// # Panics
-    /// This method will panic if select expression contain any operators excluding a variable selector.
+    ///
+    /// This method will panic
+    /// if select expression contains any operators excluding a variable selector.
     pub fn evaluate_names(&self) -> Result<Vec<String>, Error> {
         match &self.expression {
             DQE::Variable(selector) => {
@@ -258,7 +279,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
         }
     }
 
-    fn evaluate_inner(&self, expression: &DQE) -> Result<Vec<VariableIR>, Error> {
+    fn evaluate_inner(&self, expression: &DQE) -> Result<Vec<DqeResult>, Error> {
         // evaluate variable one by one in `evaluate_single_variable` method
         // here just filter variables
         match expression {
@@ -270,11 +291,25 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     .iter()
                     .filter_map(|var| {
                         let r#type = weak_error!(type_from_cache!(var, type_cache))?;
-                        self.evaluate_single_variable(&self.expression, var, r#type)
+                        let var_ir =
+                            self.evaluate_single_variable(&self.expression, var, r#type)?;
+                        Some(DqeResult {
+                            variable: var_ir,
+                            scope: var.ranges().map(Box::from),
+                        })
                     })
                     .collect())
             }
-            DQE::PtrCast(_, target_type_name) => self.evaluate_from_ptr_cast(target_type_name),
+            DQE::PtrCast(_, target_type_name) => {
+                let vars_ir = self.evaluate_from_ptr_cast(target_type_name)?;
+                Ok(vars_ir
+                    .into_iter()
+                    .map(|var_ir| DqeResult {
+                        variable: var_ir,
+                        scope: None,
+                    })
+                    .collect())
+            }
             DQE::Field(expr, _)
             | DQE::Index(expr, _)
             | DQE::Slice(expr, _, _)
@@ -299,7 +334,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
     }
 
     /// Evaluate a select expression and returns list of matched variables.
-    pub fn evaluate(&self) -> Result<Vec<VariableIR>, Error> {
+    pub fn evaluate(&self) -> Result<Vec<DqeResult>, Error> {
         self.evaluate_inner(&self.expression)
     }
 
@@ -334,11 +369,11 @@ impl<'a> SelectExpressionEvaluator<'a> {
     }
 
     /// Same as [`SelectExpressionEvaluator::evaluate`] but for function arguments.
-    pub fn evaluate_on_arguments(&self) -> Result<Vec<VariableIR>, Error> {
+    pub fn evaluate_on_arguments(&self) -> Result<Vec<DqeResult>, Error> {
         self.evaluate_on_arguments_inner(&self.expression)
     }
 
-    fn evaluate_on_arguments_inner(&self, expression: &DQE) -> Result<Vec<VariableIR>, Error> {
+    fn evaluate_on_arguments_inner(&self, expression: &DQE) -> Result<Vec<DqeResult>, Error> {
         match expression {
             DQE::Variable(selector) => {
                 let expl_ctx_loc = self.debugger.exploration_ctx().location();
@@ -363,11 +398,25 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     .iter()
                     .filter_map(|var| {
                         let r#type = weak_error!(type_from_cache!(var, type_cache))?;
-                        self.evaluate_single_variable(&self.expression, var, r#type)
+                        let var_ir =
+                            self.evaluate_single_variable(&self.expression, var, r#type)?;
+                        Some(DqeResult {
+                            variable: var_ir,
+                            scope: var.ranges().map(Box::from),
+                        })
                     })
                     .collect())
             }
-            DQE::PtrCast(_, target_type_name) => self.evaluate_from_ptr_cast(target_type_name),
+            DQE::PtrCast(_, target_type_name) => {
+                let vars = self.evaluate_from_ptr_cast(target_type_name)?;
+                Ok(vars
+                    .into_iter()
+                    .map(|v| DqeResult {
+                        variable: v,
+                        scope: None,
+                    })
+                    .collect())
+            }
             DQE::Field(expr, _)
             | DQE::Index(expr, _)
             | DQE::Slice(expr, _, _)
@@ -433,7 +482,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
             }
             DQE::Address(expr) => {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
-                var.address()
+                var.address(evaluation_context, &parser)
             }
         }
     }

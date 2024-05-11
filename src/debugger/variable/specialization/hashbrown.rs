@@ -89,16 +89,16 @@ impl BucketReflection {
         }
     }
 
-    /// Read `T` as raw bytes from debugee process.
+    /// Read `T` as raw bytes from a debugee process.
     pub(super) fn read(&self, pid: Pid) -> nix::Result<Vec<u8>> {
-        debugger::read_memory_by_pid(pid, self.data_location(), self.size)
+        debugger::read_memory_by_pid(pid, self.location(), self.size)
     }
 
-    pub(super) fn data_location(&self) -> usize {
+    pub(super) fn location(&self) -> usize {
         unsafe { self.ptr.sub(self.size) as usize }
     }
 
-    pub(super) fn data_size(&self) -> usize {
+    pub(super) fn size(&self) -> usize {
         self.size
     }
 }

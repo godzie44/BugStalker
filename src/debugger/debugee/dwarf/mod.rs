@@ -1124,18 +1124,24 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
 }
 
 impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
-    pub fn valid_at(&self, pc: GlobalAddress) -> bool {
+    pub fn ranges(&self) -> Option<&[Range]> {
         if let Some(lb_idx) = self.die.lexical_block_idx {
             let entry = ctx_resolve_unit_call!(self, entry, lb_idx);
             let lb = entry.die.unwrap_lexical_block();
-            pc.in_ranges(&lb.base_attributes.ranges)
+            Some(lb.base_attributes.ranges.as_ref())
         } else if let Some(fn_idx) = self.die.fn_block_idx {
             let entry = ctx_resolve_unit_call!(self, entry, fn_idx);
             let func = entry.die.unwrap_function();
-            pc.in_ranges(&func.base_attributes.ranges)
+            Some(func.base_attributes.ranges.as_ref())
         } else {
-            true
+            None
         }
+    }
+
+    pub fn valid_at(&self, pc: GlobalAddress) -> bool {
+        self.ranges()
+            .map(|ranges| pc.in_ranges(ranges))
+            .unwrap_or(true)
     }
 
     pub fn assume_parent_function(&self) -> Option<ContextualDieRef<'_, FunctionDie>> {
@@ -1156,6 +1162,16 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
         }
 
         None
+    }
+}
+
+impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
+    pub fn ranges(&self) -> Option<&[Range]> {
+        self.die.fn_block_idx.map(|fn_idx| {
+            let entry = ctx_resolve_unit_call!(self, entry, fn_idx);
+            let func = entry.die.unwrap_function();
+            func.base_attributes.ranges.as_ref()
+        })
     }
 }
 

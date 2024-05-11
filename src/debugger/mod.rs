@@ -9,6 +9,7 @@ pub mod rust;
 mod step;
 mod utils;
 pub mod variable;
+mod watchpoint;
 
 pub use breakpoint::BreakpointView;
 pub use breakpoint::BreakpointViewOwned;
@@ -26,6 +27,7 @@ pub use debugee::FunctionRange;
 pub use debugee::RegionInfo;
 pub use debugee::ThreadSnapshot;
 pub use error::Error;
+pub use watchpoint::WatchpointView;
 
 use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};
@@ -38,10 +40,12 @@ use crate::debugger::error::Error::{
     FrameNotFound, Hook, ProcessNotStarted, Ptrace, RegisterNameNotFound, UnwindNoContext,
 };
 use crate::debugger::process::{Child, Installed};
+use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::step::StepResult;
 use crate::debugger::variable::select::{VariableSelector, DQE};
 use crate::debugger::variable::VariableIR;
+use crate::debugger::watchpoint::WatchpointRegistry;
 use crate::debugger::Error::Syscall;
 use crate::oracle::Oracle;
 use crate::{print_warns, weak_error};
@@ -78,6 +82,29 @@ pub trait EventHook {
         num: u32,
         place: Option<PlaceDescriptor>,
         function: Option<&FunctionDie>,
+    ) -> anyhow::Result<()>;
+
+    /// Called when watchpoint is activated.
+    ///
+    /// # Arguments
+    ///
+    /// * `pc`: address of instruction where breakpoint is reached
+    /// * `num`: breakpoint number
+    /// * `place`: breakpoint number
+    /// * `condition`: reason of a watchpoint activation
+    /// * `old_value`: previous expression or mem location value
+    /// * `new_value`: current expression or mem location value
+    /// * `end_of_scope`: true if watchpoint activated cause end of scope is reached
+    #[allow(clippy::too_many_arguments)]
+    fn on_watchpoint(
+        &self,
+        pc: RelocatedAddress,
+        num: u32,
+        place: Option<PlaceDescriptor>,
+        condition: BreakCondition,
+        old_value: Option<&VariableIR>,
+        new_value: Option<&VariableIR>,
+        end_of_scope: bool,
     ) -> anyhow::Result<()>;
 
     /// Called when one of step commands is done.
@@ -129,6 +156,19 @@ impl EventHook for NopHook {
         Ok(())
     }
 
+    fn on_watchpoint(
+        &self,
+        _: RelocatedAddress,
+        _: u32,
+        _: Option<PlaceDescriptor>,
+        _: BreakCondition,
+        _: Option<&VariableIR>,
+        _: Option<&VariableIR>,
+        _: bool,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     fn on_step(
         &self,
         _: RelocatedAddress,
@@ -145,10 +185,11 @@ impl EventHook for NopHook {
     fn on_process_install(&self, _: Pid, _: Option<&object::File>) {}
 }
 
+#[macro_export]
 macro_rules! disable_when_not_stared {
     ($this: expr) => {
         if !$this.debugee.is_in_progress() {
-            return Err(ProcessNotStarted);
+            return Err($crate::debugger::error::Error::ProcessNotStarted);
         }
     };
 }
@@ -194,7 +235,7 @@ impl ExplorationContext {
     }
 
     #[inline(always)]
-    pub fn frame(&self) -> u32 {
+    pub fn frame_num(&self) -> u32 {
         self.focus_frame
     }
 
@@ -268,6 +309,8 @@ pub struct Debugger {
     debugee: Debugee,
     /// Active and non-active breakpoints lists.
     breakpoints: BreakpointRegistry,
+    /// Watchpoints lists.
+    watchpoints: WatchpointRegistry,
     /// Type declaration cache.
     type_cache: RefCell<TypeCache>,
     /// Debugger interrupt with UI by EventHook trait.
@@ -311,6 +354,7 @@ impl Debugger {
             debugee,
             process,
             breakpoints,
+            watchpoints: WatchpointRegistry::default(),
             hooks: Box::new(hooks),
             type_cache: RefCell::default(),
             expl_context: ExplorationContext::new_non_running(process_id),
@@ -400,17 +444,30 @@ impl Debugger {
     ///
     /// **! change exploration context**
     fn continue_execution(&mut self) -> Result<StopReason, Error> {
-        if let Some(StopReason::SignalStop(pid, sign)) = self.step_over_breakpoint()? {
-            self.hooks.on_signal(sign);
-            return Ok(StopReason::SignalStop(pid, sign));
+        if let Some(sign_or_wp) = self.step_over_breakpoint()? {
+            match sign_or_wp {
+                StopReason::Watchpoint(pid, current_pc, ty) => {
+                    self.execute_on_watchpoint_hook(pid, current_pc, &ty)?;
+                    return Ok(StopReason::Watchpoint(pid, current_pc, ty));
+                }
+                StopReason::SignalStop(pid, sign) => {
+                    self.hooks.on_signal(sign);
+                    return Ok(StopReason::SignalStop(pid, sign));
+                }
+                _ => {
+                    unreachable!("unexpected reason")
+                }
+            }
         }
 
         let stop_reason = loop {
-            let event = self
-                .debugee
-                .trace_until_stop(TraceContext::new(&self.breakpoints.active_breakpoints()))?;
+            let event = self.debugee.trace_until_stop(TraceContext::new(
+                &self.breakpoints.active_breakpoints(),
+                &self.watchpoints,
+            ))?;
             match event {
                 StopReason::DebugeeExit(code) => {
+                    self.watchpoints.clear_local_and_forget_all();
                     // ignore all possible errors on breakpoints disabling
                     _ = self.breakpoints.disable_all_breakpoints(&self.debugee);
                     self.hooks.on_exit(code);
@@ -432,6 +489,7 @@ impl Debugger {
                                 print_warns!(self
                                     .breakpoints
                                     .enable_all_breakpoints(&self.debugee));
+                                print_warns!(self.watchpoints.refresh(&self.debugee));
 
                                 // rendezvous already available at this point
                                 let brk = self.debugee.rendezvous().r_brk();
@@ -460,12 +518,12 @@ impl Debugger {
                                     }
                                 }
 
-                                // ignore possible signals
+                                // ignore possible signals and watchpoints
                                 while self.step_over_breakpoint()?.is_some() {}
                                 continue;
                             }
                             BrkptType::LinkerMapFn => {
-                                // ignore possible signals
+                                // ignore possible signals and watchpoints
                                 while self.step_over_breakpoint()?.is_some() {}
                                 print_warns!(self.refresh_deferred());
                                 continue;
@@ -484,20 +542,26 @@ impl Debugger {
                                     .map_err(Hook)?;
                                 break event;
                             }
+                            BrkptType::WatchpointCompanion(_) => {
+                                unreachable!("should not coming from tracer directly");
+                            }
                             BrkptType::Temporary => {
                                 break event;
                             }
                             BrkptType::Transparent(callback) => {
                                 callback.clone()(self);
 
-                                if let Some(StopReason::SignalStop(pid, sign)) =
-                                    self.step_over_breakpoint()?
-                                {
-                                    self.hooks.on_signal(sign);
-                                    return Ok(StopReason::SignalStop(pid, sign));
+                                match self.step_over_breakpoint()? {
+                                    Some(StopReason::SignalStop(pid, sign)) => {
+                                        self.hooks.on_signal(sign);
+                                        return Ok(StopReason::SignalStop(pid, sign));
+                                    }
+                                    Some(StopReason::Watchpoint(pid, addr, ty)) => {
+                                        self.execute_on_watchpoint_hook(pid, addr, &ty)?;
+                                        return Ok(StopReason::Watchpoint(pid, current_pc, ty));
+                                    }
+                                    _ => continue,
                                 }
-
-                                continue;
                             }
                         }
                     }
@@ -509,6 +573,11 @@ impl Debugger {
 
                     self.expl_ctx_switch_thread(pid)?;
                     self.hooks.on_signal(sign);
+                    break event;
+                }
+                StopReason::Watchpoint(pid, current_pc, ref ty) => {
+                    self.expl_ctx_switch_thread(pid)?;
+                    self.execute_on_watchpoint_hook(pid, current_pc, ty)?;
                     break event;
                 }
             }
@@ -527,6 +596,9 @@ impl Debugger {
                 // all breakpoints already disabled by default
             }
             ExecutionStatus::InProgress => {
+                print_warns!(self
+                    .watchpoints
+                    .clear_local_forget_global(self.debugee.tracee_ctl(), &mut self.breakpoints));
                 print_warns!(self.breakpoints.disable_all_breakpoints(&self.debugee)?);
             }
             ExecutionStatus::Exited => {
@@ -537,7 +609,10 @@ impl Debugger {
         if !self.debugee.is_exited() {
             let proc_pid = self.process.pid();
             signal::kill(proc_pid, SIGKILL).map_err(|e| Syscall("kill", e))?;
-            _ = self.debugee.tracer_mut().resume(TraceContext::new(&[]));
+            _ = self
+                .debugee
+                .tracer_mut()
+                .resume(TraceContext::new(&[], &self.watchpoints));
         }
 
         self.process = self.process.install()?;
@@ -672,12 +747,17 @@ impl Debugger {
 
         match self.step_in()? {
             StepResult::Done => self.execute_on_step_hook(),
-            StepResult::SignalInterrupt { signal, quiet } => {
-                if !quiet {
-                    self.hooks.on_signal(signal);
-                }
+            StepResult::SignalInterrupt { signal, quiet } if !quiet => {
+                self.hooks.on_signal(signal);
                 Ok(())
             }
+            StepResult::WatchpointInterrupt {
+                pid,
+                addr,
+                ref ty,
+                quiet,
+            } if !quiet => self.execute_on_watchpoint_hook(pid, addr, ty),
+            _ => Ok(()),
         }
     }
 
@@ -688,12 +768,16 @@ impl Debugger {
         disable_when_not_stared!(self);
         self.expl_ctx_restore_frame()?;
 
-        if let Some(StopReason::SignalStop(_, sign)) = self.single_step_instruction()? {
-            self.hooks.on_signal(sign);
-            return Ok(());
+        match self.single_step_instruction()? {
+            Some(StopReason::SignalStop(_, sign)) => {
+                self.hooks.on_signal(sign);
+                Ok(())
+            }
+            Some(StopReason::Watchpoint(pid, addr, ref ty)) => {
+                self.execute_on_watchpoint_hook(pid, addr, ty)
+            }
+            _ => self.execute_on_step_hook(),
         }
-
-        self.execute_on_step_hook()
     }
 
     /// Return list of currently running debugee threads.
@@ -767,12 +851,17 @@ impl Debugger {
         self.expl_ctx_restore_frame()?;
         match self.step_over_any()? {
             StepResult::Done => self.execute_on_step_hook(),
-            StepResult::SignalInterrupt { signal, quiet } => {
-                if !quiet {
-                    self.hooks.on_signal(signal);
-                }
+            StepResult::SignalInterrupt { signal, quiet } if !quiet => {
+                self.hooks.on_signal(signal);
                 Ok(())
             }
+            StepResult::WatchpointInterrupt {
+                pid,
+                addr,
+                ref ty,
+                quiet,
+            } if !quiet => self.execute_on_watchpoint_hook(pid, addr, ty),
+            _ => Ok(()),
         }
     }
 
@@ -784,7 +873,8 @@ impl Debugger {
             self,
             DQE::Variable(VariableSelector::Any),
         );
-        evaluator.evaluate()
+        let eval_result = evaluator.evaluate()?;
+        Ok(eval_result.into_iter().map(|res| res.variable).collect())
     }
 
     /// Reads any variable from the current thread, uses a select expression to filter variables
@@ -796,7 +886,8 @@ impl Debugger {
     pub fn read_variable(&self, select_expr: DQE) -> Result<Vec<VariableIR>, Error> {
         disable_when_not_stared!(self);
         let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
-        evaluator.evaluate()
+        let eval_result = evaluator.evaluate()?;
+        Ok(eval_result.into_iter().map(|res| res.variable).collect())
     }
 
     ///  Reads any variable from the current thread, uses a select expression to filter variables
@@ -820,7 +911,8 @@ impl Debugger {
     pub fn read_argument(&self, select_expr: DQE) -> Result<Vec<VariableIR>, Error> {
         disable_when_not_stared!(self);
         let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
-        evaluator.evaluate_on_arguments()
+        let eval_result = evaluator.evaluate_on_arguments()?;
+        Ok(eval_result.into_iter().map(|res| res.variable).collect())
     }
 
     /// Reads any argument from the current function, uses a select expression to filter arguments
@@ -926,12 +1018,14 @@ impl Drop for Debugger {
     fn drop(&mut self) {
         if self.process.is_external() {
             _ = self.breakpoints.disable_all_breakpoints(&self.debugee);
+            // drain all watchpoints before terminating the process
+            self.watchpoints
+                .clear_all(self.debugee.tracee_ctl(), &mut self.breakpoints);
 
             let current_tids: Vec<Pid> = self
                 .debugee
                 .tracee_ctl()
-                .snapshot()
-                .iter()
+                .tracee_iter()
                 .map(|t| t.pid)
                 .collect();
 
@@ -956,12 +1050,14 @@ impl Drop for Debugger {
             ExecutionStatus::InProgress => {
                 // ignore all possible errors on breakpoints disabling
                 _ = self.breakpoints.disable_all_breakpoints(&self.debugee);
+                // drain all watchpoints before terminating the process
+                self.watchpoints
+                    .clear_all(self.debugee.tracee_ctl(), &mut self.breakpoints);
 
                 let current_tids: Vec<Pid> = self
                     .debugee
                     .tracee_ctl()
-                    .snapshot()
-                    .iter()
+                    .tracee_iter()
                     .map(|t| t.pid)
                     .collect();
 
@@ -994,7 +1090,9 @@ impl Drop for Debugger {
                     WaitStatus::Signaled(_, Signal::SIGKILL, _)
                 ));
             }
-            ExecutionStatus::Exited => {}
+            ExecutionStatus::Exited => {
+                self.watchpoints.clear_and_forget_all();
+            }
         }
     }
 }

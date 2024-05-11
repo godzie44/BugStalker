@@ -66,14 +66,13 @@ pub struct StructureMember {
 }
 
 impl StructureMember {
-    ///  Calculate structure member data.
+    /// Return binary representation of structure member data.
     ///
     /// # Arguments
     ///
     /// * `eval_ctx`: evaluation context
     /// * `r#type`: member data type
-    /// * `base_data`: should point to the first byte of entity value in debugger memory,
-    /// typically points to the start of the buffer
+    /// * `base_data`: binary representation of the parent structure
     pub fn value(
         &self,
         eval_ctx: &EvaluationContext,
@@ -217,7 +216,7 @@ pub struct ScalarType {
 }
 
 /// List of type modifiers
-#[derive(Display, Clone, Copy)]
+#[derive(Display, Clone, Copy, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum CModifier {
     TypeDef,

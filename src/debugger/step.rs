@@ -1,17 +1,28 @@
-use crate::debugger::address::{Address, GlobalAddress};
+use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
-use crate::debugger::debugee::tracer::{StopReason, TraceContext};
+use crate::debugger::debugee::tracer::{StopReason, TraceContext, WatchpointHitType};
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::{NoFunctionRanges, PlaceNotFound, ProcessExit};
 use crate::debugger::{Debugger, ExplorationContext};
 use nix::sys::signal::Signal;
+use nix::unistd::Pid;
 
-/// Result of a step, if [`SignalInterrupt`] then step process interrupted by a signal and user must know it.
-/// If `quiet` set to `true` than no hooks must occurred.
+/// Result of a step, if [`SignalInterrupt`] or [`WatchpointInterrupt`] then
+/// a step process interrupted and the user should know about it.
+/// If `quiet` set to `true` then no hooks should occur.
 pub(super) enum StepResult {
     Done,
-    SignalInterrupt { signal: Signal, quiet: bool },
+    SignalInterrupt {
+        signal: Signal,
+        quiet: bool,
+    },
+    WatchpointInterrupt {
+        pid: Pid,
+        addr: RelocatedAddress,
+        ty: WatchpointHitType,
+        quiet: bool,
+    },
 }
 
 impl StepResult {
@@ -28,29 +39,61 @@ impl StepResult {
             quiet: false,
         }
     }
+
+    fn wp_interrupt_quite(pid: Pid, addr: RelocatedAddress, ty: WatchpointHitType) -> Self {
+        Self::WatchpointInterrupt {
+            pid,
+            addr,
+            ty,
+            quiet: true,
+        }
+    }
+
+    fn wp_interrupt(pid: Pid, addr: RelocatedAddress, ty: WatchpointHitType) -> Self {
+        Self::WatchpointInterrupt {
+            pid,
+            addr,
+            ty,
+            quiet: false,
+        }
+    }
 }
 
 impl Debugger {
-    /// Do single step (until debugee reaches a different source line).
+    /// Do a single step (until debugee reaches a different source line).
+    ///
     /// Returns [`StepResult::SignalInterrupt`] if the step is interrupted by a signal
-    /// or [`StepResult::Done`] if step done.
+    /// or [`StepResult::Done`] if a step is done.
     ///
     /// **! change exploration context**
     pub(super) fn step_in(&mut self) -> Result<StepResult, Error> {
-        enum PlaceOrSignal {
+        enum PlaceOrStop {
             Place(PlaceDescriptorOwned),
             Signal(Signal),
+            Watchpoint(Pid, RelocatedAddress, WatchpointHitType),
         }
 
         // make an instruction step but ignoring functions prolog
         // initial function must exist (do instruction steps until it's not)
         // returns stop place or signal if a step is undone
-        fn step_over_prolog(debugger: &mut Debugger) -> Result<PlaceOrSignal, Error> {
+        fn step_over_prolog(debugger: &mut Debugger) -> Result<PlaceOrStop, Error> {
+            macro_rules! prolog_single_step {
+                ($debugger: expr) => {
+                    match $debugger.single_step_instruction()? {
+                        Some(StopReason::SignalStop(_, sign)) => {
+                            return Ok(PlaceOrStop::Signal(sign));
+                        }
+                        Some(StopReason::Watchpoint(pid, addr, ty)) => {
+                            return Ok(PlaceOrStop::Watchpoint(pid, addr, ty));
+                        }
+                        _ => {}
+                    }
+                };
+            }
+
             loop {
                 // initial step
-                if let Some(StopReason::SignalStop(_, sign)) = debugger.single_step_instruction()? {
-                    return Ok(PlaceOrSignal::Signal(sign));
-                }
+                prolog_single_step!(debugger);
                 let ctx = debugger.exploration_ctx();
                 let mut location = ctx.location();
                 // determine current function, if no debug information for function - step until function found
@@ -60,12 +103,7 @@ impl Debugger {
                     if let Ok(Some(func)) = dwarf.find_function_by_pc(location.global_pc) {
                         break func;
                     }
-                    if let Some(StopReason::SignalStop(_, sign)) =
-                        debugger.single_step_instruction()?
-                    {
-                        return Ok(PlaceOrSignal::Signal(sign));
-                    }
-
+                    prolog_single_step!(debugger);
                     let ctx = debugger.exploration_ctx();
                     location = ctx.location();
                 };
@@ -78,11 +116,7 @@ impl Debugger {
                     .global_pc
                     .in_range(&prolog)
                 {
-                    if let Some(StopReason::SignalStop(_, sign)) =
-                        debugger.single_step_instruction()?
-                    {
-                        return Ok(PlaceOrSignal::Signal(sign));
-                    }
+                    prolog_single_step!(debugger);
                 }
 
                 let location = debugger.exploration_ctx().location();
@@ -91,7 +125,7 @@ impl Debugger {
                     .debug_info(location.pc)?
                     .find_exact_place_from_pc(location.global_pc)?
                 {
-                    return Ok(PlaceOrSignal::Place(place.to_owned()));
+                    return Ok(PlaceOrStop::Place(place.to_owned()));
                 }
             }
         }
@@ -103,8 +137,14 @@ impl Debugger {
             if let Ok(Some(place)) = dwarf.find_place_from_pc(location.global_pc) {
                 break place;
             }
-            if let Some(StopReason::SignalStop(_, sign)) = self.single_step_instruction()? {
-                return Ok(StepResult::signal_interrupt(sign));
+            match self.single_step_instruction()? {
+                Some(StopReason::SignalStop(_, sign)) => {
+                    return Ok(StepResult::signal_interrupt(sign));
+                }
+                Some(StopReason::Watchpoint(pid, addr, ty)) => {
+                    return Ok(StepResult::wp_interrupt(pid, addr, ty));
+                }
+                _ => {}
             }
             location = self.exploration_ctx().location();
         };
@@ -118,8 +158,11 @@ impl Debugger {
 
         loop {
             let next_place = match step_over_prolog(self)? {
-                PlaceOrSignal::Place(place) => place,
-                PlaceOrSignal::Signal(signal) => return Ok(StepResult::signal_interrupt(signal)),
+                PlaceOrStop::Place(place) => place,
+                PlaceOrStop::Signal(signal) => return Ok(StepResult::signal_interrupt(signal)),
+                PlaceOrStop::Watchpoint(pid, addr, dr) => {
+                    return Ok(StepResult::wp_interrupt(pid, addr, dr));
+                }
             };
             if !next_place.is_stmt {
                 continue;
@@ -149,21 +192,23 @@ impl Debugger {
     /// **! change exploration context**
     pub(super) fn single_step_instruction(&mut self) -> Result<Option<StopReason>, Error> {
         let loc = self.exploration_ctx().location();
-        let mb_signal = if self.breakpoints.get_enabled(loc.pc).is_some() {
+        let mb_reason = if self.breakpoints.get_enabled(loc.pc).is_some() {
             self.step_over_breakpoint()?
         } else {
-            let mb_signal = self.debugee.tracer_mut().single_step(
-                TraceContext::new(&self.breakpoints.active_breakpoints()),
+            let maybe_reason = self.debugee.tracer_mut().single_step(
+                TraceContext::new(&self.breakpoints.active_breakpoints(), &self.watchpoints),
                 loc.pid,
             )?;
             self.expl_ctx_update_location()?;
-            mb_signal
+            maybe_reason
         };
-        Ok(mb_signal)
+        Ok(mb_reason)
     }
 
     /// If current on focus thread is stopped at a breakpoint, then it takes a step through this point.
-    /// May return a [`StopReason::SignalStop`] if the step didn't happen cause signal.
+    ///
+    /// May return a [`StopReason::SignalStop`] or [`StopReason::Watchpoint`]
+    /// if the step didn't happen cause signal or watchpoint is hit.
     ///
     /// **! change exploration context**
     pub(super) fn step_over_breakpoint(&mut self) -> Result<Option<StopReason>, Error> {
@@ -176,13 +221,13 @@ impl Debugger {
         if let Some(brkpt) = mb_brkpt {
             if brkpt.is_enabled() {
                 brkpt.disable()?;
-                let mb_signal = self.debugee.tracer_mut().single_step(
-                    TraceContext::new(&self.breakpoints.active_breakpoints()),
+                let maybe_reason = self.debugee.tracer_mut().single_step(
+                    TraceContext::new(&self.breakpoints.active_breakpoints(), &self.watchpoints),
                     tracee_pid,
                 )?;
                 brkpt.enable()?;
                 self.expl_ctx_update_location()?;
-                return Ok(mb_signal);
+                return Ok(maybe_reason);
             }
         }
         Ok(None)
@@ -234,8 +279,14 @@ impl Debugger {
             if let Ok(Some(func)) = dwarf.find_function_by_pc(current_location.global_pc) {
                 break func;
             }
-            if let Some(StopReason::SignalStop(_, signal)) = self.single_step_instruction()? {
-                return Ok(StepResult::signal_interrupt(signal));
+            match self.single_step_instruction()? {
+                Some(StopReason::SignalStop(_, sign)) => {
+                    return Ok(StepResult::signal_interrupt(sign));
+                }
+                Some(StopReason::Watchpoint(pid, addr, ty)) => {
+                    return Ok(StepResult::wp_interrupt(pid, addr, ty));
+                }
+                _ => {}
             }
             current_location = self.exploration_ctx().location();
         };
@@ -322,9 +373,15 @@ impl Debugger {
             .into_iter()
             .try_for_each(|addr| self.remove_breakpoint(Address::Relocated(addr)).map(|_| ()))?;
 
-        if let StopReason::SignalStop(_, signal) = stop_reason {
-            // on signal hook already called at [`Self::continue_execution`]
-            return Ok(StepResult::signal_interrupt_quiet(signal));
+        // hooks already called at [`Self::continue_execution`], so use `quite` opt
+        match stop_reason {
+            StopReason::SignalStop(_, sign) => {
+                return Ok(StepResult::signal_interrupt_quiet(sign));
+            }
+            StopReason::Watchpoint(pid, addr, ty) => {
+                return Ok(StepResult::wp_interrupt_quite(pid, addr, ty));
+            }
+            _ => {}
         }
 
         // if a step is taken outside and new location pc not equals to place pc,
@@ -338,8 +395,14 @@ impl Debugger {
                 .find_place_from_pc(new_location.global_pc)?
                 .ok_or_else(|| NoFunctionRanges(fn_full_name))?;
             if place.address != new_location.global_pc {
-                if let StepResult::SignalInterrupt { signal, .. } = self.step_in()? {
-                    return Ok(StepResult::signal_interrupt(signal));
+                match self.step_in()? {
+                    StepResult::SignalInterrupt { signal, .. } => {
+                        return Ok(StepResult::signal_interrupt(signal));
+                    }
+                    StepResult::WatchpointInterrupt { pid, addr, ty, .. } => {
+                        return Ok(StepResult::wp_interrupt(pid, addr, ty));
+                    }
+                    _ => {}
                 }
             }
         }

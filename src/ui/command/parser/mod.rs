@@ -3,11 +3,12 @@ pub mod expression;
 use super::r#break::BreakpointIdentity;
 use super::{frame, memory, register, source_code, thread, watch, Command, CommandError};
 use super::{r#break, CommandResult};
+use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::select::{VariableSelector, DQE};
 use crate::ui::command::watch::WatchpointIdentity;
 use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 use chumsky::error::{Rich, RichPattern, RichReason};
-use chumsky::prelude::{any, choice, end, just};
+use chumsky::prelude::{any, choice, end, just, one_of};
 use chumsky::text::{whitespace, Char};
 use chumsky::{extra, text, Boxed, Parser};
 use itertools::Itertools;
@@ -304,6 +305,17 @@ impl Command {
             )))
             .boxed();
 
+        let cond_parser = op("+rw")
+            .to(BreakCondition::DataReadsWrites)
+            .or(op("+rw").to(BreakCondition::DataWrites))
+            .or(text::whitespace().to(BreakCondition::DataWrites));
+        let address_expr_parser = hex()
+            .then(just(':').ignore_then(one_of("1248")))
+            .padded()
+            .map(|(addr, size)| {
+                WatchpointIdentity::Address(addr, size.to_digit(10).expect("infallible") as u8)
+            });
+        let source_rewind_parser = any::<_, Err>().repeated().to_slice().rewind();
         let watchpoint = op2_w_arg(WATCH_COMMAND, WATCH_COMMAND_SHORT)
             .ignore_then(choice((
                 sub_op2_w_arg(WATCH_REMOVE_SUBCOMMAND, WATCH_REMOVE_SUBCOMMAND_SHORT)
@@ -313,17 +325,26 @@ impl Command {
                             .unwrapped()
                             .map(|number: u32| WatchpointIdentity::Number(number))
                             .padded(),
-                        rust_identifier()
-                            .padded()
-                            .map(|ident| WatchpointIdentity::Variable(ident.to_string())),
+                        address_expr_parser.clone(),
+                        source_rewind_parser
+                            .then(expression::parser().padded())
+                            .map(|(source, dqe)| {
+                                WatchpointIdentity::DQE(source.trim().to_string(), dqe)
+                            }),
                     )))
                     .map(|ident| Command::Watchpoint(watch::Command::Remove(ident))),
                 sub_op(BREAK_INFO_SUBCOMMAND).to(Command::Watchpoint(watch::Command::Info)),
-                rust_identifier().padded().map(|ident| {
-                    Command::Watchpoint(watch::Command::Add(WatchpointIdentity::Variable(
-                        ident.to_string(),
-                    )))
-                }),
+                cond_parser
+                    .then(address_expr_parser)
+                    .map(|(cond, ident)| Command::Watchpoint(watch::Command::Add(ident, cond))),
+                cond_parser
+                    .then(source_rewind_parser.then(expression::parser().padded()))
+                    .map(|(cond, (source, dqe))| {
+                        Command::Watchpoint(watch::Command::Add(
+                            WatchpointIdentity::DQE(source.trim().to_string(), dqe),
+                            cond,
+                        ))
+                    }),
             )))
             .boxed();
 
@@ -759,7 +780,20 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::Watchpoint(watch::Command::Add(WatchpointIdentity::Variable(v))) if v == "var1"
+                    Command::Watchpoint(watch::Command::Add(
+                        WatchpointIdentity::DQE(source, DQE::Variable(VariableSelector::Name {var_name, ..})), BreakCondition::DataWrites
+                    )) if var_name == "var1" && source == "var1"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["watch +rw var1", "watch +rw  var1 ", "   w  +rw  var1   "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Watchpoint(watch::Command::Add(
+                        WatchpointIdentity::DQE(source, DQE::Variable(VariableSelector::Name {var_name, ..})), BreakCondition::DataReadsWrites
+                    )) if var_name == "var1" && source == "var1"
                 ));
             },
         },
@@ -772,7 +806,18 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::Watchpoint(watch::Command::Add(WatchpointIdentity::Variable(v))) if v == "ns1::ns2::var1"
+                    Command::Watchpoint(watch::Command::Add(
+                        WatchpointIdentity::DQE(source, DQE::Variable(VariableSelector::Name {var_name, ..})), BreakCondition::DataWrites
+                    )) if var_name == "ns1::ns2::var1" && source == "ns1::ns2::var1"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["watch 0x123:4", "watch 0x123:4 ", "   w   0x123:4   "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Watchpoint(watch::Command::Add(WatchpointIdentity::Address(addr, size), BreakCondition::DataWrites)) if addr == 0x123 && size == 4
                 ));
             },
         },
@@ -790,7 +835,7 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::Watchpoint(watch::Command::Remove(WatchpointIdentity::Variable(v))) if v == "var1"
+                    Command::Watchpoint(watch::Command::Remove(WatchpointIdentity::DQE(source, DQE::Variable(VariableSelector::Name {var_name, ..})))) if var_name == "var1" && source == "var1"
                 ));
             },
         },

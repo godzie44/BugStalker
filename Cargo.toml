@@ -65,6 +65,7 @@ sysinfo = "0.30.0"
 indexmap = "2.1.0"
 chumsky = { version = "1.0.0-alpha.6", features = ["default", "label"] }
 ariadne = "0.4.0"
+bit_field = "0.10.1"
 
 [dev-dependencies]
 serial_test = "3.0.0"

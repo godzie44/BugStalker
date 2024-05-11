@@ -1,6 +1,6 @@
 # Examples
 
-A list of applications for debugger testing. 
+A list of applications for debugger testing.
 
 ### hello_world
 
@@ -30,7 +30,7 @@ Used for test related to type polymorphism.
 ### sleeper
 
 Long live application.
-Used to test debugger attaching to external processes. 
+Used to test debugger attaching to external processes.
 
 ### recursion
 
@@ -39,7 +39,8 @@ Used for test debugger behavior with recursive code.
 
 ### Pastebin
 
-Example application from [Rocket](https://github.com/SergioBenitez/Rocket) web framework.
+Example application from [Rocket](https://github.com/SergioBenitez/Rocket) web
+framework.
 
 ### Todos
 
@@ -57,3 +58,7 @@ Tick 5 seconds and exit. Useful for tokio oracle testing.
 
 Program that just panics.
 Initiated by user or system panic (like divide by zero panic).
+
+### Calculations
+
+Program that calculates some values. Useful for watchpoints testing.
