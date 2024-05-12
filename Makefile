@@ -4,8 +4,10 @@ build:
 build-test:
 	cargo build --features "int_test"
 
-build-all: build
+build-examples:
 	cd examples ; cargo build -p calc_lib ; cargo build
+
+build-all: build build-examples
 
 cargo-test:
 	cargo test --features "int_test"

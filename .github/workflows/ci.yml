@@ -6,22 +6,28 @@ jobs:
   test:
     strategy:
       matrix:
-        rustc_version: [ 1.75.0, 1.76.0, 1.77.0, 1.78.0 ]
+        rustc_sup_version: [ 1.75.0, 1.76.0, 1.77.0, 1.78.0 ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Install rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: ${{ matrix.rustc_version }}
-          override: true
-          components: rustfmt, clippy
       - name: Install libunwind and debug symbols
         run: |
           sudo apt-get update
           sudo apt-get install libunwind-dev libc6-dbg
-      - name: Build debugger and test programs
-        run: make build-all
+      - name: Install rustc for test applications
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rustc_sup_version }}
+          override: true
+          components: rustfmt, clippy
+      - name: Build test applications
+        run: make build-examples
+      - name: Install actual rustc
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.78.0
+          override: true
+          components: rustfmt, clippy
       - name: Run functional tests on own stack unwind implementation
         run: make cargo-test-no-libunwind
       - name: Run functional tests
@@ -31,13 +37,12 @@ jobs:
 
   integration-test:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v3
       - name: Install rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.76.0
+          toolchain: 1.78.0
           override: true
           components: rustfmt, clippy
       - name: Set up Python 3.7
@@ -64,7 +69,7 @@ jobs:
       - name: Install rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.76.0
+          toolchain: 1.78.0
           override: true
           components: rustfmt, clippy
       - name: Install libunwind

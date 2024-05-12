@@ -140,11 +140,13 @@ impl FunctionDie {
     pub fn complete_from_decl(&mut self, declaration: &FunctionDie) {
         if self.linkage_name.is_none() {
             self.namespace = declaration.namespace.clone();
-            self.linkage_name = declaration.linkage_name.clone();
+            self.linkage_name.clone_from(&declaration.linkage_name);
         }
 
         if self.base_attributes.name.is_none() {
-            self.base_attributes.name = declaration.base_attributes.name.clone();
+            self.base_attributes
+                .name
+                .clone_from(&declaration.base_attributes.name);
         }
 
         if self.decl_file_line.is_none() {

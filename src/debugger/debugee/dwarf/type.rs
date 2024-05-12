@@ -453,7 +453,7 @@ impl TypeParser {
 
     fn parse_inner<T>(&mut self, ctx_die: ContextualDieRef<'_, T>, type_ref: DieRef) {
         // guard from recursion types parsing
-        if self.known_type_ids.get(&type_ref).is_some() {
+        if self.known_type_ids.contains(&type_ref) {
             return;
         }
         self.known_type_ids.insert(type_ref);
