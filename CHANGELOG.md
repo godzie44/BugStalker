@@ -18,6 +18,8 @@ All notable changes to this project will be documented in this file.
   objects for advanced searching
 - console: improve index operation, now index accepts literal objects
 - debugger: added address operator in data query expressions
+- debugger: added watchpoints over hardware breakpoints
+- debugger: added canonic operator
 
 ### Changed
 

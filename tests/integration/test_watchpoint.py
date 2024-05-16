@@ -256,4 +256,42 @@ class WatchpointTestCase(unittest.TestCase):
         self.debugger.expect_exact('Hit watchpoint 1 (rw)')
         self.debugger.expect_exact('value: data = u64(6)')
 
-        self.debugger.sendline('q')
+    def test_watchpoint_at_complex_data_types(self):
+        """Add watchpoints for vector attribute"""
+        self.debugger.sendline('break calculations.rs:91')
+        self.debugger.expect_exact('New breakpoint')
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('Hit breakpoint 1')
+
+        self.debugger.sendline('watch (~vector2).len')
+        self.debugger.expect_exact('New watchpoint')
+
+        self.debugger.sendline('c')
+        self.debugger.expect_exact('Hit watchpoint 1 (w)')
+        self.debugger.expect_exact('old value: (~vector2).len = usize(2)')
+        self.debugger.expect_exact('new value: (~vector2).len = usize(3)')
+        self.debugger.sendline('c')
+        self.debugger.expect_exact('Hit watchpoint 1 (w)')
+        self.debugger.expect_exact('old value: (~vector2).len = usize(3)')
+        self.debugger.expect_exact('new value: (~vector2).len = usize(4)')
+        self.debugger.sendline('c')
+        self.debugger.expect_exact('Watchpoint 1 end of scope')
+        self.debugger.expect_exact('old value: (~vector2).len = usize(4)')
+
+    def test_watchpoint_at_complex_data_types2(self):
+        """Add watchpoints for string attribute"""
+        self.debugger.sendline('break calculations.rs:95')
+        self.debugger.expect_exact('New breakpoint')
+        self.debugger.sendline('run')
+        self.debugger.expect_exact('Hit breakpoint 1')
+
+        self.debugger.sendline('watch (~(~string).vec).len')
+        self.debugger.expect_exact('New watchpoint')
+
+        self.debugger.sendline('c')
+        self.debugger.expect_exact('Hit watchpoint 1 (w)')
+        self.debugger.expect_exact('old value: (~(~string).vec).len = usize(3)')
+        self.debugger.expect_exact('new value: (~(~string).vec).len = usize(7)')
+        self.debugger.sendline('c')
+        self.debugger.expect_exact('Watchpoint 1 end of scope')
+        self.debugger.expect_exact('old value: (~(~string).vec).len = usize(7)')
