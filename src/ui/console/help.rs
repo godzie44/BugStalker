@@ -38,6 +38,7 @@ query expressions as such a tool.
 Available operators:
 `*` - dereference, available for references, pointers and smart pointers (Rc and Arc)
 `&` - address operator, available for any variable, structure field or index value
+`~` - canonic representation, types like vectors or hashmaps are prettyfied by default, use canonic operator to see a raw structure as is
 `[{left}..{right}]` - slice operator, available for pointers
 `.` - get field, available for structs, enums and hashmaps (with string keys)
 `(` and `)` - parentheses to prioritize operations
@@ -50,6 +51,7 @@ Examples:
 `**var1` - print the value pointed to by the pointer `*var1`
 `**var1.field1` - print the value pointed to by the pointer `*var1.field1`
 `&var1.field1` - print address of field `field1`
+`(~vec1).len` - print lenght field of vector header structure
 `&vec1[1]` - print address of second element in vector `vec1`
 `(**var1).field1` - print field `field1` in struct pointed to by the pointer `*var1`
 `*(*const i32)0x1234AA332` - cast memory address to `*const i32` pointer, then dereference it 

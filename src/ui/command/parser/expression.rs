@@ -184,6 +184,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> {
         op('*')
             .to(DQE::Deref as fn(_) -> _)
             .or(op('&').to(DQE::Address as fn(_) -> _))
+            .or(op('~').to(DQE::Canonic as fn(_) -> _))
             .repeated()
             .foldr(expr, |op, rhs| op(Box::new(rhs)))
     });
@@ -401,6 +402,13 @@ mod test {
                 }))),
             },
             TestCase {
+                string: "~var1",
+                expr: DQE::Canonic(Box::new(DQE::Variable(VariableSelector::Name {
+                    var_name: "var1".to_string(),
+                    only_local: false,
+                }))),
+            },
+            TestCase {
                 string: "**var1",
                 expr: DQE::Deref(Box::new(DQE::Deref(Box::new(DQE::Variable(
                     VariableSelector::Name {
@@ -408,6 +416,19 @@ mod test {
                         only_local: false,
                     },
                 ))))),
+            },
+            TestCase {
+                string: "~*var1",
+                expr: DQE::Canonic(
+                    DQE::Deref(
+                        DQE::Variable(VariableSelector::Name {
+                            var_name: "var1".to_string(),
+                            only_local: false,
+                        })
+                        .boxed(),
+                    )
+                    .boxed(),
+                ),
             },
             TestCase {
                 string: "**var1.field1.field2",
@@ -720,7 +741,7 @@ mod test {
             },
             TestCase {
                 string: "*",
-                err_text: "found end of input expected '*', '&', ':', or '('",
+                err_text: "found end of input expected '*', '&', '~', ':', or '('",
             },
         ];
 
