@@ -578,6 +578,31 @@ impl VariableIR {
         }
     }
 
+    /// If a variable has a specialized ir (vectors, strings, etc.) then return
+    /// an underlying structure
+    fn canonic(self) -> Self {
+        let VariableIR::Specialized(spec) = self else {
+            return self;
+        };
+
+        match spec {
+            SpecializedVariableIR::Vector { original, .. }
+            | SpecializedVariableIR::VecDeque { original, .. }
+            | SpecializedVariableIR::HashMap { original, .. }
+            | SpecializedVariableIR::HashSet { original, .. }
+            | SpecializedVariableIR::BTreeMap { original, .. }
+            | SpecializedVariableIR::BTreeSet { original, .. }
+            | SpecializedVariableIR::String { original, .. }
+            | SpecializedVariableIR::Str { original, .. }
+            | SpecializedVariableIR::Tls { original, .. }
+            | SpecializedVariableIR::Cell { original, .. }
+            | SpecializedVariableIR::RefCell { original, .. }
+            | SpecializedVariableIR::Rc { original, .. }
+            | SpecializedVariableIR::Arc { original, .. }
+            | SpecializedVariableIR::Uuid { original, .. } => VariableIR::Struct(original),
+        }
+    }
+
     /// Try to dereference variable and returns underline variable IR.
     /// Return `None` if dereference not allowed.
     fn deref(self, eval_ctx: &EvaluationContext, variable_parser: &VariableParser) -> Option<Self> {

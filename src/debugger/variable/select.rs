@@ -143,6 +143,7 @@ pub enum DQE {
     Slice(Box<DQE>, Option<usize>, Option<usize>),
     Deref(Box<DQE>),
     Address(Box<DQE>),
+    Canonic(Box<DQE>),
 }
 
 impl DQE {
@@ -314,7 +315,8 @@ impl<'a> SelectExpressionEvaluator<'a> {
             | DQE::Index(expr, _)
             | DQE::Slice(expr, _, _)
             | DQE::Deref(expr)
-            | DQE::Address(expr) => self.evaluate_inner(expr),
+            | DQE::Address(expr)
+            | DQE::Canonic(expr) => self.evaluate_inner(expr),
         }
     }
 
@@ -421,7 +423,8 @@ impl<'a> SelectExpressionEvaluator<'a> {
             | DQE::Index(expr, _)
             | DQE::Slice(expr, _, _)
             | DQE::Deref(expr)
-            | DQE::Address(expr) => self.evaluate_on_arguments_inner(expr),
+            | DQE::Address(expr)
+            | DQE::Canonic(expr) => self.evaluate_on_arguments_inner(expr),
         }
     }
 
@@ -483,6 +486,10 @@ impl<'a> SelectExpressionEvaluator<'a> {
             DQE::Address(expr) => {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
                 var.address(evaluation_context, &parser)
+            }
+            DQE::Canonic(expr) => {
+                let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
+                Some(var.canonic())
             }
         }
     }
