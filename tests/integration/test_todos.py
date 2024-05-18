@@ -1,8 +1,8 @@
 import unittest
-import pexpect
 import time
 import threading
 import requests
+from helper import Debugger
 
 
 def send_create_todo_request(event):
@@ -21,20 +21,17 @@ class TodosTestCase(unittest.TestCase):
     """Test debugger on application from axum framework examples"""
 
     def setUp(self):
-        debugger = pexpect.spawn(
-            './target/debug/bs -t none ./examples/target/debug/todos')
-        debugger.expect('BugStalker greets')
-        self.debugger = debugger
+        self.debugger = Debugger('./examples/target/debug/todos')
 
     def test_step_over_until_response(self):
         """Runs a todos application and set breakpoint at http handler.
         Makes http request, and do `step over`
         command while http response is not returning"""
         # create breakpoint
-        self.debugger.sendline('b main.rs:108')
+        self.debugger.cmd('b main.rs:108')
 
         time.sleep(5)
-        self.debugger.sendline('run')
+        self.debugger.cmd('run')
         time.sleep(1)
 
         event = threading.Event()
@@ -46,19 +43,18 @@ class TodosTestCase(unittest.TestCase):
         # check that response returns at this point
         while not event.is_set():
             # send `step over` command otherwise
-            self.debugger.sendline('next')
-            self.debugger.expect("next")
+            self.debugger.cmd('next', 'next')
             time.sleep(0.05)
 
-        self.debugger.sendline('q')
+        self.debugger.cmd('q')
 
     def test_create_and_get(self):
-        """Create item, then try to get it and check that it exists in debugger (by `var` command)"""
+        """Create an item, then try to get it and check that it exists in debugger (by `var` command)"""
         # get breakpoint
-        self.debugger.sendline('b main.rs:99')
+        self.debugger.cmd('b main.rs:99')
 
         time.sleep(3)
-        self.debugger.sendline('run')
+        self.debugger.cmd('run')
         time.sleep(3)
 
         event = threading.Event()
@@ -73,16 +69,17 @@ class TodosTestCase(unittest.TestCase):
         time.sleep(1)
 
         # break in get
-        self.debugger.sendline('var locals')
-        self.debugger.expect_exact(
-            'todos = Vec<todos::Todo, alloc::alloc::Global> {')
-        self.debugger.expect_exact('0: Todo {')
-        self.debugger.expect_exact('text: String(test todo)')
-        self.debugger.expect_exact('completed: bool(false)')
+        self.debugger.cmd(
+            'var locals',
+            'todos = Vec<todos::Todo, alloc::alloc::Global> {',
+            '0: Todo {',
+            'text: String(test todo)',
+            'completed: bool(false)',
+        )
 
-        self.debugger.sendline('continue')
+        self.debugger.cmd('continue')
         while not event.is_set():
             time.sleep(0.1)
         thread.join()
 
-        self.debugger.sendline('q')
+        self.debugger.cmd('q')
