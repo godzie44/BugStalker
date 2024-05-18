@@ -1,87 +1,48 @@
-import time
 import unittest
-import pexpect
-import re
+from helper import Debugger
 
 
 class HintsTestCase(unittest.TestCase):
     def setUp(self):
-        debugger = pexpect.spawn(
-            './target/debug/bs -t none ./examples/target/debug/vars')
-        debugger.expect('BugStalker greets')
-        self.debugger = debugger
+        self.debugger = Debugger(path='./examples/target/debug/vars')
 
     def test_command_hints(self):
         """Test command autocompletion"""
-        self.debugger.send("br\t")
-        self.debugger.expect_exact('break')
-        self.debugger.send("\n")
-
-        self.debugger.send("f\t")
-        self.debugger.expect_exact('frame')
-        self.debugger.send("\n")
-
-        self.debugger.send("ste\t")
-        self.debugger.expect_exact('step')
-        self.debugger.send("\n")
-
-        self.debugger.send("b\t\t")
-        self.debugger.expect_exact('\x1b[4mb\x1b[0mreak')
-        self.debugger.expect_exact(' backtrace|\x1b[1m\x1b[4mbt\x1b[0m')
+        self.debugger.print('br\t', 'break')
+        self.debugger.print('\n')
+        self.debugger.print('f\t', 'frame')
+        self.debugger.print('\n')
+        self.debugger.print('ste\t', 'step')
+        self.debugger.print('\n')
+        self.debugger.print('b\t\t', '\x1b[4mb\x1b[0mreak', ' backtrace|\x1b[1m\x1b[4mbt\x1b[0m')
 
     def test_break_command_hints(self):
         """Test files autocompletion for `break` command"""
-        self.debugger.send("b vars.r\t")
-        self.debugger.expect_exact('b vars.rs:')
-        self.debugger.send("\n")
+        self.debugger.print('b vars.r\t', 'b vars.rs:')
+        self.debugger.print("\n")
 
     def test_var_command_hints(self):
         """Test variable autocompletion for `var` command"""
-        self.debugger.sendline('break vars.rs:9')
-        self.debugger.expect_exact('New breakpoint')
+        self.debugger.cmd('break vars.rs:9', 'New breakpoint')
+        self.debugger.cmd('run', 'let int32 = 2_i32;')
 
-        self.debugger.sendline('run')
-        self.debugger.expect_exact('let int32 = 2_i32;')
-
-        self.debugger.send("var \t\t")
-        self.debugger.expect_exact('int8')
-        self.debugger.expect_exact('int16')
-        self.debugger.expect_exact('\x1b[4mlocals\x1b[0m')
-
-        self.debugger.send(" int1\t")
-        self.debugger.expect_exact('int16')
+        self.debugger.print('var \t\t', 'int8', 'int16', '\x1b[4mlocals\x1b[0m')
+        self.debugger.print(' int1\t', 'int16')
 
     def test_arg_command_hints(self):
         """Test argument autocompletion for `args` command"""
-        self.debugger.sendline('break vars.rs:227')
-        self.debugger.expect_exact('New breakpoint')
+        self.debugger.cmd('break vars.rs:227', 'New breakpoint')
+        self.debugger.cmd('run', 'println!("{by_val}");')
 
-        self.debugger.sendline('run')
-        self.debugger.expect_exact('println!("{by_val}");')
-
-        self.debugger.send("arg \t\t")
-        self.debugger.expect_exact('by_val')
-        self.debugger.expect_exact('by_ref')
-        self.debugger.expect_exact('vec')
-        self.debugger.expect_exact('box_arr')
+        self.debugger.print('arg \t\t', 'by_val', 'by_ref', 'vec', 'box_arr')
 
     def test_sub_command_hints(self):
         """Test subcommands autocompletion"""
-        self.debugger.send("thread cu\t")
-        self.debugger.expect_exact('thread current')
-        self.debugger.send("\n")
-
-        self.debugger.send("thread \t\t")
-        self.debugger.expect_exact('info')
-        self.debugger.expect_exact('switch')
-        self.debugger.expect_exact('current')
-        self.debugger.send("\n")
-
-        self.debugger.send("frame i\t")
-        self.debugger.expect_exact('frame info')
-        self.debugger.send("\n")
-
-        self.debugger.send("frame \t\t")
-        self.debugger.expect_exact('info')
-        self.debugger.expect_exact('switch')
-        self.debugger.send("\n")
+        self.debugger.print('thread cu\t', 'thread current')
+        self.debugger.print('\n')
+        self.debugger.print('thread \t\t', 'info', 'switch', 'current')
+        self.debugger.print('\n')
+        self.debugger.print('frame i\t', 'frame info')
+        self.debugger.print('\n')
+        self.debugger.print('frame \t\t', 'info', 'switch')
+        self.debugger.print('\n')
