@@ -239,7 +239,10 @@ impl ArrayVariable {
             }
 
             if let Some(right) = right {
-                items.drain(right - left.unwrap_or_default()..);
+                let remove_range = right - left.unwrap_or_default()..;
+                if remove_range.start < items.len() {
+                    items.drain(remove_range);
+                };
             }
         }
     }

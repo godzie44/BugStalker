@@ -383,6 +383,12 @@ class VariablesTestCase(unittest.TestCase):
             '}',
         )
         self.debugger.cmd(
+            'var arr_1[4..6]',
+            'arr_1 = [i32] {',
+            '4: i32(3)',
+            '}',
+        )
+        self.debugger.cmd(
             'var arr_1[2..4][1..]',
             'arr_1 = [i32] {',
             '3: i32(-2)',
