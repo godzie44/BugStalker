@@ -20,19 +20,42 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use uuid::Uuid;
 
+const IS_STMT: u8 = 1 << 1;
+const PROLOG_END: u8 = 1 << 2;
+const EPILOG_BEGIN: u8 = 1 << 3;
+const END_SEQUENCE: u8 = 1 << 4;
+
 /// A row in the line number program's resulting matrix.
 #[derive(PartialEq, Debug, Clone)]
 #[repr(packed)]
-// TODO use flags instead (or with) of packed representation
 pub(super) struct LineRow {
     pub(super) address: u64,
     pub(super) file_index: u64,
     pub(super) line: u64,
     pub(super) column: u64,
-    pub(super) is_stmt: bool,
-    pub(super) prolog_end: bool,
-    pub(super) epilog_begin: bool,
-    pub(super) end_sequence: bool,
+    flags: u8,
+}
+
+impl LineRow {
+    #[inline(always)]
+    pub fn is_stmt(&self) -> bool {
+        self.flags & IS_STMT == IS_STMT
+    }
+
+    #[inline(always)]
+    pub fn prolog_end(&self) -> bool {
+        self.flags & PROLOG_END == PROLOG_END
+    }
+
+    #[inline(always)]
+    pub fn epilog_begin(&self) -> bool {
+        self.flags & EPILOG_BEGIN == EPILOG_BEGIN
+    }
+
+    #[inline(always)]
+    pub fn end_sequence(&self) -> bool {
+        self.flags & END_SEQUENCE == END_SEQUENCE
+    }
 }
 
 /// An address range of debug information entry,
@@ -70,6 +93,26 @@ pub struct PlaceDescriptorOwned {
     pub column_number: u64,
     pub epilog_begin: bool,
     pub prolog_end: bool,
+}
+
+impl<'a> From<(&'a Unit, usize, &LineRow)> for PlaceDescriptor<'a> {
+    fn from((unit, pos_in_unit, line_row): (&'a Unit, usize, &LineRow)) -> Self {
+        PlaceDescriptor {
+            file: unit
+                .files
+                .get(line_row.file_index as usize)
+                .expect("file should exists"),
+            address: line_row.address.into(),
+            line_number: line_row.line,
+            column_number: line_row.column,
+            pos_in_unit,
+            is_stmt: line_row.is_stmt(),
+            prolog_end: line_row.prolog_end(),
+            epilog_begin: line_row.epilog_begin(),
+            end_sequence: line_row.end_sequence(),
+            unit,
+        }
+    }
 }
 
 impl<'a> Debug for PlaceDescriptor<'a> {
@@ -134,9 +177,10 @@ pub struct FunctionDie {
 }
 
 impl FunctionDie {
-    /// If subprogram die contains a `DW_AT_specification` attribute than this subprogram have
-    /// a declaration part in another die. This function will complete complete subprogram with
-    /// information from it declaration (typically this is a name and linkage_name).
+    /// If a subprogram die contains a `DW_AT_specification` attribute than this subprogram have
+    /// a declaration part in another die.
+    /// This function will complete subprogram with
+    /// information from its declaration (typically this is a name and linkage_name).
     pub fn complete_from_decl(&mut self, declaration: &FunctionDie) {
         if self.linkage_name.is_none() {
             self.namespace = declaration.namespace.clone();
@@ -426,15 +470,15 @@ struct UnitLazyPart {
     function_index: PathSearchIndex<usize>,
 }
 
-/// Some of compilation unit methods may return UnitResult in order to show
-/// that reloading is necessary
+/// Some of the compilation unit methods may return UnitResult
+/// to show that reloading is necessary
 pub enum UnitResult<T> {
     Ok(T),
     Reload,
 }
 
 /// This macro try to call a unit method, if call failed with UnitResult::Reload
-/// then parsing of lazy unit part is happens
+/// then parsing of lazy unit part is happening
 #[macro_export]
 macro_rules! resolve_unit_call {
     ($dwarf: expr, $unit: expr, $fn_name: tt) => {
@@ -459,7 +503,7 @@ macro_rules! resolve_unit_call {
 }
 
 impl<T> UnitResult<T> {
-    /// Return T if result contains data, panic otherwise.
+    /// Return T if a result contains data, panic otherwise.
     pub fn ensure_ok(self) -> T {
         let UnitResult::Ok(val) = self else {
             panic!("value expected")
@@ -469,16 +513,16 @@ impl<T> UnitResult<T> {
 }
 
 /// DWARF compilation unit representation.
-/// In bugstalker any unit load from obj file with partial data on debugee start.
+/// In BugStalker any unit load from obj file with partial data on debugee start.
 /// Later, if necessary, the data will be loaded additionally.
 #[derive(Debug)]
 pub struct Unit {
     pub id: Uuid,
     #[allow(unused)]
     pub name: Option<String>,
-    /// DWARF unit header, must exists if unit is partial, but contains None if unit is fully load.
+    /// DWARF unit header must exist if unit is partial, but contains None if unit is fully load.
     header: Mutex<Option<UnitHeader<EndianArcSlice>>>,
-    /// Index in unit registry, may be usize::MAX if the unit is not yet placed in the register
+    /// Index in unit registry may be usize::MAX if the unit is not yet placed in the register
     idx: usize,
     properties: UnitProperties,
     files: Vec<PathBuf>,
@@ -591,21 +635,7 @@ impl Unit {
     /// Return [`PlaceDescriptor`] by index for line vector in unit.
     pub(super) fn find_place_by_idx(&self, line_pos: usize) -> Option<PlaceDescriptor> {
         let line = self.lines.get(line_pos)?;
-        Some(PlaceDescriptor {
-            file: self
-                .files
-                .get(line.file_index as usize)
-                .expect("unreachable: file must exists"),
-            address: line.address.into(),
-            line_number: line.line,
-            column_number: line.column,
-            pos_in_unit: line_pos,
-            is_stmt: line.is_stmt,
-            prolog_end: line.prolog_end,
-            epilog_begin: line.epilog_begin,
-            end_sequence: line.end_sequence,
-            unit: self,
-        })
+        Some((self, line_pos, line).into())
     }
 
     /// Return first [`PlaceDescriptor`] matching the file index and line number.
@@ -615,21 +645,7 @@ impl Unit {
             .iter()
             .enumerate()
             .find(|(_, l)| l.file_index == file_idx && l.line == line)?;
-        Some(PlaceDescriptor {
-            file: self
-                .files
-                .get(line.file_index as usize)
-                .expect("unreachable: file must exists"),
-            address: line.address.into(),
-            line_number: line.line,
-            column_number: line.column,
-            pos_in_unit: line_pos,
-            is_stmt: line.is_stmt,
-            prolog_end: line.prolog_end,
-            epilog_begin: line.epilog_begin,
-            end_sequence: line.end_sequence,
-            unit: self,
-        })
+        Some((self, line_pos, line).into())
     }
 
     pub(super) fn line(&self, index: usize) -> &LineRow {
