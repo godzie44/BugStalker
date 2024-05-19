@@ -4,6 +4,7 @@ use crate::debugger::debugee::dwarf::unit::{
     LexicalBlockDie, LineRow, Namespace, Node, ParameterDie, PointerType, RestrictDie,
     StructTypeDie, SubroutineDie, TemplateTypeParameter, TypeDefDie, TypeMemberDie, UnionTypeDie,
     Unit, UnitLazyPart, UnitProperties, VariableDie, Variant, VariantPart, VolatileDie,
+    END_SEQUENCE, EPILOG_BEGIN, IS_STMT, PROLOG_END,
 };
 use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
@@ -485,15 +486,26 @@ where
             gimli::ColumnType::Column(x) => x.get(),
         };
 
+        let mut flags = 0_u8;
+        if line_row.is_stmt() {
+            flags |= IS_STMT;
+        }
+        if line_row.prologue_end() {
+            flags |= PROLOG_END;
+        }
+        if line_row.epilogue_begin() {
+            flags |= EPILOG_BEGIN;
+        }
+        if line_row.end_sequence() {
+            flags |= END_SEQUENCE;
+        }
+
         lines.push(LineRow {
             address: line_row.address(),
             file_index: line_row.file_index(),
             line: line_row.line().map(NonZeroU64::get).unwrap_or(0),
             column,
-            is_stmt: line_row.is_stmt(),
-            prolog_end: line_row.prologue_end(),
-            epilog_begin: line_row.epilogue_begin(),
-            end_sequence: line_row.end_sequence(),
+            flags,
         })
     }
 

@@ -375,7 +375,7 @@ impl DebugInformation {
                     if suitable_places_in_unit.is_empty() {
                         // no places found at this point,
                         // try to find the closest place to a target line
-                        if next_line_row.line != needle_line || !next_line_row.is_stmt {
+                        if next_line_row.line != needle_line || !next_line_row.is_stmt() {
                             i += 1;
                             continue;
                         }
@@ -391,11 +391,11 @@ impl DebugInformation {
                             };
 
                             let line_row = unit.line(ahead_line_idx);
-                            if line_row.line != next_line_row.line || !line_row.is_stmt {
+                            if line_row.line != next_line_row.line || !line_row.is_stmt() {
                                 break;
                             }
 
-                            if line_row.prolog_end {
+                            if line_row.prolog_end() {
                                 line_idx = ahead_line_idx;
                                 i = ahead_idx;
                                 break;
@@ -421,10 +421,10 @@ impl DebugInformation {
 
                         if next_line_row.line != line
                             || next_line_row.column != col
-                            || next_line_row.prolog_end != pe
-                            || next_line_row.epilog_begin != eb
-                            || next_line_row.end_sequence != es
-                            || !next_line_row.is_stmt
+                            || next_line_row.prolog_end() != pe
+                            || next_line_row.epilog_begin() != eb
+                            || next_line_row.end_sequence() != es
+                            || !next_line_row.is_stmt()
                         {
                             i += 1;
                             continue;
