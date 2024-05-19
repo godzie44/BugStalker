@@ -209,8 +209,6 @@ pub struct Watchpoint {
     hw: HardwareBreakpoint,
     /// Subject for observation.
     subject: Subject,
-    /// Whether true if underlying hardware breakpoint is already disabled.
-    disabled: bool,
 }
 
 fn call_with_context<F, T>(debugger: &mut Debugger, ctx: ExplorationContext, f: F) -> T
@@ -395,7 +393,6 @@ impl Watchpoint {
             number: GLOBAL_WP_COUNTER.fetch_add(1, Ordering::Relaxed),
             hw: hw_brkpt,
             subject: Subject::Expression(target),
-            disabled: false,
         };
         Ok((state, this))
     }
@@ -430,7 +427,6 @@ impl Watchpoint {
             number: GLOBAL_WP_COUNTER.fetch_add(1, Ordering::Relaxed),
             hw: hw_brkpt,
             subject: Subject::Address(target),
-            disabled: false,
         };
 
         Ok((state, this))
@@ -474,7 +470,6 @@ impl Watchpoint {
         tracee_ctl: &TraceeCtl,
         breakpoints: &mut BreakpointRegistry,
     ) -> Result<HardwareDebugState, Error> {
-        debug_assert!(!self.disabled);
         // disable hardware breakpoint
         let state = self.hw.disable(tracee_ctl)?;
 
@@ -484,28 +479,16 @@ impl Watchpoint {
                 breakpoints.remove_by_num(brkpt)?;
             }
         }
-
-        // don't forget `disabled` flag - this will be checked when watchpoint dropped
-        self.disabled = true;
         Ok(state)
     }
 
     /// Enable watchpoint from disabled state.
     fn refresh(&mut self, tracee_ctl: &TraceeCtl) -> Result<HardwareDebugState, Error> {
-        debug_assert!(self.disabled);
         if let Subject::Expression(ref mut expr_t) = self.subject {
             expr_t.last_value = None;
         }
         let state = self.hw.enable(tracee_ctl)?;
-        self.disabled = false;
         Ok(state)
-    }
-}
-
-impl Drop for Watchpoint {
-    fn drop(&mut self) {
-        // all dropped watchpoints should be disabled first
-        debug_assert!(self.disabled);
     }
 }
 
@@ -654,18 +637,9 @@ impl WatchpointRegistry {
         self.last_seen_state = None;
     }
 
-    /// Remove all watchpoints from registry without disabling.
-    pub fn clear_and_forget_all(&mut self) {
-        // this is hack for disable a watchpoint without real disabling
-        self.watchpoints
-            .drain(..)
-            .for_each(|mut wp| wp.disabled = true);
-        self.last_seen_state = None;
-    }
-
     /// Remove all scoped watchpoints (typically it is watchpoints at local variables)
     /// and disable non-scoped.
-    pub fn clear_local_forget_global(
+    pub fn clear_local_disable_global(
         &mut self,
         tracee_ctl: &TraceeCtl,
         breakpoints: &mut BreakpointRegistry,
@@ -688,16 +662,6 @@ impl WatchpointRegistry {
         }
         self.last_seen_state = None;
         result
-    }
-
-    /// Remove all scoped watchpoints without disabling.
-    pub fn clear_local_and_forget_all(&mut self) {
-        // this is hack for disable a watchpoint without real disabling
-        self.watchpoints.retain_mut(|wp| {
-            wp.disabled = true;
-            !wp.scoped()
-        });
-        self.last_seen_state = None;
     }
 
     /// Distribute all existed watchpoints to a new tracee (thread).
