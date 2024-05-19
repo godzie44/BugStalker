@@ -467,7 +467,11 @@ impl Debugger {
             ))?;
             match event {
                 StopReason::DebugeeExit(code) => {
-                    self.watchpoints.clear_local_and_forget_all();
+                    // ignore all possible errors on watchpoints disabling
+                    _ = self.watchpoints.clear_local_disable_global(
+                        self.debugee.tracee_ctl(),
+                        &mut self.breakpoints,
+                    );
                     // ignore all possible errors on breakpoints disabling
                     _ = self.breakpoints.disable_all_breakpoints(&self.debugee);
                     self.hooks.on_exit(code);
@@ -593,16 +597,17 @@ impl Debugger {
     pub fn restart_debugee(&mut self) -> Result<Pid, Error> {
         match self.debugee.execution_status() {
             ExecutionStatus::Unload => {
-                // all breakpoints already disabled by default
+                // all breakpoints and watchpoints already disabled by default
             }
             ExecutionStatus::InProgress => {
                 print_warns!(self
                     .watchpoints
-                    .clear_local_forget_global(self.debugee.tracee_ctl(), &mut self.breakpoints));
+                    .clear_local_disable_global(self.debugee.tracee_ctl(), &mut self.breakpoints));
                 print_warns!(self.breakpoints.disable_all_breakpoints(&self.debugee)?);
             }
             ExecutionStatus::Exited => {
-                // all breakpoints already disabled by [`StopReason::DebugeeExit`] handler
+                // all breakpoints and watchpoints
+                // already disabled by [`StopReason::DebugeeExit`] handler
             }
         }
 
@@ -1090,9 +1095,7 @@ impl Drop for Debugger {
                     WaitStatus::Signaled(_, Signal::SIGKILL, _)
                 ));
             }
-            ExecutionStatus::Exited => {
-                self.watchpoints.clear_and_forget_all();
-            }
+            ExecutionStatus::Exited => {}
         }
     }
 }
