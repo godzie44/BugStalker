@@ -28,6 +28,7 @@ pub use debugee::RegionInfo;
 pub use debugee::ThreadSnapshot;
 pub use error::Error;
 pub use watchpoint::WatchpointView;
+pub use watchpoint::WatchpointViewOwned;
 
 use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};

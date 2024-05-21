@@ -3,7 +3,8 @@ pub mod port;
 use crate::debugger::Error;
 use crate::ui::command;
 use crate::ui::command::r#break::BreakpointIdentity;
-use crate::ui::command::{r#break, run, CommandError};
+use crate::ui::command::watch::WatchpointIdentity;
+use crate::ui::command::{r#break, run, watch, CommandError};
 use crate::ui::tui::app::port::{
     AsyncResponsesPort, DebuggerEventQueue, DebuggerEventsPort, LoggerPort, OutputPort, UserEvent,
 };
@@ -304,7 +305,7 @@ impl Model {
                 }
                 Msg::BreakpointAdd(r#type) => {
                     if !self.exchanger.is_messaging_enabled() {
-                        warn!(target: "tui", "try to add breakpoint but messaging disabled");
+                        warn!(target: "tui", "trying to add breakpoint but messaging is disabled");
                         return Ok(None);
                     }
 
@@ -336,6 +337,25 @@ impl Model {
                             },
                             InputStringType::BreakpointAddAtAddress,
                         ),
+                        BreakpointsAddType::Watchpoint => (
+                            |s| -> bool {
+                                command::parser::watchpoint_cond()
+                                    .then(
+                                        command::parser::watchpoint_at_dqe()
+                                            .or(command::parser::watchpoint_at_address()),
+                                    )
+                                    .parse(s)
+                                    .into_result()
+                                    .is_ok()
+                            },
+                            InputStringType::Watchpoint,
+                        ),
+                    };
+
+                    let title = if matches!(r#type, BreakpointsAddType::Watchpoint) {
+                        "Add watchpoint".to_string()
+                    } else {
+                        "Add breakpoint".to_string()
                     };
 
                     self.app.attr(
@@ -349,7 +369,7 @@ impl Model {
                     self.app.attr(
                         &Id::Input,
                         Attribute::Title,
-                        AttrValue::Title(("Add breakpoint".to_string(), Alignment::Left)),
+                        AttrValue::Title((title, Alignment::Left)),
                     )?;
                     self.app.attr(
                         &Id::Input,
@@ -386,6 +406,7 @@ impl Model {
                                 InputStringType::BreakpointAddAtAddress => {
                                     BreakpointIdentity::Address(input.parse().expect("infallible"))
                                 }
+                                _ => unreachable!(),
                             };
 
                             let cmd = r#break::Command::Add(identity);
@@ -401,11 +422,37 @@ impl Model {
                             self.update_breakpoints()?;
                             Ok(None)
                         }
+                        InputStringType::Watchpoint => {
+                            // TODO two times parsing
+                            let (cond, identity) = command::parser::watchpoint_cond()
+                                .then(
+                                    command::parser::watchpoint_at_dqe()
+                                        .or(command::parser::watchpoint_at_address()),
+                                )
+                                .parse(&input)
+                                .into_result()
+                                .expect("infallible");
+                            let cmd = watch::Command::Add(identity, cond);
+                            self.exchanger
+                                .request_sync(move |dbg| -> anyhow::Result<()> {
+                                    command::watch::Handler::new(dbg).handle(cmd)?;
+                                    Ok(())
+                                })
+                                .expect("messaging enabled")?;
+
+                            self.app.unlock_subs();
+                            self.app.blur()?;
+                            self.update_breakpoints()?;
+                            Ok(None)
+                        }
                     };
                 }
                 Msg::InputCancel => {
                     self.app.unlock_subs();
                     self.app.blur()?;
+                    self.update_breakpoints()?;
+                }
+                Msg::UpdateBreakpointList => {
                     self.update_breakpoints()?;
                 }
                 Msg::ShowOkPopup(title, text) => {
@@ -464,6 +511,29 @@ impl Model {
                     )?;
                     self.app.active(&Id::Popup)?;
                 }
+                Msg::PopupWatchpoint(wp) => {
+                    let dqe = if let Some(ref dqe) = wp.source_dqe {
+                        format!("For: {dqe}\n")
+                    } else {
+                        String::new()
+                    };
+
+                    let text = format!(
+                        "Watchpoint #{}\n{dqe}Address: {}\nCondition: {}, size: {}",
+                        wp.number, wp.address, wp.condition, wp.size
+                    );
+
+                    self.app
+                        .attr(&Id::Popup, Attribute::Text, AttrValue::String(text))?;
+                    let (attr, attr_val) = Popup::yes_no_attrs(YesNoLabels::new("OK", "Remove"));
+                    self.app.attr(&Id::Popup, attr, attr_val)?;
+                    self.app.attr(
+                        &Id::Popup,
+                        Attribute::Custom("action"),
+                        AttrValue::String(ConfirmedAction::RemoveWatchpoint.to_string()),
+                    )?;
+                    self.app.active(&Id::Popup)?;
+                }
                 Msg::PopupYes(action) => match action {
                     ConfirmedAction::Restart => {
                         self.exchanger
@@ -488,6 +558,20 @@ impl Model {
                                 let cmd =
                                     r#break::Command::Remove(BreakpointIdentity::Number(brkpt_num));
                                 command::r#break::Handler::new(dbg).handle(&cmd)?;
+                                Ok(())
+                            })
+                            .expect("messaging enabled")?;
+                        self.app.blur()?;
+                        self.update_breakpoints()?;
+                    }
+                    ConfirmedAction::RemoveWatchpoint => {
+                        // the left tab must contain a watchpoint as active window
+                        let wp_num = self.app.state(&Id::LeftTabs)?.unwrap_one().unwrap_u32();
+                        self.exchanger
+                            .request_sync(move |dbg| -> anyhow::Result<()> {
+                                let cmd =
+                                    watch::Command::Remove(WatchpointIdentity::Number(wp_num));
+                                command::watch::Handler::new(dbg).handle(cmd)?;
                                 Ok(())
                             })
                             .expect("messaging enabled")?;

@@ -1,5 +1,5 @@
 use crate::debugger::process::{Child, Installed};
-use crate::debugger::{BreakpointViewOwned, Debugger, DebuggerBuilder};
+use crate::debugger::{BreakpointViewOwned, Debugger, DebuggerBuilder, WatchpointViewOwned};
 pub use crate::ui::tui::app::port::TuiHook;
 use crate::ui::tui::app::port::{DebuggerEventQueue, UserEvent};
 use crate::ui::tui::app::Model;
@@ -42,6 +42,7 @@ pub enum Id {
 pub enum ConfirmedAction {
     Restart,
     RemoveBreakpoint,
+    RemoveWatchpoint,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -49,6 +50,7 @@ pub enum BreakpointsAddType {
     AtLine,
     AtFunction,
     AtAddress,
+    Watchpoint,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -60,10 +62,12 @@ pub enum Msg {
     RightTabsInFocus { reset_to: Option<props::Direction> },
     SwitchUI,
     BreakpointAdd(BreakpointsAddType),
+    UpdateBreakpointList,
     ExpandTab(Id),
 
     PopupConfirmDebuggerRestart,
     PopupBreakpoint(BreakpointViewOwned),
+    PopupWatchpoint(WatchpointViewOwned),
     ShowOkPopup(Option<String>, String),
     PopupOk,
     PopupYes(ConfirmedAction),

@@ -1,3 +1,4 @@
+use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::render::{RenderRepr, ValueLayout};
 use crate::debugger::variable::select::{Literal, VariableSelector, DQE};
 use crate::debugger::variable::{select, VariableIR};
@@ -248,6 +249,19 @@ impl Variables {
                 SubClause::Always,
             ),
             Sub::new(
+                SubEventClause::User(UserEvent::Watchpoint {
+                    pc: Default::default(),
+                    num: 0,
+                    file: None,
+                    line: None,
+                    cond: BreakCondition::DataReadsWrites,
+                    old_value: None,
+                    new_value: None,
+                    end_of_scope: false,
+                }),
+                SubClause::Always,
+            ),
+            Sub::new(
                 SubEventClause::User(UserEvent::Step {
                     pc: Default::default(),
                     file: None,
@@ -329,6 +343,7 @@ impl Component<Msg, UserEvent> for Variables {
                 self.perform(Cmd::Submit);
             }
             Event::User(UserEvent::Breakpoint { .. })
+            | Event::User(UserEvent::Watchpoint { .. })
             | Event::User(UserEvent::Exit(_))
             | Event::User(UserEvent::Step { .. }) => {
                 self.exchanger.enable_messaging();

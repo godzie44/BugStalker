@@ -428,7 +428,7 @@ impl Entry {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd)]
 pub enum DieRef {
     Unit(UnitOffset),
     Global(DebugInfoOffset),
