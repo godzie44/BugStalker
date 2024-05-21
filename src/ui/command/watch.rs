@@ -63,7 +63,7 @@ impl<'a> Handler<'a> {
                 Ok(ExecutionResult::Removed(rem))
             }
             Command::Info => {
-                let list = self.dbg.watchpoint_list()?;
+                let list = self.dbg.watchpoint_list();
                 Ok(ExecutionResult::Dump(list))
             }
         }
