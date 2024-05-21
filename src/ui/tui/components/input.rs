@@ -64,7 +64,7 @@ impl Component<Msg, UserEvent> for Input {
             }) => self.perform(Cmd::Delete),
             Event::Keyboard(KeyEvent {
                 code: Key::Char(ch),
-                modifiers: KeyModifiers::NONE,
+                ..
             }) => self.perform(Cmd::Type(ch)),
             Event::Keyboard(KeyEvent {
                 code: Key::Enter, ..
