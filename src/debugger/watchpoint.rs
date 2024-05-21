@@ -474,9 +474,9 @@ impl Watchpoint {
         let state = self.hw.disable(tracee_ctl)?;
 
         if let Subject::Expression(ref e) = self.subject {
-            // remove breakpoint to the end of expression block
+            // decrease companion breakpoint refcount
             if let Some(brkpt) = e.companion {
-                breakpoints.remove_by_num(brkpt)?;
+                breakpoints.decrease_companion_rc(brkpt, self.number)?;
             }
         }
         Ok(state)
@@ -771,8 +771,8 @@ impl Debugger {
     }
 
     /// Return a list of all watchpoints.
-    pub fn watchpoint_list(&self) -> Result<Vec<WatchpointView>, Error> {
-        Ok(self.watchpoints.all().iter().map(|wp| wp.into()).collect())
+    pub fn watchpoint_list(&self) -> Vec<WatchpointView> {
+        self.watchpoints.all().iter().map(|wp| wp.into()).collect()
     }
 
     pub(super) fn execute_on_watchpoint_hook(

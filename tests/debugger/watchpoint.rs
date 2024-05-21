@@ -58,7 +58,7 @@ fn test_watchpoint_works() {
     assert_eq!(info.line.take(), Some(31));
     assert!(info.new_value.take().is_none());
 
-    assert!(debugger.watchpoint_list().unwrap().is_empty());
+    assert!(debugger.watchpoint_list().is_empty());
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
@@ -96,7 +96,7 @@ fn test_watchpoint_works_2() {
     let (old, new) = (SupportedScalar::I8(6), None);
     assert_old_new(&info, "int8", "i8", old, new);
 
-    assert!(dbg.watchpoint_list().unwrap().is_empty());
+    assert!(dbg.watchpoint_list().is_empty());
     dbg.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
@@ -129,7 +129,7 @@ fn test_watchpoint_global_var() {
     dbg.continue_debugee().unwrap();
 
     // watchpoint at global variables never removed automatically
-    assert_eq!(dbg.watchpoint_list().unwrap().len(), 1);
+    assert_eq!(dbg.watchpoint_list().len(), 1);
     assert_no_proc!(debugee_pid);
 }
 
@@ -171,7 +171,46 @@ fn test_max_watchpoint_count() {
     dbg.continue_debugee().unwrap();
     assert!(info.new_value.take().is_none());
 
-    assert!(dbg.watchpoint_list().unwrap().is_empty());
+    assert!(dbg.watchpoint_list().is_empty());
+    dbg.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_watchpoint_remove_and_continue() {
+    // 1) set 2 watchpoint with same scope end and same companion breakpoints
+    // 2) remove one of watchpoint
+    // 3) check that for another watchpoint stop at the end of scope works well - this means
+    // that companion not deleted at step 2)
+    let process = prepare_debugee_process(CALCULATIONS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = TestInfo::default();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut dbg = builder.build(process).unwrap();
+    dbg.set_breakpoint_at_line("calculations.rs", 22).unwrap();
+
+    dbg.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(22));
+
+    let a_wp_dqe = DQE::Variable(VariableSelector::by_name("a", false));
+    dbg.set_watchpoint_on_expr("a", a_wp_dqe.clone(), DataWrites)
+        .unwrap();
+    let d_wp_dqe = DQE::Variable(VariableSelector::by_name("d", false));
+    dbg.set_watchpoint_on_expr("d", d_wp_dqe, DataWrites)
+        .unwrap();
+
+    dbg.continue_debugee().unwrap();
+    let (old, new) = (SupportedScalar::U64(1), Some(SupportedScalar::U64(6)));
+    assert_old_new(&info, "a", "u64", old, new);
+    dbg.remove_watchpoint_by_expr(a_wp_dqe).unwrap();
+    dbg.continue_debugee().unwrap();
+    let (old, new) = (SupportedScalar::U64(4), Some(SupportedScalar::U64(3)));
+    assert_old_new(&info, "d", "u64", old, new);
+    dbg.continue_debugee().unwrap();
+    assert!(info.new_value.take().is_none());
+
+    assert!(dbg.watchpoint_list().is_empty());
     dbg.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
@@ -216,7 +255,7 @@ fn test_watchpoint_global_var_multithread() {
     dbg.continue_debugee().unwrap();
 
     // watchpoint at global variables never removed automatically
-    assert_eq!(dbg.watchpoint_list().unwrap().len(), 1);
+    assert_eq!(dbg.watchpoint_list().len(), 1);
     assert_no_proc!(debugee_pid);
 }
 
@@ -247,7 +286,7 @@ fn test_watchpoint_local_var_multithread() {
     assert_old_new(&info, "a", "i32", old, new);
 
     dbg.continue_debugee().unwrap();
-    assert!(dbg.watchpoint_list().unwrap().is_empty());
+    assert!(dbg.watchpoint_list().is_empty());
     assert_no_proc!(debugee_pid);
 }
 
