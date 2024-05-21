@@ -1,3 +1,4 @@
+use crate::debugger::register::debug::BreakCondition;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::{Id, Msg};
 use nix::sys::signal::Signal;
@@ -82,6 +83,19 @@ impl Status {
                 SubClause::Always,
             ),
             Sub::new(
+                SubEventClause::User(UserEvent::Watchpoint {
+                    pc: Default::default(),
+                    num: 0,
+                    file: None,
+                    line: None,
+                    cond: BreakCondition::DataReadsWrites,
+                    old_value: None,
+                    new_value: None,
+                    end_of_scope: false,
+                }),
+                SubClause::Always,
+            ),
+            Sub::new(
                 SubEventClause::User(UserEvent::Step {
                     pc: Default::default(),
                     file: None,
@@ -131,9 +145,17 @@ impl Component<Msg, UserEvent> for Status {
 
         match ev {
             Event::User(user_event) => match user_event {
-                UserEvent::Breakpoint { .. } => {
-                    set_text_fn("stopped at breakpoint");
+                UserEvent::Breakpoint { num, .. } => {
+                    set_text_fn(&format!("stopped at breakpoint #{num}"));
                     Some(Msg::None)
+                }
+                UserEvent::Watchpoint {
+                    num, end_of_scope, ..
+                } => {
+                    set_text_fn(&format!("stopped at watchpoint #{num}"));
+                    end_of_scope
+                        .then_some(Msg::UpdateBreakpointList)
+                        .or(Some(Msg::None))
                 }
                 UserEvent::Step { .. } => {
                     set_text_fn("stopped");
