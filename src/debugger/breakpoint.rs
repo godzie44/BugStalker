@@ -993,6 +993,45 @@ impl BreakpointRegistry {
         (&self.disabled_breakpoints[&addr]).into()
     }
 
+    /// Decrease watchpoint reference counter for companion breakpoint.
+    /// Remove breakpoint if there are no more references to watchpoints.
+    ///
+    /// # Arguments
+    ///
+    /// * `num`: companion breakpoint number
+    /// * `target_wp_num`: watchpoint number
+    ///
+    /// # Panics
+    ///
+    /// Panic if breakpoint is not a companion type.
+    pub fn decrease_companion_rc(&mut self, num: u32, target_wp_num: u32) -> Result<(), Error> {
+        let Some(companion) = self
+            .breakpoints
+            .values_mut()
+            .find(|brkpt| brkpt.number == num)
+        else {
+            return Ok(());
+        };
+
+        let BrkptType::WatchpointCompanion(wps) = companion.r#type() else {
+            panic!("not a watchpoint companion");
+        };
+        debug_assert!(wps.contains(&target_wp_num));
+
+        if wps.len() == 1 && wps[0] == target_wp_num {
+            self.remove_by_num(num)?;
+        } else {
+            let new_wps: Vec<_> = wps
+                .iter()
+                .filter(|&&wp_num| wp_num != target_wp_num)
+                .copied()
+                .collect();
+            companion.r#type = BrkptType::WatchpointCompanion(new_wps);
+        };
+
+        Ok(())
+    }
+
     /// Remove breakpoint or uninit breakpoint from registry.
     pub fn remove_by_addr(
         &mut self,
