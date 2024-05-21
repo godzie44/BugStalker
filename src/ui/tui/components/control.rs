@@ -1,3 +1,4 @@
+use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::Error;
 use crate::ui::command;
 use crate::ui::command::{run, CommandError};
@@ -113,6 +114,20 @@ impl GlobalControl {
                     file: None,
                     line: None,
                     function: None,
+                }),
+                SubClause::Always,
+            ),
+            Sub::new(
+                // concrete watchpoint doesn't meter
+                SubEventClause::User(UserEvent::Watchpoint {
+                    pc: Default::default(),
+                    num: 0,
+                    file: None,
+                    line: None,
+                    cond: BreakCondition::DataReadsWrites,
+                    old_value: None,
+                    new_value: None,
+                    end_of_scope: false,
                 }),
                 SubClause::Always,
             ),
@@ -280,7 +295,8 @@ impl Component<Msg, UserEvent> for GlobalControl {
             }
             Event::User(UserEvent::Breakpoint { .. })
             | Event::User(UserEvent::Exit(_))
-            | Event::User(UserEvent::Step { .. }) => {
+            | Event::User(UserEvent::Step { .. })
+            | Event::User(UserEvent::Watchpoint { .. }) => {
                 self.exchanger.enable_messaging();
                 Msg::None
             }

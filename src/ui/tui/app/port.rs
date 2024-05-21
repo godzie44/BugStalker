@@ -9,11 +9,18 @@ use crate::version;
 use log::warn;
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
+use std::cmp::Ordering;
 use std::sync::{Arc, Mutex};
 use tuirealm::listener::{ListenerResult, Poll};
 use tuirealm::Event;
 
-#[derive(Eq, Clone, PartialOrd)]
+impl PartialOrd for VariableIR {
+    fn partial_cmp(&self, _: &Self) -> Option<Ordering> {
+        None
+    }
+}
+
+#[derive(Clone, PartialOrd)]
 pub enum UserEvent {
     GotOutput(Vec<OutputLine>, usize),
     Breakpoint {
@@ -22,6 +29,16 @@ pub enum UserEvent {
         file: Option<String>,
         line: Option<u64>,
         function: Option<String>,
+    },
+    Watchpoint {
+        pc: RelocatedAddress,
+        num: u32,
+        file: Option<String>,
+        line: Option<u64>,
+        cond: BreakCondition,
+        old_value: Option<VariableIR>,
+        new_value: Option<VariableIR>,
+        end_of_scope: bool,
     },
     Step {
         pc: RelocatedAddress,
@@ -59,9 +76,12 @@ impl PartialEq for UserEvent {
             UserEvent::ProcessInstall(_) => {
                 matches!(other, UserEvent::ProcessInstall(_))
             }
+            UserEvent::Watchpoint { .. } => matches!(other, UserEvent::Watchpoint { .. }),
         }
     }
 }
+
+impl Eq for UserEvent {}
 
 pub struct OutputPort {
     output_buf: Arc<Mutex<Vec<OutputLine>>>,
@@ -127,21 +147,23 @@ impl EventHook for TuiHook {
         pc: RelocatedAddress,
         num: u32,
         place: Option<PlaceDescriptor>,
-        _: BreakCondition,
-        _old: Option<&VariableIR>,
-        _new: Option<&VariableIR>,
-        _end_of_scope: bool,
+        cond: BreakCondition,
+        old: Option<&VariableIR>,
+        new: Option<&VariableIR>,
+        end_of_scope: bool,
     ) -> anyhow::Result<()> {
-        // TODO
         self.event_queue
             .lock()
             .unwrap()
-            .push(UserEvent::Breakpoint {
+            .push(UserEvent::Watchpoint {
                 pc,
                 num,
                 file: place.as_ref().map(|p| p.file.to_string_lossy().to_string()),
                 line: place.as_ref().map(|p| p.line_number),
-                function: None,
+                cond,
+                old_value: old.cloned(),
+                new_value: new.cloned(),
+                end_of_scope,
             });
         Ok(())
     }

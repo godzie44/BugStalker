@@ -556,7 +556,7 @@ pub mod debug {
     /// Specifies the breakpoint condition for a corresponding breakpoint.
     ///
     /// Instruction and i/o read-write conditions are unused and aren't presented here.
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
     pub enum BreakCondition {
         /// 01 — Break on data writes only.
         DataWrites = 0b01,

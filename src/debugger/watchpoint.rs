@@ -534,6 +534,27 @@ impl<'a> From<Watchpoint> for WatchpointView<'a> {
     }
 }
 
+impl<'a> WatchpointView<'a> {
+    pub fn to_owned(&self) -> WatchpointViewOwned {
+        WatchpointViewOwned {
+            number: self.number,
+            address: self.address,
+            condition: self.condition,
+            source_dqe: self.source_dqe.as_ref().map(|dqe| dqe.to_string()),
+            size: self.size,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WatchpointViewOwned {
+    pub number: u32,
+    pub address: RelocatedAddress,
+    pub condition: BreakCondition,
+    pub source_dqe: Option<String>,
+    pub size: BreakSize,
+}
+
 /// Container for application watchpoints.
 #[derive(Default)]
 pub struct WatchpointRegistry {

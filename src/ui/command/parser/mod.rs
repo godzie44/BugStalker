@@ -125,6 +125,33 @@ pub fn brkpt_at_fn<'a>() -> impl chumsky::Parser<'a, &'a str, BreakpointIdentity
         .map(|fn_name: &str| BreakpointIdentity::Function(fn_name.trim().to_string()))
 }
 
+pub fn watchpoint_cond<'a>() -> impl chumsky::Parser<'a, &'a str, BreakCondition, Err<'a>> {
+    let ws_req = whitespace().at_least(1);
+    let ws_req_or_end = ws_req.or(end());
+    let op = |sym| whitespace().then(just(sym)).then(ws_req_or_end);
+    op("+rw")
+        .to(BreakCondition::DataReadsWrites)
+        .or(op("+rw").to(BreakCondition::DataWrites))
+        .or(text::whitespace().to(BreakCondition::DataWrites))
+}
+
+pub fn watchpoint_at_dqe<'a>() -> impl chumsky::Parser<'a, &'a str, WatchpointIdentity, Err<'a>> {
+    let source_rewind_parser = any::<_, Err>().repeated().to_slice().rewind();
+    source_rewind_parser
+        .then(expression::parser().padded())
+        .map(|(source, dqe)| WatchpointIdentity::DQE(source.trim().to_string(), dqe))
+}
+
+pub fn watchpoint_at_address<'a>() -> impl chumsky::Parser<'a, &'a str, WatchpointIdentity, Err<'a>>
+{
+    hex()
+        .then(just(':').ignore_then(one_of("1248")))
+        .padded()
+        .map(|(addr, size)| {
+            WatchpointIdentity::Address(addr, size.to_digit(10).expect("infallible") as u8)
+        })
+}
+
 fn command<'a, I>(ctx: &'static str, inner: I) -> Boxed<'a, 'a, &'a str, Command, Err<'a>>
 where
     I: chumsky::Parser<'a, &'a str, Command, Err<'a>> + 'a,
@@ -305,17 +332,6 @@ impl Command {
             )))
             .boxed();
 
-        let cond_parser = op("+rw")
-            .to(BreakCondition::DataReadsWrites)
-            .or(op("+rw").to(BreakCondition::DataWrites))
-            .or(text::whitespace().to(BreakCondition::DataWrites));
-        let address_expr_parser = hex()
-            .then(just(':').ignore_then(one_of("1248")))
-            .padded()
-            .map(|(addr, size)| {
-                WatchpointIdentity::Address(addr, size.to_digit(10).expect("infallible") as u8)
-            });
-        let source_rewind_parser = any::<_, Err>().repeated().to_slice().rewind();
         let watchpoint = op2_w_arg(WATCH_COMMAND, WATCH_COMMAND_SHORT)
             .ignore_then(choice((
                 sub_op2_w_arg(WATCH_REMOVE_SUBCOMMAND, WATCH_REMOVE_SUBCOMMAND_SHORT)
@@ -325,25 +341,18 @@ impl Command {
                             .unwrapped()
                             .map(|number: u32| WatchpointIdentity::Number(number))
                             .padded(),
-                        address_expr_parser.clone(),
-                        source_rewind_parser
-                            .then(expression::parser().padded())
-                            .map(|(source, dqe)| {
-                                WatchpointIdentity::DQE(source.trim().to_string(), dqe)
-                            }),
+                        watchpoint_at_address(),
+                        watchpoint_at_dqe(),
                     )))
                     .map(|ident| Command::Watchpoint(watch::Command::Remove(ident))),
                 sub_op(BREAK_INFO_SUBCOMMAND).to(Command::Watchpoint(watch::Command::Info)),
-                cond_parser
-                    .then(address_expr_parser)
+                watchpoint_cond()
+                    .then(watchpoint_at_address())
                     .map(|(cond, ident)| Command::Watchpoint(watch::Command::Add(ident, cond))),
-                cond_parser
-                    .then(source_rewind_parser.then(expression::parser().padded()))
-                    .map(|(cond, (source, dqe))| {
-                        Command::Watchpoint(watch::Command::Add(
-                            WatchpointIdentity::DQE(source.trim().to_string(), dqe),
-                            cond,
-                        ))
+                watchpoint_cond()
+                    .then(watchpoint_at_dqe())
+                    .map(|(cond, identity)| {
+                        Command::Watchpoint(watch::Command::Add(identity, cond))
                     }),
             )))
             .boxed();

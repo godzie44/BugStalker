@@ -2,7 +2,7 @@ use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::Msg;
 use strum_macros::{Display, EnumString};
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
-use tuirealm::event::{Key, KeyEvent, KeyModifiers};
+use tuirealm::event::{Key, KeyEvent};
 use tuirealm::props::{Borders, InputType};
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::style::{Color, Style};
@@ -14,6 +14,7 @@ pub enum InputStringType {
     BreakpointAddAtLine,
     BreakpointAddAtFunction,
     BreakpointAddAtAddress,
+    Watchpoint,
 }
 
 #[derive(MockComponent)]

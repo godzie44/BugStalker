@@ -1,3 +1,4 @@
+use crate::debugger::register::debug::BreakCondition;
 use crate::ui::short::Abbreviator;
 use crate::ui::syntax;
 use crate::ui::syntax::StylizedLine;
@@ -170,6 +171,19 @@ impl Source {
                 SubClause::Always,
             ),
             Sub::new(
+                SubEventClause::User(UserEvent::Watchpoint {
+                    pc: Default::default(),
+                    num: 0,
+                    file: None,
+                    line: None,
+                    cond: BreakCondition::DataReadsWrites,
+                    old_value: None,
+                    new_value: None,
+                    end_of_scope: false,
+                }),
+                SubClause::Always,
+            ),
+            Sub::new(
                 SubEventClause::User(UserEvent::Step {
                     pc: Default::default(),
                     file: None,
@@ -214,7 +228,8 @@ impl Component<Msg, UserEvent> for Source {
                 self.perform(Cmd::GoTo(Position::End));
             }
             Event::User(UserEvent::Breakpoint { file, line, .. })
-            | Event::User(UserEvent::Step { file, line, .. }) => {
+            | Event::User(UserEvent::Step { file, line, .. })
+            | Event::User(UserEvent::Watchpoint { file, line, .. }) => {
                 if let Some(file) = file {
                     weak_error!(self.update_source_view(PathBuf::from(file).as_path(), line));
                 }
