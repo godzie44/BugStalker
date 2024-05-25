@@ -1,6 +1,9 @@
 use crate::debugger::register::debug::BreakCondition;
+use crate::ui;
 use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::config::{SpecialAction, WrappedKeyEvent};
 use crate::ui::tui::{Id, Msg};
+use itertools::Itertools;
 use nix::sys::signal::Signal;
 use tui_realm_stdlib::Container;
 use tuirealm::command::{Cmd, CmdResult};
@@ -35,11 +38,30 @@ impl Status {
                     .modifiers(BorderType::Rounded),
             );
 
+        let keymap = &ui::config::current().tui_keymap;
+        let render_keys = |action: SpecialAction| -> String {
+            keymap
+                .keys_for_special_action(action)
+                .into_iter()
+                .map(|key| WrappedKeyEvent(*key).to_string())
+                .join(", ")
+        };
+
+        let keymap_help = format!(
+            "<{} / {}> expand left/right window | <{}> step out | <{}> step | <{}> step over | <{}> continue | <{}> start/restart | <{}> go to console | <{}> quit",
+            render_keys(SpecialAction::ExpandLeftWindow),
+            render_keys(SpecialAction::ExpandRightWindow),
+            render_keys(SpecialAction::StepOut),
+            render_keys(SpecialAction::StepInto),
+            render_keys(SpecialAction::StepOver),
+            render_keys(SpecialAction::ContinueDebugee),
+            render_keys(SpecialAction::RunDebugee),
+            render_keys(SpecialAction::SwitchUI),
+            render_keys(SpecialAction::CloseApp),
+        );
+
         let help = tui_realm_stdlib::Paragraph::default()
-            .text(&[TextSpan::new(
-                "<ALT>+<1>/<2> expand left/right window | <F6> step out | <F7> step | <F8> step over | <F9>/<c> continue | <F10>/<r> start/restart | <ESC> go to console | <q> quit",
-            )
-                .fg(Color::Green).bold()])
+            .text(&[TextSpan::new(keymap_help).fg(Color::Green).bold()])
             .alignment(Alignment::Left)
             .title("Help", Alignment::Center)
             .borders(

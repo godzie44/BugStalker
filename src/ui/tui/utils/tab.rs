@@ -1,9 +1,10 @@
+use crate::ui;
 use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::config::{CommonAction, SpecialAction};
 use crate::ui::tui::utils::flex_radio;
 use crate::ui::tui::Msg;
 use strum_macros::FromRepr;
 use tuirealm::command::{Cmd, CmdResult, Direction};
-use tuirealm::event::{Key, KeyEvent};
 use tuirealm::props::{
     Alignment, BorderSides, BorderType, Borders, Color, Layout, PropPayload, PropValue,
 };
@@ -273,27 +274,32 @@ impl MockComponent for TabWindow {
 impl Component<Msg, UserEvent> for TabWindow {
     fn on(&mut self, ev: Event<UserEvent>) -> Option<Msg> {
         let cmd_res = match ev {
-            Event::Keyboard(KeyEvent {
-                code: Key::Left, ..
-            }) => self.perform(Cmd::Move(Direction::Left)),
-            Event::Keyboard(KeyEvent {
-                code: Key::Right, ..
-            })
-            | Event::Keyboard(KeyEvent { code: Key::Tab, .. }) => {
-                self.perform(Cmd::Move(Direction::Right))
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Enter, ..
-            }) => {
-                let res = self.perform(Cmd::Submit);
-                if let CmdResult::Submit(state) = res {
-                    let tab_idx = state.unwrap_one().unwrap_usize();
-                    self.set_active_idx(tab_idx);
-                    return Some(Msg::None);
-                }
+            Event::Keyboard(key_event) => {
+                let keymap = &ui::config::current().tui_keymap;
+                if let Some(action) = keymap.get_common(&key_event) {
+                    match action {
+                        CommonAction::Left => self.perform(Cmd::Move(Direction::Left)),
+                        CommonAction::Right => self.perform(Cmd::Move(Direction::Right)),
+                        CommonAction::Submit => {
+                            let res = self.perform(Cmd::Submit);
+                            if let CmdResult::Submit(state) = res {
+                                let tab_idx = state.unwrap_one().unwrap_usize();
+                                self.set_active_idx(tab_idx);
+                                return Some(Msg::None);
+                            }
 
-                CmdResult::None
+                            CmdResult::None
+                        }
+                        _ => CmdResult::None,
+                    }
+                } else if let Some(SpecialAction::SwitchWindowTab) = keymap.get_special(&key_event)
+                {
+                    self.perform(Cmd::Move(Direction::Right))
+                } else {
+                    CmdResult::None
+                }
             }
+
             Event::User(_) | Event::Tick => {
                 // user events and tick send to all windows
                 for (i, window) in self.windows.iter_mut().enumerate() {

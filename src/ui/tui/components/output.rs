@@ -1,9 +1,10 @@
+use crate::ui;
 use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::config::CommonAction;
 use crate::ui::tui::output::OutputLine;
 use crate::ui::tui::{Id, Msg};
 use tui_realm_stdlib::Textarea;
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
-use tuirealm::event::{Key, KeyEvent};
 use tuirealm::props::{Borders, PropPayload, PropValue, Style, TextSpan};
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::prelude::Color;
@@ -53,25 +54,34 @@ impl Output {
 impl Component<Msg, UserEvent> for Output {
     fn on(&mut self, ev: Event<UserEvent>) -> Option<Msg> {
         let _ = match ev {
-            Event::Keyboard(KeyEvent {
-                code: Key::Down, ..
-            }) => self.perform(Cmd::Move(Direction::Down)),
-            Event::Keyboard(KeyEvent { code: Key::Up, .. }) => {
-                self.perform(Cmd::Move(Direction::Up))
+            Event::Keyboard(key_event) => {
+                let keymap = &ui::config::current().tui_keymap;
+                if let Some(action) = keymap.get_common(&key_event) {
+                    match action {
+                        CommonAction::Up => {
+                            self.perform(Cmd::Move(Direction::Up));
+                        }
+                        CommonAction::Down => {
+                            self.perform(Cmd::Move(Direction::Down));
+                        }
+                        CommonAction::ScrollUp => {
+                            self.perform(Cmd::Scroll(Direction::Up));
+                        }
+                        CommonAction::ScrollDown => {
+                            self.perform(Cmd::Scroll(Direction::Down));
+                        }
+                        CommonAction::GotoBegin => {
+                            self.perform(Cmd::GoTo(Position::Begin));
+                        }
+                        CommonAction::GotoEnd => {
+                            self.perform(Cmd::GoTo(Position::End));
+                        }
+                        _ => {}
+                    }
+                }
+                CmdResult::None
             }
-            Event::Keyboard(KeyEvent {
-                code: Key::PageDown,
-                ..
-            }) => self.perform(Cmd::Scroll(Direction::Down)),
-            Event::Keyboard(KeyEvent {
-                code: Key::PageUp, ..
-            }) => self.perform(Cmd::Scroll(Direction::Up)),
-            Event::Keyboard(KeyEvent {
-                code: Key::Home, ..
-            }) => self.perform(Cmd::GoTo(Position::Begin)),
-            Event::Keyboard(KeyEvent { code: Key::End, .. }) => {
-                self.perform(Cmd::GoTo(Position::End))
-            }
+
             Event::User(UserEvent::GotOutput(output, _)) => {
                 let rows: Vec<_> = output
                     .into_iter()

@@ -1,4 +1,6 @@
+use crate::ui;
 use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::config::CommonAction;
 use crate::ui::tui::Msg;
 use strum_macros::{Display, EnumString};
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
@@ -42,41 +44,53 @@ impl Default for Input {
 
 impl Component<Msg, UserEvent> for Input {
     fn on(&mut self, ev: Event<UserEvent>) -> Option<Msg> {
-        let _ = match ev {
-            Event::Keyboard(KeyEvent {
-                code: Key::Left, ..
-            }) => self.perform(Cmd::Move(Direction::Left)),
-            Event::Keyboard(KeyEvent {
-                code: Key::Right, ..
-            }) => self.perform(Cmd::Move(Direction::Right)),
-            Event::Keyboard(KeyEvent {
-                code: Key::Home, ..
-            }) => self.perform(Cmd::GoTo(Position::Begin)),
-            Event::Keyboard(KeyEvent { code: Key::End, .. }) => {
-                self.perform(Cmd::GoTo(Position::End))
+        if let Event::Keyboard(key_event) = ev {
+            let keymap = &ui::config::current().tui_keymap;
+            if let Some(action) = keymap.get_common(&key_event) {
+                match action {
+                    CommonAction::Left => {
+                        self.perform(Cmd::Move(Direction::Left));
+                        return Some(Msg::None);
+                    }
+                    CommonAction::Right => {
+                        self.perform(Cmd::Move(Direction::Right));
+                        return Some(Msg::None);
+                    }
+                    CommonAction::GotoBegin => {
+                        self.perform(Cmd::GoTo(Position::Begin));
+                        return Some(Msg::None);
+                    }
+                    CommonAction::GotoEnd => {
+                        self.perform(Cmd::GoTo(Position::End));
+                        return Some(Msg::None);
+                    }
+                    CommonAction::Delete => {
+                        self.perform(Cmd::Cancel);
+                        return Some(Msg::None);
+                    }
+                    CommonAction::Backspace => {
+                        self.perform(Cmd::Delete);
+                        return Some(Msg::None);
+                    }
+                    CommonAction::Submit => {
+                        let state = self.perform(Cmd::Submit);
+                        if let CmdResult::Submit(State::One(StateValue::String(input))) = state {
+                            return Some(Msg::Input(input));
+                        };
+                        return Some(Msg::None);
+                    }
+                    CommonAction::Cancel => return Some(Msg::InputCancel),
+                    _ => {}
+                }
             }
-            Event::Keyboard(KeyEvent {
-                code: Key::Delete, ..
-            }) => self.perform(Cmd::Cancel),
-            Event::Keyboard(KeyEvent {
-                code: Key::Backspace,
-                ..
-            }) => self.perform(Cmd::Delete),
-            Event::Keyboard(KeyEvent {
+
+            if let KeyEvent {
                 code: Key::Char(ch),
                 ..
-            }) => self.perform(Cmd::Type(ch)),
-            Event::Keyboard(KeyEvent {
-                code: Key::Enter, ..
-            }) => {
-                let state = self.perform(Cmd::Submit);
-                if let CmdResult::Submit(State::One(StateValue::String(input))) = state {
-                    return Some(Msg::Input(input));
-                }
-                CmdResult::None
+            } = key_event
+            {
+                self.perform(Cmd::Type(ch));
             }
-            Event::Keyboard(KeyEvent { code: Key::Esc, .. }) => return Some(Msg::InputCancel),
-            _ => CmdResult::None,
         };
         Some(Msg::None)
     }

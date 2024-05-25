@@ -45,6 +45,10 @@ pub struct Args {
     #[clap(short, long)]
     #[arg(default_value = "solarized_dark")]
     theme: String,
+
+    /// Path to TUI keymap file [default: ~/.config/bs/keymap.toml]
+    #[clap(long, env)]
+    keymap_file: Option<String>,
 }
 
 fn print_fatal_and_exit(kind: ErrorKind, message: impl Display) -> ! {
@@ -61,7 +65,7 @@ impl<T, E: Display> FatalResult<T> for Result<T, E> {
     fn unwrap_or_exit(self, kind: ErrorKind, message: impl Display) -> T {
         match self {
             Ok(ok) => ok,
-            Err(err) => print_fatal_and_exit(kind, format!("{message}: {err}")),
+            Err(err) => print_fatal_and_exit(kind, format!("{message}: {err:#}")),
         }
     }
 }
@@ -71,6 +75,8 @@ impl From<&Args> for UIConfig {
         Self {
             theme: Theme::from_str(&args.theme)
                 .unwrap_or_exit(ErrorKind::InvalidValue, "Not an available theme"),
+            tui_keymap: ui::tui::config::KeyMap::from_file(args.keymap_file.as_deref())
+                .unwrap_or_default(),
         }
     }
 }

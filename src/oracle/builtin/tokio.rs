@@ -8,6 +8,7 @@ use crate::ui::console::print::style::KeywordView;
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::short::Abbreviator;
 use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::config::KeyMap;
 use crate::ui::tui::Msg;
 use chrono::Duration;
 use indexmap::IndexMap;
@@ -449,8 +450,11 @@ impl TokioOracle {
 }
 
 impl TuiPlugin for TokioOracle {
-    fn make_tui_component(self: Arc<Self>) -> Box<dyn Component<Msg, UserEvent>> {
-        Box::new(tui::TokioComponent::new(self))
+    fn make_tui_component(
+        self: Arc<Self>,
+        keymap: &'static KeyMap,
+    ) -> Box<dyn Component<Msg, UserEvent>> {
+        Box::new(tui::TokioComponent::new(self, keymap))
     }
 }
 
@@ -458,13 +462,14 @@ pub mod tui {
     use crate::oracle::builtin::tokio::{State, TokioOracle};
     use crate::ui::short::Abbreviator;
     use crate::ui::tui::app::port::UserEvent;
+    use crate::ui::tui::config::CommonAction;
+    use crate::ui::tui::config::KeyMap;
     use crate::ui::tui::Msg;
     use chrono::{DateTime, Local, Timelike};
     use std::collections::VecDeque;
     use std::sync::Arc;
     use tui_realm_stdlib::{Container, Paragraph, Sparkline, Table};
     use tuirealm::command::{Cmd, Direction, Position};
-    use tuirealm::event::{Key, KeyEvent};
     use tuirealm::props::{
         Alignment, BorderSides, BorderType, Borders, Color, Layout, PropPayload, PropValue, Style,
         TableBuilder, TextSpan,
@@ -493,12 +498,13 @@ pub mod tui {
     #[derive(MockComponent)]
     pub struct TokioComponent {
         component: Container,
+        keymap: &'static KeyMap,
         oracle: Arc<TokioOracle>,
         count_history: VecDeque<(DateTime<Local>, u64)>,
     }
 
     impl TokioComponent {
-        pub fn new(oracle: Arc<TokioOracle>) -> Self {
+        pub fn new(oracle: Arc<TokioOracle>, keymap: &'static KeyMap) -> Self {
             let mut sparkline_hint = "0s".to_string();
             for i in 0..SPARKLINE_LEN / SPARKLINE_HIST_EVERY_N_S {
                 let hint = format!("-{}s", (i + 1) * SPARKLINE_HIST_EVERY_N_S);
@@ -570,6 +576,7 @@ pub mod tui {
 
             Self {
                 component: container,
+                keymap,
                 oracle,
                 count_history: VecDeque::from(
                     [(Local::now(), SPARKLINE_DEFAULT_LVL); SPARKLINE_LEN],
@@ -677,32 +684,30 @@ pub mod tui {
     impl Component<Msg, UserEvent> for TokioComponent {
         fn on(&mut self, ev: Event<UserEvent>) -> Option<Msg> {
             match ev {
-                Event::Keyboard(KeyEvent {
-                    code: Key::Down, ..
-                }) => {
-                    self.perform(Cmd::Move(Direction::Down));
-                }
-                Event::Keyboard(KeyEvent { code: Key::Up, .. }) => {
-                    self.perform(Cmd::Move(Direction::Up));
-                }
-                Event::Keyboard(KeyEvent {
-                    code: Key::PageDown,
-                    ..
-                }) => {
-                    self.perform(Cmd::Scroll(Direction::Down));
-                }
-                Event::Keyboard(KeyEvent {
-                    code: Key::PageUp, ..
-                }) => {
-                    self.perform(Cmd::Scroll(Direction::Up));
-                }
-                Event::Keyboard(KeyEvent {
-                    code: Key::Home, ..
-                }) => {
-                    self.perform(Cmd::GoTo(Position::Begin));
-                }
-                Event::Keyboard(KeyEvent { code: Key::End, .. }) => {
-                    self.perform(Cmd::GoTo(Position::End));
+                Event::Keyboard(key_event) => {
+                    if let Some(action) = self.keymap.get_common(&key_event) {
+                        match action {
+                            CommonAction::Up => {
+                                self.perform(Cmd::Move(Direction::Up));
+                            }
+                            CommonAction::Down => {
+                                self.perform(Cmd::Move(Direction::Down));
+                            }
+                            CommonAction::ScrollUp => {
+                                self.perform(Cmd::Scroll(Direction::Up));
+                            }
+                            CommonAction::ScrollDown => {
+                                self.perform(Cmd::Scroll(Direction::Down));
+                            }
+                            CommonAction::GotoBegin => {
+                                self.perform(Cmd::GoTo(Position::Begin));
+                            }
+                            CommonAction::GotoEnd => {
+                                self.perform(Cmd::GoTo(Position::End));
+                            }
+                            _ => {}
+                        }
+                    }
                 }
                 Event::Tick => {
                     self.refresh_table();

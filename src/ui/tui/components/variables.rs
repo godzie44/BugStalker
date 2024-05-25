@@ -2,15 +2,16 @@ use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::render::{RenderRepr, ValueLayout};
 use crate::debugger::variable::select::{Literal, VariableSelector, DQE};
 use crate::debugger::variable::{select, VariableIR};
+use crate::ui;
 use crate::ui::command;
 use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::config::CommonAction;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::{Id, Msg};
 use nix::sys::signal::Signal;
 use std::sync::Arc;
 use tui_realm_treeview::{Node, Tree, TreeView, TREE_CMD_CLOSE, TREE_CMD_OPEN, TREE_INITIAL_NODE};
 use tuirealm::command::{Cmd, Direction, Position};
-use tuirealm::event::{Key, KeyEvent};
 use tuirealm::props::{BorderType, Borders};
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::style::{Color, Style};
@@ -300,48 +301,42 @@ impl Variables {
 impl Component<Msg, UserEvent> for Variables {
     fn on(&mut self, ev: Event<UserEvent>) -> Option<Msg> {
         match ev {
-            Event::Keyboard(KeyEvent {
-                code: Key::Left, ..
-            }) => {
-                self.perform(Cmd::Custom(TREE_CMD_CLOSE));
+            Event::Keyboard(key_event) => {
+                let keymap = &ui::config::current().tui_keymap;
+                if let Some(action) = keymap.get_common(&key_event) {
+                    match action {
+                        CommonAction::Left => {
+                            self.perform(Cmd::Custom(TREE_CMD_CLOSE));
+                        }
+                        CommonAction::Right => {
+                            self.perform(Cmd::Custom(TREE_CMD_OPEN));
+                        }
+                        CommonAction::Up => {
+                            self.perform(Cmd::Move(Direction::Up));
+                        }
+                        CommonAction::Down => {
+                            self.perform(Cmd::Move(Direction::Down));
+                        }
+                        CommonAction::ScrollUp => {
+                            self.perform(Cmd::Scroll(Direction::Up));
+                        }
+                        CommonAction::ScrollDown => {
+                            self.perform(Cmd::Scroll(Direction::Down));
+                        }
+                        CommonAction::GotoBegin => {
+                            self.perform(Cmd::GoTo(Position::Begin));
+                        }
+                        CommonAction::GotoEnd => {
+                            self.perform(Cmd::GoTo(Position::End));
+                        }
+                        CommonAction::Submit => {
+                            self.perform(Cmd::Submit);
+                        }
+                        _ => {}
+                    }
+                }
             }
-            Event::Keyboard(KeyEvent {
-                code: Key::Right, ..
-            }) => {
-                self.perform(Cmd::Custom(TREE_CMD_OPEN));
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::PageDown,
-                ..
-            }) => {
-                self.perform(Cmd::Scroll(Direction::Down));
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::PageUp, ..
-            }) => {
-                self.perform(Cmd::Scroll(Direction::Up));
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Down, ..
-            }) => {
-                self.perform(Cmd::Move(Direction::Down));
-            }
-            Event::Keyboard(KeyEvent { code: Key::Up, .. }) => {
-                self.perform(Cmd::Move(Direction::Up));
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Home, ..
-            }) => {
-                self.perform(Cmd::GoTo(Position::Begin));
-            }
-            Event::Keyboard(KeyEvent { code: Key::End, .. }) => {
-                self.perform(Cmd::GoTo(Position::End));
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Enter, ..
-            }) => {
-                self.perform(Cmd::Submit);
-            }
+
             Event::User(UserEvent::Breakpoint { .. })
             | Event::User(UserEvent::Watchpoint { .. })
             | Event::User(UserEvent::Exit(_))

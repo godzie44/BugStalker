@@ -1,0 +1,41 @@
+# special debugger functions in TUI
+[special]
+# switch between tabs across all windows
+switch_window_tab = ["Tab"]
+# expand the left window
+expand_left = ["Alt-1"]
+# expand the right window
+expand_right = ["Alt-2"]
+# focus on the left window
+focus_left = ["1"]
+# focus on the right window
+focus_right = ["2"]
+# switch TUI to console
+switch_ui = ["Esc"]
+# close BugStalker
+close_app = ["q"]
+# continue execution
+continue = ["c", "F9"]
+# run or restart debugee program
+run = ["r", "F10"]
+# step over (next)
+step_over = ["F8"]
+# step into (step)
+step_into = ["F7"]
+# step out (finish)
+step_out = ["F6"]
+
+# common control buttons
+[common]
+up = ["Up"]
+down = ["Down"]
+scroll_down = ["PageDown"]
+scroll_up = ["PageUp"]
+goto_begin = ["Home"]
+goto_end = ["End"]
+submit = ["Enter"]
+cancel = ["Esc"]
+left = ["Left"]
+right = ["Right"]
+input_delete = ["Delete"]
+input_backspace = ["Backspace"]
