@@ -3,11 +3,12 @@ use crate::ui::short::Abbreviator;
 use crate::ui::syntax;
 use crate::ui::syntax::StylizedLine;
 use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::config::CommonAction;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::mstextarea::MultiSpanTextarea;
 use crate::ui::tui::utils::syntect::into_text_span;
 use crate::ui::tui::{Id, Msg};
-use crate::weak_error;
+use crate::{ui, weak_error};
 use log::warn;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -17,7 +18,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use syntect::util::LinesWithEndings;
 use tuirealm::command::{Cmd, Direction, Position};
-use tuirealm::event::{Key, KeyEvent};
 use tuirealm::props::{Borders, Style, TextSpan};
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::prelude::Color;
@@ -200,32 +200,31 @@ impl Source {
 impl Component<Msg, UserEvent> for Source {
     fn on(&mut self, ev: Event<UserEvent>) -> Option<Msg> {
         match ev {
-            Event::Keyboard(KeyEvent {
-                code: Key::Down, ..
-            }) => {
-                self.perform(Cmd::Move(Direction::Down));
-            }
-            Event::Keyboard(KeyEvent { code: Key::Up, .. }) => {
-                self.perform(Cmd::Move(Direction::Up));
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::PageDown,
-                ..
-            }) => {
-                self.perform(Cmd::Scroll(Direction::Down));
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::PageUp, ..
-            }) => {
-                self.perform(Cmd::Scroll(Direction::Up));
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Home, ..
-            }) => {
-                self.perform(Cmd::GoTo(Position::Begin));
-            }
-            Event::Keyboard(KeyEvent { code: Key::End, .. }) => {
-                self.perform(Cmd::GoTo(Position::End));
+            Event::Keyboard(key_event) => {
+                let keymap = &ui::config::current().tui_keymap;
+                if let Some(action) = keymap.get_common(&key_event) {
+                    match action {
+                        CommonAction::Up => {
+                            self.perform(Cmd::Move(Direction::Up));
+                        }
+                        CommonAction::Down => {
+                            self.perform(Cmd::Move(Direction::Down));
+                        }
+                        CommonAction::ScrollUp => {
+                            self.perform(Cmd::Scroll(Direction::Up));
+                        }
+                        CommonAction::ScrollDown => {
+                            self.perform(Cmd::Scroll(Direction::Down));
+                        }
+                        CommonAction::GotoBegin => {
+                            self.perform(Cmd::GoTo(Position::Begin));
+                        }
+                        CommonAction::GotoEnd => {
+                            self.perform(Cmd::GoTo(Position::End));
+                        }
+                        _ => {}
+                    }
+                }
             }
             Event::User(UserEvent::Breakpoint { file, line, .. })
             | Event::User(UserEvent::Step { file, line, .. })

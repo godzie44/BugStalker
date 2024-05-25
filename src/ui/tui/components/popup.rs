@@ -1,9 +1,10 @@
+use crate::ui;
 use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::config::CommonAction;
 use crate::ui::tui::{ConfirmedAction, Msg};
 use std::str::FromStr;
 use tui_realm_stdlib::Radio;
 use tuirealm::command::{Cmd, CmdResult};
-use tuirealm::event::{Key, KeyEvent};
 use tuirealm::props::{BorderSides, Borders, PropPayload, PropValue};
 use tuirealm::tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use tuirealm::tui::prelude::Style;
@@ -187,42 +188,46 @@ impl MockComponent for Popup {
 impl Component<Msg, UserEvent> for Popup {
     fn on(&mut self, ev: Event<UserEvent>) -> Option<Msg> {
         match ev {
-            Event::Keyboard(KeyEvent {
-                code: Key::Left, ..
-            }) => {
-                self.buttons.perform(Cmd::Move(command::Direction::Left));
-                Some(Msg::None)
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Right, ..
-            }) => {
-                self.buttons.perform(Cmd::Move(command::Direction::Right));
-                Some(Msg::None)
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Enter, ..
-            })
-            | Event::Keyboard(KeyEvent { code: Key::Esc, .. }) => {
-                let res = self.buttons.perform(Cmd::Submit);
+            Event::Keyboard(key_event) => {
+                let keymap = &ui::config::current().tui_keymap;
+                if let Some(action) = keymap.get_common(&key_event) {
+                    match action {
+                        CommonAction::Left => {
+                            self.buttons.perform(Cmd::Move(command::Direction::Left));
+                            Some(Msg::None)
+                        }
+                        CommonAction::Right => {
+                            self.buttons.perform(Cmd::Move(command::Direction::Right));
+                            Some(Msg::None)
+                        }
+                        CommonAction::Submit => {
+                            let res = self.buttons.perform(Cmd::Submit);
 
-                match res {
-                    CmdResult::Submit(state) => match self.mode {
-                        OpMode::Ok => Some(Msg::PopupOk),
-                        OpMode::YesNo => {
-                            let action = self
-                                .query(Attribute::Custom("action"))
-                                .expect("infallible")
-                                .unwrap_string();
-                            let action = ConfirmedAction::from_str(&action).expect("infallible");
-                            let state = state.unwrap_one().unwrap_usize();
-                            if state == 0 {
-                                Some(Msg::PopupYes(action))
-                            } else {
-                                Some(Msg::PopupNo(action))
+                            match res {
+                                CmdResult::Submit(state) => match self.mode {
+                                    OpMode::Ok => Some(Msg::PopupOk),
+                                    OpMode::YesNo => {
+                                        let action = self
+                                            .query(Attribute::Custom("action"))
+                                            .expect("infallible")
+                                            .unwrap_string();
+                                        let action =
+                                            ConfirmedAction::from_str(&action).expect("infallible");
+                                        let state = state.unwrap_one().unwrap_usize();
+                                        if state == 0 {
+                                            Some(Msg::PopupYes(action))
+                                        } else {
+                                            Some(Msg::PopupNo(action))
+                                        }
+                                    }
+                                },
+                                _ => Some(Msg::PopupOk),
                             }
                         }
-                    },
-                    _ => Some(Msg::PopupOk),
+                        _ => None,
+                    }
+                } else {
+                    None
                 }
             }
             _ => None,

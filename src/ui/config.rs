@@ -1,3 +1,4 @@
+use crate::ui::tui::config::KeyMap;
 use std::sync::OnceLock;
 use strum_macros::{Display, EnumString, IntoStaticStr};
 
@@ -41,6 +42,8 @@ impl Theme {
 pub struct UIConfig {
     /// Theme for visualizing program data and source codes.
     pub theme: Theme,
+    /// Keymap for TUI.
+    pub tui_keymap: KeyMap,
 }
 
 /// Read-only ui configuration (set only once, at debugger start).
