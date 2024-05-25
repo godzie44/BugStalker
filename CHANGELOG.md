@@ -33,6 +33,7 @@ All notable changes to this project will be documented in this file.
 - ui: possible stack overflow when switching between ui types
 - debugger: panic, when value of the right bound in a slice operator was greater than the underlying container lenght
 - tui: panic, when breakpoint set at memory address
+- tui: async error leads to ignoring of a new commands by TUI app
 
 ### Deprecated
 
