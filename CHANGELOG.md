@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - debugger: added address operator in data query expressions
 - debugger: added watchpoints over hardware breakpoints
 - debugger: added canonic operator
+- tui: added keymap configuration
 
 ### Changed
 

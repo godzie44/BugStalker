@@ -37,7 +37,7 @@ bytes = "1.2.1"
 log = "0.4.17"
 env_logger = "0.11.2"
 crossterm = "0.27.0"
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.0", features = ["derive", "env"] }
 uuid = { version = "1.2.2", features = ["v4", "fast-rng", "macro-diagnostics"] }
 os_pipe = "1.1.2"
 proc-maps = "0.3.0"
@@ -66,6 +66,9 @@ indexmap = "2.1.0"
 chumsky = { version = "1.0.0-alpha.6", features = ["default", "label"] }
 ariadne = "0.4.0"
 bit_field = "0.10.1"
+serde = { version = "1.0.164", features = ["derive"] }
+toml = "0.8.13"
+home = "0.5.9"
 
 [dev-dependencies]
 serial_test = "3.0.0"

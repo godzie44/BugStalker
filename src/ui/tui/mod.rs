@@ -21,6 +21,7 @@ use tuirealm::{props, AttrValue, Attribute, PollStrategy};
 
 pub mod app;
 pub mod components;
+pub mod config;
 mod output;
 mod proto;
 pub mod utils;

@@ -9,6 +9,7 @@ use crate::debugger::CreateTransparentBreakpointRequest;
 use crate::debugger::Debugger;
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::config::KeyMap;
 use crate::ui::tui::Msg;
 use std::sync::Arc;
 use tuirealm::Component;
@@ -28,7 +29,10 @@ pub trait ConsolePlugin {
 
 pub trait TuiPlugin: Send + Sync {
     /// Return tui component for visualize oracle information.
-    fn make_tui_component(self: Arc<Self>) -> Box<dyn Component<Msg, UserEvent>>;
+    fn make_tui_component(
+        self: Arc<Self>,
+        keymap: &'static KeyMap,
+    ) -> Box<dyn Component<Msg, UserEvent>>;
 }
 
 pub trait Oracle: ConsolePlugin + TuiPlugin {
@@ -37,14 +41,14 @@ pub trait Oracle: ConsolePlugin + TuiPlugin {
 
     /// True if oracle is ready for install on specific debugee. If false then debugger will
     /// not use this oracle. Typically, in this method, oracle will check some symbols and
-    /// makes a decision about the possibility of further work.
+    /// make a decision about the possibility of further work.
     ///
     /// # Arguments
     ///
     /// * `dbg`: debugger instance
     fn ready_for_install(&self, dbg: &Debugger) -> bool;
 
-    /// A list of watch_point using by oracle. In debugger watch point implement by transparent
-    /// breakpoints.
+    /// A list of watch_point using by oracle.
+    /// In debugger watch point implemented by transparent breakpoints.
     fn watch_points(self: Arc<Self>) -> Vec<CreateTransparentBreakpointRequest>;
 }

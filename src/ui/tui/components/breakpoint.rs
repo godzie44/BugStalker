@@ -1,4 +1,5 @@
 use crate::debugger::{BreakpointViewOwned, WatchpointViewOwned};
+use crate::ui;
 use crate::ui::command;
 use crate::ui::command::r#break::Command as BreakpointCommand;
 use crate::ui::command::r#break::ExecutionResult;
@@ -6,13 +7,13 @@ use crate::ui::command::watch::Command as WatchpointCommand;
 use crate::ui::command::watch::ExecutionResult as WatchpointExecutionResult;
 use crate::ui::short::Abbreviator;
 use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::config::CommonAction;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::{BreakpointsAddType, Msg};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tui_realm_stdlib::List;
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
-use tuirealm::event::{Key, KeyEvent};
 use tuirealm::props::{BorderType, Borders, Style, TableBuilder, TextSpan};
 use tuirealm::tui::layout::{Alignment, Rect};
 use tuirealm::tui::style::Color;
@@ -226,89 +227,91 @@ impl Breakpoints {
 
 impl Component<Msg, UserEvent> for Breakpoints {
     fn on(&mut self, ev: Event<UserEvent>) -> Option<Msg> {
-        match ev {
-            Event::Keyboard(KeyEvent {
-                code: Key::Down, ..
-            }) => {
-                self.perform(Cmd::Move(Direction::Down));
-            }
-            Event::Keyboard(KeyEvent { code: Key::Up, .. }) => {
-                self.perform(Cmd::Move(Direction::Up));
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::PageDown,
-                ..
-            }) => {
-                self.perform(Cmd::Scroll(Direction::Down));
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::PageUp, ..
-            }) => {
-                self.perform(Cmd::Scroll(Direction::Up));
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Home, ..
-            }) => {
-                self.perform(Cmd::GoTo(Position::Begin));
-            }
-            Event::Keyboard(KeyEvent { code: Key::End, .. }) => {
-                self.perform(Cmd::GoTo(Position::End));
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Enter, ..
-            }) => {
-                let idx = self.component.state().unwrap_one().unwrap_usize();
+        if let Event::Keyboard(key_event) = ev {
+            let keymap = &ui::config::current().tui_keymap;
+            if let Some(action) = keymap.get_common(&key_event) {
+                match action {
+                    CommonAction::Up => {
+                        self.perform(Cmd::Move(Direction::Up));
+                    }
+                    CommonAction::Down => {
+                        self.perform(Cmd::Move(Direction::Down));
+                    }
+                    CommonAction::ScrollUp => {
+                        self.perform(Cmd::Scroll(Direction::Up));
+                    }
+                    CommonAction::ScrollDown => {
+                        self.perform(Cmd::Scroll(Direction::Down));
+                    }
+                    CommonAction::GotoBegin => {
+                        self.perform(Cmd::GoTo(Position::Begin));
+                    }
+                    CommonAction::GotoEnd => {
+                        self.perform(Cmd::GoTo(Position::End));
+                    }
+                    CommonAction::Submit => {
+                        let idx = self.component.state().unwrap_one().unwrap_usize();
 
-                match self.state {
-                    None => {
-                        if idx == 0 {
-                            self.state = Some(AddState::SelectType);
-                            self.attr(
-                                Attribute::Custom("update_breakpoints"),
-                                AttrValue::Flag(true),
-                            );
-                            return Some(Msg::None);
+                        match self.state {
+                            None => {
+                                if idx == 0 {
+                                    self.state = Some(AddState::SelectType);
+                                    self.attr(
+                                        Attribute::Custom("update_breakpoints"),
+                                        AttrValue::Flag(true),
+                                    );
+                                    return Some(Msg::None);
+                                }
+                            }
+                            Some(AddState::SelectType) => {
+                                if !self.exchanger.is_messaging_enabled() {
+                                    return Some(Msg::None);
+                                }
+
+                                self.state = None;
+                                match idx {
+                                    0 => {
+                                        self.attr(
+                                            Attribute::Custom("update_breakpoints"),
+                                            AttrValue::Flag(true),
+                                        );
+                                        return Some(Msg::None);
+                                    }
+                                    1 => {
+                                        return Some(Msg::BreakpointAdd(
+                                            BreakpointsAddType::AtLine,
+                                        ));
+                                    }
+                                    2 => {
+                                        return Some(Msg::BreakpointAdd(
+                                            BreakpointsAddType::AtFunction,
+                                        ));
+                                    }
+                                    3 => {
+                                        return Some(Msg::BreakpointAdd(
+                                            BreakpointsAddType::AtAddress,
+                                        ));
+                                    }
+                                    4 => {
+                                        return Some(Msg::BreakpointAdd(
+                                            BreakpointsAddType::Watchpoint,
+                                        ));
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+
+                        if let Some(brkpt) = self.row_to_brkpt_map.get(&idx) {
+                            return Some(Msg::PopupBreakpoint(brkpt.clone()));
+                        }
+                        if let Some(wp) = self.row_to_watchpoint_map.get(&idx) {
+                            return Some(Msg::PopupWatchpoint(wp.clone()));
                         }
                     }
-                    Some(AddState::SelectType) => {
-                        if !self.exchanger.is_messaging_enabled() {
-                            return Some(Msg::None);
-                        }
-
-                        self.state = None;
-                        match idx {
-                            0 => {
-                                self.attr(
-                                    Attribute::Custom("update_breakpoints"),
-                                    AttrValue::Flag(true),
-                                );
-                                return Some(Msg::None);
-                            }
-                            1 => {
-                                return Some(Msg::BreakpointAdd(BreakpointsAddType::AtLine));
-                            }
-                            2 => {
-                                return Some(Msg::BreakpointAdd(BreakpointsAddType::AtFunction));
-                            }
-                            3 => {
-                                return Some(Msg::BreakpointAdd(BreakpointsAddType::AtAddress));
-                            }
-                            4 => {
-                                return Some(Msg::BreakpointAdd(BreakpointsAddType::Watchpoint));
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-
-                if let Some(brkpt) = self.row_to_brkpt_map.get(&idx) {
-                    return Some(Msg::PopupBreakpoint(brkpt.clone()));
-                }
-                if let Some(wp) = self.row_to_watchpoint_map.get(&idx) {
-                    return Some(Msg::PopupWatchpoint(wp.clone()));
+                    _ => {}
                 }
             }
-            _ => {}
         };
         Some(Msg::None)
     }

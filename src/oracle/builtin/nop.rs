@@ -3,6 +3,7 @@ use crate::oracle::builtin::nop::tui::NopComponent;
 use crate::oracle::{ConsolePlugin, Oracle, TuiPlugin};
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::config::KeyMap;
 use crate::ui::tui::Msg;
 use std::sync::Arc;
 use tuirealm::Component;
@@ -22,7 +23,10 @@ impl ConsolePlugin for NopOracle {
 }
 
 impl TuiPlugin for NopOracle {
-    fn make_tui_component(self: Arc<Self>) -> Box<dyn Component<Msg, UserEvent>> {
+    fn make_tui_component(
+        self: Arc<Self>,
+        _: &'static KeyMap,
+    ) -> Box<dyn Component<Msg, UserEvent>> {
         Box::<NopComponent>::default()
     }
 }

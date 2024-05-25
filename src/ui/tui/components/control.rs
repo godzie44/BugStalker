@@ -1,8 +1,10 @@
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::Error;
+use crate::ui;
 use crate::ui::command;
 use crate::ui::command::{run, CommandError};
 use crate::ui::tui::app::port::UserEvent;
+use crate::ui::tui::config::SpecialAction;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::{Id, Msg};
 use log::warn;
@@ -30,65 +32,31 @@ impl GlobalControl {
     }
 
     pub fn subscriptions() -> Vec<Sub<Id, UserEvent>> {
-        vec![
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Char('1'), KeyModifiers::ALT)),
-                SubClause::Always,
-            ),
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Char('2'), KeyModifiers::ALT)),
-                SubClause::Always,
-            ),
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Char('1'), KeyModifiers::NONE)),
-                SubClause::Always,
-            ),
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Char('2'), KeyModifiers::NONE)),
-                SubClause::Always,
-            ),
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Char('c'), KeyModifiers::ALT)),
-                SubClause::Always,
-            ),
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Esc, KeyModifiers::NONE)),
-                SubClause::Always,
-            ),
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Char('q'), KeyModifiers::NONE)),
-                SubClause::Always,
-            ),
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Char('c'), KeyModifiers::NONE)),
-                SubClause::Always,
-            ),
+        let interested_actions = [
+            SpecialAction::ExpandLeftWindow,
+            SpecialAction::ExpandRightWindow,
+            SpecialAction::FocusLeftWindow,
+            SpecialAction::FocusRightWindow,
+            SpecialAction::SwitchUI,
+            SpecialAction::CloseApp,
+            SpecialAction::ContinueDebugee,
+            SpecialAction::RunDebugee,
+            SpecialAction::StepOver,
+            SpecialAction::StepInto,
+            SpecialAction::StepOut,
+        ];
+        let mut subscriptions = vec![];
+
+        let keymap = &ui::config::current().tui_keymap;
+        for action in interested_actions {
+            for key in keymap.keys_for_special_action(action) {
+                subscriptions.push(Sub::new(SubEventClause::Keyboard(*key), SubClause::Always));
+            }
+        }
+
+        let user_subs = vec![
             Sub::new(
                 SubEventClause::Keyboard(KeyEvent::new(Key::Char('c'), KeyModifiers::CONTROL)),
-                SubClause::Always,
-            ),
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Char('r'), KeyModifiers::NONE)),
-                SubClause::Always,
-            ),
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Function(6), KeyModifiers::NONE)),
-                SubClause::Always,
-            ),
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Function(7), KeyModifiers::NONE)),
-                SubClause::Always,
-            ),
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Function(8), KeyModifiers::NONE)),
-                SubClause::Always,
-            ),
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Function(9), KeyModifiers::NONE)),
-                SubClause::Always,
-            ),
-            Sub::new(
-                SubEventClause::Keyboard(KeyEvent::new(Key::Function(10), KeyModifiers::NONE)),
                 SubClause::Always,
             ),
             Sub::new(
@@ -143,7 +111,10 @@ impl GlobalControl {
             ),
             // concrete code doesn't meter
             Sub::new(SubEventClause::User(UserEvent::Exit(0)), SubClause::Always),
-        ]
+        ];
+
+        subscriptions.extend(user_subs);
+        subscriptions
     }
 }
 
@@ -151,133 +122,115 @@ impl Component<Msg, UserEvent> for GlobalControl {
     fn on(&mut self, ev: Event<UserEvent>) -> Option<Msg> {
         let msg = match ev {
             Event::Keyboard(KeyEvent {
-                code: Key::Char('1'),
-                modifiers: KeyModifiers::ALT,
-            }) => Msg::ExpandTab(Id::LeftTabs),
-            Event::Keyboard(KeyEvent {
-                code: Key::Char('2'),
-                modifiers: KeyModifiers::ALT,
-            }) => Msg::ExpandTab(Id::RightTabs),
-            Event::Keyboard(KeyEvent {
-                code: Key::Char('1'),
-                modifiers: KeyModifiers::NONE,
-            }) => Msg::LeftTabsInFocus { reset_to: None },
-            Event::Keyboard(KeyEvent {
-                code: Key::Char('2'),
-                modifiers: KeyModifiers::NONE,
-            }) => Msg::RightTabsInFocus { reset_to: None },
-            Event::Keyboard(KeyEvent {
-                code: Key::Esc,
-                modifiers: KeyModifiers::NONE,
-            }) => Msg::SwitchUI,
-            Event::Keyboard(KeyEvent {
-                code: Key::Char('q'),
-                modifiers: KeyModifiers::NONE,
-            }) => Msg::AppClose,
-            Event::Keyboard(KeyEvent {
                 code: Key::Char('c'),
                 modifiers: KeyModifiers::CONTROL,
             }) => {
                 _ = signal::kill(self.last_seen_pid, Signal::SIGINT);
                 Msg::None
             }
-            Event::Keyboard(KeyEvent {
-                code: Key::Char('c'),
-                modifiers: KeyModifiers::NONE,
-            })
-            | Event::Keyboard(KeyEvent {
-                code: Key::Function(9),
-                ..
-            }) => {
-                if !self.exchanger.is_messaging_enabled() {
-                    warn!(target: "tui", "try start/restart but messaging disabled");
-                    return None;
-                }
 
-                self.exchanger
-                    .request_async(|dbg| Ok(command::r#continue::Handler::new(dbg).handle()?))
-                    .expect("messaging enabled");
+            Event::Keyboard(key_event) => {
+                let keymap = &ui::config::current().tui_keymap;
+                if let Some(action) = keymap.get_special(&key_event) {
+                    match action {
+                        SpecialAction::ExpandLeftWindow => Msg::ExpandTab(Id::LeftTabs),
+                        SpecialAction::ExpandRightWindow => Msg::ExpandTab(Id::RightTabs),
+                        SpecialAction::FocusLeftWindow => Msg::LeftTabsInFocus { reset_to: None },
+                        SpecialAction::FocusRightWindow => Msg::RightTabsInFocus { reset_to: None },
+                        SpecialAction::SwitchUI => Msg::SwitchUI,
+                        SpecialAction::CloseApp => Msg::AppClose,
+                        SpecialAction::ContinueDebugee => {
+                            if !self.exchanger.is_messaging_enabled() {
+                                warn!(target: "tui", "try continue but messaging disabled");
+                                return None;
+                            }
 
-                self.exchanger.disable_messaging();
-                Msg::AppRunning
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Char('r'),
-                ..
-            })
-            | Event::Keyboard(KeyEvent {
-                code: Key::Function(10),
-                ..
-            }) => {
-                if !self.exchanger.is_messaging_enabled() {
-                    warn!(target: "tui", "try start/restart but messaging disabled");
-                    return None;
-                }
+                            self.exchanger
+                                .request_async(|dbg| {
+                                    Ok(command::r#continue::Handler::new(dbg).handle()?)
+                                })
+                                .expect("messaging enabled");
 
-                let mb_err = self
-                    .exchanger
-                    .request_sync(|dbg| run::Handler::new(dbg).handle(run::Command::DryStart))
-                    .expect("messaging enabled");
+                            self.exchanger.disable_messaging();
+                            Msg::AppRunning
+                        }
+                        SpecialAction::RunDebugee => {
+                            if !self.exchanger.is_messaging_enabled() {
+                                warn!(target: "tui", "try start/restart but messaging disabled");
+                                return None;
+                            }
 
-                let already_run =
-                    matches!(mb_err.err(), Some(CommandError::Handle(Error::AlreadyRun)));
+                            let mb_err = self
+                                .exchanger
+                                .request_sync(|dbg| {
+                                    run::Handler::new(dbg).handle(run::Command::DryStart)
+                                })
+                                .expect("messaging enabled");
 
-                if already_run {
-                    Msg::PopupConfirmDebuggerRestart
+                            let already_run = matches!(
+                                mb_err.err(),
+                                Some(CommandError::Handle(Error::AlreadyRun))
+                            );
+
+                            if already_run {
+                                Msg::PopupConfirmDebuggerRestart
+                            } else {
+                                self.exchanger
+                                    .request_async(|dbg| {
+                                        Ok(run::Handler::new(dbg).handle(run::Command::Start)?)
+                                    })
+                                    .expect("messaging enabled");
+                                self.exchanger.disable_messaging();
+                                Msg::AppRunning
+                            }
+                        }
+                        SpecialAction::StepOver => {
+                            if !self.exchanger.is_messaging_enabled() {
+                                warn!(target: "tui", "try step-over but messaging disabled");
+                                return None;
+                            }
+
+                            self.exchanger
+                                .request_async(|dbg| {
+                                    Ok(command::step_over::Handler::new(dbg).handle()?)
+                                })
+                                .expect("messaging enabled");
+
+                            Msg::AppRunning
+                        }
+                        SpecialAction::StepInto => {
+                            if !self.exchanger.is_messaging_enabled() {
+                                warn!(target: "tui", "try step-into but messaging disabled");
+                                return None;
+                            }
+
+                            self.exchanger
+                                .request_async(|dbg| {
+                                    Ok(command::step_into::Handler::new(dbg).handle()?)
+                                })
+                                .expect("messaging enabled");
+
+                            Msg::AppRunning
+                        }
+                        SpecialAction::StepOut => {
+                            if !self.exchanger.is_messaging_enabled() {
+                                warn!(target: "tui", "try step-out but messaging disabled");
+                                return None;
+                            }
+
+                            self.exchanger
+                                .request_async(|dbg| {
+                                    Ok(command::step_out::Handler::new(dbg).handle()?)
+                                })
+                                .expect("messaging enabled");
+
+                            Msg::AppRunning
+                        }
+                        _ => Msg::None,
+                    }
                 } else {
-                    self.exchanger
-                        .request_async(
-                            |dbg| Ok(run::Handler::new(dbg).handle(run::Command::Start)?),
-                        )
-                        .expect("messaging enabled");
-                    self.exchanger.disable_messaging();
-                    Msg::AppRunning
+                    Msg::None
                 }
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Function(8),
-                modifiers: KeyModifiers::NONE,
-            }) => {
-                if !self.exchanger.is_messaging_enabled() {
-                    warn!(target: "tui", "try start/restart but messaging disabled");
-                    return None;
-                }
-
-                self.exchanger
-                    .request_async(|dbg| Ok(command::step_over::Handler::new(dbg).handle()?))
-                    .expect("messaging enabled");
-
-                Msg::AppRunning
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Function(7),
-                modifiers: KeyModifiers::NONE,
-            }) => {
-                if !self.exchanger.is_messaging_enabled() {
-                    warn!(target: "tui", "try start/restart but messaging disabled");
-                    return None;
-                }
-
-                self.exchanger
-                    .request_async(|dbg| Ok(command::step_into::Handler::new(dbg).handle()?))
-                    .expect("messaging enabled");
-
-                Msg::AppRunning
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Function(6),
-                modifiers: KeyModifiers::NONE,
-            }) => {
-                if !self.exchanger.is_messaging_enabled() {
-                    warn!(target: "tui", "try start/restart but messaging disabled");
-                    return None;
-                }
-
-                self.exchanger
-                    .request_async(|dbg| Ok(command::step_out::Handler::new(dbg).handle()?))
-                    .expect("messaging enabled");
-
-                Msg::AppRunning
             }
             Event::User(UserEvent::AsyncErrorResponse(err)) => {
                 Msg::ShowOkPopup(Some("Error".to_string()), err)
