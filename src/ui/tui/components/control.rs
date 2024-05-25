@@ -233,6 +233,7 @@ impl Component<Msg, UserEvent> for GlobalControl {
                 }
             }
             Event::User(UserEvent::AsyncErrorResponse(err)) => {
+                self.exchanger.enable_messaging();
                 Msg::ShowOkPopup(Some("Error".to_string()), err)
             }
             Event::User(UserEvent::ProcessInstall(pid)) => {
