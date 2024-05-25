@@ -24,6 +24,7 @@ use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::logger::TuiLogLine;
 use crate::ui::tui::utils::tab;
 use crate::ui::tui::utils::tab::TabWindow;
+use anyhow::anyhow;
 use chumsky::Parser;
 use log::warn;
 use std::borrow::Cow;
@@ -401,10 +402,16 @@ impl Model {
                                     BreakpointIdentity::Line(file.to_string(), line)
                                 }
                                 InputStringType::BreakpointAddAtFunction => {
-                                    BreakpointIdentity::Function(input)
+                                    BreakpointIdentity::Function(input.trim().to_string())
                                 }
                                 InputStringType::BreakpointAddAtAddress => {
-                                    BreakpointIdentity::Address(input.parse().expect("infallible"))
+                                    let input = input.trim().to_lowercase();
+                                    let hex = input
+                                        .strip_prefix("0x")
+                                        .ok_or(anyhow!("invalid hex format"))?;
+                                    let addr = usize::from_str_radix(hex, 16)
+                                        .map_err(|e| anyhow!("invalid hex format: {e}"))?;
+                                    BreakpointIdentity::Address(addr)
                                 }
                                 _ => unreachable!(),
                             };
