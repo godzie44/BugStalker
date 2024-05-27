@@ -427,6 +427,12 @@ impl Model {
                             self.app.unlock_subs();
                             self.app.blur()?;
                             self.update_breakpoints()?;
+                            self.app.active(&Id::LeftTabs)?;
+                            self.app.attr(
+                                &Id::LeftTabs,
+                                TabWindow::ACTIVATE_TAB,
+                                AttrValue::Flag(true),
+                            )?;
                             Ok(None)
                         }
                         InputStringType::Watchpoint => {
@@ -450,6 +456,12 @@ impl Model {
                             self.app.unlock_subs();
                             self.app.blur()?;
                             self.update_breakpoints()?;
+                            self.app.active(&Id::LeftTabs)?;
+                            self.app.attr(
+                                &Id::LeftTabs,
+                                TabWindow::ACTIVATE_TAB,
+                                AttrValue::Flag(true),
+                            )?;
                             Ok(None)
                         }
                     };
@@ -458,6 +470,15 @@ impl Model {
                     self.app.unlock_subs();
                     self.app.blur()?;
                     self.update_breakpoints()?;
+                    // FIXME: currently input cancel are possible only from breakpoints window,
+                    // that's why breakpoints window come into focus here.
+                    // This behaviour may be changed in future.
+                    self.app.active(&Id::LeftTabs)?;
+                    self.app.attr(
+                        &Id::LeftTabs,
+                        TabWindow::ACTIVATE_TAB,
+                        AttrValue::Flag(true),
+                    )?;
                 }
                 Msg::UpdateBreakpointList => {
                     self.update_breakpoints()?;
