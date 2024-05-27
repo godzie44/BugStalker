@@ -101,6 +101,7 @@ impl TabWindow {
 impl TabWindow {
     pub const VIEW_SIZE_ATTR: Attribute = Attribute::Custom("VIEW_SIZE");
     pub const RESET_CHOICE_ATTR: Attribute = Attribute::Custom("RESET_CHOICE");
+    pub const ACTIVATE_TAB: Attribute = Attribute::Custom("ACTIVATE_TAB");
 
     pub fn foreground(mut self, fg: Color) -> Self {
         self.attr(Attribute::Foreground, AttrValue::Color(fg));
@@ -241,6 +242,13 @@ impl MockComponent for TabWindow {
                             .select(self.choices.states.choices.len() - 1);
                     }
                     _ => {}
+                }
+            }
+            Self::ACTIVATE_TAB => {
+                let res = self.perform(Cmd::Submit);
+                if let CmdResult::Submit(state) = res {
+                    let tab_idx = state.unwrap_one().unwrap_usize();
+                    self.set_active_idx(tab_idx);
                 }
             }
             Attribute::Custom(_) => {
