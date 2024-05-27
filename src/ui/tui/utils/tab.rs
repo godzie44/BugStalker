@@ -302,6 +302,7 @@ impl Component<Msg, UserEvent> for TabWindow {
                     }
                 } else if let Some(SpecialAction::SwitchWindowTab) = keymap.get_special(&key_event)
                 {
+                    self.deactivate_window();
                     self.perform(Cmd::Move(Direction::Right))
                 } else {
                     CmdResult::None
