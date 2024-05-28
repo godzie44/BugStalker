@@ -95,16 +95,11 @@ class MultithreadTestCase(unittest.TestCase):
             self.debugger.cmd('step', '/linux/nanosleep.c')
 
         self.debugger.cmd('step')
-        time.sleep(0.2)
+        time.sleep(1)
         self.debugger.cmd('step')
-        time.sleep(0.2)
-        self.debugger.cmd('step')
-        time.sleep(0.2)
-
-        self.debugger.expect_in_output('24     let mut sum = 0;')
-        self.debugger.cmd('step')
-        time.sleep(0.2)
-
+        time.sleep(1)
+        self.debugger.cmd('step', '24     let mut sum = 0;')
+        self.debugger.cmd('step', '25     for i in 0..10000')
         # try to view variables from a new in-focus thread
         self.debugger.cmd('var locals', 'sum = i32(0)')
 
