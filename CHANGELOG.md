@@ -34,6 +34,7 @@ All notable changes to this project will be documented in this file.
 - debugger: panic, when value of the right bound in a slice operator was greater than the underlying container lenght
 - tui: panic, when breakpoint set at memory address
 - tui: async error leads to ignoring of a new commands by TUI app
+- debugger: check that value of DW_ATE_UTF encoding is valid utf8 char
 
 ### Deprecated
 
