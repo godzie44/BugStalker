@@ -1091,7 +1091,17 @@ impl<'a> VariableParser<'a> {
                 }
             },
             DW_ATE_boolean => render_scalar::<bool>(data).map(SupportedScalar::Bool),
-            DW_ATE_UTF => render_scalar::<char>(data).map(SupportedScalar::Char),
+            DW_ATE_UTF => render_scalar::<char>(data).map(|char| {
+                // WAITFORFIX: https://github.com/rust-lang/rust/issues/113819
+                // this check is meaningfully here cause in case above there is a random bytes here,
+                // and it may lead to panic in other places
+                // (specially when someone tries to render this char)
+                if String::from_utf8(char.to_string().into_bytes()).is_err() {
+                    SupportedScalar::Char('?')
+                } else {
+                    SupportedScalar::Char(char)
+                }
+            }),
             DW_ATE_ASCII => render_scalar::<char>(data).map(SupportedScalar::Char),
             _ => {
                 warn!("parse scalar: unexpected base type encoding: {encoding}");
