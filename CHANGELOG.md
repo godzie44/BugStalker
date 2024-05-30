@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 - tui: now current active line (in a source code window and disassemble window)
   glued to the middle of render area instead of the bottom of the screen
 - console: now program data (variables and arguments) stylized with syntect
+- tui: now variable and thread tabs stylized with syntect
 
 ### Fixed
 

@@ -1,16 +1,18 @@
 use crate::debugger::register::debug::BreakCondition;
 use crate::ui;
-use crate::ui::command;
 use crate::ui::command::thread::ExecutionResult as ThreadResult;
+use crate::ui::syntax::StylizedLine;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::CommonAction;
 use crate::ui::tui::proto::ClientExchanger;
+use crate::ui::tui::utils::syntect::into_text_span;
 use crate::ui::tui::{Id, Msg};
+use crate::ui::{command, syntax};
 use nix::sys::signal::Signal;
 use std::sync::Arc;
 use tui_realm_treeview::{Node, Tree, TreeView, TREE_CMD_CLOSE, TREE_CMD_OPEN, TREE_INITIAL_NODE};
 use tuirealm::command::{Cmd, Direction, Position};
-use tuirealm::props::{BorderType, Borders, Style};
+use tuirealm::props::{BorderType, Borders, Style, TextSpan};
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::style::Color;
 use tuirealm::{
@@ -19,8 +21,24 @@ use tuirealm::{
 
 #[derive(MockComponent)]
 pub struct Threads {
-    component: TreeView,
+    component: TreeView<Vec<TextSpan>>,
     exchanger: Arc<ClientExchanger>,
+}
+
+fn render_frame(line: &str) -> anyhow::Result<Vec<TextSpan>> {
+    let syntax_renderer = syntax::rust_syntax_renderer();
+    let mut line_renderer = syntax_renderer.line_renderer();
+
+    let line_spans = match line_renderer.render_line(line)? {
+        StylizedLine::NoneStyle(l) => {
+            vec![TextSpan::new(l)]
+        }
+        StylizedLine::Stylized(segment) => segment
+            .into_iter()
+            .filter_map(|s| into_text_span(s).ok())
+            .collect(),
+    };
+    Ok(line_spans)
 }
 
 impl Threads {
@@ -39,7 +57,7 @@ impl Threads {
             return;
         };
 
-        let mut root = Node::new("root".to_string(), "threads".to_string());
+        let mut root = Node::new("root".to_string(), vec![TextSpan::new("threads")]);
         for (i, thread_snap) in threads.iter().enumerate() {
             let pid = thread_snap.thread.pid;
             let func_name = thread_snap
@@ -59,7 +77,10 @@ impl Threads {
                 format!(" [{pid}] {func_name}(:{line})")
             };
 
-            let mut thread_node = Node::new(format!("thread_{i}"), value);
+            let mut thread_node = Node::new(
+                format!("thread_{i}"),
+                render_frame(&value).expect("should be rendered"),
+            );
 
             if let Some(ref bt) = thread_snap.bt {
                 for (frame_num, frame) in bt.iter().enumerate() {
@@ -76,7 +97,7 @@ impl Threads {
                     );
                     thread_node.add_child(Node::new(
                         format!("thread_{i}_frame_{frame_num}"),
-                        frame_info,
+                        render_frame(&frame_info).expect("should be rendered"),
                     ));
                 }
             }
