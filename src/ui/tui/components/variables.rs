@@ -3,16 +3,18 @@ use crate::debugger::variable::render::{RenderRepr, ValueLayout};
 use crate::debugger::variable::select::{Literal, VariableSelector, DQE};
 use crate::debugger::variable::{select, VariableIR};
 use crate::ui;
-use crate::ui::command;
+use crate::ui::syntax::StylizedLine;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::CommonAction;
 use crate::ui::tui::proto::ClientExchanger;
+use crate::ui::tui::utils::syntect::into_text_span;
 use crate::ui::tui::{Id, Msg};
+use crate::ui::{command, syntax};
 use nix::sys::signal::Signal;
 use std::sync::Arc;
 use tui_realm_treeview::{Node, Tree, TreeView, TREE_CMD_CLOSE, TREE_CMD_OPEN, TREE_INITIAL_NODE};
 use tuirealm::command::{Cmd, Direction, Position};
-use tuirealm::props::{BorderType, Borders};
+use tuirealm::props::{BorderType, Borders, TextSpan};
 use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::style::{Color, Style};
 use tuirealm::{
@@ -23,8 +25,41 @@ const MAX_RECURSION: u32 = 15;
 
 #[derive(MockComponent)]
 pub struct Variables {
-    component: TreeView,
+    component: TreeView<Vec<TextSpan>>,
     exchanger: Arc<ClientExchanger>,
+}
+
+fn render_var_inner(name: &str, typ: &str, value: Option<&str>) -> anyhow::Result<Vec<TextSpan>> {
+    let syntax_renderer = syntax::rust_syntax_renderer();
+    let mut line_renderer = syntax_renderer.line_renderer();
+
+    let line = match value {
+        None => {
+            format!("{name} {typ}")
+        }
+        Some(value) => {
+            format!("{name} {typ}({value})")
+        }
+    };
+
+    let line_spans = match line_renderer.render_line(&line)? {
+        StylizedLine::NoneStyle(l) => {
+            vec![TextSpan::new(l)]
+        }
+        StylizedLine::Stylized(segment) => segment
+            .into_iter()
+            .filter_map(|s| into_text_span(s).ok())
+            .collect(),
+    };
+    Ok(line_spans)
+}
+
+fn render_var(name: &str, typ: &str, value: &str) -> anyhow::Result<Vec<TextSpan>> {
+    render_var_inner(name, typ, Some(value))
+}
+
+fn render_var_def(name: &str, typ: &str) -> anyhow::Result<Vec<TextSpan>> {
+    render_var_inner(name, typ, None)
 }
 
 impl Variables {
@@ -34,25 +69,41 @@ impl Variables {
         node_name: &str,
         var: &VariableIR,
         select_path: Option<DQE>,
-    ) -> Node {
+    ) -> Node<Vec<TextSpan>> {
         let name = var.name();
         let typ = var.r#type();
 
         // recursion guard
         if recursion >= MAX_RECURSION {
-            return Node::new(node_name.to_string(), format!("{name} {typ}(...)"));
+            return Node::new(
+                node_name.to_string(),
+                render_var(&name, typ, "...").expect("should be rendered"),
+            );
         }
 
         match var.value() {
-            None => Node::new(node_name.to_string(), format!("{name} {typ}(unknown)")),
+            None => Node::new(
+                node_name.to_string(),
+                render_var(&name, typ, "unknown").expect("should be rendered"),
+            ),
             Some(layout) => match layout {
-                ValueLayout::PreRendered(view) => {
-                    Node::new(node_name.to_string(), format!("{name} {typ}({view})"))
+                ValueLayout::PreRendered(val) => {
+                    let s = val.as_ref();
+                    if let Err(e) = String::from_utf8(s.as_bytes().to_vec()) {
+                        println!("err: {e}");
+                    }
+
+                    Node::new(
+                        node_name.to_string(),
+                        render_var(&name, typ, &val).expect("should be rendered"),
+                    )
                 }
                 ValueLayout::Referential { addr, .. } => {
-                    let view = format!("{addr:p}");
-                    let mut node =
-                        Node::new(node_name.to_string(), format!("{name} {typ}({view})"));
+                    let value = format!("{addr:p}");
+                    let mut node = Node::new(
+                        node_name.to_string(),
+                        render_var(&name, typ, &value).expect("should be rendered"),
+                    );
 
                     if let Some(path) = select_path {
                         let deref_expr = DQE::Deref(Box::new(path));
@@ -83,7 +134,10 @@ impl Variables {
                     node
                 }
                 ValueLayout::Wrapped(other) => {
-                    let mut node = Node::new(node_name.to_string(), format!("{name} {typ}"));
+                    let mut node = Node::new(
+                        node_name.to_string(),
+                        render_var_def(&name, typ).expect("should be rendered"),
+                    );
                     node.add_child(self.node_from_var(
                         recursion + 1,
                         format!("{node_name}_1").as_str(),
@@ -93,7 +147,10 @@ impl Variables {
                     node
                 }
                 ValueLayout::Structure { members, .. } => {
-                    let mut node = Node::new(node_name.to_string(), format!("{name} {typ}"));
+                    let mut node = Node::new(
+                        node_name.to_string(),
+                        render_var_def(&name, typ).expect("should be rendered"),
+                    );
                     for (i, member) in members.iter().enumerate() {
                         node.add_child(
                             self.node_from_var(
@@ -109,10 +166,15 @@ impl Variables {
                     node
                 }
                 ValueLayout::Map(kvs) => {
-                    let mut node = Node::new(node_name.to_string(), format!("{name} {typ}"));
+                    let mut node = Node::new(
+                        node_name.to_string(),
+                        render_var_def(&name, typ).expect("should be rendered"),
+                    );
                     for (i, (key, val)) in kvs.iter().enumerate() {
-                        let mut kv_pair =
-                            Node::new(format!("{node_name}_kv_{i}"), format!("kv {i}"));
+                        let mut kv_pair = Node::new(
+                            format!("{node_name}_kv_{i}"),
+                            vec![TextSpan::new(format!("kv {i}"))],
+                        );
 
                         kv_pair.add_child(self.node_from_var(
                             recursion + 1,
@@ -138,7 +200,10 @@ impl Variables {
                     node
                 }
                 ValueLayout::List { members, indexed } => {
-                    let mut node = Node::new(node_name.to_string(), format!("{name} {typ}"));
+                    let mut node = Node::new(
+                        node_name.to_string(),
+                        render_var_def(&name, typ).expect("should be rendered"),
+                    );
                     for (i, member) in members.iter().enumerate() {
                         let el_path = if indexed {
                             select_path.clone().and_then(|expr| {
@@ -183,9 +248,12 @@ impl Variables {
             return;
         };
 
-        let mut root = Node::new("root".to_string(), "arguments and variables".to_string());
+        let mut root = Node::new(
+            "root".to_string(),
+            vec![TextSpan::new("arguments and variables")],
+        );
 
-        let mut args_node = Node::new("arguments".to_string(), "arguments".to_string());
+        let mut args_node = Node::new("arguments".to_string(), vec![TextSpan::new("arguments")]);
         for (i, arg) in arguments.iter().enumerate() {
             let node_name = format!("arg_{i}");
             let var_node = self.node_from_var(
@@ -201,7 +269,7 @@ impl Variables {
         }
         root.add_child(args_node);
 
-        let mut vars_node = Node::new("variables".to_string(), "variables".to_string());
+        let mut vars_node = Node::new("variables".to_string(), vec![TextSpan::new("variables")]);
         for (i, var) in variables.iter().enumerate() {
             let node_name = format!("var_{i}");
             let var_node = self.node_from_var(

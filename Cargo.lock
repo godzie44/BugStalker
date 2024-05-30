@@ -2252,8 +2252,7 @@ dependencies = [
 [[package]]
 name = "tui-realm-treeview"
 version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3d2d6c059f6adbb2ba7194ab50765dac793cb98fae097e0bb5bf8c23ffaf27c"
+source = "git+https://github.com/godzie44/tui-realm-treeview?branch=godzie44/node-value-ext#cff72ff34c95112a3c4c51a983dec7544129d539"
 dependencies = [
  "orange-trees",
  "tuirealm",
