@@ -213,7 +213,7 @@ watch remove <addr:size>|<expression>|<number> - deactivate and delete selected 
 watch info - show all watchpoints
 
 Examples:
-* watch 0x00000004:4 - set watchpoint to memory region [0x0..04:0x0..08]
+* watch 0x00000004:4 - set watchpoint to memory region [0x0..04:0x0..07]
 * watch var1 - set watchpoint (write condition) to variable `var1`
 * watch +rw var1 - set watchpoint (read-write condition) to variable `var1`
 * watch struct1.field1 - set watchpoint to `field1` of variable `struct1`
