@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Deprecated
+
+### Breaking changes
+
+---
+
+# [0.2.0] Jun 3 2024
+
+### Added
+
 - tui: added ability to select tab across both windows
 - tui: now left and right windows can expand (and the opposite window,
   accordingly, collapsed)
@@ -36,10 +50,6 @@ All notable changes to this project will be documented in this file.
 - tui: panic, when breakpoint set at memory address
 - tui: async error leads to ignoring of a new commands by TUI app
 - debugger: check that value of DW_ATE_UTF encoding is valid utf8 char
-
-### Deprecated
-
-### Breaking changes
 
 ---
 
