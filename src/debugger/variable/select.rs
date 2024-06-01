@@ -404,7 +404,10 @@ impl<'a> SelectExpressionEvaluator<'a> {
                             self.evaluate_single_variable(&self.expression, var, r#type)?;
                         Some(DqeResult {
                             variable: var_ir,
-                            scope: var.ranges().map(Box::from),
+                            scope: var.max_range().map(|r| {
+                                let scope: Box<[Range]> = Box::new([r]);
+                                scope
+                            }),
                         })
                     })
                     .collect())
