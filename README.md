@@ -16,11 +16,16 @@
     * [Help](#help)
     * [Start and restart](#start-and-restart)
     * [Stopping and continuing](#stopping-and-continuing)
+        * [Breakpoints](#breakpoints)
+        * [Watchpoints](#watchpoints)
+        * [Steps](#steps)
+        * [Signals](#signals)
     * [Examining the stack](#examining-the-stack)
     * [Examining source files](#examining-source-files)
     * [Examining data](#examining-data)
     * [Other commands](#other-commands)
     * [Tui interface](#tui-interface)
+        * [Configuration](#configuration)
     * [Oracles](#oracles)
 - [Contributing](#contributing)
 
@@ -38,7 +43,7 @@
 ## Features
 
 * written in rust for rust language with simplicity as a priority goal
-* [breakpoints, steps, signals](#stopping-and-continuing)
+* [breakpoints, steps, signals, watchpoints](#stopping-and-continuing)
 * multithreaded application support
 * [data query expressions](#examining-data)
 * support for a rust type system (collections, smart pointers, thread locals and
@@ -133,13 +138,14 @@ Print `help` for view all available commands.
 
 ## Start and restart
 
-[demo](https://www.terminalizer.com/view/2914f76f5890)
+[demo](https://github.com/godzie44/BugStalker/blob/master/doc/demo_run.gif)
 
 - `run` - start or restart a program (alias: `r`)
 
 ## Stopping and continuing
 
 The Debugger stops your program when breakpoints are hit,
+or after watchpoint are hit,
 or after steps commands,
 or when the OS signal is coming.
 BugStalker always stops the whole program, meaning that all threads are stopped.
@@ -147,13 +153,13 @@ Thread witch initiated a stop become a current selected thread.
 
 ### Continue execution
 
-[demo](https://terminalizer.com/view/6d5048415891)
+[demo](https://github.com/godzie44/BugStalker/blob/master/doc/demo_cont.gif)
 
 - `continue` - resume a stopped program
 
 ### Breakpoints
 
-[demo](https://terminalizer.com/view/0a5ee2a05889)
+[demo](https://github.com/godzie44/BugStalker/blob/master/doc/demo_brkpt.gif)
 
 - `break {file}:{line}` - set breakpoint at line (alias: `b {file}:{line}`)
 - `break {function name}` - set breakpoint at start of the function (
@@ -168,9 +174,34 @@ Thread witch initiated a stop become a current selected thread.
   alias: `b r {function name}`)
 - `break info` - print all breakpoints
 
+### Watchpoints
+
+[demo](https://github.com/godzie44/BugStalker/blob/master/doc/demo_watch.gif)
+
+Watchpoint is a "data breakpoint".
+This means that the program stops when the variable (or expression, or just raw memory region)
+observed by watchpoint is changed.
+Currently, watchpoints feature based on `x86-64` hardware breakpoints.
+Therefore, there are two limitations:
+
+- only 4 watchpoints are possible at one time
+- watchpoint "observe" memory region of 1/2/4/8 bytes size
+
+You can set watchpoint at variables (global or locals), or at expression based on variables.
+Watchpoints for local variables will be removed automatically, when variable out of scope.
+If watchpoint observes a global variable, then it will live as long as the debugger is running.
+
+Lets look at examples:
+
+- `watch my_var` - stop when variable value is rewriting (alias: `w my_var`)
+- `watch +rw my_var` - stop when variable value is reading or rewriting
+- `watch my_vector[0]` - stop when first vector element is rewriting
+- `watch (~my_vector).len` - stop when vector length is changed
+- `watch 0x100:4` - stop when writing to memory region [0x100:0x103]
+
 ### Steps
 
-[demo](https://terminalizer.com/view/cb4e35a55888)
+[demo](https://github.com/godzie44/BugStalker/blob/master/doc/demo_step.gif)
 
 - `stepi` - step a single instruction
 - `step` - step a program until it reaches a different source line (
@@ -182,17 +213,16 @@ Thread witch initiated a stop become a current selected thread.
 
 ### Signals
 
-[demo](https://terminalizer.com/view/4ed500545892)
+[demo](https://github.com/godzie44/BugStalker/blob/master/doc/demo_signal.gif)
 
-You can send OS signal to debugee program,
-for example, send SIGINT (ctrl+c) to the debugee
-program to stop it.
+`BugStalker` will catch signals sent from OS to debugee program and stop execution.
+For example, try to send SIGINT (ctrl+c) to the debugee program to stop it.
 
 ### Change current selected thread
 
-[demo](https://terminalizer.com/view/ad448b5c5893)
+[demo](https://github.com/godzie44/BugStalker/blob/master/doc/demo_thread.gif)
 
-- `thread info` - print list of information about threads
+- `thread info` - print list with information about threads
 - `thread current` - prints current selected thread
 - `thread switch {number}` - switch selected thread
 
@@ -220,7 +250,7 @@ and the address at which the function is executed.
 
 ### Backtrace
 
-[demo](https://terminalizer.com/view/64f028235898)
+[demo](https://github.com/godzie44/BugStalker/blob/master/doc/demo_bt.gif)
 
 - `backtrace` - print backtrace of current stopped thread (alias: `bt`).
   Backtrace contains information about thread
@@ -231,7 +261,7 @@ and the address at which the function is executed.
 
 ### Select a frame
 
-[demo](https://terminalizer.com/view/8ac0ed475896)
+[demo](https://github.com/godzie44/BugStalker/blob/master/doc/demo_frame.gif)
 
 Most commands
 for examining the stack and other data in your program works
@@ -242,7 +272,7 @@ on whichever stack frame is selected at the moment.
 
 ## Examining source files
 
-[demo](https://terminalizer.com/view/be63c4b85899)
+[demo](https://github.com/godzie44/BugStalker/blob/master/doc/demo_source.gif)
 
 BugStalker can print parts of your program's source code.
 When your program stops,
@@ -255,7 +285,7 @@ There is `source` commands for print more.
 
 ## Examining data
 
-[demo](https://terminalizer.com/view/418b5da85903)
+[demo](https://github.com/godzie44/BugStalker/blob/master/doc/demo_data.gif)
 
 Of course, you need a way to examine data of your program.
 
@@ -276,21 +306,27 @@ Operator available in expressions:
 - select variable by its name (ex. `var a`)
 - dereference pointers/references/smart pointers (ex. `var *ref_to_a`)
 - take a structure field (ex. `var some_struct.some_field`)
-- take an element by index from arrays, slices, vectors, hashmaps (
-  ex. `var arr[1]`)
+- take an element by index or key from arrays, slices, vectors, hashmaps (
+  ex. `var arr[1]` or even `var hm[{a: 1, b: 2}]`)
 - slice arrays, vectors, slices (ex. `var some_vector[1..3]`
   or `var some_vector[1..]`)
 - cast constant address to a pointer of a concrete type (
-  ex. `(*mut SomeType)0x123AABCD`)
+  ex. `var (*mut SomeType)0x123AABCD`)
+- take address (ex. `var &some_struct.some_field`)
+- show canonic representation (for example, show vector header instead of vector data `var ~myvec`)
 - parentheses for control an operator execution ordering
 
 Write expressions is simple, and you can do it right now!
 Some examples:
 
 - `var *some_variable` - dereference and print value of `some_variable`
-- `var some_array[0][2..5]` - print 3 elements, starts from index 2 from
+- `var hm[{a: 1, b: *}]` - print value from hashmap corresponding to the key.
+  Literal `{a: 1, b: *}` matches to any structure with field `a` equals to 1 and field `b` equals to any value
+- `var some_array[0][2..5]` - print three elements, starts from index 2 from
   zero element of `some_array`
 - `var *some_array[0]` - print dereferenced value of `some_array[0]`
+- `var &some_array[0]` - print address of `some_array[0]`
+- `var (~some_vec).len` - print len field from vector header
 - `var (*some_array)[0]` - print a zero element of `*some_array`
 - `var *(*(var1.field1)).field2[1][2]` - print dereferenced value of element at
   index 2 in
@@ -315,18 +351,28 @@ Of course, the debugger provides many more commands:
 
 ## Tui interface
 
-[demo](https://terminalizer.com/view/c8de6a1e5901)
+[demo](https://github.com/godzie44/BugStalker/blob/master/doc/demo_tui.gif)
 
 One of the most funny BugStalker features is switching between old school
 terminal interface and pretty tui at any moment.
 
 - `tui` - switch too terminal ui (in tui use `Esc` for switch back)
 
+### Configuration
+
+There is a `keymap.toml` file with tui keybindings configuration.
+You can find the default configuration files
+at https://github.com/godzie44/BugStalker/tree/master/src/ui/tui/config/preset/keymap.toml.
+
+To override any of the defaults, begin by creating the corresponding file (from the file linked above) to:
+`~/.config/bs/keymap.toml`.
+You can change keybindings configuration file by exporting the `KEYMAP_FILE` environment variable.
+
 ## Oracles
 
-[demo console](https://terminalizer.com/view/0ea924865908)
+[demo console](https://github.com/godzie44/BugStalker/blob/master/doc/demo_oracle.gif)
 
-[demo tui](https://terminalizer.com/view/971412185907)
+[demo tui](https://github.com/godzie44/BugStalker/blob/master/doc/demo_oracle_tui.gif)
 
 Oracle is a module that expands the capabilities of the debugger.
 Oracles can monitor the internal state of a program
