@@ -97,6 +97,13 @@ fn calculation_with_complex_types() {
     println!("v[2] = {}, s.b = {}", vector[2], s.b)
 }
 
+fn calculate_from_arg(mut arg: i32) -> i32 {
+    arg += 1;
+    arg += 2;
+    arg -= 5;
+    arg
+}
+
 pub fn main() {
     calculation_single_value();
     calculation_four_value();
@@ -104,4 +111,5 @@ pub fn main() {
     calculation_global_value_mt();
     calculation_local_value_mt();
     calculation_with_complex_types();
+    calculate_from_arg(1);
 }

@@ -667,6 +667,29 @@ impl Unit {
         self.find_place_by_idx(pos)
     }
 
+    /// Return the nearest line with EB (epilog begin).
+    /// Nearest means - at given address or at address less than given.
+    ///
+    /// # Arguments
+    ///
+    /// * `pc`: program counter represented by global address.
+    pub fn find_eb(&self, pc: GlobalAddress) -> Option<PlaceDescriptor> {
+        let pc = u64::from(pc);
+
+        let mut pos = self
+            .lines
+            .binary_search_by_key(&pc, |line| line.address)
+            .unwrap_or_else(|p| p.saturating_sub(1));
+
+        while pos > 0 {
+            if self.lines[pos].epilog_begin() {
+                return self.find_place_by_idx(pos);
+            }
+            pos -= 1;
+        }
+        None
+    }
+
     /// Return place with address equals to given program counter.
     ///
     /// # Arguments
