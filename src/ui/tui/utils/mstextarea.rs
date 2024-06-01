@@ -1,9 +1,9 @@
 use std::collections::LinkedList;
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
 use tuirealm::props::{Borders, PropPayload, PropValue, Style, TextModifiers, TextSpan};
-use tuirealm::tui::layout::{Alignment, Corner, Rect};
+use tuirealm::tui::layout::{Alignment, Rect};
 use tuirealm::tui::prelude::Color;
-use tuirealm::tui::widgets::{List, ListItem, ListState};
+use tuirealm::tui::widgets::{List, ListDirection, ListItem, ListState};
 use tuirealm::{AttrValue, Attribute, Frame, MockComponent, Props, State};
 use unicode_width::UnicodeWidthStr;
 
@@ -255,7 +255,7 @@ impl MockComponent for MultiSpanTextarea {
 
             let mut list = List::new(lines)
                 .block(block)
-                .start_corner(Corner::TopLeft)
+                .direction(ListDirection::TopToBottom)
                 .style(
                     Style::default()
                         .fg(foreground)

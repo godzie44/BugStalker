@@ -3,9 +3,8 @@ use tuirealm::props::{
     Alignment, AttrValue, Attribute, Borders, Color, PropPayload, PropValue, Props, Style,
     TextModifiers,
 };
-use tuirealm::tui::layout::Corner;
 use tuirealm::tui::text::Line as Spans;
-use tuirealm::tui::widgets::{ListItem, ListState};
+use tuirealm::tui::widgets::{ListDirection, ListItem, ListState};
 use tuirealm::tui::{layout::Rect, widgets::Tabs};
 use tuirealm::{Frame, MockComponent, State, StateValue};
 
@@ -180,7 +179,7 @@ impl MockComponent for Radio {
                     let radio = tuirealm::tui::widgets::List::new(list_items)
                         .block(div)
                         .highlight_style(Style::default().fg(fg).add_modifier(modifiers))
-                        .start_corner(Corner::TopLeft);
+                        .direction(ListDirection::TopToBottom);
 
                     let mut state: ListState = ListState::default();
                     state.select(Some(self.states.choice));
