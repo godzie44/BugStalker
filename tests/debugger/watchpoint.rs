@@ -112,7 +112,7 @@ fn test_watchpoint_global_var() {
     dbg.set_breakpoint_at_fn("main").unwrap();
 
     dbg.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(101));
+    assert_eq!(info.line.take(), Some(108));
     let wp_dqe = DQE::Variable(VariableSelector::by_name("GLOBAL_1", false));
     dbg.set_watchpoint_on_expr("GLOBAL_1", wp_dqe, DataWrites)
         .unwrap();
@@ -348,5 +348,40 @@ fn test_max_watchpoint_count_at_address() {
     dbg.remove_watchpoint_by_addr(ptr_d).unwrap();
 
     dbg.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_watchpoint_argument() {
+    let process = prepare_debugee_process(CALCULATIONS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = TestInfo::default();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut dbg = builder.build(process).unwrap();
+    dbg.set_breakpoint_at_fn("calculate_from_arg").unwrap();
+
+    dbg.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(101));
+
+    let wp_dqe = DQE::Variable(VariableSelector::by_name("arg", false));
+    dbg.set_watchpoint_on_expr("arg", wp_dqe, DataWrites)
+        .unwrap();
+
+    dbg.continue_debugee().unwrap();
+    let (old, new) = (SupportedScalar::I32(1), Some(SupportedScalar::I32(2)));
+    assert_old_new(&info, "arg", "i32", old, new);
+    dbg.continue_debugee().unwrap();
+    let (old, new) = (SupportedScalar::I32(2), Some(SupportedScalar::I32(4)));
+    assert_old_new(&info, "arg", "i32", old, new);
+    dbg.continue_debugee().unwrap();
+    let (old, new) = (SupportedScalar::I32(4), Some(SupportedScalar::I32(-1)));
+    assert_old_new(&info, "arg", "i32", old, new);
+    dbg.continue_debugee().unwrap();
+    let (old, new) = (SupportedScalar::I32(-1), None);
+    assert_old_new(&info, "arg", "i32", old, new);
+
+    dbg.continue_debugee().unwrap();
+    assert!(dbg.watchpoint_list().is_empty());
     assert_no_proc!(debugee_pid);
 }

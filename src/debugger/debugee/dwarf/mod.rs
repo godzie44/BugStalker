@@ -1166,11 +1166,25 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
 }
 
 impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
-    pub fn ranges(&self) -> Option<&[Range]> {
-        self.die.fn_block_idx.map(|fn_idx| {
+    /// Return max range (with max `end` address) of an underlying function.
+    /// If it's possible, `end` address in range equals to function epilog begin.
+    pub fn max_range(&self) -> Option<Range> {
+        self.die.fn_block_idx.and_then(|fn_idx| {
             let entry = ctx_resolve_unit_call!(self, entry, fn_idx);
             let func = entry.die.unwrap_function();
-            func.base_attributes.ranges.as_ref()
+            let ranges = func.base_attributes.ranges.as_ref();
+
+            if let Some(max_range) = ranges.iter().max_by_key(|r| r.end) {
+                let eb = self.unit().find_eb(GlobalAddress::from(max_range.end));
+                if let Some(eb) = eb {
+                    return Some(Range {
+                        begin: max_range.begin,
+                        end: u64::from(eb.address),
+                    });
+                }
+            }
+
+            ranges.last().copied()
         })
     }
 }
