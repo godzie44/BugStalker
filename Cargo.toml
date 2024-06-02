@@ -58,7 +58,7 @@ tui-realm-stdlib = { version = "1.3.2", default-features = false, features = ["r
 syntect = "5.2.0"
 unicode-width = "0.1.11"
 # WAITFORFIX: https://github.com/veeso/tui-realm-treeview/pull/9
-tui-realm-treeview = { git = "https://github.com/godzie44/tui-realm-treeview", branch = "godzie44/node-value-ext" }
+tui-realm-treeview = { package = "godzie44-tui-realm-treeview", version = "1.0.0" }
 capstone = "0.11.0"
 lru = "0.12.1"
 chrono = "0.4.31"

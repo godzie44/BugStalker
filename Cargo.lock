@@ -229,6 +229,7 @@ dependencies = [
  "env_logger 0.11.2",
  "fallible-iterator",
  "gimli",
+ "godzie44-tui-realm-treeview",
  "home",
  "indexmap 2.2.6",
  "itertools 0.12.1",
@@ -261,7 +262,6 @@ dependencies = [
  "toml",
  "trie-rs",
  "tui-realm-stdlib",
- "tui-realm-treeview",
  "tuirealm",
  "typed-arena",
  "unicode-width",
@@ -896,6 +896,17 @@ name = "glob"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
+
+[[package]]
+name = "godzie44-tui-realm-treeview"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e1ea2f5387de83bfe6a21f4179fe3358f9401c1cc5beb371c346a83a7b6f77a"
+dependencies = [
+ "orange-trees",
+ "tuirealm",
+ "unicode-width",
+]
 
 [[package]]
 name = "hashbrown"
@@ -2255,16 +2266,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50ad506e872692d85265328353d92f4f633dd5add7f73ebd93e8d0368a708447"
 dependencies = [
  "textwrap",
- "tuirealm",
- "unicode-width",
-]
-
-[[package]]
-name = "tui-realm-treeview"
-version = "1.2.0"
-source = "git+https://github.com/godzie44/tui-realm-treeview?branch=godzie44/node-value-ext#cff72ff34c95112a3c4c51a983dec7544129d539"
-dependencies = [
- "orange-trees",
  "tuirealm",
  "unicode-width",
 ]
