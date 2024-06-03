@@ -1,8 +1,8 @@
 //! data query expressions parser.
-use crate::debugger::variable::select::{DQE, Literal, LiteralOrWildcard, VariableSelector};
+use crate::debugger::variable::select::{Literal, LiteralOrWildcard, Selector, DQE};
 use crate::ui::command::parser::{hex, rust_identifier};
-use chumsky::Parser;
 use chumsky::prelude::*;
+use chumsky::Parser;
 use std::collections::HashMap;
 
 type Err<'a> = extra::Err<Rich<'a, char>>;
@@ -126,12 +126,7 @@ fn literal<'a>() -> impl Parser<'a, &'a str, Literal, Err<'a>> + Clone {
 pub fn parser<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> {
     let base_selector = rust_identifier()
         .padded()
-        .map(|name: &str| {
-            DQE::Variable(VariableSelector::Name {
-                var_name: name.to_string(),
-                only_local: false,
-            })
-        })
+        .map(|name: &str| DQE::Variable(Selector::by_name(name, false)))
         .or(ptr_cast());
 
     let expr = recursive(|expr| {
@@ -389,117 +384,110 @@ mod test {
         let test_cases = vec![
             TestCase {
                 string: "var1",
-                expr: DQE::Variable(VariableSelector::Name {
-                    var_name: "var1".to_string(),
-                    only_local: false,
-                }),
+                expr: DQE::Variable(Selector::by_name("var1", false)),
             },
             TestCase {
                 string: "*var1",
-                expr: DQE::Deref(Box::new(DQE::Variable(VariableSelector::Name {
-                    var_name: "var1".to_string(),
-                    only_local: false,
-                }))),
+                expr: DQE::Deref(DQE::Variable(Selector::by_name("var1", false)).boxed()),
             },
             TestCase {
                 string: "~var1",
-                expr: DQE::Canonic(Box::new(DQE::Variable(VariableSelector::Name {
-                    var_name: "var1".to_string(),
-                    only_local: false,
-                }))),
+                expr: DQE::Canonic(DQE::Variable(Selector::by_name("var1", false)).boxed()),
             },
             TestCase {
                 string: "**var1",
-                expr: DQE::Deref(Box::new(DQE::Deref(Box::new(DQE::Variable(
-                    VariableSelector::Name {
-                        var_name: "var1".to_string(),
-                        only_local: false,
-                    },
-                ))))),
+                expr: DQE::Deref(
+                    DQE::Deref(DQE::Variable(Selector::by_name("var1", false)).boxed()).boxed(),
+                ),
             },
             TestCase {
                 string: "~*var1",
                 expr: DQE::Canonic(
+                    DQE::Deref(DQE::Variable(Selector::by_name("var1", false)).boxed()).boxed(),
+                ),
+            },
+            TestCase {
+                string: "**var1.field1.field2",
+                expr: DQE::Deref(
                     DQE::Deref(
-                        DQE::Variable(VariableSelector::Name {
-                            var_name: "var1".to_string(),
-                            only_local: false,
-                        })
+                        DQE::Field(
+                            DQE::Field(
+                                DQE::Variable(Selector::by_name("var1", false)).boxed(),
+                                "field1".to_string(),
+                            )
+                            .boxed(),
+                            "field2".to_string(),
+                        )
                         .boxed(),
                     )
                     .boxed(),
                 ),
             },
             TestCase {
-                string: "**var1.field1.field2",
-                expr: DQE::Deref(Box::new(DQE::Deref(Box::new(DQE::Field(
-                    Box::new(DQE::Field(
-                        Box::new(DQE::Variable(VariableSelector::Name {
-                            var_name: "var1".to_string(),
-                            only_local: false,
-                        })),
-                        "field1".to_string(),
-                    )),
-                    "field2".to_string(),
-                ))))),
-            },
-            TestCase {
                 string: "**(var1.field1.field2)",
-                expr: DQE::Deref(Box::new(DQE::Deref(Box::new(DQE::Field(
-                    Box::new(DQE::Field(
-                        Box::new(DQE::Variable(VariableSelector::Name {
-                            var_name: "var1".to_string(),
-                            only_local: false,
-                        })),
-                        "field1".to_string(),
-                    )),
-                    "field2".to_string(),
-                ))))),
+                expr: DQE::Deref(
+                    DQE::Deref(
+                        DQE::Field(
+                            DQE::Field(
+                                DQE::Variable(Selector::by_name("var1", false)).boxed(),
+                                "field1".to_string(),
+                            )
+                            .boxed(),
+                            "field2".to_string(),
+                        )
+                        .boxed(),
+                    )
+                    .boxed(),
+                ),
             },
             TestCase {
                 string: "(**var1).field1.field2",
                 expr: DQE::Field(
-                    Box::new(DQE::Field(
-                        Box::new(DQE::Deref(Box::new(DQE::Deref(Box::new(DQE::Variable(
-                            VariableSelector::Name {
-                                var_name: "var1".to_string(),
-                                only_local: false,
-                            },
-                        )))))),
+                    DQE::Field(
+                        DQE::Deref(
+                            DQE::Deref(DQE::Variable(Selector::by_name("var1", false)).boxed())
+                                .boxed(),
+                        )
+                        .boxed(),
                         "field1".to_string(),
-                    )),
+                    )
+                    .boxed(),
                     "field2".to_string(),
                 ),
             },
             TestCase {
                 string: "*(*(var1.field1)).field2[1][2]",
-                expr: DQE::Deref(Box::new(DQE::Index(
-                    Box::new(DQE::Index(
-                        Box::new(DQE::Field(
-                            Box::new(DQE::Deref(Box::new(DQE::Field(
-                                Box::new(DQE::Variable(VariableSelector::Name {
-                                    var_name: "var1".to_string(),
-                                    only_local: false,
-                                })),
-                                "field1".to_string(),
-                            )))),
-                            "field2".to_string(),
-                        )),
-                        Literal::Int(1),
-                    )),
-                    Literal::Int(2),
-                ))),
+                expr: DQE::Deref(
+                    DQE::Index(
+                        DQE::Index(
+                            DQE::Field(
+                                DQE::Deref(
+                                    DQE::Field(
+                                        DQE::Variable(Selector::by_name("var1", false)).boxed(),
+                                        "field1".to_string(),
+                                    )
+                                    .boxed(),
+                                )
+                                .boxed(),
+                                "field2".to_string(),
+                            )
+                            .boxed(),
+                            Literal::Int(1),
+                        )
+                        .boxed(),
+                        Literal::Int(2),
+                    )
+                    .boxed(),
+                ),
             },
             TestCase {
                 string: "var1.field1[5..]",
                 expr: DQE::Slice(
-                    Box::new(DQE::Field(
-                        Box::new(DQE::Variable(VariableSelector::Name {
-                            var_name: "var1".to_string(),
-                            only_local: false,
-                        })),
+                    DQE::Field(
+                        DQE::Variable(Selector::by_name("var1", false)).boxed(),
                         "field1".to_string(),
-                    )),
+                    )
+                    .boxed(),
                     Some(5),
                     None,
                 ),
@@ -507,13 +495,11 @@ mod test {
             TestCase {
                 string: "var1.field1[..5]",
                 expr: DQE::Slice(
-                    Box::new(DQE::Field(
-                        Box::new(DQE::Variable(VariableSelector::Name {
-                            var_name: "var1".to_string(),
-                            only_local: false,
-                        })),
+                    DQE::Field(
+                        DQE::Variable(Selector::by_name("var1", false)).boxed(),
                         "field1".to_string(),
-                    )),
+                    )
+                    .boxed(),
                     None,
                     Some(5),
                 ),
@@ -521,13 +507,11 @@ mod test {
             TestCase {
                 string: "var1.field1[5..5]",
                 expr: DQE::Slice(
-                    Box::new(DQE::Field(
-                        Box::new(DQE::Variable(VariableSelector::Name {
-                            var_name: "var1".to_string(),
-                            only_local: false,
-                        })),
+                    DQE::Field(
+                        DQE::Variable(Selector::by_name("var1", false)).boxed(),
                         "field1".to_string(),
-                    )),
+                    )
+                    .boxed(),
                     Some(5),
                     Some(5),
                 ),
@@ -535,13 +519,11 @@ mod test {
             TestCase {
                 string: "var1.field1[..]",
                 expr: DQE::Slice(
-                    Box::new(DQE::Field(
-                        Box::new(DQE::Variable(VariableSelector::Name {
-                            var_name: "var1".to_string(),
-                            only_local: false,
-                        })),
+                    DQE::Field(
+                        DQE::Variable(Selector::by_name("var1", false)).boxed(),
                         "field1".to_string(),
-                    )),
+                    )
+                    .boxed(),
                     None,
                     None,
                 ),
@@ -549,13 +531,11 @@ mod test {
             TestCase {
                 string: "enum1.0.a",
                 expr: DQE::Field(
-                    Box::new(DQE::Field(
-                        Box::new(DQE::Variable(VariableSelector::Name {
-                            var_name: "enum1".to_string(),
-                            only_local: false,
-                        })),
+                    DQE::Field(
+                        DQE::Variable(Selector::by_name("enum1", false)).boxed(),
                         "0".to_string(),
-                    )),
+                    )
+                    .boxed(),
                     "a".to_string(),
                 ),
             },
@@ -586,11 +566,7 @@ mod test {
                 expr: DQE::Field(
                     DQE::Index(
                         DQE::Field(
-                            DQE::Variable(VariableSelector::Name {
-                                var_name: "var".to_string(),
-                                only_local: false,
-                            })
-                            .boxed(),
+                            DQE::Variable(Selector::by_name("var", false)).boxed(),
                             "arr".to_string(),
                         )
                         .boxed(),
@@ -607,11 +583,7 @@ mod test {
                         DQE::Slice(
                             DQE::Slice(
                                 DQE::Index(
-                                    DQE::Variable(VariableSelector::Name {
-                                        var_name: "arr".to_string(),
-                                        only_local: false,
-                                    })
-                                    .boxed(),
+                                    DQE::Variable(Selector::by_name("arr", false)).boxed(),
                                     Literal::Int(0),
                                 )
                                 .boxed(),
@@ -636,11 +608,7 @@ mod test {
                         DQE::Index(
                             DQE::Index(
                                 DQE::Index(
-                                    DQE::Variable(VariableSelector::Name {
-                                        var_name: "map".to_string(),
-                                        only_local: false,
-                                    })
-                                    .boxed(),
+                                    DQE::Variable(Selector::by_name("map", false)).boxed(),
                                     Literal::String("key".to_string()),
                                 )
                                 .boxed(),
@@ -659,34 +627,20 @@ mod test {
             TestCase {
                 string: "map[Some(true)]",
                 expr: DQE::Index(
-                    DQE::Variable(VariableSelector::Name {
-                        var_name: "map".to_string(),
-                        only_local: false,
-                    })
-                    .boxed(),
+                    DQE::Variable(Selector::by_name("map", false)).boxed(),
                     Literal::EnumVariant("Some".to_string(), Some(Box::new(Literal::Bool(true)))),
                 ),
             },
             TestCase {
                 string: "&a",
-                expr: DQE::Address(
-                    DQE::Variable(VariableSelector::Name {
-                        var_name: "a".to_string(),
-                        only_local: false,
-                    })
-                    .boxed(),
-                ),
+                expr: DQE::Address(DQE::Variable(Selector::by_name("a", false)).boxed()),
             },
             TestCase {
                 string: "&*a.b",
                 expr: DQE::Address(
                     DQE::Deref(
                         DQE::Field(
-                            DQE::Variable(VariableSelector::Name {
-                                var_name: "a".to_string(),
-                                only_local: false,
-                            })
-                            .boxed(),
+                            DQE::Variable(Selector::by_name("a", false)).boxed(),
                             "b".to_string(),
                         )
                         .boxed(),

@@ -1,4 +1,3 @@
-use crate::debugger::Error::Hook;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry};
 use crate::debugger::debugee::tracee::TraceeCtl;
@@ -8,8 +7,9 @@ use crate::debugger::register::debug::{
     BreakCondition, BreakSize, DebugRegisterNumber, HardwareDebugState,
 };
 use crate::debugger::unwind::FrameID;
-use crate::debugger::variable::select::{DQE, DqeResult, SelectExpressionEvaluator};
+use crate::debugger::variable::select::{ScopedVariable, SelectExpressionEvaluator, DQE};
 use crate::debugger::variable::{ScalarVariable, SupportedScalar, VariableIR, VariableIdentity};
+use crate::debugger::Error::Hook;
 use crate::debugger::{Debugger, Error, ExplorationContext, Tracee};
 use crate::{debugger, disable_when_not_stared, weak_error};
 use log::error;
@@ -222,7 +222,11 @@ where
 }
 
 impl Watchpoint {
-    fn evaluate_dqe(debugger: &Debugger, expr_source: &str, dqe: DQE) -> Result<DqeResult, Error> {
+    fn evaluate_dqe(
+        debugger: &Debugger,
+        expr_source: &str,
+        dqe: DQE,
+    ) -> Result<ScopedVariable, Error> {
         let expr_evaluator = SelectExpressionEvaluator::new(debugger, dqe);
 
         // trying to evaluate at variables first,

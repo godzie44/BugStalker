@@ -1,15 +1,15 @@
-use crate::debugger::CreateTransparentBreakpointRequest;
 use crate::debugger::unwind::{Backtrace, FrameSpan};
-use crate::debugger::variable::select::{DQE, VariableSelector};
+use crate::debugger::variable::select::{Selector, DQE};
 use crate::debugger::variable::{ScalarVariable, StructVariable, SupportedScalar, VariableIR};
+use crate::debugger::CreateTransparentBreakpointRequest;
 use crate::debugger::{Debugger, Error};
 use crate::oracle::{ConsolePlugin, Oracle, TuiPlugin};
-use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::print::style::KeywordView;
+use crate::ui::console::print::ExternalPrinter;
 use crate::ui::short::Abbreviator;
-use crate::ui::tui::Msg;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::KeyMap;
+use crate::ui::tui::Msg;
 use chrono::Duration;
 use indexmap::IndexMap;
 use log::warn;
@@ -342,11 +342,7 @@ impl TokioOracle {
     fn get_header_from_self(dbg: &mut Debugger) -> Result<Option<(u64, *const ())>, Error> {
         let header_pointer_expr = DQE::Field(
             DQE::Field(
-                DQE::Variable(VariableSelector::Name {
-                    var_name: "self".to_string(),
-                    only_local: true,
-                })
-                .boxed(),
+                DQE::Variable(Selector::by_name("self", true)).boxed(),
                 "ptr".to_string(),
             )
             .boxed(),
@@ -410,10 +406,7 @@ impl TokioOracle {
 
     fn on_new(&self, debugger: &mut Debugger) -> Result<(), Error> {
         let id_args = debugger.read_argument(DQE::Field(
-            Box::new(DQE::Variable(VariableSelector::Name {
-                var_name: "id".to_string(),
-                only_local: true,
-            })),
+            Box::new(DQE::Variable(Selector::by_name("id", true))),
             "0".to_string(),
         ))?;
 
@@ -461,10 +454,10 @@ impl TuiPlugin for TokioOracle {
 pub mod tui {
     use crate::oracle::builtin::tokio::{State, TokioOracle};
     use crate::ui::short::Abbreviator;
-    use crate::ui::tui::Msg;
     use crate::ui::tui::app::port::UserEvent;
     use crate::ui::tui::config::CommonAction;
     use crate::ui::tui::config::KeyMap;
+    use crate::ui::tui::Msg;
     use chrono::{DateTime, Local, Timelike};
     use std::collections::VecDeque;
     use std::sync::Arc;
