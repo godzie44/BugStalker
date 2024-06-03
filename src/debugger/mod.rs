@@ -14,28 +14,27 @@ mod watchpoint;
 pub use breakpoint::BreakpointView;
 pub use breakpoint::BreakpointViewOwned;
 pub use breakpoint::CreateTransparentBreakpointRequest;
-pub use debugee::FrameInfo;
-pub use debugee::FunctionAssembly;
-pub use debugee::FunctionRange;
-pub use debugee::RegionInfo;
-pub use debugee::ThreadSnapshot;
-pub use debugee::dwarf::Symbol;
 pub use debugee::dwarf::r#type::TypeDeclaration;
 pub use debugee::dwarf::unit::FunctionDie;
 pub use debugee::dwarf::unit::PlaceDescriptor;
 pub use debugee::dwarf::unit::PlaceDescriptorOwned;
 pub use debugee::dwarf::unwind;
+pub use debugee::dwarf::Symbol;
 pub use debugee::tracee::Tracee;
+pub use debugee::FrameInfo;
+pub use debugee::FunctionAssembly;
+pub use debugee::FunctionRange;
+pub use debugee::RegionInfo;
+pub use debugee::ThreadSnapshot;
 pub use error::Error;
 pub use watchpoint::WatchpointView;
 pub use watchpoint::WatchpointViewOwned;
 
-use crate::debugger::Error::Syscall;
 use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};
-use crate::debugger::debugee::dwarf::DwarfUnwinder;
 use crate::debugger::debugee::dwarf::r#type::TypeCache;
 use crate::debugger::debugee::dwarf::unwind::Backtrace;
+use crate::debugger::debugee::dwarf::DwarfUnwinder;
 use crate::debugger::debugee::tracer::{StopReason, TraceContext};
 use crate::debugger::debugee::{Debugee, ExecutionStatus, Location};
 use crate::debugger::error::Error::{
@@ -45,9 +44,10 @@ use crate::debugger::process::{Child, Installed};
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::step::StepResult;
+use crate::debugger::variable::select::{Selector, DQE};
 use crate::debugger::variable::VariableIR;
-use crate::debugger::variable::select::{DQE, VariableSelector};
 use crate::debugger::watchpoint::WatchpointRegistry;
+use crate::debugger::Error::Syscall;
 use crate::oracle::Oracle;
 use crate::{print_warns, weak_error};
 use indexmap::IndexMap;
@@ -55,8 +55,8 @@ use log::debug;
 use nix::libc::{c_void, uintptr_t};
 use nix::sys;
 use nix::sys::signal;
-use nix::sys::signal::{SIGKILL, Signal};
-use nix::sys::wait::{WaitStatus, waitpid};
+use nix::sys::signal::{Signal, SIGKILL};
+use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::Pid;
 use object::Object;
 use regex::Regex;
@@ -491,9 +491,9 @@ impl Debugger {
                     if let Some(bp) = self.breakpoints.get_enabled(current_pc) {
                         match bp.r#type() {
                             BrkptType::EntryPoint => {
-                                print_warns!(
-                                    self.breakpoints.enable_all_breakpoints(&self.debugee)
-                                );
+                                print_warns!(self
+                                    .breakpoints
+                                    .enable_all_breakpoints(&self.debugee));
                                 print_warns!(self.watchpoints.refresh(&self.debugee));
 
                                 // rendezvous already available at this point
@@ -601,12 +601,9 @@ impl Debugger {
                 // all breakpoints and watchpoints already disabled by default
             }
             ExecutionStatus::InProgress => {
-                print_warns!(
-                    self.watchpoints.clear_local_disable_global(
-                        self.debugee.tracee_ctl(),
-                        &mut self.breakpoints
-                    )
-                );
+                print_warns!(self
+                    .watchpoints
+                    .clear_local_disable_global(self.debugee.tracee_ctl(), &mut self.breakpoints));
                 print_warns!(self.breakpoints.disable_all_breakpoints(&self.debugee)?);
             }
             ExecutionStatus::Exited => {
@@ -878,10 +875,8 @@ impl Debugger {
     pub fn read_local_variables(&self) -> Result<Vec<VariableIR>, Error> {
         disable_when_not_stared!(self);
 
-        let evaluator = variable::select::SelectExpressionEvaluator::new(
-            self,
-            DQE::Variable(VariableSelector::Any),
-        );
+        let evaluator =
+            variable::select::SelectExpressionEvaluator::new(self, DQE::Variable(Selector::Any));
         let eval_result = evaluator.evaluate()?;
         Ok(eval_result.into_iter().map(|res| res.variable).collect())
     }

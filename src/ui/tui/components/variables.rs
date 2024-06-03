@@ -1,7 +1,7 @@
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::render::{RenderRepr, ValueLayout};
-use crate::debugger::variable::select::{DQE, Literal, VariableSelector};
-use crate::debugger::variable::{VariableIR, select};
+use crate::debugger::variable::select::{DQE, Literal, Selector};
+use crate::debugger::variable::{select, VariableIR};
 use crate::ui;
 use crate::ui::syntax::StylizedLine;
 use crate::ui::tui::app::port::UserEvent;
@@ -230,7 +230,7 @@ impl Variables {
 
     fn update(&mut self) {
         let Ok(variables) = self.exchanger.request_sync(|dbg| {
-            let expr = select::DQE::Variable(VariableSelector::Any);
+            let expr = select::DQE::Variable(Selector::Any);
             let vars = command::variables::Handler::new(dbg)
                 .handle(expr)
                 .unwrap_or_default();
@@ -239,7 +239,7 @@ impl Variables {
             return;
         };
         let Ok(arguments) = self.exchanger.request_sync(|dbg| {
-            let expr = select::DQE::Variable(VariableSelector::Any);
+            let expr = select::DQE::Variable(Selector::Any);
             let args = command::arguments::Handler::new(dbg)
                 .handle(expr)
                 .unwrap_or_default();
@@ -260,10 +260,7 @@ impl Variables {
                 0,
                 node_name.as_str(),
                 arg,
-                Some(DQE::Variable(VariableSelector::Name {
-                    var_name: arg.name(),
-                    only_local: false,
-                })),
+                Some(DQE::Variable(Selector::by_name(arg.name(), false))),
             );
             args_node.add_child(var_node);
         }
@@ -276,10 +273,7 @@ impl Variables {
                 0,
                 node_name.as_str(),
                 var,
-                Some(DQE::Variable(VariableSelector::Name {
-                    var_name: var.name(),
-                    only_local: true,
-                })),
+                Some(DQE::Variable(Selector::by_name(var.name(), true))),
             );
             vars_node.add_child(var_node);
         }
