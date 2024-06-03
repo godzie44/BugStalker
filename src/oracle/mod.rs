@@ -39,8 +39,9 @@ pub trait Oracle: ConsolePlugin + TuiPlugin {
     /// Return oracle name.
     fn name(&self) -> &'static str;
 
-    /// True if oracle is ready for install on specific debugee. If false then debugger will
-    /// not use this oracle. Typically, in this method, oracle will check some symbols and
+    /// True if oracle is ready for install on specific debugee.
+    /// If false, then the debugger will not use this oracle.
+    /// Typically, in this method, oracle will check some symbols and
     /// make a decision about the possibility of further work.
     ///
     /// # Arguments
@@ -50,5 +51,8 @@ pub trait Oracle: ConsolePlugin + TuiPlugin {
 
     /// A list of watch_point using by oracle.
     /// In debugger watch point implemented by transparent breakpoints.
+    ///
+    /// FIXME now oracle `watchpoint` name clashes with debugger watchpoint (data breakpoint).
+    /// Let's rename it.
     fn watch_points(self: Arc<Self>) -> Vec<CreateTransparentBreakpointRequest>;
 }
