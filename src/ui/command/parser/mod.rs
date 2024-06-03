@@ -4,7 +4,7 @@ use super::r#break::BreakpointIdentity;
 use super::{frame, memory, register, source_code, thread, watch, Command, CommandError};
 use super::{r#break, CommandResult};
 use crate::debugger::register::debug::BreakCondition;
-use crate::debugger::variable::select::{VariableSelector, DQE};
+use crate::debugger::variable::select::{Selector, DQE};
 use crate::ui::command::watch::WatchpointIdentity;
 use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 use chumsky::error::{Rich, RichPattern, RichReason};
@@ -246,7 +246,7 @@ impl Command {
 
         let print_local_vars = op_w_arg(VAR_COMMAND)
             .then(sub_op(VAR_LOCAL_KEY))
-            .map(|_| Command::PrintVariables(DQE::Variable(VariableSelector::Any)));
+            .map(|_| Command::PrintVariables(DQE::Variable(Selector::Any)));
         let print_var = op_w_arg(VAR_COMMAND)
             .ignore_then(expression::parser())
             .map(Command::PrintVariables);
@@ -255,7 +255,7 @@ impl Command {
 
         let print_all_args = op_w_arg(ARG_COMMAND)
             .then(sub_op(ARG_ALL_KEY))
-            .map(|_| Command::PrintArguments(DQE::Variable(VariableSelector::Any)));
+            .map(|_| Command::PrintArguments(DQE::Variable(Selector::Any)));
         let print_arg = op_w_arg(ARG_COMMAND)
             .ignore_then(expression::parser())
             .map(Command::PrintArguments);
@@ -542,7 +542,7 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintVariables(DQE::Variable(VariableSelector::Any))
+                    Command::PrintVariables(DQE::Variable(Selector::Any))
                 ));
             },
         },
@@ -560,7 +560,7 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintVariables(DQE::Variable(VariableSelector::Name { var_name, .. })) if var_name == "locals_var"
+                    Command::PrintVariables(DQE::Variable(Selector::Name { var_name, .. })) if var_name == "locals_var"
                 ));
             },
         },
@@ -589,7 +589,7 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintArguments(DQE::Variable(VariableSelector::Any))
+                    Command::PrintArguments(DQE::Variable(Selector::Any))
                 ));
             },
         },
@@ -598,7 +598,7 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintArguments(DQE::Variable(VariableSelector::Name { var_name, .. })) if var_name == "all_arg"
+                    Command::PrintArguments(DQE::Variable(Selector::Name { var_name, .. })) if var_name == "all_arg"
                 ));
             },
         },
@@ -790,7 +790,7 @@ fn test_parser() {
                 assert!(matches!(
                     result.unwrap(),
                     Command::Watchpoint(watch::Command::Add(
-                        WatchpointIdentity::DQE(source, DQE::Variable(VariableSelector::Name {var_name, ..})), BreakCondition::DataWrites
+                        WatchpointIdentity::DQE(source, DQE::Variable(Selector::Name {var_name, ..})), BreakCondition::DataWrites
                     )) if var_name == "var1" && source == "var1"
                 ));
             },
@@ -801,7 +801,7 @@ fn test_parser() {
                 assert!(matches!(
                     result.unwrap(),
                     Command::Watchpoint(watch::Command::Add(
-                        WatchpointIdentity::DQE(source, DQE::Variable(VariableSelector::Name {var_name, ..})), BreakCondition::DataReadsWrites
+                        WatchpointIdentity::DQE(source, DQE::Variable(Selector::Name {var_name, ..})), BreakCondition::DataReadsWrites
                     )) if var_name == "var1" && source == "var1"
                 ));
             },
@@ -816,7 +816,7 @@ fn test_parser() {
                 assert!(matches!(
                     result.unwrap(),
                     Command::Watchpoint(watch::Command::Add(
-                        WatchpointIdentity::DQE(source, DQE::Variable(VariableSelector::Name {var_name, ..})), BreakCondition::DataWrites
+                        WatchpointIdentity::DQE(source, DQE::Variable(Selector::Name {var_name, ..})), BreakCondition::DataWrites
                     )) if var_name == "ns1::ns2::var1" && source == "ns1::ns2::var1"
                 ));
             },
@@ -844,7 +844,7 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::Watchpoint(watch::Command::Remove(WatchpointIdentity::DQE(source, DQE::Variable(VariableSelector::Name {var_name, ..})))) if var_name == "var1" && source == "var1"
+                    Command::Watchpoint(watch::Command::Remove(WatchpointIdentity::DQE(source, DQE::Variable(Selector::Name {var_name, ..})))) if var_name == "var1" && source == "var1"
                 ));
             },
         },

@@ -44,21 +44,6 @@ impl AsAllocatedData for VirtualVariableDie {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum VariableSelector {
-    Name { var_name: String, only_local: bool },
-    Any,
-}
-
-impl VariableSelector {
-    pub fn by_name(name: &str, only_local: bool) -> Self {
-        Self::Name {
-            var_name: name.to_string(),
-            only_local,
-        }
-    }
-}
-
 /// Literal object. Using it for a searching element by key in key-value containers.
 #[derive(Debug, PartialEq, Clone)]
 pub enum Literal {
@@ -127,6 +112,21 @@ pub struct ObjectBinaryRepr {
     pub size: usize,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum Selector {
+    Name { var_name: String, local_only: bool },
+    Any,
+}
+
+impl Selector {
+    pub fn by_name(name: impl ToString, local_only: bool) -> Self {
+        Self::Name {
+            var_name: name.to_string(),
+            local_only,
+        }
+    }
+}
+
 /// Data query expression.
 /// List of operations for select variables and their properties.
 ///
@@ -136,7 +136,7 @@ pub struct ObjectBinaryRepr {
 /// Supported operations are: dereference, get an element by index, get field by name, make slice from a pointer.
 #[derive(Debug, PartialEq, Clone)]
 pub enum DQE {
-    Variable(VariableSelector),
+    Variable(Selector),
     PtrCast(usize, String),
     Field(Box<DQE>, String),
     Index(Box<DQE>, Literal),
@@ -154,7 +154,7 @@ impl DQE {
 }
 
 /// Result of DQE evaluation.
-pub struct DqeResult {
+pub struct ScopedVariable {
     /// Variable intermediate representation.
     pub variable: VariableIR,
     /// PC ranges where value is valid, `None` for global or virtual variables.
@@ -192,7 +192,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
 
     fn extract_variable_by_selector(
         &self,
-        selector: &VariableSelector,
+        selector: &Selector,
     ) -> Result<Vec<ContextualDieRef<VariableDie>>, Error> {
         let ctx = self.debugger.exploration_ctx();
 
@@ -203,9 +203,9 @@ impl<'a> SelectExpressionEvaluator<'a> {
             .ok_or(FunctionNotFound(ctx.location().global_pc))?;
 
         let vars = match selector {
-            VariableSelector::Name {
+            Selector::Name {
                 var_name,
-                only_local: local,
+                local_only: local,
             } => {
                 let local_variants = current_func
                     .local_variable(ctx.location().global_pc, var_name)
@@ -224,7 +224,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     local_variants
                 }
             }
-            VariableSelector::Any => current_func.local_variables(ctx.location().global_pc),
+            Selector::Any => current_func.local_variables(ctx.location().global_pc),
         };
 
         Ok(vars)
@@ -280,7 +280,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
         }
     }
 
-    fn evaluate_inner(&self, expression: &DQE) -> Result<Vec<DqeResult>, Error> {
+    fn evaluate_inner(&self, expression: &DQE) -> Result<Vec<ScopedVariable>, Error> {
         // evaluate variable one by one in `evaluate_single_variable` method
         // here just filter variables
         match expression {
@@ -294,7 +294,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
                         let r#type = weak_error!(type_from_cache!(var, type_cache))?;
                         let var_ir =
                             self.evaluate_single_variable(&self.expression, var, r#type)?;
-                        Some(DqeResult {
+                        Some(ScopedVariable {
                             variable: var_ir,
                             scope: var.ranges().map(Box::from),
                         })
@@ -305,7 +305,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
                 let vars_ir = self.evaluate_from_ptr_cast(target_type_name)?;
                 Ok(vars_ir
                     .into_iter()
-                    .map(|var_ir| DqeResult {
+                    .map(|var_ir| ScopedVariable {
                         variable: var_ir,
                         scope: None,
                     })
@@ -336,7 +336,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
     }
 
     /// Evaluate a select expression and returns list of matched variables.
-    pub fn evaluate(&self) -> Result<Vec<DqeResult>, Error> {
+    pub fn evaluate(&self) -> Result<Vec<ScopedVariable>, Error> {
         self.evaluate_inner(&self.expression)
     }
 
@@ -354,11 +354,11 @@ impl<'a> SelectExpressionEvaluator<'a> {
                 let params = current_function.parameters();
 
                 let params = match selector {
-                    VariableSelector::Name { var_name, .. } => params
+                    Selector::Name { var_name, .. } => params
                         .into_iter()
                         .filter(|param| param.die.base_attributes.name.as_ref() == Some(var_name))
                         .collect::<Vec<_>>(),
-                    VariableSelector::Any => params,
+                    Selector::Any => params,
                 };
 
                 Ok(params
@@ -371,11 +371,11 @@ impl<'a> SelectExpressionEvaluator<'a> {
     }
 
     /// Same as [`SelectExpressionEvaluator::evaluate`] but for function arguments.
-    pub fn evaluate_on_arguments(&self) -> Result<Vec<DqeResult>, Error> {
+    pub fn evaluate_on_arguments(&self) -> Result<Vec<ScopedVariable>, Error> {
         self.evaluate_on_arguments_inner(&self.expression)
     }
 
-    fn evaluate_on_arguments_inner(&self, expression: &DQE) -> Result<Vec<DqeResult>, Error> {
+    fn evaluate_on_arguments_inner(&self, expression: &DQE) -> Result<Vec<ScopedVariable>, Error> {
         match expression {
             DQE::Variable(selector) => {
                 let expl_ctx_loc = self.debugger.exploration_ctx().location();
@@ -387,11 +387,11 @@ impl<'a> SelectExpressionEvaluator<'a> {
                 let params = current_function.parameters();
 
                 let params = match selector {
-                    VariableSelector::Name { var_name, .. } => params
+                    Selector::Name { var_name, .. } => params
                         .into_iter()
                         .filter(|param| param.die.base_attributes.name.as_ref() == Some(var_name))
                         .collect::<Vec<_>>(),
-                    VariableSelector::Any => params,
+                    Selector::Any => params,
                 };
 
                 let mut type_cache = self.debugger.type_cache.borrow_mut();
@@ -402,7 +402,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
                         let r#type = weak_error!(type_from_cache!(var, type_cache))?;
                         let var_ir =
                             self.evaluate_single_variable(&self.expression, var, r#type)?;
-                        Some(DqeResult {
+                        Some(ScopedVariable {
                             variable: var_ir,
                             scope: var.max_range().map(|r| {
                                 let scope: Box<[Range]> = Box::new([r]);
@@ -416,7 +416,7 @@ impl<'a> SelectExpressionEvaluator<'a> {
                 let vars = self.evaluate_from_ptr_cast(target_type_name)?;
                 Ok(vars
                     .into_iter()
-                    .map(|v| DqeResult {
+                    .map(|v| ScopedVariable {
                         variable: v,
                         scope: None,
                     })

@@ -44,7 +44,7 @@ use crate::debugger::process::{Child, Installed};
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::step::StepResult;
-use crate::debugger::variable::select::{VariableSelector, DQE};
+use crate::debugger::variable::select::{Selector, DQE};
 use crate::debugger::variable::VariableIR;
 use crate::debugger::watchpoint::WatchpointRegistry;
 use crate::debugger::Error::Syscall;
@@ -875,10 +875,8 @@ impl Debugger {
     pub fn read_local_variables(&self) -> Result<Vec<VariableIR>, Error> {
         disable_when_not_stared!(self);
 
-        let evaluator = variable::select::SelectExpressionEvaluator::new(
-            self,
-            DQE::Variable(VariableSelector::Any),
-        );
+        let evaluator =
+            variable::select::SelectExpressionEvaluator::new(self, DQE::Variable(Selector::Any));
         let eval_result = evaluator.evaluate()?;
         Ok(eval_result.into_iter().map(|res| res.variable).collect())
     }
