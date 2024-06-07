@@ -49,10 +49,7 @@ pub trait Oracle: ConsolePlugin + TuiPlugin {
     /// * `dbg`: debugger instance
     fn ready_for_install(&self, dbg: &Debugger) -> bool;
 
-    /// A list of watch_point using by oracle.
-    /// In debugger watch point implemented by transparent breakpoints.
-    ///
-    /// FIXME now oracle `watchpoint` name clashes with debugger watchpoint (data breakpoint).
-    /// Let's rename it.
-    fn watch_points(self: Arc<Self>) -> Vec<CreateTransparentBreakpointRequest>;
+    /// A list of spy-points using by oracle.
+    /// In debugger spy-point implemented by transparent breakpoints.
+    fn spy_points(self: Arc<Self>) -> Vec<CreateTransparentBreakpointRequest>;
 }
