@@ -40,7 +40,7 @@ impl Oracle for NopOracle {
         true
     }
 
-    fn watch_points(self: Arc<Self>) -> Vec<CreateTransparentBreakpointRequest> {
+    fn spy_points(self: Arc<Self>) -> Vec<CreateTransparentBreakpointRequest> {
         vec![]
     }
 }
