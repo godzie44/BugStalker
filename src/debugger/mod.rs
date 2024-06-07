@@ -517,8 +517,8 @@ impl Debugger {
                                 let oracles = self.oracles.clone();
                                 let ready_oracles = oracles.into_values().filter(|(_, a)| *a);
                                 for (oracle, _) in ready_oracles {
-                                    let watch_points = oracle.watch_points();
-                                    for request in watch_points {
+                                    let spy_points = oracle.spy_points();
+                                    for request in spy_points {
                                         weak_error!(self.set_transparent_breakpoint(request));
                                     }
                                 }
