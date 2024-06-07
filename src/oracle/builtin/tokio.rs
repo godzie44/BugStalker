@@ -183,7 +183,7 @@ impl Oracle for TokioOracle {
         true
     }
 
-    fn watch_points(self: Arc<Self>) -> Vec<CreateTransparentBreakpointRequest> {
+    fn spy_points(self: Arc<Self>) -> Vec<CreateTransparentBreakpointRequest> {
         let oracle = self.clone();
         let poll_handler = move |dbg: &mut Debugger| {
             if let Err(e) = oracle.on_poll(dbg) {
