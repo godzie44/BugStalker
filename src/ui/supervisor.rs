@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::debugger::process::Child;
 use crate::debugger::DebuggerBuilder;
 use crate::oracle::builtin;
@@ -62,6 +64,11 @@ impl Supervisor {
 
         let process = match src {
             DebugeeSource::File { path, args } => {
+                let path = if !Path::new(path).exists() {
+                    which::which(path)?.to_string_lossy().to_string()
+                } else {
+                    path.to_string()
+                };
                 let proc_tpl = Child::new(path, args, stdout_writer, stderr_writer);
                 proc_tpl
                     .install()
