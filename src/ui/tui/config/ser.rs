@@ -152,7 +152,7 @@ impl<'de> Deserialize<'de> for WrappedKeyEvent {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Common {
     up: Vec<WrappedKeyEvent>,
     down: Vec<WrappedKeyEvent>,
@@ -168,7 +168,7 @@ struct Common {
     input_backspace: Vec<WrappedKeyEvent>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Special {
     switch_window_tab: Vec<WrappedKeyEvent>,
     expand_left: Vec<WrappedKeyEvent>,
@@ -184,7 +184,7 @@ struct Special {
     step_out: Vec<WrappedKeyEvent>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(super) struct KeyMapConfig {
     special: Special,
     common: Common,
