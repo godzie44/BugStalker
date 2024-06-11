@@ -23,7 +23,7 @@ pub fn assert_scalar(
         panic!("not a scalar");
     };
     assert_eq!(var.name(), exp_name);
-    assert_eq!(var.r#type(), exp_type);
+    assert_eq!(var.r#type().name_fmt(), exp_type);
     assert_eq!(scalar.value, exp_val);
 }
 
@@ -37,7 +37,7 @@ fn assert_struct(
         panic!("not a struct");
     };
     assert_eq!(var.name(), exp_name);
-    assert_eq!(var.r#type(), exp_type);
+    assert_eq!(var.r#type().name_fmt(), exp_type);
     for (i, member) in structure.members.iter().enumerate() {
         for_each_member(i, member)
     }
@@ -53,7 +53,7 @@ fn assert_array(
         panic!("not a array");
     };
     assert_eq!(array.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(array.type_name.as_ref().unwrap(), exp_type);
+    assert_eq!(array.type_ident.name_fmt(), exp_type);
     for (i, item) in array.items.as_ref().unwrap_or(&vec![]).iter().enumerate() {
         for_each_item(i, item)
     }
@@ -64,7 +64,7 @@ fn assert_c_enum(var: &VariableIR, exp_name: &str, exp_type: &str, exp_value: Op
         panic!("not a c_enum");
     };
     assert_eq!(var.name(), exp_name);
-    assert_eq!(var.r#type(), exp_type);
+    assert_eq!(var.r#type().name_fmt(), exp_type);
     assert_eq!(c_enum.value, exp_value);
 }
 
@@ -78,7 +78,7 @@ fn assert_rust_enum(
         panic!("not a c_enum");
     };
     assert_eq!(var.name(), exp_name);
-    assert_eq!(var.r#type(), exp_type);
+    assert_eq!(var.r#type().name_fmt(), exp_type);
     with_value(rust_enum.value.as_ref().unwrap());
 }
 
@@ -87,7 +87,7 @@ fn assert_pointer(var: &VariableIR, exp_name: &str, exp_type: &str) {
         panic!("not a pointer");
     };
     assert_eq!(var.name(), exp_name);
-    assert_eq!(ptr.type_name.as_ref().unwrap(), exp_type);
+    assert_eq!(ptr.type_ident.name_fmt(), exp_type);
 }
 
 fn assert_vec(
@@ -104,7 +104,7 @@ fn assert_vec(
         panic!("not a vector");
     };
     assert_eq!(var.name(), exp_name);
-    assert_eq!(var.r#type(), exp_type);
+    assert_eq!(var.r#type().name_fmt(), exp_type);
     let VariableIR::Scalar(capacity) = &vector.structure.members[1] else {
         panic!("no capacity");
     };
@@ -148,7 +148,7 @@ fn assert_init_tls(
         panic!("not a tls");
     };
     assert_eq!(tls.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(tls.inner_type.as_ref().unwrap(), exp_type);
+    assert_eq!(tls.inner_type.name_fmt(), exp_type);
     with_var(tls.inner_value.as_ref().unwrap());
 }
 
@@ -160,7 +160,7 @@ fn assert_uninit_tls(var: &VariableIR, exp_name: &str, exp_type: &str) {
         panic!("not a tls");
     };
     assert_eq!(tls.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(tls.inner_type.as_ref().unwrap(), exp_type);
+    assert_eq!(tls.inner_type.name_fmt(), exp_type);
     assert!(tls.inner_value.is_none());
 }
 
@@ -177,7 +177,7 @@ fn assert_hashmap(
         panic!("not a hashmap");
     };
     assert_eq!(var.name(), exp_name);
-    assert_eq!(var.r#type(), exp_type);
+    assert_eq!(var.r#type().name_fmt(), exp_type);
     let mut items = map.kv_items.clone();
     items.sort_by(|v1, v2| {
         let k1_render = format!("{:?}", v1.0.value());
@@ -200,7 +200,7 @@ fn assert_hashset(
         panic!("not a hashset");
     };
     assert_eq!(set.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(set.type_name.as_ref().unwrap(), exp_type);
+    assert_eq!(set.type_ident.name_fmt(), exp_type);
     let mut items = set.items.clone();
     items.sort_by(|v1, v2| {
         let k1_render = format!("{:?}", v1.value());
@@ -223,7 +223,7 @@ fn assert_btree_map(
         panic!("not a BTreeMap");
     };
     assert_eq!(map.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(map.type_name.as_ref().unwrap(), exp_type);
+    assert_eq!(map.type_ident.name_fmt(), exp_type);
     with_kv_items(&map.kv_items);
 }
 
@@ -240,7 +240,7 @@ fn assert_btree_set(
         panic!("not a BTreeSet");
     };
     assert_eq!(set.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(set.type_name.as_ref().unwrap(), exp_type);
+    assert_eq!(set.type_ident.name_fmt(), exp_type);
     with_items(&set.items);
 }
 
@@ -259,7 +259,7 @@ fn assert_vec_deque(
         panic!("not a VecDeque");
     };
     assert_eq!(vector.structure.identity.name.as_ref().unwrap(), exp_name);
-    assert_eq!(vector.structure.type_name.as_ref().unwrap(), exp_type);
+    assert_eq!(vector.structure.type_ident.name_fmt(), exp_type);
     let VariableIR::Scalar(capacity) = &vector.structure.members[1] else {
         panic!("no capacity");
     };
@@ -277,7 +277,7 @@ fn assert_cell(
         panic!("not a Cell");
     };
     assert_eq!(var.name(), exp_name);
-    assert_eq!(var.r#type(), exp_type);
+    assert_eq!(var.r#type().name_fmt(), exp_type);
     with_value(value.as_ref().unwrap());
 }
 
@@ -293,7 +293,7 @@ fn assert_refcell(
         panic!("not a Cell");
     };
     assert_eq!(var.name(), exp_name);
-    assert_eq!(var.r#type(), exp_type);
+    assert_eq!(var.r#type().name_fmt(), exp_type);
     let value = &**value.as_ref().unwrap();
     let VariableIR::Struct(as_struct) = value else {
         panic!("not a struct")
@@ -314,7 +314,7 @@ fn assert_rc(var: &VariableIR, exp_name: &str, exp_type: &str) {
         panic!("not an rc");
     };
     assert_eq!(var.name(), exp_name);
-    assert_eq!(var.r#type(), exp_type);
+    assert_eq!(var.r#type().name_fmt(), exp_type);
 }
 
 fn assert_arc(var: &VariableIR, exp_name: &str, exp_type: &str) {
@@ -322,7 +322,7 @@ fn assert_arc(var: &VariableIR, exp_name: &str, exp_type: &str) {
         panic!("not an arc");
     };
     assert_eq!(var.name(), exp_name);
-    assert_eq!(var.r#type(), exp_type);
+    assert_eq!(var.r#type().name_fmt(), exp_type);
 }
 
 fn assert_uuid(var: &VariableIR, exp_name: &str, exp_type: &str) {
@@ -330,7 +330,7 @@ fn assert_uuid(var: &VariableIR, exp_name: &str, exp_type: &str) {
         panic!("not an uuid");
     };
     assert_eq!(var.name(), exp_name);
-    assert_eq!(var.r#type(), exp_type);
+    assert_eq!(var.r#type().name_fmt(), exp_type);
 }
 
 #[test]
