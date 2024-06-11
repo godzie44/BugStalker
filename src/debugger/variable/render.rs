@@ -1,5 +1,7 @@
+use crate::debugger::debugee::dwarf::r#type::TypeIdentity;
 use crate::debugger::variable::SpecializedVariableIR;
 use crate::debugger::variable::VariableIR;
+use once_cell::sync::Lazy;
 use std::borrow::Cow;
 use std::fmt::{Debug, Formatter};
 
@@ -48,7 +50,7 @@ impl Debug for ValueLayout<'_> {
 
 pub trait RenderRepr {
     fn name(&self) -> String;
-    fn r#type(&self) -> &str;
+    fn r#type(&self) -> &TypeIdentity;
     fn value(&self) -> Option<ValueLayout>;
 }
 
@@ -57,59 +59,62 @@ impl RenderRepr for VariableIR {
         self.identity().to_string()
     }
 
-    fn r#type(&self) -> &str {
-        let r#type = match self {
-            VariableIR::Scalar(s) => &s.type_name,
-            VariableIR::Struct(s) => &s.type_name,
-            VariableIR::Array(a) => &a.type_name,
-            VariableIR::CEnum(e) => &e.type_name,
-            VariableIR::RustEnum(e) => &e.type_name,
-            VariableIR::Pointer(p) => &p.type_name,
+    fn r#type(&self) -> &TypeIdentity {
+        static STRING_TYPE: Lazy<TypeIdentity> = Lazy::new(|| TypeIdentity::no_namespace("String"));
+        static STR_TYPE: Lazy<TypeIdentity> = Lazy::new(|| TypeIdentity::no_namespace("&str"));
+        static UNKNOWN_TYPE: Lazy<TypeIdentity> = Lazy::new(TypeIdentity::unknown);
+
+        match self {
+            VariableIR::Scalar(s) => &s.type_ident,
+            VariableIR::Struct(s) => &s.type_ident,
+            VariableIR::Array(a) => &a.type_ident,
+            VariableIR::CEnum(e) => &e.type_ident,
+            VariableIR::RustEnum(e) => &e.type_ident,
+            VariableIR::Pointer(p) => &p.type_ident,
             VariableIR::Specialized(spec) => match spec {
                 SpecializedVariableIR::Vector { vec, original }
                 | SpecializedVariableIR::VecDeque { vec, original } => match vec {
-                    None => &original.type_name,
-                    Some(v) => &v.structure.type_name,
+                    None => &original.type_ident,
+                    Some(v) => &v.structure.type_ident,
                 },
-                SpecializedVariableIR::String { .. } => return "String",
-                SpecializedVariableIR::Str { .. } => return "&str",
+                SpecializedVariableIR::String { .. } => &STRING_TYPE,
+                SpecializedVariableIR::Str { .. } => &STR_TYPE,
                 SpecializedVariableIR::Tls {
                     tls_var: value,
                     original,
                     ..
                 } => match value {
-                    None => &original.type_name,
+                    None => &original.type_ident,
                     Some(v) => &v.inner_type,
                 },
                 SpecializedVariableIR::HashMap { map, original } => match map {
-                    None => &original.type_name,
-                    Some(map) => &map.type_name,
+                    None => &original.type_ident,
+                    Some(map) => &map.type_ident,
                 },
                 SpecializedVariableIR::HashSet { set, original } => match set {
-                    None => &original.type_name,
-                    Some(set) => &set.type_name,
+                    None => &original.type_ident,
+                    Some(set) => &set.type_ident,
                 },
                 SpecializedVariableIR::BTreeMap { map, original } => match map {
-                    None => &original.type_name,
-                    Some(map) => &map.type_name,
+                    None => &original.type_ident,
+                    Some(map) => &map.type_ident,
                 },
                 SpecializedVariableIR::BTreeSet { set, original } => match set {
-                    None => &original.type_name,
-                    Some(set) => &set.type_name,
+                    None => &original.type_ident,
+                    Some(set) => &set.type_ident,
                 },
                 SpecializedVariableIR::Cell { original, .. }
-                | SpecializedVariableIR::RefCell { original, .. } => &original.type_name,
+                | SpecializedVariableIR::RefCell { original, .. } => &original.type_ident,
                 SpecializedVariableIR::Rc { original, .. }
-                | SpecializedVariableIR::Arc { original, .. } => &original.type_name,
-                SpecializedVariableIR::Uuid { original, .. } => &original.type_name,
+                | SpecializedVariableIR::Arc { original, .. } => &original.type_ident,
+                SpecializedVariableIR::Uuid { original, .. } => &original.type_ident,
             },
             VariableIR::Subroutine(_) => {
                 // currently this line is unreachable cause dereference fn pointer is forbidden
-                &None
+                &UNKNOWN_TYPE
             }
-            VariableIR::CModifiedVariable(v) => &v.type_name,
-        };
-        r#type.as_deref().unwrap_or("unknown")
+            VariableIR::CModifiedVariable(v) => &v.type_ident,
+        }
     }
 
     fn value(&self) -> Option<ValueLayout> {

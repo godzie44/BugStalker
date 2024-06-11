@@ -1,7 +1,11 @@
 mod btree;
 mod hashbrown;
 
-use crate::debugger::debugee::dwarf::r#type::{EvaluationContext, TypeIdentity};
+use crate::debugger::debugee::dwarf::r#type::{EvaluationContext, TypeId, TypeIdentity};
+use crate::debugger::variable::render::RenderRepr;
+use crate::debugger::variable::select::ObjectBinaryRepr;
+use crate::debugger::variable::specialization::btree::BTreeReflection;
+use crate::debugger::variable::specialization::hashbrown::HashmapReflection;
 use crate::debugger::variable::AssumeError::{
     TypeParameterNotFound, TypeParameterTypeNotFound, UnexpectedType,
 };
@@ -74,14 +78,14 @@ pub struct StringVariable {
 #[derive(Clone, PartialEq)]
 pub struct HashMapVariable {
     pub identity: VariableIdentity,
-    pub type_name: Option<String>,
+    pub type_ident: TypeIdentity,
     pub kv_items: Vec<(VariableIR, VariableIR)>,
 }
 
 #[derive(Clone, PartialEq)]
 pub struct HashSetVariable {
     pub identity: VariableIdentity,
-    pub type_name: Option<String>,
+    pub type_ident: TypeIdentity,
     pub items: Vec<VariableIR>,
 }
 
@@ -95,7 +99,7 @@ pub struct StrVariable {
 pub struct TlsVariable {
     pub identity: VariableIdentity,
     pub inner_value: Option<Box<VariableIR>>,
-    pub inner_type: Option<String>,
+    pub inner_type: TypeIdentity,
 }
 
 #[derive(Clone, PartialEq)]
@@ -178,7 +182,7 @@ impl SpecializedVariableIR {
         }
     }
 
-    pub(super) fn type_id(&self) -> Option<TypeIdentity> {
+    pub(super) fn type_id(&self) -> Option<TypeId> {
         match self {
             SpecializedVariableIR::Vector { original, .. } => original.type_id,
             SpecializedVariableIR::VecDeque { original, .. } => original.type_id,
@@ -284,7 +288,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         eval_ctx: &EvaluationContext,
         structure: StructVariable,
-        type_params: &HashMap<String, Option<TypeIdentity>>,
+        type_params: &HashMap<String, Option<TypeId>>,
     ) -> SpecializedVariableIR {
         SpecializedVariableIR::Vector {
             vec: weak_error!(
@@ -303,7 +307,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         eval_ctx: &EvaluationContext,
         ir: VariableIR,
-        type_params: &HashMap<String, Option<TypeIdentity>>,
+        type_params: &HashMap<String, Option<TypeId>>,
     ) -> Result<VecVariable, ParsingError> {
         let inner_type = type_params
             .get("T")
@@ -320,9 +324,7 @@ impl<'a> VariableParserExtension<'a> {
         let el_type = self.parser.r#type;
         let el_type_size = el_type
             .type_size_in_bytes(eval_ctx, inner_type)
-            .ok_or(UnknownSize(
-                el_type.type_name(inner_type).unwrap_or_default(),
-            ))? as usize;
+            .ok_or(UnknownSize(el_type.identity(inner_type)))? as usize;
 
         let raw_data = debugger::read_memory_by_pid(
             eval_ctx.expl_ctx.pid_on_focus(),
@@ -362,16 +364,12 @@ impl<'a> VariableParserExtension<'a> {
             structure: StructVariable {
                 identity: ir.identity().clone(),
                 type_id: None,
-                type_name: Some(ir.r#type().to_owned()),
+                type_ident: ir.r#type().clone(),
                 members: vec![
                     VariableIR::Array(ArrayVariable {
                         identity: VariableIdentity::no_namespace(Some("buf".to_owned())),
                         type_id: None,
-                        type_name: self
-                            .parser
-                            .r#type
-                            .type_name(inner_type)
-                            .map(|tp| format!("[{tp}]")),
+                        type_ident: self.parser.r#type.identity(inner_type).as_array_type(),
                         items: Some(items),
                         // set to `None` because the address operator unavailable for spec vars
                         raw_address: None,
@@ -379,7 +377,7 @@ impl<'a> VariableParserExtension<'a> {
                     VariableIR::Scalar(ScalarVariable {
                         identity: VariableIdentity::no_namespace(Some("cap".to_owned())),
                         type_id: None,
-                        type_name: Some("usize".to_owned()),
+                        type_ident: TypeIdentity::no_namespace("usize"),
                         value: Some(SupportedScalar::Usize(cap as usize)),
                         // set to `None` because the address operator unavailable for spec vars
                         raw_address: None,
@@ -395,7 +393,7 @@ impl<'a> VariableParserExtension<'a> {
     pub fn parse_tls_old(
         &self,
         structure: StructVariable,
-        type_params: &HashMap<String, Option<TypeIdentity>>,
+        type_params: &HashMap<String, Option<TypeId>>,
     ) -> SpecializedVariableIR {
         SpecializedVariableIR::Tls {
             tls_var: weak_error!(
@@ -409,7 +407,7 @@ impl<'a> VariableParserExtension<'a> {
     fn parse_tls_inner_old(
         &self,
         ir: VariableIR,
-        type_params: &HashMap<String, Option<TypeIdentity>>,
+        type_params: &HashMap<String, Option<TypeId>>,
     ) -> Result<TlsVariable, ParsingError> {
         // we assume that tls variable name represents in dwarf
         // as namespace flowed before "__getit" namespace
@@ -431,9 +429,9 @@ impl<'a> VariableParserExtension<'a> {
         let inner_option = inner.assume_field_as_rust_enum("value")?;
         let inner_value = inner_option.value.ok_or(IncompleteInterp("value"))?;
 
-        // we assume that dwarf representation of tls variable contains ::Option
+        // we assume that DWARF representation of tls variable contains ::Option
         if let VariableIR::Struct(opt_variant) = inner_value.as_ref() {
-            let tls_value = if opt_variant.type_name.as_deref() == Some("None") {
+            let tls_value = if opt_variant.type_ident.name() == Some("None") {
                 None
             } else {
                 Some(Box::new(
@@ -448,7 +446,7 @@ impl<'a> VariableParserExtension<'a> {
             return Ok(TlsVariable {
                 identity: VariableIdentity::no_namespace(name),
                 inner_value: tls_value,
-                inner_type: self.parser.r#type.type_name(inner_type),
+                inner_type: self.parser.r#type.identity(inner_type),
             });
         }
 
@@ -460,7 +458,7 @@ impl<'a> VariableParserExtension<'a> {
     pub fn parse_tls(
         &self,
         structure: StructVariable,
-        type_params: &HashMap<String, Option<TypeIdentity>>,
+        type_params: &HashMap<String, Option<TypeId>>,
     ) -> Option<SpecializedVariableIR> {
         let tls_var = self
             .parse_tls_inner(VariableIR::Struct(structure.clone()), type_params)
@@ -485,7 +483,7 @@ impl<'a> VariableParserExtension<'a> {
     fn parse_tls_inner(
         &self,
         ir: VariableIR,
-        type_params: &HashMap<String, Option<TypeIdentity>>,
+        type_params: &HashMap<String, Option<TypeId>>,
     ) -> Result<Option<TlsVariable>, ParsingError> {
         // we assume that tls variable name represents in dwarf
         // as namespace flowed before "__getit" namespace
@@ -516,7 +514,7 @@ impl<'a> VariableParserExtension<'a> {
             return Ok(Some(TlsVariable {
                 identity: VariableIdentity::no_namespace(name),
                 inner_value: tls_val,
-                inner_type: self.parser.r#type.type_name(inner_type),
+                inner_type: self.parser.r#type.identity(inner_type),
             }));
         };
 
@@ -557,7 +555,7 @@ impl<'a> VariableParserExtension<'a> {
         let r#type = self.parser.r#type;
         let kv_size = r#type
             .type_size_in_bytes(eval_ctx, kv_type)
-            .ok_or(UnknownSize(r#type.type_name(kv_type).unwrap_or_default()))?;
+            .ok_or(UnknownSize(r#type.identity(kv_type)))?;
 
         let reflection =
             HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
@@ -594,7 +592,7 @@ impl<'a> VariableParserExtension<'a> {
 
         Ok(HashMapVariable {
             identity: ir.identity().clone(),
-            type_name: Some(ir.r#type().to_owned()),
+            type_ident: ir.r#type().to_owned(),
             kv_items,
         })
     }
@@ -632,7 +630,7 @@ impl<'a> VariableParserExtension<'a> {
             .parser
             .r#type
             .type_size_in_bytes(eval_ctx, kv_type)
-            .ok_or_else(|| UnknownSize(r#type.type_name(kv_type).unwrap_or_default()))?;
+            .ok_or_else(|| UnknownSize(r#type.identity(kv_type)))?;
 
         let reflection =
             HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
@@ -669,7 +667,7 @@ impl<'a> VariableParserExtension<'a> {
 
         Ok(HashSetVariable {
             identity: ir.identity().clone(),
-            type_name: Some(ir.r#type().to_owned()),
+            type_ident: ir.r#type().to_owned(),
             items,
         })
     }
@@ -678,8 +676,8 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         eval_ctx: &EvaluationContext,
         structure: StructVariable,
-        identity: TypeIdentity,
-        type_params: &HashMap<String, Option<TypeIdentity>>,
+        identity: TypeId,
+        type_params: &HashMap<String, Option<TypeId>>,
     ) -> SpecializedVariableIR {
         SpecializedVariableIR::BTreeMap {
             map: weak_error!(
@@ -699,8 +697,8 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         eval_ctx: &EvaluationContext,
         ir: VariableIR,
-        identity: TypeIdentity,
-        type_params: &HashMap<String, Option<TypeIdentity>>,
+        identity: TypeId,
+        type_params: &HashMap<String, Option<TypeId>>,
     ) -> Result<HashMapVariable, ParsingError> {
         let height = ir.assume_field_as_scalar_number("height")?;
         let ptr = ir.assume_field_as_pointer("pointer")?;
@@ -750,7 +748,7 @@ impl<'a> VariableParserExtension<'a> {
 
         Ok(HashMapVariable {
             identity: ir.identity().clone(),
-            type_name: Some(ir.r#type().to_owned()),
+            type_ident: ir.r#type().to_owned(),
             kv_items,
         })
     }
@@ -784,7 +782,7 @@ impl<'a> VariableParserExtension<'a> {
 
         Ok(HashSetVariable {
             identity: ir.identity().clone(),
-            type_name: Some(ir.r#type().to_owned()),
+            type_ident: ir.r#type().to_owned(),
             items: inner_map.kv_items.into_iter().map(|(k, _)| k).collect(),
         })
     }
@@ -793,7 +791,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         eval_ctx: &EvaluationContext,
         structure: StructVariable,
-        type_params: &HashMap<String, Option<TypeIdentity>>,
+        type_params: &HashMap<String, Option<TypeId>>,
     ) -> SpecializedVariableIR {
         SpecializedVariableIR::VecDeque {
             vec: weak_error!(
@@ -812,7 +810,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         eval_ctx: &EvaluationContext,
         ir: VariableIR,
-        type_params: &HashMap<String, Option<TypeIdentity>>,
+        type_params: &HashMap<String, Option<TypeId>>,
     ) -> Result<VecVariable, ParsingError> {
         let inner_type = type_params
             .get("T")
@@ -824,7 +822,7 @@ impl<'a> VariableParserExtension<'a> {
         let r#type = self.parser.r#type;
         let el_type_size = r#type
             .type_size_in_bytes(eval_ctx, inner_type)
-            .ok_or_else(|| UnknownSize(r#type.type_name(inner_type).unwrap_or_default()))?
+            .ok_or_else(|| UnknownSize(r#type.identity(inner_type)))?
             as usize;
         let cap = if el_type_size == 0 {
             usize::MAX
@@ -877,16 +875,12 @@ impl<'a> VariableParserExtension<'a> {
             structure: StructVariable {
                 identity: ir.identity().clone(),
                 type_id: None,
-                type_name: Some(ir.r#type().to_owned()),
+                type_ident: ir.r#type().to_owned(),
                 members: vec![
                     VariableIR::Array(ArrayVariable {
                         identity: VariableIdentity::no_namespace(Some("buf".to_owned())),
                         type_id: None,
-                        type_name: self
-                            .parser
-                            .r#type
-                            .type_name(inner_type)
-                            .map(|tp| format!("[{tp}]")),
+                        type_ident: self.parser.r#type.identity(inner_type).as_array_type(),
                         items: Some(items),
                         // set to `None` because the address operator unavailable for spec vars
                         raw_address: None,
@@ -894,7 +888,7 @@ impl<'a> VariableParserExtension<'a> {
                     VariableIR::Scalar(ScalarVariable {
                         identity: VariableIdentity::no_namespace(Some("cap".to_owned())),
                         type_id: None,
-                        type_name: Some("usize".to_owned()),
+                        type_ident: TypeIdentity::no_namespace("usize"),
                         value: Some(SupportedScalar::Usize(if el_type_size == 0 {
                             0
                         } else {
@@ -971,7 +965,7 @@ impl<'a> VariableParserExtension<'a> {
         Ok(VariableIR::Struct(StructVariable {
             identity: ir.identity().clone(),
             type_id: None,
-            type_name: Some(ir.r#type().to_owned()),
+            type_ident: ir.r#type().to_owned(),
             members: vec![borrow, value.clone()],
             type_params: Default::default(),
             // set to `None` because the address operator unavailable for spec vars
