@@ -71,7 +71,7 @@ impl Variables {
         select_path: Option<DQE>,
     ) -> Node<Vec<TextSpan>> {
         let name = var.name();
-        let typ = var.r#type();
+        let typ = var.r#type().name_fmt();
 
         // recursion guard
         if recursion >= MAX_RECURSION {

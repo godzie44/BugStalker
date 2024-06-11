@@ -884,7 +884,7 @@ impl AsAllocatedData for ParameterDie {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NamespaceHierarchy(Vec<String>);
 
 impl Deref for NamespaceHierarchy {

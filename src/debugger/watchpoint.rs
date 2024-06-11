@@ -1,5 +1,6 @@
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry};
+use crate::debugger::debugee::dwarf::r#type::TypeIdentity;
 use crate::debugger::debugee::tracee::TraceeCtl;
 use crate::debugger::debugee::tracer::WatchpointHitType;
 use crate::debugger::debugee::{Debugee, Location};
@@ -96,7 +97,7 @@ impl AddressTarget {
             VariableIR::Scalar(ScalarVariable {
                 identity: VariableIdentity::no_namespace(Some("data".to_string())),
                 value: Some(u),
-                type_name: Some(t.to_string()),
+                type_ident: TypeIdentity::no_namespace(t),
                 type_id: None,
                 raw_address: None,
             })
