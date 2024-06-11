@@ -1,7 +1,7 @@
 use crate::debugger;
 use crate::debugger::TypeDeclaration;
 use crate::debugger::debugee::dwarf::r#type::{
-    ComplexType, EvaluationContext, StructureMember, TypeIdentity,
+    ComplexType, EvaluationContext, StructureMember, TypeId, TypeIdentity,
 };
 use crate::debugger::variable::AssumeError::NoType;
 use crate::debugger::variable::ParsingError::ReadDebugeeMemory;
@@ -37,9 +37,9 @@ impl LeafNodeMarkup {
     /// `value_type_id` as an id of V type. Result node are closest to type with id `map_id`.
     fn from_type(
         r#type: &ComplexType,
-        map_id: TypeIdentity,
-        key_type_id: TypeIdentity,
-        value_type_id: TypeIdentity,
+        map_id: TypeId,
+        key_type_id: TypeId,
+        value_type_id: TypeId,
     ) -> Option<LeafNodeMarkup> {
         let mut iterator = r#type.bfs_iterator(map_id);
 
@@ -100,9 +100,9 @@ impl InternalNodeMarkup {
     /// `value_type_id` as an id of V type. Result node are closest to type with id `map_id`.
     fn from_type(
         r#type: &ComplexType,
-        map_id: TypeIdentity,
-        key_type_id: TypeIdentity,
-        value_type_id: TypeIdentity,
+        map_id: TypeId,
+        key_type_id: TypeId,
+        value_type_id: TypeId,
     ) -> Option<InternalNodeMarkup> {
         let mut iterator = r#type.bfs_iterator(map_id);
 
@@ -451,8 +451,8 @@ pub struct BTreeReflection<'a> {
     internal_markup: InternalNodeMarkup,
     leaf_markup: LeafNodeMarkup,
     r#type: &'a ComplexType,
-    k_type_id: TypeIdentity,
-    v_type_id: TypeIdentity,
+    k_type_id: TypeId,
+    v_type_id: TypeId,
 }
 
 impl<'a> BTreeReflection<'a> {
@@ -461,9 +461,9 @@ impl<'a> BTreeReflection<'a> {
         r#type: &'a ComplexType,
         root_ptr: *const (),
         root_height: usize,
-        map_id: TypeIdentity,
-        k_type_id: TypeIdentity,
-        v_type_id: TypeIdentity,
+        map_id: TypeId,
+        k_type_id: TypeId,
+        v_type_id: TypeId,
     ) -> Result<Self, AssumeError> {
         Ok(Self {
             root: root_ptr,
@@ -509,11 +509,15 @@ impl<'a> BTreeReflection<'a> {
         let k_size = self
             .r#type
             .type_size_in_bytes(eval_ctx, self.k_type_id)
-            .ok_or(AssumeError::UnknownSize("btree key type".into()))?;
+            .ok_or(AssumeError::UnknownSize(TypeIdentity::no_namespace(
+                "btree key type",
+            )))?;
         let v_size = self
             .r#type
             .type_size_in_bytes(eval_ctx, self.v_type_id)
-            .ok_or(AssumeError::UnknownSize("btree value type".into()))?;
+            .ok_or(AssumeError::UnknownSize(TypeIdentity::no_namespace(
+                "btree value type",
+            )))?;
 
         Ok(KVIterator {
             reflection: self,
