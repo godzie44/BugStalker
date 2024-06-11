@@ -1,5 +1,5 @@
 use crate::debugger::debugee::dwarf::r#type::{
-    ArrayType, CModifier, EvaluationContext, ScalarType, StructureMember, TypeIdentity,
+    ArrayType, CModifier, EvaluationContext, ScalarType, StructureMember, TypeId, TypeIdentity,
 };
 use crate::debugger::debugee::dwarf::r#type::{ComplexType, TypeDeclaration};
 use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, NamespaceHierarchy};
@@ -39,8 +39,8 @@ pub enum AssumeError {
     NoType(&'static str),
     #[error("underline data not a string")]
     DataNotAString(#[from] FromUtf8Error),
-    #[error("undefined size of type `{0}`")]
-    UnknownSize(String),
+    #[error("undefined size of type `{}`", .0.name_fmt())]
+    UnknownSize(TypeIdentity),
     #[error("type parameter `{0}` not found")]
     TypeParameterNotFound(&'static str),
     #[error("unknown type for type parameter `{0}`")]
@@ -61,8 +61,8 @@ pub enum ParsingError {
     ReadDebugeeMemory(#[from] nix::Error),
 }
 
-/// Identifier of debugee variables.
-/// Consists of the name and namespace of the variable.
+/// Identifier of a variable.
+/// Consists name and namespace of the variable.
 #[derive(Clone, Default, PartialEq)]
 pub struct VariableIdentity {
     namespace: NamespaceHierarchy,
@@ -185,8 +185,8 @@ pub struct ScalarVariable {
     pub identity: VariableIdentity,
     pub value: Option<SupportedScalar>,
     pub raw_address: Option<usize>,
-    pub type_name: Option<String>,
-    pub type_id: Option<TypeIdentity>,
+    pub type_ident: TypeIdentity,
+    pub type_id: Option<TypeId>,
 }
 
 impl ScalarVariable {
@@ -211,12 +211,12 @@ impl ScalarVariable {
 #[derive(Clone, Default, PartialEq)]
 pub struct StructVariable {
     pub identity: VariableIdentity,
-    pub type_name: Option<String>,
-    pub type_id: Option<TypeIdentity>,
+    pub type_ident: TypeIdentity,
+    pub type_id: Option<TypeId>,
     /// Structure members. Each represents by variable IR.
     pub members: Vec<VariableIR>,
     /// Map of type parameters of a structure type.
-    pub type_params: HashMap<String, Option<TypeIdentity>>,
+    pub type_params: HashMap<String, Option<TypeId>>,
     pub raw_address: Option<usize>,
 }
 
@@ -224,8 +224,8 @@ pub struct StructVariable {
 #[derive(Clone, PartialEq)]
 pub struct ArrayVariable {
     pub identity: VariableIdentity,
-    pub type_name: Option<String>,
-    pub type_id: Option<TypeIdentity>,
+    pub type_ident: TypeIdentity,
+    pub type_id: Option<TypeId>,
     /// Array items. Each represents by variable IR.
     pub items: Option<Vec<VariableIR>>,
     pub raw_address: Option<usize>,
@@ -252,8 +252,8 @@ impl ArrayVariable {
 #[derive(Clone, PartialEq)]
 pub struct CEnumVariable {
     pub identity: VariableIdentity,
-    pub type_name: Option<String>,
-    pub type_id: Option<TypeIdentity>,
+    pub type_ident: TypeIdentity,
+    pub type_id: Option<TypeId>,
     /// String representation of selected variant.
     pub value: Option<String>,
     pub raw_address: Option<usize>,
@@ -263,8 +263,8 @@ pub struct CEnumVariable {
 #[derive(Clone, PartialEq)]
 pub struct RustEnumVariable {
     pub identity: VariableIdentity,
-    pub type_name: Option<String>,
-    pub type_id: Option<TypeIdentity>,
+    pub type_ident: TypeIdentity,
+    pub type_id: Option<TypeId>,
     /// Variable IR representation of selected variant.
     pub value: Option<Box<VariableIR>>,
     pub raw_address: Option<usize>,
@@ -274,12 +274,12 @@ pub struct RustEnumVariable {
 #[derive(Clone, PartialEq)]
 pub struct PointerVariable {
     pub identity: VariableIdentity,
-    pub type_name: Option<String>,
-    pub type_id: Option<TypeIdentity>,
+    pub type_ident: TypeIdentity,
+    pub type_id: Option<TypeId>,
     /// Raw pointer to underline value.
     pub value: Option<*const ()>,
     /// Underline type identity.
-    pub target_type: Option<TypeIdentity>,
+    pub target_type: Option<TypeId>,
     pub target_type_size: Option<u64>,
     pub raw_address: Option<usize>,
 }
@@ -369,10 +369,7 @@ impl PointerVariable {
                 identity,
                 items: Some(items),
                 type_id: None,
-                type_name: parser
-                    .r#type
-                    .type_name(target_type)
-                    .map(|t| format!("[{t}]")),
+                type_ident: parser.r#type.identity(target_type).as_array_type(),
                 raw_address: Some(base_addr),
             }))
         })
@@ -383,8 +380,8 @@ impl PointerVariable {
 #[derive(Clone, PartialEq)]
 pub struct SubroutineVariable {
     pub identity: VariableIdentity,
-    pub type_id: Option<TypeIdentity>,
-    pub return_type_name: Option<String>,
+    pub type_id: Option<TypeId>,
+    pub return_type_ident: Option<TypeIdentity>,
     pub address: Option<usize>,
 }
 
@@ -392,8 +389,8 @@ pub struct SubroutineVariable {
 #[derive(Clone, PartialEq)]
 pub struct CModifiedVariable {
     pub identity: VariableIdentity,
-    pub type_name: Option<String>,
-    pub type_id: Option<TypeIdentity>,
+    pub type_ident: TypeIdentity,
+    pub type_id: Option<TypeId>,
     pub modifier: CModifier,
     pub value: Option<Box<VariableIR>>,
     pub address: Option<usize>,
@@ -439,7 +436,7 @@ impl VariableIR {
         }
     }
 
-    pub fn type_identity(&self) -> Option<TypeIdentity> {
+    pub fn type_id(&self) -> Option<TypeId> {
         match self {
             VariableIR::Scalar(s) => s.type_id,
             VariableIR::Struct(s) => s.type_id,
@@ -636,18 +633,18 @@ impl VariableIR {
         let addr = self.in_memory_location()?;
         Some(VariableIR::Pointer(PointerVariable {
             identity: VariableIdentity::no_namespace(None),
-            type_name: Some(format!("&{}", self.r#type())),
+            type_ident: self.r#type().as_address_type(),
             value: Some(addr as *const ()),
-            target_type: self.type_identity(),
+            target_type: self.type_id(),
             target_type_size: self
-                .type_identity()
+                .type_id()
                 .and_then(|t| variable_parser.r#type.type_size_in_bytes(eval_ctx, t)),
             raw_address: None,
             type_id: None,
         }))
     }
 
-    /// Return variable field, `None` if get field is not allowed for variable type.
+    /// Return variable field, `None` if field is not allowed for a variable type.
     /// Supported: structures, rust-style enums, hashmaps, btree-maps.
     fn field(self, field_name: &str) -> Option<Self> {
         match self {
@@ -735,7 +732,7 @@ impl VariableIR {
                     Some(VariableIR::Scalar(ScalarVariable {
                         identity: VariableIdentity::no_namespace(Some("contains".to_string())),
                         type_id: None,
-                        type_name: Some("bool".to_string()),
+                        type_ident: TypeIdentity::no_namespace("bool"),
                         value: Some(SupportedScalar::Bool(found)),
                         raw_address: None,
                     }))
@@ -1025,7 +1022,7 @@ impl<'a> VariableParser<'a> {
         &self,
         identity: VariableIdentity,
         data: Option<ObjectBinaryRepr>,
-        type_id: TypeIdentity,
+        type_id: TypeId,
         r#type: &ScalarType,
     ) -> ScalarVariable {
         fn render_scalar<S: Copy + Display>(data: Option<ObjectBinaryRepr>) -> Option<S> {
@@ -1111,7 +1108,7 @@ impl<'a> VariableParser<'a> {
 
         ScalarVariable {
             identity,
-            type_name: r#type.name.clone(),
+            type_ident: r#type.identity(),
             type_id: Some(type_id),
             value: value_view,
             raw_address: in_debugee_loc,
@@ -1123,8 +1120,8 @@ impl<'a> VariableParser<'a> {
         eval_ctx: &EvaluationContext,
         identity: VariableIdentity,
         data: Option<ObjectBinaryRepr>,
-        type_id: TypeIdentity,
-        type_params: HashMap<String, Option<TypeIdentity>>,
+        type_id: TypeId,
+        type_params: HashMap<String, Option<TypeId>>,
         members: &[StructureMember],
     ) -> StructVariable {
         let children = members
@@ -1135,7 +1132,7 @@ impl<'a> VariableParser<'a> {
         StructVariable {
             identity,
             type_id: Some(type_id),
-            type_name: self.r#type.type_name(type_id),
+            type_ident: self.r#type.identity(type_id),
             members: children,
             type_params,
             raw_address: data.and_then(|d| d.address),
@@ -1171,7 +1168,7 @@ impl<'a> VariableParser<'a> {
         eval_ctx: &EvaluationContext,
         identity: VariableIdentity,
         data: Option<ObjectBinaryRepr>,
-        type_id: TypeIdentity,
+        type_id: TypeId,
         array_decl: &ArrayType,
     ) -> ArrayVariable {
         let items = array_decl.bounds(eval_ctx).and_then(|bounds| {
@@ -1220,7 +1217,7 @@ impl<'a> VariableParser<'a> {
             identity,
             items,
             type_id: Some(type_id),
-            type_name: self.r#type.type_name(type_id),
+            type_ident: self.r#type.identity(type_id),
             raw_address: data.and_then(|d| d.address),
         }
     }
@@ -1230,8 +1227,8 @@ impl<'a> VariableParser<'a> {
         eval_ctx: &EvaluationContext,
         identity: VariableIdentity,
         data: Option<ObjectBinaryRepr>,
-        type_id: TypeIdentity,
-        discr_type: Option<TypeIdentity>,
+        type_id: TypeId,
+        discr_type: Option<TypeId>,
         enumerators: &HashMap<i64, String>,
     ) -> CEnumVariable {
         let in_debugee_loc = data.as_ref().and_then(|d| d.address);
@@ -1254,7 +1251,7 @@ impl<'a> VariableParser<'a> {
 
         CEnumVariable {
             identity,
-            type_name: self.r#type.type_name(type_id),
+            type_ident: self.r#type.identity(type_id),
             type_id: Some(type_id),
             value: value.and_then(|val| enumerators.get(&val).cloned()),
             raw_address: in_debugee_loc,
@@ -1266,7 +1263,7 @@ impl<'a> VariableParser<'a> {
         eval_ctx: &EvaluationContext,
         identity: VariableIdentity,
         data: Option<ObjectBinaryRepr>,
-        type_id: TypeIdentity,
+        type_id: TypeId,
         discr_member: Option<&StructureMember>,
         enumerators: &HashMap<Option<i64>, StructureMember>,
     ) -> RustEnumVariable {
@@ -1292,7 +1289,7 @@ impl<'a> VariableParser<'a> {
         RustEnumVariable {
             identity,
             type_id: Some(type_id),
-            type_name: self.r#type.type_name(type_id),
+            type_ident: self.r#type.identity(type_id),
             value: enumerator,
             raw_address: data.and_then(|d| d.address),
         }
@@ -1302,22 +1299,24 @@ impl<'a> VariableParser<'a> {
         &self,
         identity: VariableIdentity,
         data: Option<ObjectBinaryRepr>,
-        type_id: TypeIdentity,
-        target_type: Option<TypeIdentity>,
+        type_id: TypeId,
+        target_type: Option<TypeId>,
     ) -> PointerVariable {
         let mb_ptr = data
             .as_ref()
             .map(|v| scalar_from_bytes::<*const ()>(&v.raw_data));
 
+        let mut type_ident = self.r#type.identity(type_id);
+        if type_ident.is_unknown() {
+            if let Some(target_type) = target_type {
+                type_ident = self.r#type.identity(target_type).as_deref_type();
+            }
+        }
+
         PointerVariable {
             identity,
             type_id: Some(type_id),
-            type_name: self.r#type.type_name(type_id).or_else(|| {
-                Some(format!(
-                    "*{deref_type}",
-                    deref_type = self.r#type.type_name(target_type?)?
-                ))
-            }),
+            type_ident,
             value: mb_ptr,
             target_type,
             target_type_size: None,
@@ -1330,7 +1329,7 @@ impl<'a> VariableParser<'a> {
         eval_ctx: &EvaluationContext,
         identity: VariableIdentity,
         data: Option<ObjectBinaryRepr>,
-        type_id: TypeIdentity,
+        type_id: TypeId,
     ) -> Option<VariableIR> {
         match &self.r#type.types[&type_id] {
             TypeDeclaration::Scalar(scalar_type) => Some(VariableIR::Scalar(self.parse_scalar(
@@ -1543,11 +1542,11 @@ impl<'a> VariableParser<'a> {
                 Some(VariableIR::Struct(struct_var))
             }
             TypeDeclaration::Subroutine { return_type, .. } => {
-                let ret_type = return_type.and_then(|t_id| self.r#type.type_name(t_id));
+                let ret_type = return_type.map(|t_id| self.r#type.identity(t_id));
                 let fn_var = SubroutineVariable {
                     identity,
                     type_id: Some(type_id),
-                    return_type_name: ret_type,
+                    return_type_ident: ret_type,
                     address: data.and_then(|d| d.address),
                 };
                 Some(VariableIR::Subroutine(fn_var))
@@ -1559,7 +1558,7 @@ impl<'a> VariableParser<'a> {
                 Some(VariableIR::CModifiedVariable(CModifiedVariable {
                     identity: identity.clone(),
                     type_id: Some(type_id),
-                    type_name: self.r#type.type_name(type_id),
+                    type_ident: self.r#type.identity(type_id),
                     modifier: *modifier,
                     value: inner.and_then(|inner_type| {
                         Some(Box::new(
@@ -1690,19 +1689,19 @@ mod test {
             TestCase {
                 variable: VariableIR::Struct(StructVariable {
                     identity: VariableIdentity::no_namespace(Some("struct_1".to_owned())),
-                    type_name: None,
+                    type_ident: TypeIdentity::unknown(),
                     type_id: None,
                     members: vec![
                         VariableIR::Array(ArrayVariable {
                             identity: VariableIdentity::no_namespace(Some("array_1".to_owned())),
                             type_id: None,
-                            type_name: None,
+                            type_ident: TypeIdentity::unknown(),
                             items: Some(vec![
                                 VariableIR::Scalar(ScalarVariable {
                                     identity: VariableIdentity::no_namespace(Some(
                                         "scalar_1".to_owned(),
                                     )),
-                                    type_name: None,
+                                    type_ident: TypeIdentity::unknown(),
                                     value: None,
                                     raw_address: None,
                                     type_id: None,
@@ -1711,7 +1710,7 @@ mod test {
                                     identity: VariableIdentity::no_namespace(Some(
                                         "scalar_2".to_owned(),
                                     )),
-                                    type_name: None,
+                                    type_ident: TypeIdentity::unknown(),
                                     value: None,
                                     raw_address: None,
                                     type_id: None,
@@ -1721,14 +1720,14 @@ mod test {
                         }),
                         VariableIR::Array(ArrayVariable {
                             identity: VariableIdentity::no_namespace(Some("array_2".to_owned())),
-                            type_name: None,
+                            type_ident: TypeIdentity::unknown(),
                             type_id: None,
                             items: Some(vec![
                                 VariableIR::Scalar(ScalarVariable {
                                     identity: VariableIdentity::no_namespace(Some(
                                         "scalar_3".to_owned(),
                                     )),
-                                    type_name: None,
+                                    type_ident: TypeIdentity::unknown(),
                                     value: None,
                                     raw_address: None,
                                     type_id: None,
@@ -1737,7 +1736,7 @@ mod test {
                                     identity: VariableIdentity::no_namespace(Some(
                                         "scalar_4".to_owned(),
                                     )),
-                                    type_name: None,
+                                    type_ident: TypeIdentity::unknown(),
                                     value: None,
                                     raw_address: None,
                                     type_id: None,
@@ -1758,19 +1757,19 @@ mod test {
                 variable: VariableIR::Struct(StructVariable {
                     identity: VariableIdentity::no_namespace(Some("struct_1".to_owned())),
                     type_id: None,
-                    type_name: None,
+                    type_ident: TypeIdentity::unknown(),
                     members: vec![
                         VariableIR::Struct(StructVariable {
                             identity: VariableIdentity::no_namespace(Some("struct_2".to_owned())),
                             type_id: None,
-                            type_name: None,
+                            type_ident: TypeIdentity::unknown(),
                             members: vec![
                                 VariableIR::Scalar(ScalarVariable {
                                     identity: VariableIdentity::no_namespace(Some(
                                         "scalar_1".to_owned(),
                                     )),
                                     type_id: None,
-                                    type_name: None,
+                                    type_ident: TypeIdentity::unknown(),
                                     value: None,
                                     raw_address: None,
                                 }),
@@ -1779,13 +1778,13 @@ mod test {
                                         "enum_1".to_owned(),
                                     )),
                                     type_id: None,
-                                    type_name: None,
+                                    type_ident: TypeIdentity::unknown(),
                                     value: Some(Box::new(VariableIR::Scalar(ScalarVariable {
                                         identity: VariableIdentity::no_namespace(Some(
                                             "scalar_2".to_owned(),
                                         )),
                                         type_id: None,
-                                        type_name: None,
+                                        type_ident: TypeIdentity::unknown(),
                                         value: None,
                                         raw_address: None,
                                     }))),
@@ -1796,7 +1795,7 @@ mod test {
                                         "scalar_3".to_owned(),
                                     )),
                                     type_id: None,
-                                    type_name: None,
+                                    type_ident: TypeIdentity::unknown(),
                                     value: None,
                                     raw_address: None,
                                 }),
@@ -1807,7 +1806,7 @@ mod test {
                         VariableIR::Pointer(PointerVariable {
                             identity: VariableIdentity::no_namespace(Some("pointer_1".to_owned())),
                             type_id: None,
-                            type_name: None,
+                            type_ident: TypeIdentity::unknown(),
                             value: None,
                             target_type: None,
                             target_type_size: None,
@@ -1858,7 +1857,7 @@ mod test {
         VariableIR::Scalar(ScalarVariable {
             identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
             type_id: None,
-            type_name: Some(type_name.into()),
+            type_ident: TypeIdentity::no_namespace(type_name),
             value: Some(scalar),
             raw_address: None,
         })
@@ -1896,19 +1895,19 @@ mod test {
             structure: StructVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
                 type_id: None,
-                type_name: Some("vec".to_string()),
+                type_ident: TypeIdentity::no_namespace("vec"),
                 members: vec![
                     VariableIR::Array(ArrayVariable {
                         identity: VariableIdentity::default(),
                         type_id: None,
-                        type_name: Some("[item]".to_string()),
+                        type_ident: TypeIdentity::no_namespace("[item]"),
                         items: Some(items),
                         raw_address: None,
                     }),
                     VariableIR::Scalar(ScalarVariable {
                         identity: VariableIdentity::no_namespace(Some("cap".to_string())),
                         type_id: None,
-                        type_name: Some("usize".to_owned()),
+                        type_ident: TypeIdentity::no_namespace("usize"),
                         value: Some(SupportedScalar::Usize(items_len)),
                         raw_address: None,
                     }),
@@ -1943,7 +1942,7 @@ mod test {
         VariableIR::Specialized(SpecializedVariableIR::HashSet {
             set: Some(HashSetVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
-                type_name: Some("hashset".to_string()),
+                type_ident: TypeIdentity::no_namespace("hashset"),
                 items,
             }),
             original: StructVariable {
@@ -1957,7 +1956,7 @@ mod test {
         VariableIR::Specialized(SpecializedVariableIR::BTreeSet {
             set: Some(HashSetVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
-                type_name: Some("btreeset".to_string()),
+                type_ident: TypeIdentity::no_namespace("btreeset"),
                 items,
             }),
             original: StructVariable {
@@ -2032,7 +2031,7 @@ mod test {
                     identity: VariableIdentity::default(),
                     target_type: None,
                     type_id: None,
-                    type_name: Some("ptr".into()),
+                    type_ident: TypeIdentity::no_namespace("ptr"),
                     value: Some(123usize as *const ()),
                     raw_address: None,
                     target_type_size: None,
@@ -2045,7 +2044,7 @@ mod test {
                     identity: VariableIdentity::default(),
                     target_type: None,
                     type_id: None,
-                    type_name: Some("MyPtr".into()),
+                    type_ident: TypeIdentity::no_namespace("MyPtr"),
                     value: Some(123usize as *const ()),
                     raw_address: None,
                     target_type_size: None,
@@ -2057,7 +2056,7 @@ mod test {
                 variable: VariableIR::CEnum(CEnumVariable {
                     identity: VariableIdentity::default(),
                     type_id: None,
-                    type_name: Some("MyEnum".into()),
+                    type_ident: TypeIdentity::no_namespace("MyEnum"),
                     value: Some("Variant1".into()),
                     raw_address: None,
                 }),
@@ -2071,15 +2070,15 @@ mod test {
                 variable: VariableIR::RustEnum(RustEnumVariable {
                     identity: VariableIdentity::default(),
                     type_id: None,
-                    type_name: Some("MyEnum".into()),
+                    type_ident: TypeIdentity::no_namespace("MyEnum"),
                     value: Some(Box::new(VariableIR::Struct(StructVariable {
                         identity: VariableIdentity::no_namespace(Some("Variant1".to_string())),
                         type_id: None,
-                        type_name: None,
+                        type_ident: TypeIdentity::unknown(),
                         members: vec![VariableIR::Scalar(ScalarVariable {
                             identity: VariableIdentity::no_namespace(Some("Variant1".to_string())),
                             type_id: None,
-                            type_name: Some("int".into()),
+                            type_ident: TypeIdentity::no_namespace("int"),
                             value: Some(SupportedScalar::I64(100)),
                             raw_address: None,
                         })],
@@ -2391,7 +2390,7 @@ mod test {
                 variable: VariableIR::Array(ArrayVariable {
                     identity: Default::default(),
                     type_id: None,
-                    type_name: Some("array_str".to_string()),
+                    type_ident: TypeIdentity::no_namespace("array_str"),
                     items: Some(vec![
                         make_str_var_ir(None, "ab"),
                         make_str_var_ir(None, "cd"),
@@ -2438,7 +2437,7 @@ mod test {
                 variable: VariableIR::Struct(StructVariable {
                     identity: Default::default(),
                     type_id: None,
-                    type_name: Some("MyStruct".to_string()),
+                    type_ident: TypeIdentity::no_namespace("MyStruct"),
                     members: vec![
                         make_str_var_ir(Some("str_field"), "str1"),
                         make_vector_var_ir(
@@ -2526,7 +2525,7 @@ mod test {
                 variable: VariableIR::Struct(StructVariable {
                     identity: Default::default(),
                     type_id: None,
-                    type_name: Some("MyTuple".to_string()),
+                    type_ident: TypeIdentity::no_namespace("MyTuple"),
                     members: vec![
                         make_str_var_ir(None, "str1"),
                         make_vector_var_ir(

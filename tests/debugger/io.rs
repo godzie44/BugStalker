@@ -78,7 +78,7 @@ fn test_read_value_u64() {
 
     assert_eq!(vars.len(), 5);
     assert_eq!(vars[4].name(), "s");
-    assert_eq!(vars[4].r#type(), "i64");
+    assert_eq!(vars[4].r#type().name_fmt(), "i64");
     let _six = "6".to_string();
     assert!(matches!(
         vars[4].value().unwrap(),
