@@ -20,7 +20,75 @@ use strum_macros::Display;
 use uuid::Uuid;
 
 /// Type identifier.
-pub type TypeIdentity = DieRef;
+pub type TypeId = DieRef;
+
+/// Type name with namespace.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct TypeIdentity {
+    namespace: NamespaceHierarchy,
+    name: Option<String>,
+}
+
+impl TypeIdentity {
+    /// Create type identity with empty namespace.
+    #[inline(always)]
+    pub fn no_namespace(name: impl ToString) -> Self {
+        Self {
+            namespace: Default::default(),
+            name: Some(name.to_string()),
+        }
+    }
+
+    /// Create type identity for an unknown type.
+    #[inline(always)]
+    pub fn unknown() -> Self {
+        Self {
+            namespace: Default::default(),
+            name: None,
+        }
+    }
+
+    /// True whether a type is unknown.
+    #[inline(always)]
+    pub fn is_unknown(&self) -> bool {
+        self.name.is_none()
+    }
+
+    #[inline(always)]
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    /// Return formatted type name.  
+    #[inline(always)]
+    pub fn name_fmt(&self) -> &str {
+        self.name().unwrap_or("unknown")
+    }
+
+    /// Create address type name.
+    #[inline(always)]
+    pub fn as_address_type(&self) -> TypeIdentity {
+        TypeIdentity {
+            namespace: self.namespace.clone(),
+            name: Some(format!("&{}", self.name_fmt())),
+        }
+    }
+
+    /// Create dereferenced type name.
+    #[inline(always)]
+    pub fn as_deref_type(&self) -> TypeIdentity {
+        TypeIdentity {
+            namespace: self.namespace.clone(),
+            name: Some(format!("*{}", self.name_fmt())),
+        }
+    }
+
+    /// Create array type name from element type name.
+    #[inline(always)]
+    pub fn as_array_type(&self) -> TypeIdentity {
+        TypeIdentity::no_namespace(format!("[{}]", self.name_fmt()))
+    }
+}
 
 pub struct EvaluationContext<'a> {
     pub evaluator: &'a ExpressionEvaluator<'a>,
@@ -62,7 +130,7 @@ pub enum MemberLocation {
 pub struct StructureMember {
     pub in_struct_location: Option<MemberLocation>,
     pub name: Option<String>,
-    pub type_ref: Option<TypeIdentity>,
+    pub type_ref: Option<TypeId>,
 }
 
 impl StructureMember {
@@ -145,7 +213,7 @@ pub enum UpperBound {
 pub struct ArrayType {
     pub namespaces: NamespaceHierarchy,
     byte_size: Option<u64>,
-    pub element_type: Option<TypeIdentity>,
+    pub element_type: Option<TypeId>,
     lower_bound: ArrayBoundValue,
     upper_bound: Option<UpperBound>,
     byte_size_memo: Cell<Option<u64>>,
@@ -156,7 +224,7 @@ impl ArrayType {
     pub fn new(
         namespaces: NamespaceHierarchy,
         byte_size: Option<u64>,
-        element_type: Option<TypeIdentity>,
+        element_type: Option<TypeId>,
         lower_bound: ArrayBoundValue,
         upper_bound: Option<UpperBound>,
     ) -> Self {
@@ -215,6 +283,15 @@ pub struct ScalarType {
     pub encoding: Option<DwAte>,
 }
 
+impl ScalarType {
+    pub fn identity(&self) -> TypeIdentity {
+        TypeIdentity {
+            namespace: self.namespaces.clone(),
+            name: self.name.clone(),
+        }
+    }
+}
+
 /// List of type modifiers
 #[derive(Display, Clone, Copy, PartialEq)]
 #[strum(serialize_all = "snake_case")]
@@ -234,20 +311,20 @@ pub enum TypeDeclaration {
         namespaces: NamespaceHierarchy,
         name: Option<String>,
         byte_size: Option<u64>,
-        discr_type: Option<TypeIdentity>,
+        discr_type: Option<TypeId>,
         enumerators: HashMap<i64, String>,
     },
     Pointer {
         namespaces: NamespaceHierarchy,
         name: Option<String>,
-        target_type: Option<TypeIdentity>,
+        target_type: Option<TypeId>,
     },
     Structure {
         namespaces: NamespaceHierarchy,
         name: Option<String>,
         byte_size: Option<u64>,
         members: Vec<StructureMember>,
-        type_params: HashMap<String, Option<TypeIdentity>>,
+        type_params: HashMap<String, Option<TypeId>>,
     },
     Union {
         namespaces: NamespaceHierarchy,
@@ -266,63 +343,113 @@ pub enum TypeDeclaration {
     Subroutine {
         namespaces: NamespaceHierarchy,
         name: Option<String>,
-        return_type: Option<TypeIdentity>,
+        return_type: Option<TypeId>,
     },
     ModifiedType {
         modifier: CModifier,
         namespaces: NamespaceHierarchy,
         name: Option<String>,
-        inner: Option<TypeIdentity>,
+        inner: Option<TypeId>,
     },
 }
 
 /// Type representation. This is a graph of types where vertexes is a type declaration and edges
-/// is a dependencies between types. Type linking implemented by `TypeIdentity` references.
+/// is a dependencies between types. Type linking implemented by `TypeId` references.
 /// Root is an identity of a main type.
 #[derive(Clone)]
 pub struct ComplexType {
-    pub types: HashMap<TypeIdentity, TypeDeclaration>,
-    pub root: TypeIdentity,
+    pub types: HashMap<TypeId, TypeDeclaration>,
+    pub root: TypeId,
 }
 
 impl ComplexType {
-    /// Returns name of some of type existed in a complex type.
-    pub fn type_name(&self, typ: TypeIdentity) -> Option<String> {
-        match &self.types.get(&typ)? {
-            TypeDeclaration::Scalar(s) => s.name.clone(),
-            TypeDeclaration::Structure { name, .. } => name.clone(),
-            TypeDeclaration::Array(arr) => Some(format!(
-                "[{}]",
-                arr.element_type
-                    .and_then(|t| self.type_name(t))
-                    .unwrap_or("unknown".to_string())
-            )),
-            TypeDeclaration::CStyleEnum { name, .. } => name.clone(),
-            TypeDeclaration::RustEnum { name, .. } => name.clone(),
-            TypeDeclaration::Pointer { name, .. } => name.clone(),
-            TypeDeclaration::Union { name, .. } => name.clone(),
-            TypeDeclaration::Subroutine { name, .. } => name.clone(),
+    /// Return name of some of a type existed in a complex type.
+    pub fn identity(&self, typ: TypeId) -> TypeIdentity {
+        let Some(r#type) = self.types.get(&typ) else {
+            return TypeIdentity::unknown();
+        };
+
+        match r#type {
+            TypeDeclaration::Scalar(s) => s.identity(),
+            TypeDeclaration::Structure {
+                name, namespaces, ..
+            } => TypeIdentity {
+                namespace: namespaces.clone(),
+                name: name.as_ref().cloned(),
+            },
+            TypeDeclaration::Array(arr) => {
+                let el_ident = arr.element_type.map(|t| self.identity(t));
+                let name = format!(
+                    "[{}]",
+                    el_ident
+                        .as_ref()
+                        .map(|ident| ident.name_fmt())
+                        .unwrap_or("unknown")
+                );
+
+                TypeIdentity {
+                    namespace: arr.namespaces.clone(),
+                    name: Some(name.to_string()),
+                }
+            }
+            TypeDeclaration::CStyleEnum {
+                name, namespaces, ..
+            } => TypeIdentity {
+                namespace: namespaces.clone(),
+                name: name.as_ref().cloned(),
+            },
+            TypeDeclaration::RustEnum {
+                name, namespaces, ..
+            } => TypeIdentity {
+                namespace: namespaces.clone(),
+                name: name.as_ref().cloned(),
+            },
+            TypeDeclaration::Pointer {
+                name, namespaces, ..
+            } => TypeIdentity {
+                namespace: namespaces.clone(),
+                name: name.as_ref().cloned(),
+            },
+            TypeDeclaration::Union {
+                name, namespaces, ..
+            } => TypeIdentity {
+                namespace: namespaces.clone(),
+                name: name.as_ref().cloned(),
+            },
+            TypeDeclaration::Subroutine {
+                name, namespaces, ..
+            } => TypeIdentity {
+                namespace: namespaces.clone(),
+                name: name.as_ref().cloned(),
+            },
             TypeDeclaration::ModifiedType {
                 modifier,
+                namespaces,
                 name,
                 inner,
                 ..
             } => match name {
-                None => inner.and_then(|inner_id| {
-                    self.type_name(inner_id)
-                        .map(|name| format!("{modifier} {name}"))
-                }),
-                Some(n) => Some(n.clone()),
+                None => {
+                    let name = inner.map(|inner_id| {
+                        let ident = self.identity(inner_id);
+                        format!("{modifier} {name}", name = ident.name_fmt())
+                    });
+
+                    TypeIdentity {
+                        namespace: namespaces.clone(),
+                        name,
+                    }
+                }
+                Some(n) => TypeIdentity {
+                    namespace: namespaces.clone(),
+                    name: Some(n.to_string()),
+                },
             },
         }
     }
 
     /// Returns size of some of type existed in a complex type.
-    pub fn type_size_in_bytes(
-        &self,
-        eval_ctx: &EvaluationContext,
-        typ: TypeIdentity,
-    ) -> Option<u64> {
+    pub fn type_size_in_bytes(&self, eval_ctx: &EvaluationContext, typ: TypeId) -> Option<u64> {
         match &self.types.get(&typ)? {
             TypeDeclaration::Scalar(s) => s.byte_size,
             TypeDeclaration::Structure { byte_size, .. } => *byte_size,
@@ -339,7 +466,7 @@ impl ComplexType {
     }
 
     /// Visit type children in bfs order, `start_at` - identity of root type.
-    pub fn bfs_iterator(&self, start_at: TypeIdentity) -> BfsIterator {
+    pub fn bfs_iterator(&self, start_at: TypeId) -> BfsIterator {
         BfsIterator {
             complex_type: self,
             queue: VecDeque::from([start_at]),
@@ -351,7 +478,7 @@ impl ComplexType {
 /// Note that this iterator may be infinite.
 pub struct BfsIterator<'a> {
     complex_type: &'a ComplexType,
-    queue: VecDeque<TypeIdentity>,
+    queue: VecDeque<TypeId>,
 }
 
 impl<'a> Iterator for BfsIterator<'a> {
@@ -428,8 +555,8 @@ impl<'a> Iterator for BfsIterator<'a> {
 
 /// Dwarf DIE parser.
 pub struct TypeParser {
-    known_type_ids: HashSet<TypeIdentity>,
-    processed_types: HashMap<TypeIdentity, TypeDeclaration>,
+    known_type_ids: HashSet<TypeId>,
+    processed_types: HashMap<TypeId, TypeDeclaration>,
 }
 
 impl TypeParser {
@@ -442,7 +569,7 @@ impl TypeParser {
     }
 
     /// Parse a `ComplexType` from a DIEs.
-    pub fn parse<T>(self, ctx_die: ContextualDieRef<'_, T>, root_id: TypeIdentity) -> ComplexType {
+    pub fn parse<T>(self, ctx_die: ContextualDieRef<'_, T>, root_id: TypeId) -> ComplexType {
         let mut this = self;
         this.parse_inner(ctx_die, root_id);
         ComplexType {
@@ -909,5 +1036,5 @@ impl TypeParser {
 }
 
 /// A cache structure for types.
-/// Every type identifies by its `TypeIdentity` and dwarf unit uuid.
-pub type TypeCache = HashMap<(Uuid, TypeIdentity), ComplexType>;
+/// Every type identified by its `TypeId` and DWARF unit uuid.
+pub type TypeCache = HashMap<(Uuid, TypeId), ComplexType>;
