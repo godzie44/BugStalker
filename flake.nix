@@ -43,7 +43,10 @@
         };
 
         flake = {
-          homeManagerModules.bugstalker = import ./nix/home-manager-module.nix self;
+          homeManagerModules = rec {
+            default = bugstalker;
+            bugstalker = import ./nix/home-manager-module.nix self;
+          };
         };
       };
 }

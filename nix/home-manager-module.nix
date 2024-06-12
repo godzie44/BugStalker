@@ -5,7 +5,7 @@ let
   pkgs_with_bugstalker = pkgs // { inherit bugstalker; };
 
   cfg = config.programs.bugstalker;
-  tomlFormat = pkgs.fomrats.toml { };
+  tomlFormat = pkgs.formats.toml { };
 in
 {
   options.programs.bugstalker = {
