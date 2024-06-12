@@ -173,6 +173,17 @@ You can add it by doing the following:
           {
             home-manager.sharedModules = [
               bugstalker.homeManagerModules.default
+              ({...}: {
+                programs.bugstalker = {
+                  enable = true;
+                  # the content of `keymap.toml`
+                  keymap = {
+                    common = {
+                      up = ["k"];
+                    }
+                  };
+                };
+              })
             ];
           }
         ];
