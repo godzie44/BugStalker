@@ -3,3 +3,7 @@
 /examples/pastebin/upload
 .idea
 /tests/integration/__pycache__
+.direnv/
+
+# output of `nix build`
+result

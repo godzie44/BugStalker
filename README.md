@@ -110,6 +110,42 @@ cargo install bugstalker --no-default-features
 pacman -S bugstalker
 ```
 
+#### Nix package manager
+There's flake which you can use to start using it. Just [enable flakes](https://wiki.nixos.org/wiki/Flakes#Enable_flakes_temporarily)
+then you're able to use it with:
+```
+nix run github:godzie44/BugStalker
+```
+
+`bugstalker` also provides a package which you can include to your NixOS config.
+For example:
+
+<details>
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    bugstalker.url = "github:godzie44/BugStalker";
+  };
+
+  outpus = {nixpkgs, bugstalker, ...}: {
+    nixosConfigurations.your_hostname = nixpkgs.lib.nixosSystem {
+      modules = [
+        ({...}: {
+          environment.systemPackages = [
+            # assuming your system runs on a x86-64 cpu
+            bugstalker.packages."x86_64-linux".default
+          ];
+        })
+      ];
+    };
+  };
+}
+```
+
+</details>
+
 ---
 
 ## Start debugger session
