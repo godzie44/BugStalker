@@ -5,8 +5,8 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
   };
 
-  outputs = inputs@{ flake-parts, ... }:
-    flake-parts.lib.mkFlake { inherit inputs; }
+  outputs = inputs@{ self, flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit self inputs; }
       {
         systems = [
           "x86_64-linux"
@@ -27,7 +27,10 @@
             program = self'.packages.default;
           };
 
-          packages.default = pkgs.callPackage (import ./nix/package.nix) { };
+          packages = rec {
+            default = bugstalker;
+            bugstalker = pkgs.callPackage (import ./nix/package.nix) { };
+          };
 
           devShells.default =
             let
@@ -37,6 +40,13 @@
             pkgs.mkShell {
               packages = [ rust-toolchain ] ++ bs.buildInputs ++ bs.nativeBuildInputs;
             };
+        };
+
+        flake = {
+          homeManagerModules = rec {
+            default = bugstalker;
+            bugstalker = import ./nix/home-manager-module.nix self;
+          };
         };
       };
 }
