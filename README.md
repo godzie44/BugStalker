@@ -146,6 +146,44 @@ For example:
 
 </details>
 
+##### Home-Manager
+There's a home-manager module which adds `programs.bugstalker` to your home-manager config.
+You can add it by doing the following:
+
+<details>
+
+```nix
+{
+  description = "NixOS configuration";
+
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    home-manager.url = "github:nix-community/home-manager";
+    home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    bugstalker.url = "github:godzie44/BugStalker";
+  };
+
+  outputs = inputs@{ nixpkgs, home-manager, bugstalker, ... }: {
+    nixosConfigurations = {
+      hostname = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          ./configuration.nix
+          home-manager.nixosModules.home-manager
+          {
+            home-manager.sharedModules = [
+              bugstalker.homeManagerModules.default
+            ];
+          }
+        ];
+      };
+    };
+  };
+}
+```
+
+</details>
+
 ---
 
 ## Start debugger session
