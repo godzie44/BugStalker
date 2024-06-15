@@ -65,7 +65,7 @@ use std::ffi::c_long;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::{fs, mem, u64};
+use std::{fs, mem};
 
 /// Trait for the reverse interaction between the debugger and the user interface.
 pub trait EventHook {
