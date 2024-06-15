@@ -37,6 +37,7 @@
 - 1.76
 - 1.77
 - 1.78
+- 1.79
 
 ---
 
@@ -111,8 +112,11 @@ pacman -S bugstalker
 ```
 
 #### Nix package manager
-There's flake which you can use to start using it. Just [enable flakes](https://wiki.nixos.org/wiki/Flakes#Enable_flakes_temporarily)
+
+There's flake which you can use to start using it.
+Just [enable flakes](https://wiki.nixos.org/wiki/Flakes#Enable_flakes_temporarily)
 then you're able to use it with:
+
 ```
 nix run github:godzie44/BugStalker
 ```
@@ -147,6 +151,7 @@ For example:
 </details>
 
 ##### Home-Manager
+
 There's a home-manager module which adds `programs.bugstalker` to your home-manager config.
 You can add it by doing the following:
 

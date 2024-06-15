@@ -50,11 +50,12 @@ macro_rules! version_switch {
         }
 
 /// Supported rustc version diapasons.
-static SUPPORTED_RUSTC: [(Version, Version); 4] = [
+static SUPPORTED_RUSTC: &[(Version, Version)] = &[
     (Version((1, 75, 0)), Version((1, 75, u32::MAX))),
     (Version((1, 76, 0)), Version((1, 76, u32::MAX))),
     (Version((1, 77, 0)), Version((1, 77, u32::MAX))),
     (Version((1, 78, 0)), Version((1, 78, u32::MAX))),
+    (Version((1, 79, 0)), Version((1, 79, u32::MAX))),
 ];
 
 pub fn supported_versions_to_string() -> String {
