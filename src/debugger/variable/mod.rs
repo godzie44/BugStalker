@@ -543,6 +543,8 @@ impl VariableIR {
                 SpecializedVariableIR::Rc { original, .. } => &original.identity,
                 SpecializedVariableIR::Arc { original, .. } => &original.identity,
                 SpecializedVariableIR::Uuid { original, .. } => &original.identity,
+                SpecializedVariableIR::SystemTime { original, .. } => &original.identity,
+                SpecializedVariableIR::Instant { original, .. } => &original.identity,
             },
             VariableIR::Subroutine(s) => &s.identity,
             VariableIR::CModifiedVariable(v) => &v.identity,
@@ -572,6 +574,8 @@ impl VariableIR {
                 SpecializedVariableIR::Rc { original, .. } => &mut original.identity,
                 SpecializedVariableIR::Arc { original, .. } => &mut original.identity,
                 SpecializedVariableIR::Uuid { original, .. } => &mut original.identity,
+                SpecializedVariableIR::SystemTime { original, .. } => &mut original.identity,
+                SpecializedVariableIR::Instant { original, .. } => &mut original.identity,
             },
             VariableIR::Subroutine(s) => &mut s.identity,
             VariableIR::CModifiedVariable(v) => &mut v.identity,
@@ -599,7 +603,9 @@ impl VariableIR {
             | SpecializedVariableIR::RefCell { original, .. }
             | SpecializedVariableIR::Rc { original, .. }
             | SpecializedVariableIR::Arc { original, .. }
-            | SpecializedVariableIR::Uuid { original, .. } => VariableIR::Struct(original),
+            | SpecializedVariableIR::Uuid { original, .. }
+            | SpecializedVariableIR::SystemTime { original, .. }
+            | SpecializedVariableIR::Instant { original, .. } => VariableIR::Struct(original),
         }
     }
 
@@ -1477,6 +1483,18 @@ impl<'a> VariableParser<'a> {
                     return VariableIR::Specialized(parser_ext.parse_uuid(struct_var));
                 };
 
+                if struct_name.as_ref().map(|name| name == "Instant") == Some(true)
+                    && type_ns_h.contains(&["std", "time"])
+                {
+                    return VariableIR::Specialized(parser_ext.parse_instant(struct_var));
+                };
+
+                if struct_name.as_ref().map(|name| name == "SystemTime") == Some(true)
+                    && type_ns_h.contains(&["std", "time"])
+                {
+                    return VariableIR::Specialized(parser_ext.parse_sys_time(struct_var));
+                };
+
                 VariableIR::Struct(struct_var)
             }
             TypeDeclaration::Array(decl) => {
@@ -1636,6 +1654,8 @@ impl<'a> Iterator for BfsIterator<'a> {
                 }
                 SpecializedVariableIR::Rc { .. } | SpecializedVariableIR::Arc { .. } => {}
                 SpecializedVariableIR::Uuid { .. } => {}
+                SpecializedVariableIR::SystemTime { .. } => {}
+                SpecializedVariableIR::Instant { .. } => {}
             },
             _ => {}
         }

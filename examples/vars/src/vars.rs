@@ -519,6 +519,16 @@ fn uuid() {
     let nop: Option<u8> = None;
 }
 
+fn datetime() {
+    use std::ops::Add;
+    use std::time::{Duration, Instant, SystemTime};
+
+    let system_time = SystemTime::UNIX_EPOCH;
+    let instant = Instant::now().add(Duration::from_secs(10));
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -550,4 +560,5 @@ pub fn main() {
     inner_static();
     shadowing();
     uuid();
+    datetime();
 }

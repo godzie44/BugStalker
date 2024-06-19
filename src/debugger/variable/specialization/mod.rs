@@ -163,6 +163,14 @@ pub enum SpecializedVariableIR {
         value: Option<[u8; 16]>,
         original: StructVariable,
     },
+    SystemTime {
+        value: Option<(i64, u32)>,
+        original: StructVariable,
+    },
+    Instant {
+        value: Option<(i64, u32)>,
+        original: StructVariable,
+    },
 }
 
 impl SpecializedVariableIR {
@@ -182,6 +190,8 @@ impl SpecializedVariableIR {
             SpecializedVariableIR::Rc { original, .. } => original.raw_address,
             SpecializedVariableIR::Arc { original, .. } => original.raw_address,
             SpecializedVariableIR::Uuid { original, .. } => original.raw_address,
+            SpecializedVariableIR::SystemTime { original, .. } => original.raw_address,
+            SpecializedVariableIR::Instant { original, .. } => original.raw_address,
         }
     }
 
@@ -201,6 +211,8 @@ impl SpecializedVariableIR {
             SpecializedVariableIR::Rc { original, .. } => original.type_id,
             SpecializedVariableIR::Arc { original, .. } => original.type_id,
             SpecializedVariableIR::Uuid { original, .. } => original.type_id,
+            SpecializedVariableIR::SystemTime { original, .. } => original.type_id,
+            SpecializedVariableIR::Instant { original, .. } => original.type_id,
         }
     }
 }
@@ -974,6 +986,74 @@ impl<'a> VariableParserExtension<'a> {
         }
 
         Ok(bytes_repr)
+    }
+
+    fn parse_timespec(&self, timespec: &StructVariable) -> Result<(i64, u32), ParsingError> {
+        let &[VariableIR::Scalar(secs), VariableIR::Struct(n_secs)] = &timespec.members.as_slice()
+        else {
+            let err = "`Timespec` should contains secs and n_secs fields";
+            return Err(UnexpectedType(err).into());
+        };
+
+        let &[VariableIR::Scalar(n_secs)] = &n_secs.members.as_slice() else {
+            let err = "`Nanoseconds` should contains u32 field";
+            return Err(UnexpectedType(err).into());
+        };
+
+        let secs = secs
+            .try_as_number()
+            .ok_or(UnexpectedType("`Timespec::tv_sec` not an int"))?;
+        let n_secs = n_secs
+            .try_as_number()
+            .ok_or(UnexpectedType("Timespec::tv_nsec` not an int"))? as u32;
+
+        Ok((secs, n_secs))
+    }
+
+    pub fn parse_sys_time(&self, structure: StructVariable) -> SpecializedVariableIR {
+        SpecializedVariableIR::SystemTime {
+            value: weak_error!(self
+                .parse_sys_time_inner(&structure)
+                .context("SystemTime interpretation")),
+            original: structure,
+        }
+    }
+
+    fn parse_sys_time_inner(&self, structure: &StructVariable) -> Result<(i64, u32), ParsingError> {
+        let &[VariableIR::Struct(time_instant)] = &structure.members.as_slice() else {
+            let err = "`std::time::SystemTime` should contains a `time::SystemTime` field";
+            return Err(UnexpectedType(err).into());
+        };
+
+        let &[VariableIR::Struct(timespec)] = &time_instant.members.as_slice() else {
+            let err = "`time::SystemTime` should contains a `Timespec` field";
+            return Err(UnexpectedType(err).into());
+        };
+
+        self.parse_timespec(timespec)
+    }
+
+    pub fn parse_instant(&self, structure: StructVariable) -> SpecializedVariableIR {
+        SpecializedVariableIR::Instant {
+            value: weak_error!(self
+                .parse_instant_inner(&structure)
+                .context("Instant interpretation")),
+            original: structure,
+        }
+    }
+
+    fn parse_instant_inner(&self, structure: &StructVariable) -> Result<(i64, u32), ParsingError> {
+        let &[VariableIR::Struct(time_instant)] = &structure.members.as_slice() else {
+            let err = "`std::time::Instant` should contains a `time::Instant` field";
+            return Err(UnexpectedType(err).into());
+        };
+
+        let &[VariableIR::Struct(timespec)] = &time_instant.members.as_slice() else {
+            let err = "`time::Instant` should contains a `Timespec` field";
+            return Err(UnexpectedType(err).into());
+        };
+
+        self.parse_timespec(timespec)
     }
 }
 
