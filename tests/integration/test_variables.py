@@ -599,3 +599,10 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.cmd('continue', 'let nop: Option<u8> = None;')
         self.debugger.cmd_re('var &hm6[{field_1: 1, field_2: *, field_3: *}]', r'&i32 \[0x[0-9A-F]{14}\]')
         self.debugger.cmd('var *&hm6[{field_1: 1, field_2: *, field_3: *}]', 'i32(1)')
+
+    def test_read_time(self):
+        """Read Instant and System type std types"""
+        self.debugger.cmd('break vars.rs:529', 'New breakpoint')
+        self.debugger.cmd('run', 'let nop: Option<u8> = None;')
+        self.debugger.cmd('var system_time', 'system_time = SystemTime(1970-01-01 00:00:00)')
+        self.debugger.cmd_re('var instant', r'instant = Instant\(\d+ seconds from now\)')
