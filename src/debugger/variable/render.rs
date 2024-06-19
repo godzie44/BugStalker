@@ -1,9 +1,15 @@
 use crate::debugger::debugee::dwarf::r#type::TypeIdentity;
 use crate::debugger::variable::SpecializedVariableIR;
 use crate::debugger::variable::VariableIR;
+use nix::errno::Errno;
+use nix::libc;
+use nix::sys::time::TimeSpec;
 use once_cell::sync::Lazy;
 use std::borrow::Cow;
 use std::fmt::{Debug, Formatter};
+use std::mem::MaybeUninit;
+use std::ops::Sub;
+use std::time::Duration;
 
 pub enum ValueLayout<'a> {
     PreRendered(Cow<'a, str>),
@@ -108,6 +114,8 @@ impl RenderRepr for VariableIR {
                 SpecializedVariableIR::Rc { original, .. }
                 | SpecializedVariableIR::Arc { original, .. } => &original.type_ident,
                 SpecializedVariableIR::Uuid { original, .. } => &original.type_ident,
+                SpecializedVariableIR::SystemTime { original, .. } => &original.type_ident,
+                SpecializedVariableIR::Instant { original, .. } => &original.type_ident,
             },
             VariableIR::Subroutine(_) => {
                 // currently this line is unreachable cause dereference fn pointer is forbidden
@@ -228,6 +236,36 @@ impl RenderRepr for VariableIR {
                         ValueLayout::PreRendered(Cow::Owned(uuid.to_string()))
                     }
                 },
+                SpecializedVariableIR::SystemTime { value, original } => match value {
+                    None => ValueLayout::Structure {
+                        members: original.members.as_ref(),
+                    },
+                    Some((sec, n_sec)) => {
+                        let mb_dt = chrono::NaiveDateTime::from_timestamp_opt(*sec, *n_sec);
+                        let dt_rendered = mb_dt
+                            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                            .unwrap_or("Broken date time".to_string());
+                        ValueLayout::PreRendered(Cow::Owned(dt_rendered))
+                    }
+                },
+                SpecializedVariableIR::Instant { value, original } => match value {
+                    None => ValueLayout::Structure {
+                        members: original.members.as_ref(),
+                    },
+                    Some((sec, n_sec)) => {
+                        let now = now_timespec().expect("broken system clock");
+                        let instant = TimeSpec::new(*sec, *n_sec as i64);
+                        let render = if now > instant {
+                            let from_instant = Duration::from(now.sub(instant));
+                            format!("already happened {} seconds ago ", from_instant.as_secs())
+                        } else {
+                            let from_now = Duration::from(instant.sub(now));
+                            format!("{} seconds from now", from_now.as_secs())
+                        };
+
+                        ValueLayout::PreRendered(Cow::Owned(render))
+                    }
+                },
             },
             VariableIR::Subroutine(_) => {
                 // currently this line is unreachable a cause dereference fn pointer is forbidden
@@ -237,4 +275,14 @@ impl RenderRepr for VariableIR {
         };
         Some(value_repr)
     }
+}
+
+fn now_timespec() -> Result<TimeSpec, Errno> {
+    let mut t = MaybeUninit::uninit();
+    let res = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, t.as_mut_ptr()) };
+    if res == -1 {
+        return Err(Errno::last());
+    }
+    let t = unsafe { t.assume_init() };
+    Ok(TimeSpec::new(t.tv_sec, t.tv_nsec))
 }
