@@ -334,6 +334,22 @@ fn assert_uuid(var: &VariableIR, exp_name: &str, exp_type: &str) {
     assert_eq!(var.r#type().name_fmt(), exp_type);
 }
 
+fn assert_system_time(var: &VariableIR, exp_name: &str, exp_value: (i64, u32)) {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::SystemTime { value, .. }) = var
+    else {
+        panic!("not a SystemTime");
+    };
+    assert_eq!(var.name(), exp_name);
+    assert_eq!(*value, Some(exp_value));
+}
+
+fn assert_instant(var: &VariableIR, exp_name: &str) {
+    let VariableIR::Specialized(variable::SpecializedVariableIR::Instant { .. }) = var else {
+        panic!("not an Instant");
+    };
+    assert_eq!(var.name(), exp_name);
+}
+
 #[test]
 #[serial]
 fn test_read_scalar_variables() {
@@ -2511,7 +2527,7 @@ fn test_read_static_in_fn_variable() {
     // brkpt in function where static is declared
     debugger.set_breakpoint_at_line("vars.rs", 504).unwrap();
     // brkpt outside function where static is declared
-    debugger.set_breakpoint_at_line("vars.rs", 551).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 561).unwrap();
 
     debugger.start_debugee().unwrap();
     assert_eq!(info.line.take(), Some(504));
@@ -2527,7 +2543,7 @@ fn test_read_static_in_fn_variable() {
     );
 
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(551));
+    assert_eq!(info.line.take(), Some(561));
 
     let vars = debugger
         .read_variable(DQE::Variable(Selector::by_name("INNER_STATIC", false)))
@@ -2804,6 +2820,28 @@ fn test_address_operator() {
         .read_variable(DQE::Deref(addr_of("GLOB_1", false).boxed()))
         .unwrap();
     assert_str(&glob_1[0], "{unknown}", "glob_1");
+
+    debugger.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_read_time() {
+    let process = prepare_debugee_process(VARS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = TestInfo::default();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
+
+    debugger.set_breakpoint_at_line("vars.rs", 529).unwrap();
+
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(529));
+
+    let vars = debugger.read_local_variables().unwrap();
+    assert_system_time(&vars[0], "system_time", (0, 0));
+    assert_instant(&vars[1], "instant");
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
