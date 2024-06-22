@@ -529,6 +529,15 @@ fn datetime() {
     let nop: Option<u8> = None;
 }
 
+fn thread_local_const_init() {
+    thread_local! {
+        static CONSTANT_THREAD_LOCAL: i32 = const { 1337 }
+    }
+    CONSTANT_THREAD_LOCAL.with(|ctx| println!("const tls: {ctx}"));
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -561,4 +570,5 @@ pub fn main() {
     shadowing();
     uuid();
     datetime();
+    thread_local_const_init();
 }
