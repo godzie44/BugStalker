@@ -220,6 +220,14 @@ pub struct StructVariable {
     pub raw_address: Option<usize>,
 }
 
+impl StructVariable {
+    pub fn field(self, field_name: &str) -> Option<VariableIR> {
+        self.members
+            .into_iter()
+            .find(|member| field_name == member.name())
+    }
+}
+
 /// Represents arrays.
 #[derive(Clone, PartialEq)]
 pub struct ArrayVariable {
@@ -654,10 +662,7 @@ impl VariableIR {
     /// Supported: structures, rust-style enums, hashmaps, btree-maps.
     fn field(self, field_name: &str) -> Option<Self> {
         match self {
-            VariableIR::Struct(structure) => structure
-                .members
-                .into_iter()
-                .find(|member| field_name == member.name()),
+            VariableIR::Struct(structure) => structure.field(field_name),
             VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.field(field_name)),
             VariableIR::Specialized(spec) => match spec {
                 SpecializedVariableIR::HashMap { map, .. } => map.and_then(|map| {
@@ -1396,14 +1401,18 @@ impl<'a> VariableParser<'a> {
                 };
 
                 let rust_version = eval_ctx.rustc_version().unwrap_or_default();
-                let is_tls_type = version_switch!(
+                let type_is_tls = version_switch!(
                     rust_version,
                     (1, 0, 0) ..= (1, 76, u32::MAX) => type_ns_h.contains(&["std", "sys", "common", "thread_local", "fast_local"]),
                     (1, 77, 0) ..= (1, 77, u32::MAX) => type_ns_h.contains(&["std", "sys", "pal", "common", "thread_local", "fast_local"]),
                     (1, 78, 0) ..= (1, 80, u32::MAX) => type_ns_h.contains(&["std", "sys", "thread_local", "fast_local"]),
                     (1, 81, 0) ..= (1, u32::MAX, u32::MAX) => type_ns_h.contains(&["std", "sys", "thread_local"]),
-                );
-                if is_tls_type == Some(true) {
+                ).unwrap_or_default();
+                let var_name_is_tls = struct_var.identity.namespace.contains(&["__getit"])
+                    && (struct_var.identity.name.as_deref() == Some("VAL")
+                        || struct_var.identity.name.as_deref() == Some("__KEY"));
+                if type_is_tls || var_name_is_tls {
+                    let is_const_initialized = struct_var.identity.name.as_deref() == Some("VAL");
                     return version_switch!(
                         rust_version,
                         (1, 0, 0) ..= (1, 79, u32::MAX) => Some(VariableIR::Specialized(parser_ext.parse_tls_old(struct_var, type_params))),
