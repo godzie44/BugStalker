@@ -153,18 +153,19 @@ fn test_step_over() {
 #[test]
 #[serial]
 fn test_step_over_inline_code() {
+    // TODO this test should be reworked
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
     let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_line("vars.rs", 536).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 545).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(536));
+    assert_eq!(info.line.take(), Some(545));
     debugger.step_over().unwrap();
-    assert_eq!(info.line.take(), Some(537));
+    assert_eq!(info.line.take(), Some(546));
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);

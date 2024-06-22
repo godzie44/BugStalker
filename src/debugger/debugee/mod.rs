@@ -411,12 +411,12 @@ impl Debugee {
     ///
     /// # Panics
     ///
-    /// This method panics if thread with pid `pid` not run
+    /// This method panics if thread with pid `pid` not runs.
     pub fn get_tracee_ensure(&self, pid: Pid) -> &Tracee {
         self.tracee_ctl().tracee_ensure(pid)
     }
 
-    /// Return tracee by it's number.
+    /// Return tracee by its number.
     ///
     /// # Arguments
     ///
@@ -507,7 +507,7 @@ impl Debugee {
         unwind::restore_registers_at_frame(self, pid, registers, frame_num)
     }
 
-    /// Return return address for thread current program counter.
+    /// Return a current frame return address for current thread.
     ///
     /// # Arguments
     ///
