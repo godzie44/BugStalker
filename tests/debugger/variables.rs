@@ -1084,6 +1084,34 @@ fn test_read_tls_variables() {
 
 #[test]
 #[serial]
+fn test_read_tls_const_variables() {
+    let process = prepare_debugee_process(VARS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = TestInfo::default();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
+
+    debugger.set_breakpoint_at_line("vars.rs", 538).unwrap();
+
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(538));
+
+    let vars = debugger
+        .read_variable(DQE::Variable(Selector::by_name(
+            "CONSTANT_THREAD_LOCAL",
+            false,
+        )))
+        .unwrap();
+    assert_init_tls(&vars[0], "CONSTANT_THREAD_LOCAL", "i32", |value| {
+        assert_scalar(value, "value", "i32", Some(SupportedScalar::I32(1337)))
+    });
+
+    debugger.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
 fn test_read_closures() {
     let process = prepare_debugee_process(VARS_APP, &[]);
     let debugee_pid = process.pid();
@@ -2493,7 +2521,7 @@ fn test_read_static_in_fn_variable() {
     // brkpt in function where static is declared
     debugger.set_breakpoint_at_line("vars.rs", 504).unwrap();
     // brkpt outside function where static is declared
-    debugger.set_breakpoint_at_line("vars.rs", 561).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 570).unwrap();
 
     debugger.start_debugee().unwrap();
     assert_eq!(info.line.take(), Some(504));
@@ -2509,7 +2537,7 @@ fn test_read_static_in_fn_variable() {
     );
 
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(561));
+    assert_eq!(info.line.take(), Some(570));
 
     let vars = debugger
         .read_variable(DQE::Variable(Selector::by_name("INNER_STATIC", false)))

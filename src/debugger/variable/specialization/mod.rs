@@ -403,13 +403,43 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         structure: StructVariable,
         type_params: &HashMap<String, Option<TypeId>>,
+        is_const_initialized: bool,
     ) -> SpecializedVariableIR {
+        let tls_var = if is_const_initialized {
+            self.parse_const_init_tls_inner(VariableIR::Struct(structure.clone()), type_params)
+        } else {
+            self.parse_tls_inner_old(VariableIR::Struct(structure.clone()), type_params)
+        };
+
         SpecializedVariableIR::Tls {
-            tls_var: weak_error!(self
-                .parse_tls_inner_old(VariableIR::Struct(structure.clone()), type_params)
-                .context("TLS variable interpretation")),
+            tls_var: weak_error!(tls_var.context("TLS variable interpretation")),
             original: structure,
         }
+    }
+
+    fn parse_const_init_tls_inner(
+        &self,
+        ir: VariableIR,
+        type_params: &HashMap<String, Option<TypeId>>,
+    ) -> Result<TlsVariable, ParsingError> {
+        // we assume that tls variable name represents in dwarf
+        // as namespace flowed before "__getit" namespace
+        let namespace = &ir.identity().namespace;
+        let name = namespace
+            .iter()
+            .find_position(|&ns| ns == "__getit")
+            .map(|(pos, _)| namespace[pos - 1].clone());
+
+        let value_type = type_params
+            .get("T")
+            .ok_or(TypeParameterNotFound("T"))?
+            .ok_or(TypeParameterTypeNotFound("T"))?;
+        let value = ir.field("value");
+        Ok(TlsVariable {
+            identity: VariableIdentity::no_namespace(name),
+            inner_value: value.map(Box::new),
+            inner_type: self.parser.r#type.identity(value_type),
+        })
     }
 
     fn parse_tls_inner_old(
