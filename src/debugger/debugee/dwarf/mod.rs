@@ -539,25 +539,31 @@ impl DebugInformation {
 
         // now check tls variables
         // for rust we expect that tls variable represents in dwarf like
-        // variable with name "__KEY" and namespace like [.., variable_name, __getit]
+        // variable with name "__KEY" OR "VAL"
+        // and namespace like [.., variable_name, __getit]
         let tls_ns_part = &[name, "__getit"];
+
         for unit in units {
-            let mb_var_locations = resolve_unit_call!(self.dwarf(), unit, locate_var_die, "__KEY");
-            if let Some(vars) = mb_var_locations {
-                vars.iter().for_each(|(namespaces, entry_idx)| {
-                    if namespaces.contains(tls_ns_part) {
-                        let entry = resolve_unit_call!(&self.inner, unit, entry, *entry_idx);
-                        if let DieVariant::Variable(ref var) = entry.die {
-                            found.push(ContextualDieRef {
-                                debug_info: self,
-                                unit_idx: unit.idx(),
-                                node: &entry.node,
-                                die: var,
-                            });
-                        }
+            let mut tls_collector = |(namespaces, entry_idx): &(NamespaceHierarchy, usize)| {
+                if namespaces.contains(tls_ns_part) {
+                    let entry = resolve_unit_call!(&self.inner, unit, entry, *entry_idx);
+                    if let DieVariant::Variable(ref var) = entry.die {
+                        found.push(ContextualDieRef {
+                            debug_info: self,
+                            unit_idx: unit.idx(),
+                            node: &entry.node,
+                            die: var,
+                        });
                     }
-                });
-            }
+                }
+            };
+
+            if let Some(vars) = resolve_unit_call!(self.dwarf(), unit, locate_var_die, "__KEY") {
+                vars.iter().for_each(&mut tls_collector);
+            };
+            if let Some(vars) = resolve_unit_call!(self.dwarf(), unit, locate_var_die, "VAL") {
+                vars.iter().for_each(&mut tls_collector);
+            };
         }
 
         Ok(found)

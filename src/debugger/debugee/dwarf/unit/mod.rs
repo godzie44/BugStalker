@@ -460,13 +460,13 @@ struct UnitProperties {
 struct UnitLazyPart {
     entries: Vec<Entry>,
     die_ranges: Vec<DieRange>,
-    // index for variable die position: { variable name -> [namespaces : die position in unit] }
+    /// index for variable die position: { variable name -> [namespaces: die position in unit] }
     variable_index: HashMap<String, Vec<(NamespaceHierarchy, usize)>>,
-    // index for type die position: { type name -> offset in unit }
+    /// index for type die position: { type name -> offset in unit }
     type_index: HashMap<String, UnitOffset>,
-    // index for variables: offset in unit -> position in unit `entries`
+    /// index for variables: offset in unit -> position in unit `entries`
     die_offsets_index: HashMap<UnitOffset, usize>,
-    // index for function entries: function -> die position in unit `entries`
+    /// index for function entries: function -> die position in unit `entries`
     function_index: PathSearchIndex<usize>,
 }
 
@@ -785,13 +785,12 @@ impl Unit {
     /// # Arguments
     ///
     /// * `name`: needle variable name
-    pub fn locate_var_die(
-        &self,
-        name: &str,
-    ) -> UnitResult<Option<&Vec<(NamespaceHierarchy, usize)>>> {
+    pub fn locate_var_die(&self, name: &str) -> UnitResult<Option<&[(NamespaceHierarchy, usize)]>> {
         match self.lazy_part.get() {
             None => UnitResult::Reload,
-            Some(additional) => UnitResult::Ok(additional.variable_index.get(name)),
+            Some(additional) => {
+                UnitResult::Ok(additional.variable_index.get(name).map(|v| v.as_slice()))
+            }
         }
     }
 
