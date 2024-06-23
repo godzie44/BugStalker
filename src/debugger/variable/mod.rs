@@ -414,7 +414,10 @@ pub enum VariableIR {
     RustEnum(RustEnumVariable),
     Pointer(PointerVariable),
     Subroutine(SubroutineVariable),
-    Specialized(SpecializedVariableIR),
+    Specialized {
+        value: Option<SpecializedVariableIR>,
+        original: StructVariable,
+    },
     CModifiedVariable(CModifiedVariable),
 }
 
@@ -439,7 +442,9 @@ impl VariableIR {
             VariableIR::RustEnum(re) => re.raw_address,
             VariableIR::Pointer(p) => p.raw_address,
             VariableIR::Subroutine(s) => s.address,
-            VariableIR::Specialized(s) => s.in_memory_location(),
+            VariableIR::Specialized {
+                original: origin, ..
+            } => origin.raw_address,
             VariableIR::CModifiedVariable(cmv) => cmv.address,
         }
     }
@@ -453,7 +458,9 @@ impl VariableIR {
             VariableIR::RustEnum(re) => re.type_id,
             VariableIR::Pointer(p) => p.type_id,
             VariableIR::Subroutine(s) => s.type_id,
-            VariableIR::Specialized(s) => s.type_id(),
+            VariableIR::Specialized {
+                original: origin, ..
+            } => origin.type_id,
             VariableIR::CModifiedVariable(cmv) => cmv.type_id,
         }
     }
@@ -479,7 +486,7 @@ impl VariableIR {
         }
     }
 
-    /// Returns value as raw pointer or error if cast fail.
+    /// Returns value as a raw pointer or error if cast fails.
     fn assume_field_as_pointer(&self, field_name: &'static str) -> Result<*const (), AssumeError> {
         self.bfs_iterator()
             .find_map(|child| {
@@ -536,24 +543,9 @@ impl VariableIR {
             VariableIR::CEnum(e) => &e.identity,
             VariableIR::RustEnum(e) => &e.identity,
             VariableIR::Pointer(p) => &p.identity,
-            VariableIR::Specialized(s) => match s {
-                SpecializedVariableIR::Vector { original, .. } => &original.identity,
-                SpecializedVariableIR::VecDeque { original, .. } => &original.identity,
-                SpecializedVariableIR::String { original, .. } => &original.identity,
-                SpecializedVariableIR::Str { original, .. } => &original.identity,
-                SpecializedVariableIR::Tls { original, .. } => &original.identity,
-                SpecializedVariableIR::HashMap { original, .. } => &original.identity,
-                SpecializedVariableIR::HashSet { original, .. } => &original.identity,
-                SpecializedVariableIR::BTreeMap { original, .. } => &original.identity,
-                SpecializedVariableIR::BTreeSet { original, .. } => &original.identity,
-                SpecializedVariableIR::Cell { original, .. } => &original.identity,
-                SpecializedVariableIR::RefCell { original, .. } => &original.identity,
-                SpecializedVariableIR::Rc { original, .. } => &original.identity,
-                SpecializedVariableIR::Arc { original, .. } => &original.identity,
-                SpecializedVariableIR::Uuid { original, .. } => &original.identity,
-                SpecializedVariableIR::SystemTime { original, .. } => &original.identity,
-                SpecializedVariableIR::Instant { original, .. } => &original.identity,
-            },
+            VariableIR::Specialized {
+                original: origin, ..
+            } => &origin.identity,
             VariableIR::Subroutine(s) => &s.identity,
             VariableIR::CModifiedVariable(v) => &v.identity,
         }
@@ -567,24 +559,9 @@ impl VariableIR {
             VariableIR::CEnum(e) => &mut e.identity,
             VariableIR::RustEnum(e) => &mut e.identity,
             VariableIR::Pointer(p) => &mut p.identity,
-            VariableIR::Specialized(s) => match s {
-                SpecializedVariableIR::Vector { original, .. } => &mut original.identity,
-                SpecializedVariableIR::VecDeque { original, .. } => &mut original.identity,
-                SpecializedVariableIR::String { original, .. } => &mut original.identity,
-                SpecializedVariableIR::Str { original, .. } => &mut original.identity,
-                SpecializedVariableIR::Tls { original, .. } => &mut original.identity,
-                SpecializedVariableIR::HashMap { original, .. } => &mut original.identity,
-                SpecializedVariableIR::HashSet { original, .. } => &mut original.identity,
-                SpecializedVariableIR::BTreeMap { original, .. } => &mut original.identity,
-                SpecializedVariableIR::BTreeSet { original, .. } => &mut original.identity,
-                SpecializedVariableIR::Cell { original, .. } => &mut original.identity,
-                SpecializedVariableIR::RefCell { original, .. } => &mut original.identity,
-                SpecializedVariableIR::Rc { original, .. } => &mut original.identity,
-                SpecializedVariableIR::Arc { original, .. } => &mut original.identity,
-                SpecializedVariableIR::Uuid { original, .. } => &mut original.identity,
-                SpecializedVariableIR::SystemTime { original, .. } => &mut original.identity,
-                SpecializedVariableIR::Instant { original, .. } => &mut original.identity,
-            },
+            VariableIR::Specialized {
+                original: origin, ..
+            } => &mut origin.identity,
             VariableIR::Subroutine(s) => &mut s.identity,
             VariableIR::CModifiedVariable(v) => &mut v.identity,
         }
@@ -593,27 +570,11 @@ impl VariableIR {
     /// If a variable has a specialized ir (vectors, strings, etc.) then return
     /// an underlying structure
     fn canonic(self) -> Self {
-        let VariableIR::Specialized(spec) = self else {
-            return self;
-        };
-
-        match spec {
-            SpecializedVariableIR::Vector { original, .. }
-            | SpecializedVariableIR::VecDeque { original, .. }
-            | SpecializedVariableIR::HashMap { original, .. }
-            | SpecializedVariableIR::HashSet { original, .. }
-            | SpecializedVariableIR::BTreeMap { original, .. }
-            | SpecializedVariableIR::BTreeSet { original, .. }
-            | SpecializedVariableIR::String { original, .. }
-            | SpecializedVariableIR::Str { original, .. }
-            | SpecializedVariableIR::Tls { original, .. }
-            | SpecializedVariableIR::Cell { original, .. }
-            | SpecializedVariableIR::RefCell { original, .. }
-            | SpecializedVariableIR::Rc { original, .. }
-            | SpecializedVariableIR::Arc { original, .. }
-            | SpecializedVariableIR::Uuid { original, .. }
-            | SpecializedVariableIR::SystemTime { original, .. }
-            | SpecializedVariableIR::Instant { original, .. } => VariableIR::Struct(original),
+        match self {
+            VariableIR::Specialized {
+                original: origin, ..
+            } => VariableIR::Struct(origin),
+            _ => self,
         }
     }
 
@@ -625,15 +586,28 @@ impl VariableIR {
             VariableIR::RustEnum(r_enum) => r_enum
                 .value
                 .and_then(|v| v.deref(eval_ctx, variable_parser)),
-            VariableIR::Specialized(SpecializedVariableIR::Rc { value, .. })
-            | VariableIR::Specialized(SpecializedVariableIR::Arc { value, .. }) => {
-                value.and_then(|var| var.deref(eval_ctx, variable_parser))
+            VariableIR::Specialized {
+                value: Some(SpecializedVariableIR::Rc(ptr)),
+                ..
             }
-            VariableIR::Specialized(SpecializedVariableIR::Tls { tls_var, .. }) => tls_var
-                .and_then(|var| {
-                    var.inner_value
-                        .and_then(|inner| inner.deref(eval_ctx, variable_parser))
-                }),
+            | VariableIR::Specialized {
+                value: Some(SpecializedVariableIR::Arc(ptr)),
+                ..
+            } => ptr.deref(eval_ctx, variable_parser),
+            VariableIR::Specialized {
+                value: Some(SpecializedVariableIR::Tls(tls_var)),
+                ..
+            } => tls_var
+                .inner_value
+                .and_then(|inner| inner.deref(eval_ctx, variable_parser)),
+            VariableIR::Specialized {
+                value: Some(SpecializedVariableIR::Cell(cell)),
+                ..
+            }
+            | VariableIR::Specialized {
+                value: Some(SpecializedVariableIR::RefCell(cell)),
+                ..
+            } => cell.deref(eval_ctx, variable_parser),
             _ => None,
         }
     }
@@ -664,33 +638,31 @@ impl VariableIR {
         match self {
             VariableIR::Struct(structure) => structure.field(field_name),
             VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.field(field_name)),
-            VariableIR::Specialized(spec) => match spec {
-                SpecializedVariableIR::HashMap { map, .. } => map.and_then(|map| {
+            VariableIR::Specialized {
+                value: specialized, ..
+            } => match specialized {
+                Some(SpecializedVariableIR::HashMap(map))
+                | Some(SpecializedVariableIR::BTreeMap(map)) => {
                     map.kv_items.into_iter().find_map(|(key, value)| match key {
-                        VariableIR::Specialized(spec) => match spec {
-                            SpecializedVariableIR::String {
-                                string: string_key, ..
-                            } => string_key.and_then(|string| {
-                                (string.value == field_name)
-                                    .then(|| value.clone_and_rename(&string.value))
-                            }),
-                            SpecializedVariableIR::Str {
-                                string: string_key, ..
-                            } => string_key.and_then(|str| {
-                                (str.value == field_name)
-                                    .then(|| value.clone_and_rename(&str.value))
-                            }),
+                        VariableIR::Specialized {
+                            value: specialized, ..
+                        } => match specialized {
+                            Some(SpecializedVariableIR::String(string_key)) => (string_key.value
+                                == field_name)
+                                .then(|| value.clone_and_rename(&string_key.value)),
+                            Some(SpecializedVariableIR::Str(string_key)) => (string_key.value
+                                == field_name)
+                                .then(|| value.clone_and_rename(&string_key.value)),
                             _ => None,
                         },
                         _ => None,
                     })
-                }),
-                SpecializedVariableIR::Tls { tls_var, .. } => tls_var
-                    .and_then(|var| var.inner_value.and_then(|inner| inner.field(field_name))),
-                SpecializedVariableIR::Cell { value, .. }
-                | SpecializedVariableIR::RefCell { value, .. } => {
-                    value.and_then(|var| var.field(field_name))
                 }
+                Some(SpecializedVariableIR::Tls(tls_var)) => tls_var
+                    .inner_value
+                    .and_then(|inner| inner.field(field_name)),
+                Some(SpecializedVariableIR::Cell(cell))
+                | Some(SpecializedVariableIR::RefCell(cell)) => cell.field(field_name),
                 _ => None,
             },
             _ => None,
@@ -711,21 +683,22 @@ impl VariableIR {
                 None
             }),
             VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.index(idx)),
-            VariableIR::Specialized(spec) => match spec {
-                SpecializedVariableIR::Vector { vec, .. }
-                | SpecializedVariableIR::VecDeque { vec, .. } => vec.and_then(|mut v| {
-                    let inner_array = v.structure.members.swap_remove(0);
+            VariableIR::Specialized {
+                value: Some(spec_val),
+                ..
+            } => match spec_val {
+                SpecializedVariableIR::Vector(mut vec)
+                | SpecializedVariableIR::VecDeque(mut vec) => {
+                    let inner_array = vec.structure.members.swap_remove(0);
                     inner_array.index(idx)
-                }),
-                SpecializedVariableIR::Tls { tls_var, .. } => {
-                    tls_var.and_then(|var| var.inner_value.and_then(|inner| inner.index(idx)))
                 }
-                SpecializedVariableIR::Cell { value, .. }
-                | SpecializedVariableIR::RefCell { value, .. } => {
-                    value.and_then(|var| var.index(idx))
+                SpecializedVariableIR::Tls(tls_var) => {
+                    tls_var.inner_value.and_then(|inner| inner.index(idx))
                 }
-                SpecializedVariableIR::BTreeMap { map: Some(map), .. }
-                | SpecializedVariableIR::HashMap { map: Some(map), .. } => {
+                SpecializedVariableIR::Cell(cell) | SpecializedVariableIR::RefCell(cell) => {
+                    cell.index(idx)
+                }
+                SpecializedVariableIR::BTreeMap(map) | SpecializedVariableIR::HashMap(map) => {
                     for (k, mut v) in map.kv_items {
                         if k.match_literal(idx) {
                             let identity = v.identity_mut();
@@ -736,8 +709,7 @@ impl VariableIR {
 
                     None
                 }
-                SpecializedVariableIR::BTreeSet { set: Some(set), .. }
-                | SpecializedVariableIR::HashSet { set: Some(set), .. } => {
+                SpecializedVariableIR::BTreeSet(set) | SpecializedVariableIR::HashSet(set) => {
                     let found = set.items.into_iter().any(|it| it.match_literal(idx));
 
                     Some(VariableIR::Scalar(ScalarVariable {
@@ -755,45 +727,51 @@ impl VariableIR {
     }
 
     fn slice(
-        mut self,
+        self,
         eval_ctx: &EvaluationContext,
         variable_parser: &VariableParser,
         left: Option<usize>,
         right: Option<usize>,
     ) -> Option<Self> {
-        match &mut self {
-            VariableIR::Array(ref mut array) => {
+        match self {
+            VariableIR::Array(mut array) => {
                 array.slice(left, right);
-                Some(self)
+                Some(VariableIR::Array(array))
             }
             VariableIR::Pointer(ptr) => {
                 // for pointer the right bound must always be specified
                 let right = right?;
                 ptr.slice(eval_ctx, variable_parser, left, right)
             }
-            VariableIR::Specialized(spec) => match spec {
-                SpecializedVariableIR::Rc { value, .. }
-                | SpecializedVariableIR::Arc { value, .. } => {
-                    let ptr = value.as_ref()?;
+            VariableIR::Specialized {
+                value: Some(spec_val),
+                original,
+            } => match spec_val {
+                SpecializedVariableIR::Rc(ptr) | SpecializedVariableIR::Arc(ptr) => {
                     // for pointer the right bound must always be specified
                     let right = right?;
                     ptr.slice(eval_ctx, variable_parser, left, right)
                 }
-                SpecializedVariableIR::Vector { vec, .. }
-                | SpecializedVariableIR::VecDeque { vec, .. } => {
-                    let vec = vec.as_mut()?;
+                SpecializedVariableIR::Vector(mut vec) => {
                     vec.slice(left, right);
-                    Some(self)
+                    Some(VariableIR::Specialized {
+                        value: Some(SpecializedVariableIR::Vector(vec)),
+                        original,
+                    })
                 }
-                SpecializedVariableIR::Tls { tls_var, .. } => {
-                    let tls_var = tls_var.take()?;
-                    let inner = tls_var.inner_value?;
+                SpecializedVariableIR::VecDeque(mut vec) => {
+                    vec.slice(left, right);
+                    Some(VariableIR::Specialized {
+                        value: Some(SpecializedVariableIR::VecDeque(vec)),
+                        original,
+                    })
+                }
+                SpecializedVariableIR::Tls(mut tls_var) => {
+                    let inner = tls_var.inner_value.take()?;
                     inner.slice(eval_ctx, variable_parser, left, right)
                 }
-                SpecializedVariableIR::Cell { value, .. }
-                | SpecializedVariableIR::RefCell { value, .. } => {
-                    let inner = value.take()?;
-                    inner.slice(eval_ctx, variable_parser, left, right)
+                SpecializedVariableIR::Cell(cell) | SpecializedVariableIR::RefCell(cell) => {
+                    cell.slice(eval_ctx, variable_parser, left, right)
                 }
                 _ => None,
             },
@@ -892,60 +870,35 @@ impl VariableIR {
                     _ => false,
                 }
             }
-            VariableIR::Specialized(spec) => match spec {
-                SpecializedVariableIR::String {
-                    string: Some(StringVariable { value, .. }),
-                    ..
-                } => literal.equal_with_string(&value),
-                SpecializedVariableIR::Str {
-                    string: Some(StrVariable { value, .. }),
-                    ..
-                } => literal.equal_with_string(&value),
-                SpecializedVariableIR::Uuid {
-                    value: Some(bytes), ..
-                } => {
+            VariableIR::Specialized {
+                value: Some(spec), ..
+            } => match spec {
+                SpecializedVariableIR::String(StringVariable { value, .. }) => {
+                    literal.equal_with_string(&value)
+                }
+                SpecializedVariableIR::Str(StrVariable { value, .. }) => {
+                    literal.equal_with_string(&value)
+                }
+                SpecializedVariableIR::Uuid(bytes) => {
                     let uuid = Uuid::from_bytes(bytes);
                     literal.equal_with_string(&uuid.to_string())
                 }
-                SpecializedVariableIR::Cell { mut value, .. }
-                | SpecializedVariableIR::RefCell { mut value, .. } => {
-                    let Some(inner) = value.take() else {
-                        return false;
-                    };
-                    inner.match_literal(literal)
+                SpecializedVariableIR::Cell(cell) | SpecializedVariableIR::RefCell(cell) => {
+                    cell.match_literal(literal)
                 }
-                SpecializedVariableIR::Rc {
-                    value:
-                        Some(PointerVariable {
-                            value: Some(ptr), ..
-                        }),
-                    ..
-                }
-                | SpecializedVariableIR::Arc {
-                    value:
-                        Some(PointerVariable {
-                            value: Some(ptr), ..
-                        }),
-                    ..
-                } => literal.equal_with_address(ptr as usize),
-                SpecializedVariableIR::Vector {
-                    vec: Some(mut v), ..
-                }
-                | SpecializedVariableIR::VecDeque {
-                    vec: Some(mut v), ..
-                } => {
+                SpecializedVariableIR::Rc(PointerVariable {
+                    value: Some(ptr), ..
+                })
+                | SpecializedVariableIR::Arc(PointerVariable {
+                    value: Some(ptr), ..
+                }) => literal.equal_with_address(ptr as usize),
+                SpecializedVariableIR::Vector(mut v) | SpecializedVariableIR::VecDeque(mut v) => {
                     let inner_array = v.structure.members.swap_remove(0);
                     debug_assert!(matches!(inner_array, VariableIR::Array(_)));
                     inner_array.match_literal(literal)
                 }
-                SpecializedVariableIR::HashSet {
-                    set: Some(HashSetVariable { items, .. }),
-                    ..
-                }
-                | SpecializedVariableIR::BTreeSet {
-                    set: Some(HashSetVariable { items, .. }),
-                    ..
-                } => {
+                SpecializedVariableIR::HashSet(HashSetVariable { items, .. })
+                | SpecializedVariableIR::BTreeSet(HashSetVariable { items, .. }) => {
                     let Literal::Array(arr_literal) = literal else {
                         return false;
                     };
@@ -1376,21 +1329,26 @@ impl<'a> VariableParser<'a> {
                 // - cell/refcell
                 // - rc/arc
                 if struct_name.as_deref() == Some("&str") {
-                    return VariableIR::Specialized(parser_ext.parse_str(eval_ctx, struct_var));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_str(eval_ctx, &struct_var),
+                        original: struct_var,
+                    };
                 };
 
                 if struct_name.as_deref() == Some("String") {
-                    return VariableIR::Specialized(parser_ext.parse_string(eval_ctx, struct_var));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_string(eval_ctx, &struct_var),
+                        original: struct_var,
+                    };
                 };
 
                 if struct_name.as_ref().map(|name| name.starts_with("Vec")) == Some(true)
                     && type_ns_h.contains(&["vec"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_vector(
-                        eval_ctx,
-                        struct_var,
-                        type_params,
-                    ));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_vector(eval_ctx, &struct_var, type_params),
+                        original: struct_var,
+                    };
                 };
 
                 let rust_version = eval_ctx.rustc_version().unwrap_or_default();
@@ -1405,23 +1363,28 @@ impl<'a> VariableParser<'a> {
                         || struct_var.identity.name.as_deref() == Some("__KEY"));
                 if type_is_tls || var_name_is_tls {
                     let is_const_initialized = struct_var.identity.name.as_deref() == Some("VAL");
-                    return VariableIR::Specialized(parser_ext.parse_tls(
-                        struct_var,
-                        type_params,
-                        is_const_initialized,
-                    ));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_tls(&struct_var, type_params, is_const_initialized),
+                        original: struct_var,
+                    };
                 }
 
                 if struct_name.as_ref().map(|name| name.starts_with("HashMap")) == Some(true)
                     && type_ns_h.contains(&["collections", "hash", "map"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_hashmap(eval_ctx, struct_var));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_hashmap(eval_ctx, &struct_var),
+                        original: struct_var,
+                    };
                 };
 
                 if struct_name.as_ref().map(|name| name.starts_with("HashSet")) == Some(true)
                     && type_ns_h.contains(&["collections", "hash", "set"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_hashset(eval_ctx, struct_var));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_hashset(eval_ctx, &struct_var),
+                        original: struct_var,
+                    };
                 };
 
                 if struct_name
@@ -1430,12 +1393,15 @@ impl<'a> VariableParser<'a> {
                     == Some(true)
                     && type_ns_h.contains(&["collections", "btree", "map"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_btree_map(
-                        eval_ctx,
-                        struct_var,
-                        type_id,
-                        type_params,
-                    ));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_btree_map(
+                            eval_ctx,
+                            &struct_var,
+                            type_id,
+                            type_params,
+                        ),
+                        original: struct_var,
+                    };
                 };
 
                 if struct_name
@@ -1444,7 +1410,10 @@ impl<'a> VariableParser<'a> {
                     == Some(true)
                     && type_ns_h.contains(&["collections", "btree", "set"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_btree_set(struct_var));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_btree_set(&struct_var),
+                        original: struct_var,
+                    };
                 };
 
                 if struct_name
@@ -1453,23 +1422,28 @@ impl<'a> VariableParser<'a> {
                     == Some(true)
                     && type_ns_h.contains(&["collections", "vec_deque"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_vec_dequeue(
-                        eval_ctx,
-                        struct_var,
-                        type_params,
-                    ));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_vec_dequeue(eval_ctx, &struct_var, type_params),
+                        original: struct_var,
+                    };
                 };
 
                 if struct_name.as_ref().map(|name| name.starts_with("Cell")) == Some(true)
                     && type_ns_h.contains(&["cell"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_cell(struct_var));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_cell(&struct_var),
+                        original: struct_var,
+                    };
                 };
 
                 if struct_name.as_ref().map(|name| name.starts_with("RefCell")) == Some(true)
                     && type_ns_h.contains(&["cell"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_refcell(struct_var));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_refcell(&struct_var),
+                        original: struct_var,
+                    };
                 };
 
                 if struct_name
@@ -1478,7 +1452,10 @@ impl<'a> VariableParser<'a> {
                     == Some(true)
                     && type_ns_h.contains(&["rc"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_rc(struct_var));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_rc(&struct_var),
+                        original: struct_var,
+                    };
                 };
 
                 if struct_name
@@ -1487,25 +1464,37 @@ impl<'a> VariableParser<'a> {
                     == Some(true)
                     && type_ns_h.contains(&["sync"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_arc(struct_var));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_arc(&struct_var),
+                        original: struct_var,
+                    };
                 };
 
                 if struct_name.as_ref().map(|name| name == "Uuid") == Some(true)
                     && type_ns_h.contains(&["uuid"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_uuid(struct_var));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_uuid(&struct_var),
+                        original: struct_var,
+                    };
                 };
 
                 if struct_name.as_ref().map(|name| name == "Instant") == Some(true)
                     && type_ns_h.contains(&["std", "time"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_instant(struct_var));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_instant(&struct_var),
+                        original: struct_var,
+                    };
                 };
 
                 if struct_name.as_ref().map(|name| name == "SystemTime") == Some(true)
                     && type_ns_h.contains(&["std", "time"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_sys_time(struct_var));
+                    return VariableIR::Specialized {
+                        value: parser_ext.parse_sys_time(&struct_var),
+                        original: struct_var,
+                    };
                 };
 
                 VariableIR::Struct(struct_var)
@@ -1618,58 +1607,12 @@ impl<'a> Iterator for BfsIterator<'a> {
                 }
             }
             VariableIR::Pointer(_) => {}
-            VariableIR::Specialized(spec) => match spec {
-                SpecializedVariableIR::Vector { original, .. }
-                | SpecializedVariableIR::VecDeque { original, .. } => {
-                    original
-                        .members
-                        .iter()
-                        .for_each(|member| self.queue.push_back(member));
-                }
-                SpecializedVariableIR::String { original, .. } => {
-                    original
-                        .members
-                        .iter()
-                        .for_each(|member| self.queue.push_back(member));
-                }
-                SpecializedVariableIR::Str { original, .. } => {
-                    original
-                        .members
-                        .iter()
-                        .for_each(|member| self.queue.push_back(member));
-                }
-                SpecializedVariableIR::Tls { original, .. } => {
-                    original
-                        .members
-                        .iter()
-                        .for_each(|member| self.queue.push_back(member));
-                }
-                SpecializedVariableIR::HashMap { original, .. }
-                | SpecializedVariableIR::BTreeMap { original, .. } => {
-                    original
-                        .members
-                        .iter()
-                        .for_each(|member| self.queue.push_back(member));
-                }
-                SpecializedVariableIR::HashSet { original, .. }
-                | SpecializedVariableIR::BTreeSet { original, .. } => {
-                    original
-                        .members
-                        .iter()
-                        .for_each(|member| self.queue.push_back(member));
-                }
-                SpecializedVariableIR::Cell { original, .. }
-                | SpecializedVariableIR::RefCell { original, .. } => {
-                    original
-                        .members
-                        .iter()
-                        .for_each(|member| self.queue.push_back(member));
-                }
-                SpecializedVariableIR::Rc { .. } | SpecializedVariableIR::Arc { .. } => {}
-                SpecializedVariableIR::Uuid { .. } => {}
-                SpecializedVariableIR::SystemTime { .. } => {}
-                SpecializedVariableIR::Instant { .. } => {}
-            },
+            VariableIR::Specialized {
+                original: origin, ..
+            } => origin
+                .members
+                .iter()
+                .for_each(|member| self.queue.push_back(member)),
             _ => {}
         }
 
@@ -1874,29 +1817,29 @@ mod test {
     }
 
     fn make_str_var_ir(name: Option<&str>, val: &str) -> VariableIR {
-        VariableIR::Specialized(SpecializedVariableIR::Str {
-            string: Some(StrVariable {
+        VariableIR::Specialized {
+            value: Some(SpecializedVariableIR::Str(StrVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
                 value: val.to_string(),
-            }),
+            })),
             original: StructVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
                 ..Default::default()
             },
-        })
+        }
     }
 
     fn make_string_var_ir(name: Option<&str>, val: &str) -> VariableIR {
-        VariableIR::Specialized(SpecializedVariableIR::String {
-            string: Some(StringVariable {
+        VariableIR::Specialized {
+            value: Some(SpecializedVariableIR::String(StringVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
                 value: val.to_string(),
-            }),
+            })),
             original: StructVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
                 ..Default::default()
             },
-        })
+        }
     }
 
     fn make_vec_var_ir(name: Option<&str>, items: Vec<VariableIR>) -> VecVariable {
@@ -1929,51 +1872,53 @@ mod test {
     }
 
     fn make_vector_var_ir(name: Option<&str>, items: Vec<VariableIR>) -> VariableIR {
-        VariableIR::Specialized(SpecializedVariableIR::Vector {
-            vec: Some(make_vec_var_ir(name, items)),
+        VariableIR::Specialized {
+            value: Some(SpecializedVariableIR::Vector(make_vec_var_ir(name, items))),
             original: StructVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
                 ..Default::default()
             },
-        })
+        }
     }
 
     fn make_vecdeque_var_ir(name: Option<&str>, items: Vec<VariableIR>) -> VariableIR {
-        VariableIR::Specialized(SpecializedVariableIR::VecDeque {
-            vec: Some(make_vec_var_ir(name, items)),
+        VariableIR::Specialized {
+            value: Some(SpecializedVariableIR::VecDeque(make_vec_var_ir(
+                name, items,
+            ))),
             original: StructVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
                 ..Default::default()
             },
-        })
+        }
     }
 
     fn make_hashset_var_ir(name: Option<&str>, items: Vec<VariableIR>) -> VariableIR {
-        VariableIR::Specialized(SpecializedVariableIR::HashSet {
-            set: Some(HashSetVariable {
+        VariableIR::Specialized {
+            value: Some(SpecializedVariableIR::HashSet(HashSetVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
                 type_ident: TypeIdentity::no_namespace("hashset"),
                 items,
-            }),
+            })),
             original: StructVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
                 ..Default::default()
             },
-        })
+        }
     }
 
     fn make_btreeset_var_ir(name: Option<&str>, items: Vec<VariableIR>) -> VariableIR {
-        VariableIR::Specialized(SpecializedVariableIR::BTreeSet {
-            set: Some(HashSetVariable {
+        VariableIR::Specialized {
+            value: Some(SpecializedVariableIR::BTreeSet(HashSetVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
                 type_ident: TypeIdentity::no_namespace("btreeset"),
                 items,
-            }),
+            })),
             original: StructVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
                 ..Default::default()
             },
-        })
+        }
     }
     //----------------------------------------------------------------------------------------------
 
@@ -2139,13 +2084,13 @@ mod test {
                 neq_literals: vec![Literal::String("string2".to_string()), Literal::Int(1)],
             },
             TestCase {
-                variable: VariableIR::Specialized(SpecializedVariableIR::Uuid {
-                    value: Some([
+                variable: VariableIR::Specialized {
+                    value: Some(SpecializedVariableIR::Uuid([
                         0xd0, 0x60, 0x66, 0x29, 0x78, 0x6a, 0x44, 0xbe, 0x9d, 0x49, 0xb7, 0x02,
                         0x0f, 0x3e, 0xb0, 0x5a,
-                    ]),
+                    ])),
                     original: StructVariable::default(),
-                }),
+                },
                 eq_literals: vec![Literal::String(
                     "d0606629-786a-44be-9d49-b7020f3eb05a".to_string(),
                 )],
@@ -2385,14 +2330,14 @@ mod test {
                 ],
             },
             TestCase {
-                variable: VariableIR::Specialized(SpecializedVariableIR::Cell {
-                    value: Some(Box::new(make_scalar_var_ir(
+                variable: VariableIR::Specialized {
+                    value: Some(SpecializedVariableIR::Cell(Box::new(make_scalar_var_ir(
                         None,
                         "int",
                         SupportedScalar::I64(100),
-                    ))),
+                    )))),
                     original: StructVariable::default(),
-                }),
+                },
                 eq_literals: vec![Literal::Int(100)],
                 neq_literals: vec![Literal::Int(101), Literal::Float(100.1)],
             },

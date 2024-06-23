@@ -12,6 +12,7 @@ use chumsky::Parser;
 use debugger::variable::SupportedScalar;
 use serial_test::serial;
 use std::collections::HashMap;
+use variable::SpecializedVariableIR;
 
 pub fn assert_scalar(
     var: &VariableIR,
@@ -97,9 +98,10 @@ fn assert_vec(
     exp_cap: usize,
     with_buf: impl FnOnce(&VariableIR),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Vector {
-        vec: Some(vector), ..
-    }) = var
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::Vector(vector)),
+        ..
+    } = var
     else {
         panic!("not a vector");
     };
@@ -113,10 +115,10 @@ fn assert_vec(
 }
 
 fn assert_string(var: &VariableIR, exp_name: &str, exp_value: &str) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::String {
-        string: Some(string),
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::String(string)),
         ..
-    }) = var
+    } = var
     else {
         panic!("not a string");
     };
@@ -125,9 +127,10 @@ fn assert_string(var: &VariableIR, exp_name: &str, exp_value: &str) {
 }
 
 fn assert_str(var: &VariableIR, exp_name: &str, exp_value: &str) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Str {
-        string: Some(str), ..
-    }) = var
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::Str(str)),
+        ..
+    } = var
     else {
         panic!("not a &str");
     };
@@ -141,9 +144,10 @@ fn assert_init_tls(
     exp_type: &str,
     with_var: impl FnOnce(&VariableIR),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Tls {
-        tls_var: Some(tls), ..
-    }) = var
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::Tls(tls)),
+        ..
+    } = var
     else {
         panic!("not a tls");
     };
@@ -153,9 +157,10 @@ fn assert_init_tls(
 }
 
 fn assert_uninit_tls(var: &VariableIR, exp_name: &str, exp_type: &str) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Tls {
-        tls_var: Some(tls), ..
-    }) = var
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::Tls(tls)),
+        ..
+    } = var
     else {
         panic!("not a tls");
     };
@@ -170,9 +175,10 @@ fn assert_hashmap(
     exp_type: &str,
     with_kv_items: impl FnOnce(&Vec<(VariableIR, VariableIR)>),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::HashMap {
-        map: Some(map), ..
-    }) = var
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::HashMap(map)),
+        ..
+    } = var
     else {
         panic!("not a hashmap");
     };
@@ -193,9 +199,10 @@ fn assert_hashset(
     exp_type: &str,
     with_items: impl FnOnce(&Vec<VariableIR>),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::HashSet {
-        set: Some(set), ..
-    }) = var
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::HashSet(set)),
+        ..
+    } = var
     else {
         panic!("not a hashset");
     };
@@ -216,9 +223,10 @@ fn assert_btree_map(
     exp_type: &str,
     with_kv_items: impl FnOnce(&Vec<(VariableIR, VariableIR)>),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::BTreeMap {
-        map: Some(map), ..
-    }) = var
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::BTreeMap(map)),
+        ..
+    } = var
     else {
         panic!("not a BTreeMap");
     };
@@ -233,9 +241,10 @@ fn assert_btree_set(
     exp_type: &str,
     with_items: impl FnOnce(&Vec<VariableIR>),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::BTreeSet {
-        set: Some(set), ..
-    }) = var
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::BTreeSet(set)),
+        ..
+    } = var
     else {
         panic!("not a BTreeSet");
     };
@@ -251,10 +260,10 @@ fn assert_vec_deque(
     exp_cap: usize,
     with_buf: impl FnOnce(&VariableIR),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::VecDeque {
-        vec: Some(vector),
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::VecDeque(vector)),
         ..
-    }) = var
+    } = var
     else {
         panic!("not a VecDeque");
     };
@@ -273,12 +282,16 @@ fn assert_cell(
     exp_type: &str,
     with_value: impl FnOnce(&VariableIR),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Cell { value, .. }) = var else {
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::Cell(value)),
+        ..
+    } = var
+    else {
         panic!("not a Cell");
     };
     assert_eq!(var.name(), exp_name);
     assert_eq!(var.r#type().name_fmt(), exp_type);
-    with_value(value.as_ref().unwrap());
+    with_value(value.as_ref());
 }
 
 fn assert_refcell(
@@ -288,14 +301,16 @@ fn assert_refcell(
     exp_borrow: isize,
     with_value: impl FnOnce(&VariableIR),
 ) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::RefCell { value, .. }) = var
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::RefCell(value)),
+        ..
+    } = var
     else {
         panic!("not a Cell");
     };
     assert_eq!(var.name(), exp_name);
     assert_eq!(var.r#type().name_fmt(), exp_type);
-    let value = &**value.as_ref().unwrap();
-    let VariableIR::Struct(as_struct) = value else {
+    let VariableIR::Struct(as_struct) = value.as_ref() else {
         panic!("not a struct")
     };
 
@@ -310,7 +325,11 @@ fn assert_refcell(
 }
 
 fn assert_rc(var: &VariableIR, exp_name: &str, exp_type: &str) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Rc { .. }) = var else {
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::Rc(_)),
+        ..
+    } = var
+    else {
         panic!("not an rc");
     };
     assert_eq!(var.name(), exp_name);
@@ -318,7 +337,11 @@ fn assert_rc(var: &VariableIR, exp_name: &str, exp_type: &str) {
 }
 
 fn assert_arc(var: &VariableIR, exp_name: &str, exp_type: &str) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Arc { .. }) = var else {
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::Arc(_)),
+        ..
+    } = var
+    else {
         panic!("not an arc");
     };
     assert_eq!(var.name(), exp_name);
@@ -326,7 +349,11 @@ fn assert_arc(var: &VariableIR, exp_name: &str, exp_type: &str) {
 }
 
 fn assert_uuid(var: &VariableIR, exp_name: &str, exp_type: &str) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Uuid { .. }) = var else {
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::Uuid(_)),
+        ..
+    } = var
+    else {
         panic!("not an uuid");
     };
     assert_eq!(var.name(), exp_name);
@@ -334,16 +361,23 @@ fn assert_uuid(var: &VariableIR, exp_name: &str, exp_type: &str) {
 }
 
 fn assert_system_time(var: &VariableIR, exp_name: &str, exp_value: (i64, u32)) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::SystemTime { value, .. }) = var
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::SystemTime(value)),
+        ..
+    } = var
     else {
         panic!("not a SystemTime");
     };
     assert_eq!(var.name(), exp_name);
-    assert_eq!(*value, Some(exp_value));
+    assert_eq!(*value, exp_value);
 }
 
 fn assert_instant(var: &VariableIR, exp_name: &str) {
-    let VariableIR::Specialized(variable::SpecializedVariableIR::Instant { .. }) = var else {
+    let VariableIR::Specialized {
+        value: Some(SpecializedVariableIR::Instant(_)),
+        ..
+    } = var
+    else {
         panic!("not an Instant");
     };
     assert_eq!(var.name(), exp_name);
