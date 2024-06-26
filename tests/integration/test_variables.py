@@ -190,16 +190,16 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.cmd('break vars.rs:119', 'New breakpoint')
         self.debugger.cmd('run', '119     let nop: Option<u8> = None;')
 
-        self.debugger.cmd('var *ref_a', '*ref_a = i32(2)')
-        self.debugger.cmd('var *ptr_a', '*ptr_a = i32(2)')
-        self.debugger.cmd_re('var *ptr_ptr_a', r'\*ptr_ptr_a = \*const i32 \[0x[0-9A-F]{14}\]')
-        self.debugger.cmd('var **ptr_ptr_a', '**ptr_ptr_a = i32(2)')
-        self.debugger.cmd('var *mut_ref_b', '*mut_ref_b = i32(2)')
-        self.debugger.cmd('var *mut_ptr_c', '*mut_ptr_c = i32(2)')
-        self.debugger.cmd('var *box_d', '*box_d = i32(2)')
+        self.debugger.cmd('var *ref_a', 'i32(2)')
+        self.debugger.cmd('var *ptr_a', 'i32(2)')
+        self.debugger.cmd_re('var *ptr_ptr_a', r'\*const i32 \[0x[0-9A-F]{14}\]')
+        self.debugger.cmd('var **ptr_ptr_a', 'i32(2)')
+        self.debugger.cmd('var *mut_ref_b', 'i32(2)')
+        self.debugger.cmd('var *mut_ptr_c', 'i32(2)')
+        self.debugger.cmd('var *box_d', 'i32(2)')
         self.debugger.cmd_re(
             'var *ref_f',
-            r'\*ref_f = Foo {',
+            r'Foo {',
             r'baz: \[i32\] {',
             r'0: i32\(1\)',
             r'1: i32\(2\)',
@@ -269,7 +269,7 @@ class VariablesTestCase(unittest.TestCase):
 
         self.debugger.cmd(
             'var *slice1',
-            '*slice1 = [i32]',
+            '[i32]',
             '0: i32(1)',
             '1: i32(2)',
             '2: i32(3)',
@@ -278,7 +278,7 @@ class VariablesTestCase(unittest.TestCase):
 
         self.debugger.cmd_re(
             'var *slice2',
-            r'\*slice2 = \[&\[i32; 3\]\] {',
+            r'\[&\[i32; 3\]\] {',
             r'0: &\[i32; 3\] \[0x[0-9A-F]{14}\]',
             r'1: &\[i32; 3\] \[0x[0-9A-F]{14}\]',
             '}',
@@ -286,7 +286,7 @@ class VariablesTestCase(unittest.TestCase):
 
         self.debugger.cmd(
             'var *(*slice2)[0]',
-            '*0 = [i32] {',
+            '[i32] {',
             '0: i32(1)',
             '1: i32(2)',
             '2: i32(3)',
@@ -295,7 +295,7 @@ class VariablesTestCase(unittest.TestCase):
 
         self.debugger.cmd(
             'var *(*slice2)[1]',
-            '*1 = [i32] {',
+            '[i32] {',
             '0: i32(1)',
             '1: i32(2)',
             '2: i32(3)',
@@ -350,7 +350,7 @@ class VariablesTestCase(unittest.TestCase):
         """Reading memory by select expressions"""
         self.debugger.cmd('break vars.rs:61', 'New breakpoint')
         self.debugger.cmd('run', '61     let nop: Option<u8> = None;')
-        self.debugger.cmd('var arr_2[0][2]', '2 = i32(2)')
+        self.debugger.cmd('var arr_2[0][2]', 'i32(2)')
         self.debugger.cmd(
             'var arr_1[2..4]',
             'arr_1 = [i32] {',
@@ -397,17 +397,17 @@ class VariablesTestCase(unittest.TestCase):
 
         self.debugger.cmd('break vars.rs:93', 'New breakpoint')
         self.debugger.cmd('continue', '93     let nop: Option<u8> = None;')
-        self.debugger.cmd('var enum_6.0.a', 'a = i32(1)')
+        self.debugger.cmd('var enum_6.__0.a', 'i32(1)')
 
         self.debugger.cmd('break vars.rs:119', 'New breakpoint')
         self.debugger.cmd('continue', '119     let nop: Option<u8> = None;')
-        self.debugger.cmd('var *((*ref_f).foo)', '*foo = i32(2)')
+        self.debugger.cmd('var *((*ref_f).foo)', 'i32(2)')
 
         self.debugger.cmd('break vars.rs:290', 'New breakpoint')
         self.debugger.cmd('continue', '290     let nop: Option<u8> = None;')
         self.debugger.cmd(
             'var hm2.abc',
-            'abc = Vec<i32, alloc::alloc::Global> {',
+            'Vec<i32, alloc::alloc::Global> {',
             'buf: [i32] {',
             '1: i32(2)',
             '2: i32(3)',
@@ -415,31 +415,31 @@ class VariablesTestCase(unittest.TestCase):
             'cap: usize(3)',
             '}',
         )
-        self.debugger.cmd('var hm1[false]', 'value = i64(5)')
-        self.debugger.cmd('var hm2["abc"]', 'value = Vec<i32, alloc::alloc::Global> {')
-        self.debugger.cmd('var hm3[55]', 'value = i32(55)')
-        self.debugger.cmd('var hm4["1"][1]', 'value = i32(1)')
+        self.debugger.cmd('var hm1[false]', 'i64(5)')
+        self.debugger.cmd('var hm2["abc"]', 'Vec<i32, alloc::alloc::Global> {')
+        self.debugger.cmd('var hm3[55]', 'i32(55)')
+        self.debugger.cmd('var hm4["1"][1]', 'i32(1)')
 
         self.debugger.cmd('var a')
         addr = self.debugger.search_in_output(r'a = &i32 \[(.*)\]')
-        self.debugger.cmd(f'var hm5[{addr}]', 'value = &str(a)')
+        self.debugger.cmd(f'var hm5[{addr}]', '&str(a)')
 
         self.debugger.cmd('break vars.rs:307', 'New breakpoint')
         self.debugger.cmd('continue', '307     let nop: Option<u8> = None;')
-        self.debugger.cmd('var hs1[1]', 'contains = bool(true)')
-        self.debugger.cmd('var hs2[22]', 'contains = bool(true)')
-        self.debugger.cmd('var hs2[222]', 'contains = bool(false)')
+        self.debugger.cmd('var hs1[1]', 'bool(true)')
+        self.debugger.cmd('var hs2[22]', 'bool(true)')
+        self.debugger.cmd('var hs2[222]', 'bool(false)')
 
         self.debugger.cmd('var b')
         addr = self.debugger.search_in_output(r'b = &i32 \[(.*)\]')
-        self.debugger.cmd(f'var hs4[{addr}]', 'contains = bool(true)')
-        self.debugger.cmd('var hs4[0x000]', 'contains = bool(false)')
+        self.debugger.cmd(f'var hs4[{addr}]', 'bool(true)')
+        self.debugger.cmd('var hs4[0x000]', 'bool(false)')
 
         self.debugger.cmd('break vars.rs:460', 'New breakpoint')
         self.debugger.cmd('continue', '460     let nop: Option<u8> = None;')
         self.debugger.cmd(
             'var ptr[..4]',
-            '[*ptr] = [i32] {',
+            '[i32] {',
             '0: i32(1)',
             '1: i32(2)',
             '2: i32(3)',
@@ -548,7 +548,7 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.cmd('var ref_a')
         addr = self.debugger.search_in_output(r'ref_a = &i32 \[0x(.*)\]')
         addr = "0x" + addr[:14]
-        self.debugger.cmd(f'var *(*const i32){addr}', '{unknown} = i32(2)')
+        self.debugger.cmd(f'var *(*const i32){addr}', 'i32(2)')
 
     def test_address(self):
         """Test address operator"""
@@ -563,12 +563,12 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.cmd(
             'var *&tuple_1',
             '(f64, f64) {',
-            '0: f64(0)',
-            '1: f64(1.1)',
+            '__0: f64(0)',
+            '__1: f64(1.1)',
             '}',
         )
-        self.debugger.cmd_re('var &tuple_1.0', r'&f64 \[0x[0-9A-F]{14}\]')
-        self.debugger.cmd('var *&tuple_1.0', 'f64(0)')
+        self.debugger.cmd_re('var &tuple_1.__0', r'&f64 \[0x[0-9A-F]{14}\]')
+        self.debugger.cmd('var *&tuple_1.__0', 'f64(0)')
         self.debugger.cmd_re('var &foo2.foo.bar', r'&i32 \[0x[0-9A-F]{14}\]')
         self.debugger.cmd('var *&foo2.foo.bar', 'i32(100)')
 

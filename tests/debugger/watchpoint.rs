@@ -1,5 +1,5 @@
 use crate::common::{TestHooks, TestInfo};
-use crate::variables::assert_scalar;
+use crate::variables::assert_scalar_n;
 use crate::{assert_no_proc, VARS_APP};
 use crate::{prepare_debugee_process, CALCULATIONS_APP};
 use bugstalker::debugger::address::RelocatedAddress;
@@ -19,14 +19,14 @@ fn assert_old_new(
     mb_new: Option<SupportedScalar>,
 ) {
     let old_val = &info.old_value.take().unwrap();
-    assert_scalar(old_val, name, r#type, Some(old));
+    assert_scalar_n(old_val, name, r#type, Some(old));
     match mb_new {
         None => {
             assert!(&info.new_value.take().is_none())
         }
         Some(new) => {
             let new_val = &info.new_value.take().unwrap();
-            assert_scalar(new_val, name, r#type, Some(new));
+            assert_scalar_n(new_val, name, r#type, Some(new));
         }
     }
 }
@@ -51,7 +51,7 @@ fn test_watchpoint_works() {
     debugger.continue_debugee().unwrap();
     assert_eq!(info.line.take(), Some(8));
     let var_val = &info.new_value.take().unwrap();
-    assert_scalar(var_val, "int8", "i8", Some(SupportedScalar::I8(1)));
+    assert_scalar_n(var_val, "int8", "i8", Some(SupportedScalar::I8(1)));
     assert!(info.file.take().unwrap().contains("vars.rs"));
 
     debugger.continue_debugee().unwrap();

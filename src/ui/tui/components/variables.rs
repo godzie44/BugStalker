@@ -29,16 +29,26 @@ pub struct Variables {
     exchanger: Arc<ClientExchanger>,
 }
 
-fn render_var_inner(name: &str, typ: &str, value: Option<&str>) -> anyhow::Result<Vec<TextSpan>> {
+fn render_var_inner(
+    name: Option<&str>,
+    typ: &str,
+    value: Option<&str>,
+) -> anyhow::Result<Vec<TextSpan>> {
     let syntax_renderer = syntax::rust_syntax_renderer();
     let mut line_renderer = syntax_renderer.line_renderer();
 
-    let line = match value {
-        None => {
+    let line = match (value, name) {
+        (None, None) => {
+            format!("{typ}")
+        }
+        (Some(val), None) => {
+            format!("{typ}({val})")
+        }
+        (None, Some(name)) => {
             format!("{name} {typ}")
         }
-        Some(value) => {
-            format!("{name} {typ}({value})")
+        (Some(val), Some(name)) => {
+            format!("{name} {typ}({val})")
         }
     };
 
@@ -54,11 +64,11 @@ fn render_var_inner(name: &str, typ: &str, value: Option<&str>) -> anyhow::Resul
     Ok(line_spans)
 }
 
-fn render_var(name: &str, typ: &str, value: &str) -> anyhow::Result<Vec<TextSpan>> {
+fn render_var(name: Option<&str>, typ: &str, value: &str) -> anyhow::Result<Vec<TextSpan>> {
     render_var_inner(name, typ, Some(value))
 }
 
-fn render_var_def(name: &str, typ: &str) -> anyhow::Result<Vec<TextSpan>> {
+fn render_var_def(name: Option<&str>, typ: &str) -> anyhow::Result<Vec<TextSpan>> {
     render_var_inner(name, typ, None)
 }
 
@@ -67,42 +77,35 @@ impl Variables {
         &self,
         recursion: u32,
         node_name: &str,
-        var: &VariableIR,
+        name: Option<&str>,
+        val: &VariableIR,
         select_path: Option<DQE>,
     ) -> Node<Vec<TextSpan>> {
-        let name = var.name();
-        let typ = var.r#type().name_fmt();
+        let typ = val.r#type().name_fmt();
 
         // recursion guard
         if recursion >= MAX_RECURSION {
             return Node::new(
                 node_name.to_string(),
-                render_var(&name, typ, "...").expect("should be rendered"),
+                render_var(name, typ, "...").expect("should be rendered"),
             );
         }
 
-        match var.value() {
+        match val.value() {
             None => Node::new(
                 node_name.to_string(),
-                render_var(&name, typ, "unknown").expect("should be rendered"),
+                render_var(name, typ, "???").expect("should be rendered"),
             ),
             Some(layout) => match layout {
-                ValueLayout::PreRendered(val) => {
-                    let s = val.as_ref();
-                    if let Err(e) = String::from_utf8(s.as_bytes().to_vec()) {
-                        println!("err: {e}");
-                    }
-
-                    Node::new(
-                        node_name.to_string(),
-                        render_var(&name, typ, &val).expect("should be rendered"),
-                    )
-                }
-                ValueLayout::Referential { addr, .. } => {
+                ValueLayout::PreRendered(val) => Node::new(
+                    node_name.to_string(),
+                    render_var(name, typ, &val).expect("should be rendered"),
+                ),
+                ValueLayout::Referential(addr) => {
                     let value = format!("{addr:p}");
                     let mut node = Node::new(
                         node_name.to_string(),
-                        render_var(&name, typ, &value).expect("should be rendered"),
+                        render_var(name, typ, &value).expect("should be rendered"),
                     );
 
                     if let Some(path) = select_path {
@@ -123,6 +126,7 @@ impl Variables {
                                 let deref_node = self.node_from_var(
                                     recursion + 1,
                                     format!("{node_name}_deref").as_str(),
+                                    Some("*"),
                                     var,
                                     Some(deref_expr),
                                 );
@@ -136,39 +140,42 @@ impl Variables {
                 ValueLayout::Wrapped(other) => {
                     let mut node = Node::new(
                         node_name.to_string(),
-                        render_var_def(&name, typ).expect("should be rendered"),
+                        render_var_def(name, typ).expect("should be rendered"),
                     );
                     node.add_child(self.node_from_var(
                         recursion + 1,
                         format!("{node_name}_1").as_str(),
+                        None,
                         other,
                         select_path,
                     ));
                     node
                 }
-                ValueLayout::Structure { members, .. } => {
+                ValueLayout::Structure(members) => {
                     let mut node = Node::new(
                         node_name.to_string(),
-                        render_var_def(&name, typ).expect("should be rendered"),
+                        render_var_def(name, typ).expect("should be rendered"),
                     );
                     for (i, member) in members.iter().enumerate() {
-                        node.add_child(
-                            self.node_from_var(
-                                recursion + 1,
-                                format!("{node_name}_{i}").as_str(),
-                                member,
-                                select_path
-                                    .clone()
-                                    .map(|expr| DQE::Field(Box::new(expr), member.name())),
-                            ),
-                        );
+                        node.add_child(self.node_from_var(
+                            recursion + 1,
+                            format!("{node_name}_{i}").as_str(),
+                            member.field_name.as_deref(),
+                            &member.value,
+                            select_path.clone().map(|expr| {
+                                DQE::Field(
+                                    Box::new(expr),
+                                    member.field_name.as_deref().unwrap_or_default().to_string(),
+                                )
+                            }),
+                        ));
                     }
                     node
                 }
                 ValueLayout::Map(kvs) => {
                     let mut node = Node::new(
                         node_name.to_string(),
-                        render_var_def(&name, typ).expect("should be rendered"),
+                        render_var_def(name, typ).expect("should be rendered"),
                     );
                     for (i, (key, val)) in kvs.iter().enumerate() {
                         let mut kv_pair = Node::new(
@@ -179,47 +186,59 @@ impl Variables {
                         kv_pair.add_child(self.node_from_var(
                             recursion + 1,
                             format!("{node_name}_kv_{i}_key").as_str(),
+                            Some("key"),
                             key,
                             // currently no way to use expressions with keys
                             None,
                         ));
 
-                        kv_pair.add_child(
-                            self.node_from_var(
-                                recursion + 1,
-                                format!("{node_name}_kv_{i}_val").as_str(),
-                                val,
-                                // todo works only if key is a String or &str, need better support of field expr on maps
-                                select_path
-                                    .clone()
-                                    .map(|expr| DQE::Field(Box::new(expr), key.name())),
-                            ),
-                        );
+                        kv_pair.add_child(self.node_from_var(
+                            recursion + 1,
+                            format!("{node_name}_kv_{i}_val").as_str(),
+                            Some("value"),
+                            val,
+                            // TODO works only if key is a String or &str,
+                            // need better support of field expr on maps
+                            select_path.clone().map(|expr| {
+                                DQE::Field(Box::new(expr), key.name().unwrap_or_default())
+                            }),
+                        ));
                         node.add_child(kv_pair);
                     }
                     node
                 }
-                ValueLayout::List { members, indexed } => {
+                ValueLayout::IndexedList(items) => {
                     let mut node = Node::new(
                         node_name.to_string(),
-                        render_var_def(&name, typ).expect("should be rendered"),
+                        render_var_def(name, typ).expect("should be rendered"),
                     );
-                    for (i, member) in members.iter().enumerate() {
-                        let el_path = if indexed {
-                            select_path.clone().and_then(|expr| {
-                                let mb_idx: Option<u64> = member.name().parse().ok();
-                                mb_idx
-                                    .map(|idx| DQE::Index(Box::new(expr), Literal::Int(idx as i64)))
-                            })
-                        } else {
-                            None
-                        };
+                    for (i, item) in items.iter().enumerate() {
+                        let el_path = select_path
+                            .clone()
+                            .map(|expr| DQE::Index(Box::new(expr), Literal::Int(item.index)));
 
                         node.add_child(self.node_from_var(
                             recursion + 1,
                             format!("{node_name}_{i}").as_str(),
-                            member,
+                            Some(&format!("{}", item.index)),
+                            &item.value,
                             el_path,
+                        ));
+                    }
+                    node
+                }
+                ValueLayout::NonIndexedList(values) => {
+                    let mut node = Node::new(
+                        node_name.to_string(),
+                        render_var_def(name, typ).expect("should be rendered"),
+                    );
+                    for (i, value) in values.iter().enumerate() {
+                        node.add_child(self.node_from_var(
+                            recursion + 1,
+                            format!("{node_name}_{i}").as_str(),
+                            None,
+                            value,
+                            None,
                         ));
                     }
                     node
@@ -259,8 +278,12 @@ impl Variables {
             let var_node = self.node_from_var(
                 0,
                 node_name.as_str(),
+                arg.name().as_deref(),
                 arg,
-                Some(DQE::Variable(Selector::by_name(arg.name(), false))),
+                Some(DQE::Variable(Selector::by_name(
+                    arg.name().unwrap_or_default(),
+                    false,
+                ))),
             );
             args_node.add_child(var_node);
         }
@@ -272,8 +295,12 @@ impl Variables {
             let var_node = self.node_from_var(
                 0,
                 node_name.as_str(),
+                var.name().as_deref(),
                 var,
-                Some(DQE::Variable(Selector::by_name(var.name(), true))),
+                Some(DQE::Variable(Selector::by_name(
+                    var.name().unwrap_or_default(),
+                    true,
+                ))),
             );
             vars_node.add_child(var_node);
         }

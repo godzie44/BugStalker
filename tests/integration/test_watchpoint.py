@@ -51,7 +51,7 @@ class WatchpointTestCase(unittest.TestCase):
         self.debugger.cmd('run', 'Hit breakpoint 1')
 
         self.debugger.cmd('var &a')
-        addr = self.debugger.search_in_output(r'= &u64 \[0x(.*)\]')
+        addr = self.debugger.search_in_output(r'&u64 \[0x(.*)\]')
         addr = "0x" + addr[:14]
         self.debugger.cmd(f'watch {addr}:8', 'New watchpoint')
         self.debugger.cmd(
@@ -141,7 +141,7 @@ class WatchpointTestCase(unittest.TestCase):
         self.debugger.cmd('break calculations.rs:20', 'New breakpoint')
         self.debugger.cmd('run', 'Hit breakpoint 1')
         self.debugger.cmd('var &a')
-        addr = self.debugger.search_in_output(r'= &u64 \[0x(.*)\]')
+        addr = self.debugger.search_in_output(r'&u64 \[0x(.*)\]')
         addr = "0x" + addr[:14]
         self.debugger.cmd(f'watch +rw {addr}:8', 'New watchpoint')
         self.debugger.cmd('continue', 'Hit watchpoint 1 (rw)', 'value: data = u64(1)')
