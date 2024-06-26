@@ -96,16 +96,7 @@ impl Display for VariableIdentity {
 
         match self.name.as_deref() {
             None => f.write_fmt(format_args!("{namespaces}{{unknown}}")),
-            Some(mut name) => {
-                if name.starts_with("__") {
-                    let mb_num = name.trim_start_matches('_');
-                    if mb_num.parse::<u64>().is_ok() {
-                        name = mb_num
-                    }
-                }
-
-                f.write_fmt(format_args!("{namespaces}{name}"))
-            }
+            Some(name) => f.write_fmt(format_args!("{namespaces}{name}")),
         }
     }
 }
@@ -207,14 +198,21 @@ impl ScalarVariable {
     }
 }
 
+/// Structure member representation.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Member {
+    pub field_name: Option<String>,
+    pub value: VariableIR,
+}
+
 /// Represents structures.
 #[derive(Clone, Default, PartialEq)]
 pub struct StructVariable {
     pub identity: VariableIdentity,
     pub type_ident: TypeIdentity,
     pub type_id: Option<TypeId>,
-    /// Structure members. Each represents by variable IR.
-    pub members: Vec<VariableIR>,
+    /// Structure members.
+    pub members: Vec<Member>,
     /// Map of type parameters of a structure type.
     pub type_params: HashMap<String, Option<TypeId>>,
     pub raw_address: Option<usize>,
@@ -222,10 +220,21 @@ pub struct StructVariable {
 
 impl StructVariable {
     pub fn field(self, field_name: &str) -> Option<VariableIR> {
-        self.members
-            .into_iter()
-            .find(|member| field_name == member.name())
+        self.members.into_iter().find_map(|member| {
+            if member.field_name.as_deref() == Some(field_name) {
+                Some(member.value)
+            } else {
+                None
+            }
+        })
     }
+}
+
+/// Array item representation.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ArrayItem {
+    pub index: i64,
+    pub value: VariableIR,
 }
 
 /// Represents arrays.
@@ -234,8 +243,8 @@ pub struct ArrayVariable {
     pub identity: VariableIdentity,
     pub type_ident: TypeIdentity,
     pub type_id: Option<TypeId>,
-    /// Array items. Each represents by variable IR.
-    pub items: Option<Vec<VariableIR>>,
+    /// Array items.
+    pub items: Option<Vec<ArrayItem>>,
     pub raw_address: Option<usize>,
 }
 
@@ -274,7 +283,7 @@ pub struct RustEnumVariable {
     pub type_ident: TypeIdentity,
     pub type_id: Option<TypeId>,
     /// Variable IR representation of selected variant.
-    pub value: Option<Box<VariableIR>>,
+    pub value: Option<Box<Member>>,
     pub raw_address: Option<usize>,
 }
 
@@ -325,14 +334,12 @@ impl PointerVariable {
                     size: sz as usize,
                 })
             });
-            let mut identity = self.identity.clone();
-            identity.name = identity.name.map(|n| format!("*{n}"));
-            parser.parse_inner(eval_ctx, identity, data, target_type)
+            parser.parse_inner(eval_ctx, VariableIdentity::default(), data, target_type)
         })
     }
 
-    /// Interpret pointer as a pointer on first array element. Returns variable IR that represents
-    /// an array.
+    /// Interpret a pointer as a pointer on first array element.
+    /// Returns variable IR that represents an array.
     pub fn slice(
         &self,
         eval_ctx: &EvaluationContext,
@@ -364,12 +371,15 @@ impl PointerVariable {
                         address: Some(base_addr + (i * deref_size)),
                         size: deref_size,
                     };
-                    parser.parse_inner(
-                        eval_ctx,
-                        VariableIdentity::no_namespace(Some(format!("{}", i as i64))),
-                        Some(data),
-                        target_type,
-                    )
+                    ArrayItem {
+                        index: i as i64,
+                        value: parser.parse_inner(
+                            eval_ctx,
+                            VariableIdentity::no_namespace(None),
+                            Some(data),
+                            target_type,
+                        ),
+                    }
                 })
                 .collect::<Vec<_>>();
 
@@ -393,7 +403,7 @@ pub struct SubroutineVariable {
     pub address: Option<usize>,
 }
 
-/// Represent a variable with C modifiers (volatile, const, typedef, etc)
+/// Represent a variable with C modifiers (volatile, const, typedef, etc.)
 #[derive(Clone, PartialEq)]
 pub struct CModifiedVariable {
     pub identity: VariableIdentity,
@@ -427,7 +437,7 @@ unsafe impl Send for VariableIR {}
 
 impl Debug for VariableIR {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.name())
+        f.write_str(self.name().as_deref().unwrap_or_default())
     }
 }
 
@@ -468,7 +478,7 @@ impl VariableIR {
     /// Visit variable children in BFS order.
     fn bfs_iterator(&self) -> BfsIterator {
         BfsIterator {
-            queue: VecDeque::from([self]),
+            queue: VecDeque::from([(FieldOrIndex::Root(self.name()), self)]),
         }
     }
 
@@ -476,7 +486,9 @@ impl VariableIR {
     fn assume_field_as_scalar_number(&self, field_name: &'static str) -> Result<i64, AssumeError> {
         let ir = self
             .bfs_iterator()
-            .find(|child| child.name() == field_name)
+            .find_map(|(field_or_idx, child)| {
+                (field_or_idx == FieldOrIndex::Field(Some(field_name))).then_some(child)
+            })
             .ok_or(AssumeError::FieldNotFound(field_name))?;
         if let VariableIR::Scalar(s) = ir {
             Ok(s.try_as_number()
@@ -489,9 +501,9 @@ impl VariableIR {
     /// Returns value as a raw pointer or error if cast fails.
     fn assume_field_as_pointer(&self, field_name: &'static str) -> Result<*const (), AssumeError> {
         self.bfs_iterator()
-            .find_map(|child| {
+            .find_map(|(field_or_idx, child)| {
                 if let VariableIR::Pointer(pointer) = child {
-                    if pointer.identity.name.as_deref()? == field_name {
+                    if field_or_idx == FieldOrIndex::Field(Some(field_name)) {
                         return pointer.value;
                     }
                 }
@@ -506,9 +518,9 @@ impl VariableIR {
         field_name: &'static str,
     ) -> Result<RustEnumVariable, AssumeError> {
         self.bfs_iterator()
-            .find_map(|child| {
+            .find_map(|(field_or_idx, child)| {
                 if let VariableIR::RustEnum(r_enum) = child {
-                    if r_enum.identity.name.as_deref()? == field_name {
+                    if field_or_idx == FieldOrIndex::Field(Some(field_name)) {
                         return Some(r_enum.clone());
                     }
                 }
@@ -523,9 +535,9 @@ impl VariableIR {
         field_name: &'static str,
     ) -> Result<StructVariable, AssumeError> {
         self.bfs_iterator()
-            .find_map(|child| {
+            .find_map(|(field_or_idx, child)| {
                 if let VariableIR::Struct(structure) = child {
-                    if structure.identity.name.as_deref()? == field_name {
+                    if field_or_idx == FieldOrIndex::Field(Some(field_name)) {
                         return Some(structure.clone());
                     }
                 }
@@ -585,7 +597,7 @@ impl VariableIR {
             VariableIR::Pointer(ptr) => ptr.deref(eval_ctx, variable_parser),
             VariableIR::RustEnum(r_enum) => r_enum
                 .value
-                .and_then(|v| v.deref(eval_ctx, variable_parser)),
+                .and_then(|v| v.value.deref(eval_ctx, variable_parser)),
             VariableIR::Specialized {
                 value: Some(SpecializedVariableIR::Rc(ptr)),
                 ..
@@ -637,7 +649,7 @@ impl VariableIR {
     fn field(self, field_name: &str) -> Option<Self> {
         match self {
             VariableIR::Struct(structure) => structure.field(field_name),
-            VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.field(field_name)),
+            VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.value.field(field_name)),
             VariableIR::Specialized {
                 value: specialized, ..
             } => match specialized {
@@ -647,12 +659,12 @@ impl VariableIR {
                         VariableIR::Specialized {
                             value: specialized, ..
                         } => match specialized {
-                            Some(SpecializedVariableIR::String(string_key)) => (string_key.value
-                                == field_name)
-                                .then(|| value.clone_and_rename(&string_key.value)),
-                            Some(SpecializedVariableIR::Str(string_key)) => (string_key.value
-                                == field_name)
-                                .then(|| value.clone_and_rename(&string_key.value)),
+                            Some(SpecializedVariableIR::String(string_key)) => {
+                                (string_key.value == field_name).then_some(value)
+                            }
+                            Some(SpecializedVariableIR::Str(string_key)) => {
+                                (string_key.value == field_name).then_some(value)
+                            }
                             _ => None,
                         },
                         _ => None,
@@ -677,19 +689,19 @@ impl VariableIR {
                 if let Literal::Int(idx) = idx {
                     let idx = *idx as usize;
                     if idx < items.len() {
-                        return Some(items.swap_remove(idx));
+                        return Some(items.swap_remove(idx).value);
                     }
                 }
                 None
             }),
-            VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.index(idx)),
+            VariableIR::RustEnum(r_enum) => r_enum.value.and_then(|v| v.value.index(idx)),
             VariableIR::Specialized {
                 value: Some(spec_val),
                 ..
             } => match spec_val {
                 SpecializedVariableIR::Vector(mut vec)
                 | SpecializedVariableIR::VecDeque(mut vec) => {
-                    let inner_array = vec.structure.members.swap_remove(0);
+                    let inner_array = vec.structure.members.swap_remove(0).value;
                     inner_array.index(idx)
                 }
                 SpecializedVariableIR::Tls(tls_var) => {
@@ -699,10 +711,8 @@ impl VariableIR {
                     cell.index(idx)
                 }
                 SpecializedVariableIR::BTreeMap(map) | SpecializedVariableIR::HashMap(map) => {
-                    for (k, mut v) in map.kv_items {
+                    for (k, v) in map.kv_items {
                         if k.match_literal(idx) {
-                            let identity = v.identity_mut();
-                            identity.name = Some("value".to_string());
                             return Some(v);
                         }
                     }
@@ -713,7 +723,7 @@ impl VariableIR {
                     let found = set.items.into_iter().any(|it| it.match_literal(idx));
 
                     Some(VariableIR::Scalar(ScalarVariable {
-                        identity: VariableIdentity::no_namespace(Some("contains".to_string())),
+                        identity: VariableIdentity::default(),
                         type_id: None,
                         type_ident: TypeIdentity::no_namespace("bool"),
                         value: Some(SupportedScalar::Bool(found)),
@@ -779,13 +789,6 @@ impl VariableIR {
         }
     }
 
-    fn clone_and_rename(&self, new_name: &str) -> Self {
-        let mut clone = self.clone();
-        let identity = clone.identity_mut();
-        identity.name = Some(new_name.to_string());
-        clone
-    }
-
     /// Match variable with a literal object.
     /// Return true if variable matched to literal.
     fn match_literal(self, literal: &Literal) -> bool {
@@ -810,7 +813,7 @@ impl VariableIR {
                 for (i, item) in items.into_iter().enumerate() {
                     match &arr_literal[i] {
                         LiteralOrWildcard::Literal(lit) => {
-                            if !item.match_literal(lit) {
+                            if !item.value.match_literal(lit) {
                                 return false;
                             }
                         }
@@ -831,7 +834,7 @@ impl VariableIR {
                             let field_literal = &array_literal[i];
                             match field_literal {
                                 LiteralOrWildcard::Literal(lit) => {
-                                    if !member.match_literal(lit) {
+                                    if !member.value.match_literal(lit) {
                                         return false;
                                     }
                                 }
@@ -848,17 +851,17 @@ impl VariableIR {
                         }
 
                         for member in members {
-                            let Some(member_name) = member.identity().name.as_ref() else {
+                            let Some(member_name) = member.field_name else {
                                 return false;
                             };
 
-                            let Some(field_literal) = struct_literal.get(member_name) else {
+                            let Some(field_literal) = struct_literal.get(&member_name) else {
                                 return false;
                             };
 
                             match field_literal {
                                 LiteralOrWildcard::Literal(lit) => {
-                                    if !member.match_literal(lit) {
+                                    if !member.value.match_literal(lit) {
                                         return false;
                                     }
                                 }
@@ -893,7 +896,7 @@ impl VariableIR {
                     value: Some(ptr), ..
                 }) => literal.equal_with_address(ptr as usize),
                 SpecializedVariableIR::Vector(mut v) | SpecializedVariableIR::VecDeque(mut v) => {
-                    let inner_array = v.structure.members.swap_remove(0);
+                    let inner_array = v.structure.members.swap_remove(0).value;
                     debug_assert!(matches!(inner_array, VariableIR::Array(_)));
                     inner_array.match_literal(literal)
                 }
@@ -959,13 +962,13 @@ impl VariableIR {
                     return false;
                 };
 
-                if value.identity().name.as_ref() != Some(variant) {
+                if value.field_name.as_ref() != Some(variant) {
                     return false;
                 }
 
                 match variant_value {
                     None => true,
-                    Some(lit) => value.match_literal(lit),
+                    Some(lit) => value.value.match_literal(lit),
                 }
             }
             _ => false,
@@ -1108,7 +1111,7 @@ impl<'a> VariableParser<'a> {
         eval_ctx: &EvaluationContext,
         member: &StructureMember,
         parent_data: Option<&ObjectBinaryRepr>,
-    ) -> Option<VariableIR> {
+    ) -> Option<Member> {
         let name = member.name.clone();
         let Some(type_ref) = member.type_ref else {
             warn!(
@@ -1118,13 +1121,16 @@ impl<'a> VariableParser<'a> {
             return None;
         };
         let member_val = parent_data.and_then(|data| member.value(eval_ctx, self.r#type, data));
-
-        Some(self.parse_inner(
+        let value = self.parse_inner(
             eval_ctx,
-            VariableIdentity::no_namespace(member.name.clone()),
+            VariableIdentity::no_namespace(None),
             member_val,
             type_ref,
-        ))
+        );
+        Some(Member {
+            field_name: member.name.clone(),
+            value,
+        })
     }
 
     fn parse_array(
@@ -1163,15 +1169,15 @@ impl<'a> VariableParser<'a> {
                             size: el_size,
                         };
 
-                        self.parse_inner(
-                            eval_ctx,
-                            VariableIdentity::no_namespace(Some(format!(
-                                "{index}",
-                                index = bounds.0 + i as i64
-                            ))),
-                            Some(data),
-                            el_type_id,
-                        )
+                        ArrayItem {
+                            index: bounds.0 + i as i64,
+                            value: self.parse_inner(
+                                eval_ctx,
+                                VariableIdentity::no_namespace(None),
+                                Some(data),
+                                el_type_id,
+                            ),
+                        }
                     })
                     .collect::<Vec<_>>(),
             )
@@ -1232,7 +1238,9 @@ impl<'a> VariableParser<'a> {
         enumerators: &HashMap<Option<i64>, StructureMember>,
     ) -> RustEnumVariable {
         let discr_value = discr_member.and_then(|member| {
-            let discr = self.parse_struct_member(eval_ctx, member, data.as_ref())?;
+            let discr = self
+                .parse_struct_member(eval_ctx, member, data.as_ref())?
+                .value;
             if let VariableIR::Scalar(scalar) = discr {
                 return scalar.try_as_number();
             }
@@ -1580,43 +1588,64 @@ impl<'a> VariableParser<'a> {
 
 /// Iterator for visits underline values in BFS order.
 struct BfsIterator<'a> {
-    queue: VecDeque<&'a VariableIR>,
+    queue: VecDeque<(FieldOrIndex<'a>, &'a VariableIR)>,
+}
+
+#[derive(PartialEq, Debug)]
+enum FieldOrIndex<'a> {
+    Field(Option<&'a str>),
+    Index(i64),
+    Root(Option<String>),
 }
 
 impl<'a> Iterator for BfsIterator<'a> {
-    type Item = &'a VariableIR;
+    type Item = (FieldOrIndex<'a>, &'a VariableIR);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let next_item = self.queue.pop_front()?;
+        let (field_or_idx, next_value) = self.queue.pop_front()?;
 
-        match next_item {
+        match next_value {
             VariableIR::Struct(r#struct) => {
-                r#struct
-                    .members
-                    .iter()
-                    .for_each(|member| self.queue.push_back(member));
+                r#struct.members.iter().for_each(|member| {
+                    let item = (
+                        FieldOrIndex::Field(member.field_name.as_deref()),
+                        &member.value,
+                    );
+
+                    self.queue.push_back(item)
+                });
             }
             VariableIR::Array(array) => {
                 if let Some(items) = array.items.as_ref() {
-                    items.iter().for_each(|item| self.queue.push_back(item))
+                    items.iter().for_each(|item| {
+                        let item = (FieldOrIndex::Index(item.index), &item.value);
+                        self.queue.push_back(item)
+                    })
                 }
             }
             VariableIR::RustEnum(r#enum) => {
                 if let Some(enumerator) = r#enum.value.as_ref() {
-                    self.queue.push_back(enumerator)
+                    let item = (
+                        FieldOrIndex::Field(enumerator.field_name.as_deref()),
+                        &enumerator.value,
+                    );
+                    self.queue.push_back(item)
                 }
             }
             VariableIR::Pointer(_) => {}
             VariableIR::Specialized {
                 original: origin, ..
-            } => origin
-                .members
-                .iter()
-                .for_each(|member| self.queue.push_back(member)),
+            } => origin.members.iter().for_each(|member| {
+                let item = (
+                    FieldOrIndex::Field(member.field_name.as_deref()),
+                    &member.value,
+                );
+                self.queue.push_back(item)
+            }),
             _ => {}
         }
 
-        Some(next_item)
+        Some((field_or_idx, next_value))
     }
 }
 
@@ -1635,7 +1664,7 @@ mod test {
     fn test_bfs_iterator() {
         struct TestCase {
             variable: VariableIR,
-            expected_order: Vec<&'static str>,
+            expected_order: Vec<FieldOrIndex<'static>>,
         }
 
         let test_cases = vec![
@@ -1645,65 +1674,84 @@ mod test {
                     type_ident: TypeIdentity::unknown(),
                     type_id: None,
                     members: vec![
-                        VariableIR::Array(ArrayVariable {
-                            identity: VariableIdentity::no_namespace(Some("array_1".to_owned())),
-                            type_id: None,
-                            type_ident: TypeIdentity::unknown(),
-                            items: Some(vec![
-                                VariableIR::Scalar(ScalarVariable {
-                                    identity: VariableIdentity::no_namespace(Some(
-                                        "scalar_1".to_owned(),
-                                    )),
-                                    type_ident: TypeIdentity::unknown(),
-                                    value: None,
-                                    raw_address: None,
-                                    type_id: None,
-                                }),
-                                VariableIR::Scalar(ScalarVariable {
-                                    identity: VariableIdentity::no_namespace(Some(
-                                        "scalar_2".to_owned(),
-                                    )),
-                                    type_ident: TypeIdentity::unknown(),
-                                    value: None,
-                                    raw_address: None,
-                                    type_id: None,
-                                }),
-                            ]),
-                            raw_address: None,
-                        }),
-                        VariableIR::Array(ArrayVariable {
-                            identity: VariableIdentity::no_namespace(Some("array_2".to_owned())),
-                            type_ident: TypeIdentity::unknown(),
-                            type_id: None,
-                            items: Some(vec![
-                                VariableIR::Scalar(ScalarVariable {
-                                    identity: VariableIdentity::no_namespace(Some(
-                                        "scalar_3".to_owned(),
-                                    )),
-                                    type_ident: TypeIdentity::unknown(),
-                                    value: None,
-                                    raw_address: None,
-                                    type_id: None,
-                                }),
-                                VariableIR::Scalar(ScalarVariable {
-                                    identity: VariableIdentity::no_namespace(Some(
-                                        "scalar_4".to_owned(),
-                                    )),
-                                    type_ident: TypeIdentity::unknown(),
-                                    value: None,
-                                    raw_address: None,
-                                    type_id: None,
-                                }),
-                            ]),
-                            raw_address: None,
-                        }),
+                        Member {
+                            field_name: Some("array_1".to_owned()),
+                            value: VariableIR::Array(ArrayVariable {
+                                identity: VariableIdentity::default(),
+                                type_id: None,
+                                type_ident: TypeIdentity::unknown(),
+                                items: Some(vec![
+                                    ArrayItem {
+                                        index: 1,
+                                        value: VariableIR::Scalar(ScalarVariable {
+                                            identity: VariableIdentity::default(),
+                                            type_ident: TypeIdentity::unknown(),
+                                            value: None,
+                                            raw_address: None,
+                                            type_id: None,
+                                        }),
+                                    },
+                                    ArrayItem {
+                                        index: 2,
+                                        value: VariableIR::Scalar(ScalarVariable {
+                                            identity: VariableIdentity::default(),
+                                            type_ident: TypeIdentity::unknown(),
+                                            value: None,
+                                            raw_address: None,
+                                            type_id: None,
+                                        }),
+                                    },
+                                ]),
+                                raw_address: None,
+                            }),
+                        },
+                        Member {
+                            field_name: Some("array_2".to_owned()),
+                            value: VariableIR::Array(ArrayVariable {
+                                identity: VariableIdentity::default(),
+                                type_ident: TypeIdentity::unknown(),
+                                type_id: None,
+                                items: Some(vec![
+                                    ArrayItem {
+                                        index: 3,
+                                        value: VariableIR::Scalar(ScalarVariable {
+                                            identity: VariableIdentity::no_namespace(Some(
+                                                "scalar_3".to_owned(),
+                                            )),
+                                            type_ident: TypeIdentity::unknown(),
+                                            value: None,
+                                            raw_address: None,
+                                            type_id: None,
+                                        }),
+                                    },
+                                    ArrayItem {
+                                        index: 4,
+                                        value: VariableIR::Scalar(ScalarVariable {
+                                            identity: VariableIdentity::no_namespace(Some(
+                                                "scalar_4".to_owned(),
+                                            )),
+                                            type_ident: TypeIdentity::unknown(),
+                                            value: None,
+                                            raw_address: None,
+                                            type_id: None,
+                                        }),
+                                    },
+                                ]),
+                                raw_address: None,
+                            }),
+                        },
                     ],
                     type_params: Default::default(),
                     raw_address: None,
                 }),
                 expected_order: vec![
-                    "struct_1", "array_1", "array_2", "scalar_1", "scalar_2", "scalar_3",
-                    "scalar_4",
+                    FieldOrIndex::Root(Some("struct_1".to_string())),
+                    FieldOrIndex::Field(Some("array_1")),
+                    FieldOrIndex::Field(Some("array_2")),
+                    FieldOrIndex::Index(1),
+                    FieldOrIndex::Index(2),
+                    FieldOrIndex::Index(3),
+                    FieldOrIndex::Index(4),
                 ],
             },
             TestCase {
@@ -1712,90 +1760,88 @@ mod test {
                     type_id: None,
                     type_ident: TypeIdentity::unknown(),
                     members: vec![
-                        VariableIR::Struct(StructVariable {
-                            identity: VariableIdentity::no_namespace(Some("struct_2".to_owned())),
-                            type_id: None,
-                            type_ident: TypeIdentity::unknown(),
-                            members: vec![
-                                VariableIR::Scalar(ScalarVariable {
-                                    identity: VariableIdentity::no_namespace(Some(
-                                        "scalar_1".to_owned(),
-                                    )),
-                                    type_id: None,
-                                    type_ident: TypeIdentity::unknown(),
-                                    value: None,
-                                    raw_address: None,
-                                }),
-                                VariableIR::RustEnum(RustEnumVariable {
-                                    identity: VariableIdentity::no_namespace(Some(
-                                        "enum_1".to_owned(),
-                                    )),
-                                    type_id: None,
-                                    type_ident: TypeIdentity::unknown(),
-                                    value: Some(Box::new(VariableIR::Scalar(ScalarVariable {
-                                        identity: VariableIdentity::no_namespace(Some(
-                                            "scalar_2".to_owned(),
-                                        )),
-                                        type_id: None,
-                                        type_ident: TypeIdentity::unknown(),
-                                        value: None,
-                                        raw_address: None,
-                                    }))),
-                                    raw_address: None,
-                                }),
-                                VariableIR::Scalar(ScalarVariable {
-                                    identity: VariableIdentity::no_namespace(Some(
-                                        "scalar_3".to_owned(),
-                                    )),
-                                    type_id: None,
-                                    type_ident: TypeIdentity::unknown(),
-                                    value: None,
-                                    raw_address: None,
-                                }),
-                            ],
-                            type_params: Default::default(),
-                            raw_address: None,
-                        }),
-                        VariableIR::Pointer(PointerVariable {
-                            identity: VariableIdentity::no_namespace(Some("pointer_1".to_owned())),
-                            type_id: None,
-                            type_ident: TypeIdentity::unknown(),
-                            value: None,
-                            target_type: None,
-                            target_type_size: None,
-                            raw_address: None,
-                        }),
+                        Member {
+                            field_name: Some("struct_2".to_owned()),
+                            value: VariableIR::Struct(StructVariable {
+                                identity: VariableIdentity::default(),
+                                type_id: None,
+                                type_ident: TypeIdentity::unknown(),
+                                members: vec![
+                                    Member {
+                                        field_name: Some("scalar_1".to_owned()),
+                                        value: VariableIR::Scalar(ScalarVariable {
+                                            identity: VariableIdentity::default(),
+                                            type_id: None,
+                                            type_ident: TypeIdentity::unknown(),
+                                            value: None,
+                                            raw_address: None,
+                                        }),
+                                    },
+                                    Member {
+                                        field_name: Some("enum_1".to_owned()),
+                                        value: VariableIR::RustEnum(RustEnumVariable {
+                                            identity: VariableIdentity::default(),
+                                            type_id: None,
+                                            type_ident: TypeIdentity::unknown(),
+                                            value: Some(Box::new(Member {
+                                                field_name: Some("scalar_2".to_owned()),
+                                                value: VariableIR::Scalar(ScalarVariable {
+                                                    identity: VariableIdentity::default(),
+                                                    type_id: None,
+                                                    type_ident: TypeIdentity::unknown(),
+                                                    value: None,
+                                                    raw_address: None,
+                                                }),
+                                            })),
+                                            raw_address: None,
+                                        }),
+                                    },
+                                    Member {
+                                        field_name: Some("scalar_3".to_owned()),
+                                        value: VariableIR::Scalar(ScalarVariable {
+                                            identity: VariableIdentity::default(),
+                                            type_id: None,
+                                            type_ident: TypeIdentity::unknown(),
+                                            value: None,
+                                            raw_address: None,
+                                        }),
+                                    },
+                                ],
+                                type_params: Default::default(),
+                                raw_address: None,
+                            }),
+                        },
+                        Member {
+                            field_name: Some("pointer_1".to_owned()),
+                            value: VariableIR::Pointer(PointerVariable {
+                                identity: VariableIdentity::default(),
+                                type_id: None,
+                                type_ident: TypeIdentity::unknown(),
+                                value: None,
+                                target_type: None,
+                                target_type_size: None,
+                                raw_address: None,
+                            }),
+                        },
                     ],
                     type_params: Default::default(),
                     raw_address: None,
                 }),
                 expected_order: vec![
-                    "struct_1",
-                    "struct_2",
-                    "pointer_1",
-                    "scalar_1",
-                    "enum_1",
-                    "scalar_3",
-                    "scalar_2",
+                    FieldOrIndex::Root(Some("struct_1".to_string())),
+                    FieldOrIndex::Field(Some("struct_2")),
+                    FieldOrIndex::Field(Some("pointer_1")),
+                    FieldOrIndex::Field(Some("scalar_1")),
+                    FieldOrIndex::Field(Some("enum_1")),
+                    FieldOrIndex::Field(Some("scalar_3")),
+                    FieldOrIndex::Field(Some("scalar_2")),
                 ],
             },
         ];
 
         for tc in test_cases {
             let iter = tc.variable.bfs_iterator();
-            let names: Vec<_> = iter
-                .map(|g| match g {
-                    VariableIR::Scalar(s) => s.identity.name.as_deref().unwrap(),
-                    VariableIR::Struct(s) => s.identity.name.as_deref().unwrap(),
-                    VariableIR::Array(a) => a.identity.name.as_deref().unwrap(),
-                    VariableIR::CEnum(e) => e.identity.name.as_deref().unwrap(),
-                    VariableIR::RustEnum(e) => e.identity.name.as_deref().unwrap(),
-                    VariableIR::Pointer(p) => p.identity.name.as_deref().unwrap(),
-                    _ => {
-                        unreachable!()
-                    }
-                })
-                .collect();
+            let names: Vec<_> = iter.map(|(field_or_idx, _)| field_or_idx).collect();
             assert_eq!(tc.expected_order, names);
         }
     }
@@ -1816,7 +1862,7 @@ mod test {
         })
     }
 
-    fn make_str_var_ir(name: Option<&str>, val: &str) -> VariableIR {
+    fn make_str_var_member(name: Option<&str>, val: &str) -> VariableIR {
         VariableIR::Specialized {
             value: Some(SpecializedVariableIR::Str(StrVariable {
                 identity: VariableIdentity::no_namespace(name.map(ToString::to_string)),
@@ -1842,7 +1888,7 @@ mod test {
         }
     }
 
-    fn make_vec_var_ir(name: Option<&str>, items: Vec<VariableIR>) -> VecVariable {
+    fn make_vec_var_ir(name: Option<&str>, items: Vec<ArrayItem>) -> VecVariable {
         let items_len = items.len();
         VecVariable {
             structure: StructVariable {
@@ -1850,20 +1896,26 @@ mod test {
                 type_id: None,
                 type_ident: TypeIdentity::no_namespace("vec"),
                 members: vec![
-                    VariableIR::Array(ArrayVariable {
-                        identity: VariableIdentity::default(),
-                        type_id: None,
-                        type_ident: TypeIdentity::no_namespace("[item]"),
-                        items: Some(items),
-                        raw_address: None,
-                    }),
-                    VariableIR::Scalar(ScalarVariable {
-                        identity: VariableIdentity::no_namespace(Some("cap".to_string())),
-                        type_id: None,
-                        type_ident: TypeIdentity::no_namespace("usize"),
-                        value: Some(SupportedScalar::Usize(items_len)),
-                        raw_address: None,
-                    }),
+                    Member {
+                        field_name: None,
+                        value: VariableIR::Array(ArrayVariable {
+                            identity: VariableIdentity::default(),
+                            type_id: None,
+                            type_ident: TypeIdentity::no_namespace("[item]"),
+                            items: Some(items),
+                            raw_address: None,
+                        }),
+                    },
+                    Member {
+                        field_name: Some("cap".to_string()),
+                        value: VariableIR::Scalar(ScalarVariable {
+                            identity: VariableIdentity::default(),
+                            type_id: None,
+                            type_ident: TypeIdentity::no_namespace("usize"),
+                            value: Some(SupportedScalar::Usize(items_len)),
+                            raw_address: None,
+                        }),
+                    },
                 ],
                 type_params: HashMap::default(),
                 raw_address: None,
@@ -1871,7 +1923,7 @@ mod test {
         }
     }
 
-    fn make_vector_var_ir(name: Option<&str>, items: Vec<VariableIR>) -> VariableIR {
+    fn make_vector_var_ir(name: Option<&str>, items: Vec<ArrayItem>) -> VariableIR {
         VariableIR::Specialized {
             value: Some(SpecializedVariableIR::Vector(make_vec_var_ir(name, items))),
             original: StructVariable {
@@ -1881,7 +1933,7 @@ mod test {
         }
     }
 
-    fn make_vecdeque_var_ir(name: Option<&str>, items: Vec<VariableIR>) -> VariableIR {
+    fn make_vecdeque_var_ir(name: Option<&str>, items: Vec<ArrayItem>) -> VariableIR {
         VariableIR::Specialized {
             value: Some(SpecializedVariableIR::VecDeque(make_vec_var_ir(
                 name, items,
@@ -2026,20 +2078,26 @@ mod test {
                     identity: VariableIdentity::default(),
                     type_id: None,
                     type_ident: TypeIdentity::no_namespace("MyEnum"),
-                    value: Some(Box::new(VariableIR::Struct(StructVariable {
-                        identity: VariableIdentity::no_namespace(Some("Variant1".to_string())),
-                        type_id: None,
-                        type_ident: TypeIdentity::unknown(),
-                        members: vec![VariableIR::Scalar(ScalarVariable {
-                            identity: VariableIdentity::no_namespace(Some("Variant1".to_string())),
+                    value: Some(Box::new(Member {
+                        field_name: Some("Variant1".to_string()),
+                        value: VariableIR::Struct(StructVariable {
+                            identity: VariableIdentity::default(),
                             type_id: None,
-                            type_ident: TypeIdentity::no_namespace("int"),
-                            value: Some(SupportedScalar::I64(100)),
+                            type_ident: TypeIdentity::unknown(),
+                            members: vec![Member {
+                                field_name: Some("Variant1".to_string()),
+                                value: VariableIR::Scalar(ScalarVariable {
+                                    identity: VariableIdentity::default(),
+                                    type_id: None,
+                                    type_ident: TypeIdentity::no_namespace("int"),
+                                    value: Some(SupportedScalar::I64(100)),
+                                    raw_address: None,
+                                }),
+                            }],
+                            type_params: Default::default(),
                             raw_address: None,
-                        })],
-                        type_params: Default::default(),
-                        raw_address: None,
-                    }))),
+                        }),
+                    })),
                     raw_address: None,
                 }),
                 eq_literal: Literal::EnumVariant(
@@ -2074,7 +2132,7 @@ mod test {
 
         let test_cases = [
             TestCase {
-                variable: make_str_var_ir(None, "str1"),
+                variable: make_str_var_member(None, "str1"),
                 eq_literals: vec![Literal::String("str1".to_string())],
                 neq_literals: vec![Literal::String("str2".to_string()), Literal::Int(1)],
             },
@@ -2102,10 +2160,22 @@ mod test {
                 variable: make_vector_var_ir(
                     None,
                     vec![
-                        make_scalar_var_ir(None, "char", SupportedScalar::Char('a')),
-                        make_scalar_var_ir(None, "char", SupportedScalar::Char('b')),
-                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
-                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                        ArrayItem {
+                            index: 0,
+                            value: make_scalar_var_ir(None, "char", SupportedScalar::Char('a')),
+                        },
+                        ArrayItem {
+                            index: 1,
+                            value: make_scalar_var_ir(None, "char", SupportedScalar::Char('b')),
+                        },
+                        ArrayItem {
+                            index: 2,
+                            value: make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                        },
+                        ArrayItem {
+                            index: 3,
+                            value: make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                        },
                     ],
                 ),
                 eq_literals: vec![
@@ -2151,10 +2221,22 @@ mod test {
                 variable: make_vector_var_ir(
                     None,
                     vec![
-                        make_scalar_var_ir(None, "char", SupportedScalar::Char('a')),
-                        make_scalar_var_ir(None, "char", SupportedScalar::Char('b')),
-                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
-                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                        ArrayItem {
+                            index: 0,
+                            value: make_scalar_var_ir(None, "char", SupportedScalar::Char('a')),
+                        },
+                        ArrayItem {
+                            index: 1,
+                            value: make_scalar_var_ir(None, "char", SupportedScalar::Char('b')),
+                        },
+                        ArrayItem {
+                            index: 2,
+                            value: make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                        },
+                        ArrayItem {
+                            index: 3,
+                            value: make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                        },
                     ],
                 ),
                 eq_literals: vec![
@@ -2200,10 +2282,22 @@ mod test {
                 variable: make_vecdeque_var_ir(
                     None,
                     vec![
-                        make_scalar_var_ir(None, "char", SupportedScalar::Char('a')),
-                        make_scalar_var_ir(None, "char", SupportedScalar::Char('b')),
-                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
-                        make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                        ArrayItem {
+                            index: 0,
+                            value: make_scalar_var_ir(None, "char", SupportedScalar::Char('a')),
+                        },
+                        ArrayItem {
+                            index: 1,
+                            value: make_scalar_var_ir(None, "char", SupportedScalar::Char('b')),
+                        },
+                        ArrayItem {
+                            index: 2,
+                            value: make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                        },
+                        ArrayItem {
+                            index: 3,
+                            value: make_scalar_var_ir(None, "char", SupportedScalar::Char('c')),
+                        },
                     ],
                 ),
                 eq_literals: vec![
@@ -2347,9 +2441,18 @@ mod test {
                     type_id: None,
                     type_ident: TypeIdentity::no_namespace("array_str"),
                     items: Some(vec![
-                        make_str_var_ir(None, "ab"),
-                        make_str_var_ir(None, "cd"),
-                        make_str_var_ir(None, "ef"),
+                        ArrayItem {
+                            index: 0,
+                            value: make_str_var_member(None, "ab"),
+                        },
+                        ArrayItem {
+                            index: 1,
+                            value: make_str_var_member(None, "cd"),
+                        },
+                        ArrayItem {
+                            index: 2,
+                            value: make_str_var_member(None, "ef"),
+                        },
                     ]),
                     raw_address: None,
                 }),
@@ -2394,15 +2497,30 @@ mod test {
                     type_id: None,
                     type_ident: TypeIdentity::no_namespace("MyStruct"),
                     members: vec![
-                        make_str_var_ir(Some("str_field"), "str1"),
-                        make_vector_var_ir(
-                            Some("vec_field"),
-                            vec![
-                                make_scalar_var_ir(None, "", SupportedScalar::I8(1)),
-                                make_scalar_var_ir(None, "", SupportedScalar::I8(2)),
-                            ],
-                        ),
-                        make_scalar_var_ir(Some("bool_field"), "", SupportedScalar::Bool(true)),
+                        Member {
+                            field_name: Some("str_field".to_string()),
+                            value: make_str_var_member(None, "str1"),
+                        },
+                        Member {
+                            field_name: Some("vec_field".to_string()),
+                            value: make_vector_var_ir(
+                                None,
+                                vec![
+                                    ArrayItem {
+                                        index: 0,
+                                        value: make_scalar_var_ir(None, "", SupportedScalar::I8(1)),
+                                    },
+                                    ArrayItem {
+                                        index: 1,
+                                        value: make_scalar_var_ir(None, "", SupportedScalar::I8(2)),
+                                    },
+                                ],
+                            ),
+                        },
+                        Member {
+                            field_name: Some("bool_field".to_string()),
+                            value: make_scalar_var_ir(None, "", SupportedScalar::Bool(true)),
+                        },
                     ],
                     type_params: Default::default(),
                     raw_address: None,
@@ -2482,15 +2600,30 @@ mod test {
                     type_id: None,
                     type_ident: TypeIdentity::no_namespace("MyTuple"),
                     members: vec![
-                        make_str_var_ir(None, "str1"),
-                        make_vector_var_ir(
-                            None,
-                            vec![
-                                make_scalar_var_ir(None, "", SupportedScalar::I8(1)),
-                                make_scalar_var_ir(None, "", SupportedScalar::I8(2)),
-                            ],
-                        ),
-                        make_scalar_var_ir(None, "", SupportedScalar::Bool(true)),
+                        Member {
+                            field_name: None,
+                            value: make_str_var_member(None, "str1"),
+                        },
+                        Member {
+                            field_name: None,
+                            value: make_vector_var_ir(
+                                None,
+                                vec![
+                                    ArrayItem {
+                                        index: 0,
+                                        value: make_scalar_var_ir(None, "", SupportedScalar::I8(1)),
+                                    },
+                                    ArrayItem {
+                                        index: 1,
+                                        value: make_scalar_var_ir(None, "", SupportedScalar::I8(2)),
+                                    },
+                                ],
+                            ),
+                        },
+                        Member {
+                            field_name: None,
+                            value: make_scalar_var_ir(None, "", SupportedScalar::Bool(true)),
+                        },
                     ],
                     type_params: Default::default(),
                     raw_address: None,

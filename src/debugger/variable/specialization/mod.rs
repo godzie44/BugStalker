@@ -11,8 +11,8 @@ use crate::debugger::variable::AssumeError::{
 };
 use crate::debugger::variable::ParsingError::Assume;
 use crate::debugger::variable::{
-    ArrayVariable, AssumeError, ParsingError, PointerVariable, ScalarVariable, StructVariable,
-    SupportedScalar, VariableIR, VariableIdentity, VariableParser,
+    ArrayItem, ArrayVariable, AssumeError, FieldOrIndex, Member, ParsingError, PointerVariable,
+    ScalarVariable, StructVariable, SupportedScalar, VariableIR, VariableIdentity, VariableParser,
 };
 use crate::{debugger, version_switch, weak_error};
 use anyhow::Context;
@@ -62,11 +62,15 @@ pub struct VecVariable {
 impl VecVariable {
     pub fn slice(&mut self, left: Option<usize>, right: Option<usize>) {
         debug_assert!(matches!(
-            self.structure.members.get_mut(0),
+            self.structure.members.get_mut(0).map(|m| &m.value),
             Some(VariableIR::Array(_))
         ));
 
-        if let Some(VariableIR::Array(array)) = self.structure.members.get_mut(0) {
+        if let Some(Member {
+            value: VariableIR::Array(array),
+            ..
+        }) = self.structure.members.get_mut(0)
+        {
             array.slice(left, right);
         }
     }
@@ -261,12 +265,15 @@ impl<'a> VariableParserExtension<'a> {
                     address: Some(data_ptr + (i * el_type_size)),
                     size: el_type_size,
                 };
-                self.parser.parse_inner(
-                    eval_ctx,
-                    VariableIdentity::no_namespace(Some(format!("{}", i as i64))),
-                    Some(data),
-                    inner_type,
-                )
+                ArrayItem {
+                    index: i as i64,
+                    value: self.parser.parse_inner(
+                        eval_ctx,
+                        VariableIdentity::default(),
+                        Some(data),
+                        inner_type,
+                    ),
+                }
             })
             .collect::<Vec<_>>();
 
@@ -276,22 +283,28 @@ impl<'a> VariableParserExtension<'a> {
                 type_id: None,
                 type_ident: ir.r#type().clone(),
                 members: vec![
-                    VariableIR::Array(ArrayVariable {
-                        identity: VariableIdentity::no_namespace(Some("buf".to_owned())),
-                        type_id: None,
-                        type_ident: self.parser.r#type.identity(inner_type).as_array_type(),
-                        items: Some(items),
-                        // set to `None` because the address operator unavailable for spec vars
-                        raw_address: None,
-                    }),
-                    VariableIR::Scalar(ScalarVariable {
-                        identity: VariableIdentity::no_namespace(Some("cap".to_owned())),
-                        type_id: None,
-                        type_ident: TypeIdentity::no_namespace("usize"),
-                        value: Some(SupportedScalar::Usize(cap as usize)),
-                        // set to `None` because the address operator unavailable for spec vars
-                        raw_address: None,
-                    }),
+                    Member {
+                        field_name: Some("buf".to_owned()),
+                        value: VariableIR::Array(ArrayVariable {
+                            identity: VariableIdentity::default(),
+                            type_id: None,
+                            type_ident: self.parser.r#type.identity(inner_type).as_array_type(),
+                            items: Some(items),
+                            // set to `None` because the address operator unavailable for spec vars
+                            raw_address: None,
+                        }),
+                    },
+                    Member {
+                        field_name: Some("cap".to_owned()),
+                        value: VariableIR::Scalar(ScalarVariable {
+                            identity: VariableIdentity::default(),
+                            type_id: None,
+                            type_ident: TypeIdentity::no_namespace("usize"),
+                            value: Some(SupportedScalar::Usize(cap as usize)),
+                            // set to `None` because the address operator unavailable for spec vars
+                            raw_address: None,
+                        }),
+                    },
                 ],
                 type_params: type_params.clone(),
                 // set to `None` because the address operator unavailable for spec vars
@@ -360,20 +373,25 @@ impl<'a> VariableParserExtension<'a> {
 
         let inner = ir
             .bfs_iterator()
-            .find(|child| child.name() == "inner")
+            .find_map(|(field, child)| {
+                (field == FieldOrIndex::Field(Some("inner"))).then_some(child)
+            })
             .ok_or(FieldNotFound("inner"))?;
         let inner_option = inner.assume_field_as_rust_enum("value")?;
         let inner_value = inner_option.value.ok_or(IncompleteInterp("value"))?;
 
         // we assume that DWARF representation of tls variable contains ::Option
-        if let VariableIR::Struct(opt_variant) = inner_value.as_ref() {
+        if let VariableIR::Struct(ref opt_variant) = inner_value.value {
             let tls_value = if opt_variant.type_ident.name() == Some("None") {
                 None
             } else {
                 Some(Box::new(
                     inner_value
+                        .value
                         .bfs_iterator()
-                        .find(|child| child.name() == "0")
+                        .find_map(|(field, child)| {
+                            (field == FieldOrIndex::Field(Some("__0"))).then_some(child)
+                        })
                         .ok_or(FieldNotFound("__0"))?
                         .clone(),
                 ))
@@ -447,7 +465,7 @@ impl<'a> VariableParserExtension<'a> {
                     if tuple.members.len() == 2 {
                         let v = tuple.members.pop();
                         let k = tuple.members.pop();
-                        return Ok(Some((k.unwrap(), v.unwrap())));
+                        return Ok(Some((k.unwrap().value, v.unwrap().value)));
                     }
                 }
 
@@ -519,7 +537,7 @@ impl<'a> VariableParserExtension<'a> {
                     if tuple.members.len() == 2 {
                         let _ = tuple.members.pop();
                         let k = tuple.members.pop().unwrap();
-                        return Ok(Some(k));
+                        return Ok(Some(k.value));
                     }
                 }
 
@@ -583,19 +601,13 @@ impl<'a> VariableParserExtension<'a> {
         let kv_items = iterator
             .map_err(ParsingError::from)
             .map(|(k, v)| {
-                let key = self.parser.parse_inner(
-                    eval_ctx,
-                    VariableIdentity::no_namespace(Some("k".to_string())),
-                    Some(k),
-                    k_type,
-                );
+                let key =
+                    self.parser
+                        .parse_inner(eval_ctx, VariableIdentity::default(), Some(k), k_type);
 
-                let value = self.parser.parse_inner(
-                    eval_ctx,
-                    VariableIdentity::no_namespace(Some("v".to_string())),
-                    Some(v),
-                    v_type,
-                );
+                let value =
+                    self.parser
+                        .parse_inner(eval_ctx, VariableIdentity::default(), Some(v), v_type);
 
                 Ok((key, value))
             })
@@ -618,13 +630,13 @@ impl<'a> VariableParserExtension<'a> {
     fn parse_btree_set_inner(&self, ir: VariableIR) -> Result<HashSetVariable, ParsingError> {
         let inner_map = ir
             .bfs_iterator()
-            .find_map(|child| {
+            .find_map(|(field_or_idx, child)| {
                 if let VariableIR::Specialized {
                     value: Some(SpecializedVariableIR::BTreeMap(ref map)),
                     ..
                 } = child
                 {
-                    if map.identity.name.as_deref() == Some("map") {
+                    if field_or_idx == FieldOrIndex::Field(Some("map")) {
                         return Some(map.clone());
                     }
                 }
@@ -707,12 +719,16 @@ impl<'a> VariableParserExtension<'a> {
                     address: Some(data_ptr + offset),
                     size: el_type_size,
                 };
-                self.parser.parse_inner(
-                    eval_ctx,
-                    VariableIdentity::no_namespace(Some(format!("{}", i as i64))),
-                    Some(el_data),
-                    inner_type,
-                )
+
+                ArrayItem {
+                    index: i as i64,
+                    value: self.parser.parse_inner(
+                        eval_ctx,
+                        VariableIdentity::default(),
+                        Some(el_data),
+                        inner_type,
+                    ),
+                }
             })
             .collect::<Vec<_>>();
 
@@ -722,26 +738,32 @@ impl<'a> VariableParserExtension<'a> {
                 type_id: None,
                 type_ident: ir.r#type().to_owned(),
                 members: vec![
-                    VariableIR::Array(ArrayVariable {
-                        identity: VariableIdentity::no_namespace(Some("buf".to_owned())),
-                        type_id: None,
-                        type_ident: self.parser.r#type.identity(inner_type).as_array_type(),
-                        items: Some(items),
-                        // set to `None` because the address operator unavailable for spec vars
-                        raw_address: None,
-                    }),
-                    VariableIR::Scalar(ScalarVariable {
-                        identity: VariableIdentity::no_namespace(Some("cap".to_owned())),
-                        type_id: None,
-                        type_ident: TypeIdentity::no_namespace("usize"),
-                        value: Some(SupportedScalar::Usize(if el_type_size == 0 {
-                            0
-                        } else {
-                            cap
-                        })),
-                        // set to `None` because the address operator unavailable for spec vars
-                        raw_address: None,
-                    }),
+                    Member {
+                        field_name: Some("buf".to_owned()),
+                        value: VariableIR::Array(ArrayVariable {
+                            identity: VariableIdentity::default(),
+                            type_id: None,
+                            type_ident: self.parser.r#type.identity(inner_type).as_array_type(),
+                            items: Some(items),
+                            // set to `None` because the address operator unavailable for spec vars
+                            raw_address: None,
+                        }),
+                    },
+                    Member {
+                        field_name: Some("cap".to_owned()),
+                        value: VariableIR::Scalar(ScalarVariable {
+                            identity: VariableIdentity::default(),
+                            type_id: None,
+                            type_ident: TypeIdentity::no_namespace("usize"),
+                            value: Some(SupportedScalar::Usize(if el_type_size == 0 {
+                                0
+                            } else {
+                                cap
+                            })),
+                            // set to `None` because the address operator unavailable for spec vars
+                            raw_address: None,
+                        }),
+                    },
                 ],
                 type_params: type_params.clone(),
                 // set to `None` because the address operator unavailable for spec vars
@@ -760,11 +782,11 @@ impl<'a> VariableParserExtension<'a> {
 
     fn parse_cell_inner(&self, ir: VariableIR) -> Result<VariableIR, ParsingError> {
         let unsafe_cell = ir.assume_field_as_struct("value")?;
-        let value = unsafe_cell
+        let member = unsafe_cell
             .members
             .first()
             .ok_or(IncompleteInterp("UnsafeCell"))?;
-        Ok(value.clone())
+        Ok(member.value.clone())
     }
 
     pub fn parse_refcell(&self, structure: &StructVariable) -> Option<SpecializedVariableIR> {
@@ -778,7 +800,7 @@ impl<'a> VariableParserExtension<'a> {
     fn parse_refcell_inner(&self, ir: VariableIR) -> Result<VariableIR, ParsingError> {
         let borrow = ir
             .bfs_iterator()
-            .find_map(|child| {
+            .find_map(|(_, child)| {
                 if let VariableIR::Specialized {
                     value: Some(SpecializedVariableIR::Cell(val)),
                     ..
@@ -789,10 +811,9 @@ impl<'a> VariableParserExtension<'a> {
                 None
             })
             .ok_or(IncompleteInterp("Cell"))?;
-        let VariableIR::Scalar(mut var) = *borrow else {
+        let VariableIR::Scalar(var) = *borrow else {
             return Err(IncompleteInterp("Cell").into());
         };
-        var.identity = VariableIdentity::no_namespace(Some("borrow".to_string()));
         let borrow = VariableIR::Scalar(var);
 
         let unsafe_cell = ir.assume_field_as_struct("value")?;
@@ -805,7 +826,13 @@ impl<'a> VariableParserExtension<'a> {
             identity: ir.identity().clone(),
             type_id: None,
             type_ident: ir.r#type().to_owned(),
-            members: vec![borrow, value.clone()],
+            members: vec![
+                Member {
+                    field_name: Some("borrow".to_string()),
+                    value: borrow,
+                },
+                value.clone(),
+            ],
             type_params: Default::default(),
             // set to `None` because the address operator unavailable for spec vars
             raw_address: None,
@@ -822,9 +849,9 @@ impl<'a> VariableParserExtension<'a> {
     fn parse_rc_inner(&self, ir: VariableIR) -> Result<PointerVariable, ParsingError> {
         Ok(ir
             .bfs_iterator()
-            .find_map(|child| {
+            .find_map(|(field_or_idx, child)| {
                 if let VariableIR::Pointer(pointer) = child {
-                    if pointer.identity.name.as_deref()? == "pointer" {
+                    if field_or_idx == FieldOrIndex::Field(Some("pointer")) {
                         let mut new_pointer = pointer.clone();
                         new_pointer.identity = ir.identity().clone();
                         return Some(new_pointer);
@@ -845,9 +872,9 @@ impl<'a> VariableParserExtension<'a> {
     fn parse_arc_inner(&self, ir: VariableIR) -> Result<PointerVariable, ParsingError> {
         Ok(ir
             .bfs_iterator()
-            .find_map(|child| {
+            .find_map(|(field_or_idx, child)| {
                 if let VariableIR::Pointer(pointer) = child {
-                    if pointer.identity.name.as_deref()? == "pointer" {
+                    if field_or_idx == FieldOrIndex::Field(Some("pointer")) {
                         let mut new_pointer = pointer.clone();
                         new_pointer.identity = ir.identity().clone();
                         return Some(new_pointer);
@@ -867,7 +894,7 @@ impl<'a> VariableParserExtension<'a> {
 
     fn parse_uuid_inner(&self, structure: &StructVariable) -> Result<[u8; 16], ParsingError> {
         let member0 = structure.members.first().ok_or(FieldNotFound("member 0"))?;
-        let VariableIR::Array(arr) = member0 else {
+        let VariableIR::Array(ref arr) = member0.value else {
             return Err(UnexpectedType("uuid struct member must be an array").into());
         };
         let items = arr
@@ -883,24 +910,34 @@ impl<'a> VariableParserExtension<'a> {
             let VariableIR::Scalar(ScalarVariable {
                 value: Some(SupportedScalar::U8(byte)),
                 ..
-            }) = item
+            }) = item.value
             else {
                 return Err(UnexpectedType("uuid struct member must be [u8; 16]").into());
             };
-            bytes_repr[i] = *byte;
+            bytes_repr[i] = byte;
         }
 
         Ok(bytes_repr)
     }
 
     fn parse_timespec(&self, timespec: &StructVariable) -> Result<(i64, u32), ParsingError> {
-        let &[VariableIR::Scalar(secs), VariableIR::Struct(n_secs)] = &timespec.members.as_slice()
+        let &[Member {
+            value: VariableIR::Scalar(secs),
+            ..
+        }, Member {
+            value: VariableIR::Struct(n_secs),
+            ..
+        }] = &timespec.members.as_slice()
         else {
             let err = "`Timespec` should contains secs and n_secs fields";
             return Err(UnexpectedType(err).into());
         };
 
-        let &[VariableIR::Scalar(n_secs)] = &n_secs.members.as_slice() else {
+        let &[Member {
+            value: VariableIR::Scalar(n_secs),
+            ..
+        }] = &n_secs.members.as_slice()
+        else {
             let err = "`Nanoseconds` should contains u32 field";
             return Err(UnexpectedType(err).into());
         };
@@ -923,12 +960,20 @@ impl<'a> VariableParserExtension<'a> {
     }
 
     fn parse_sys_time_inner(&self, structure: &StructVariable) -> Result<(i64, u32), ParsingError> {
-        let &[VariableIR::Struct(time_instant)] = &structure.members.as_slice() else {
+        let &[Member {
+            value: VariableIR::Struct(time_instant),
+            ..
+        }] = &structure.members.as_slice()
+        else {
             let err = "`std::time::SystemTime` should contains a `time::SystemTime` field";
             return Err(UnexpectedType(err).into());
         };
 
-        let &[VariableIR::Struct(timespec)] = &time_instant.members.as_slice() else {
+        let &[Member {
+            value: VariableIR::Struct(timespec),
+            ..
+        }] = &time_instant.members.as_slice()
+        else {
             let err = "`time::SystemTime` should contains a `Timespec` field";
             return Err(UnexpectedType(err).into());
         };
@@ -944,12 +989,20 @@ impl<'a> VariableParserExtension<'a> {
     }
 
     fn parse_instant_inner(&self, structure: &StructVariable) -> Result<(i64, u32), ParsingError> {
-        let &[VariableIR::Struct(time_instant)] = &structure.members.as_slice() else {
+        let &[Member {
+            value: VariableIR::Struct(time_instant),
+            ..
+        }] = &structure.members.as_slice()
+        else {
             let err = "`std::time::Instant` should contains a `time::Instant` field";
             return Err(UnexpectedType(err).into());
         };
 
-        let &[VariableIR::Struct(timespec)] = &time_instant.members.as_slice() else {
+        let &[Member {
+            value: VariableIR::Struct(timespec),
+            ..
+        }] = &time_instant.members.as_slice()
+        else {
             let err = "`time::Instant` should contains a `Timespec` field";
             return Err(UnexpectedType(err).into());
         };
@@ -968,7 +1021,7 @@ fn extract_capacity(eval_ctx: &EvaluationContext, ir: &VariableIR) -> Result<usi
                 (1, 0, 0) ..= (1, 75, u32::MAX) => ir.assume_field_as_scalar_number("cap")? as usize,
                 (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => {
                         let cap_s = ir.assume_field_as_struct("cap")?;
-                        let cap = cap_s.members.first().ok_or(IncompleteInterp("Vec"))?;
+                        let cap = &cap_s.members.first().ok_or(IncompleteInterp("Vec"))?.value;
                         if let VariableIR::Scalar(ScalarVariable {value: Some(SupportedScalar::Usize(cap)), ..}) = cap {
                             Ok(*cap)
                         } else {
