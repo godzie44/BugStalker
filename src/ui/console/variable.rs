@@ -10,7 +10,12 @@ const TAB: &str = "\t";
 pub fn render_variable(var: &VariableIR) -> anyhow::Result<String> {
     let syntax_renderer = syntax::rust_syntax_renderer();
     let mut line_renderer = syntax_renderer.line_renderer();
-    let var_as_string = format!("{} = {}", var.name(), render_variable_ir(var, 0));
+    let prefix = var
+        .name()
+        .map(|name| format!("{name} = "))
+        .unwrap_or_default();
+
+    let var_as_string = format!("{prefix}{}", render_variable_ir(var, 0));
     Ok(var_as_string
         .lines()
         .map(|l| -> anyhow::Result<String> {
@@ -34,7 +39,7 @@ pub fn render_variable_ir(view: &VariableIR, depth: usize) -> String {
                 VariableIR::CEnum(_) => format!("{}::{}", view.r#type().name_fmt(), rendered_value),
                 _ => format!("{}({})", view.r#type().name_fmt(), rendered_value),
             },
-            ValueLayout::Referential { addr } => {
+            ValueLayout::Referential(addr) => {
                 format!(
                     "{} [{}]",
                     view.r#type().name_fmt(),
@@ -48,17 +53,17 @@ pub fn render_variable_ir(view: &VariableIR, depth: usize) -> String {
                     render_variable_ir(val, depth)
                 )
             }
-            ValueLayout::Structure { members } => {
+            ValueLayout::Structure(members) => {
                 let mut render = format!("{} {{", view.r#type().name_fmt());
 
                 let tabs = TAB.repeat(depth + 1);
 
-                for v in members {
+                for member in members {
                     render = format!("{render}\n");
                     render = format!(
                         "{render}{tabs}{}: {}",
-                        v.name(),
-                        render_variable_ir(v, depth + 1)
+                        member.field_name.as_deref().unwrap_or_default(),
+                        render_variable_ir(&member.value, depth + 1)
                     );
                 }
 
@@ -80,22 +85,30 @@ pub fn render_variable_ir(view: &VariableIR, depth: usize) -> String {
 
                 format!("{render}\n{}}}", TAB.repeat(depth))
             }
-            ValueLayout::List { members, indexed } => {
+            ValueLayout::IndexedList(items) => {
                 let mut render = format!("{} {{", view.r#type().name_fmt());
 
                 let tabs = TAB.repeat(depth + 1);
 
-                for v in members {
+                for item in items {
                     render = format!("{render}\n");
-                    if indexed {
-                        render = format!(
-                            "{render}{tabs}{}: {}",
-                            v.name(),
-                            render_variable_ir(v, depth + 1)
-                        );
-                    } else {
-                        render = format!("{render}{tabs}{}", render_variable_ir(v, depth + 1));
-                    }
+                    render = format!(
+                        "{render}{tabs}{}: {}",
+                        item.index,
+                        render_variable_ir(&item.value, depth + 1)
+                    );
+                }
+
+                format!("{render}\n{}}}", TAB.repeat(depth))
+            }
+            ValueLayout::NonIndexedList(values) => {
+                let mut render = format!("{} {{", view.r#type().name_fmt());
+
+                let tabs = TAB.repeat(depth + 1);
+
+                for val in values {
+                    render = format!("{render}\n");
+                    render = format!("{render}{tabs}{}", render_variable_ir(val, depth + 1));
                 }
 
                 format!("{render}\n{}}}", TAB.repeat(depth))

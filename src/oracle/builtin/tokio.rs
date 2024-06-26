@@ -1,6 +1,8 @@
 use crate::debugger::unwind::{Backtrace, FrameSpan};
 use crate::debugger::variable::select::{Selector, DQE};
-use crate::debugger::variable::{ScalarVariable, StructVariable, SupportedScalar, VariableIR};
+use crate::debugger::variable::{
+    Member, ScalarVariable, StructVariable, SupportedScalar, VariableIR,
+};
 use crate::debugger::CreateTransparentBreakpointRequest;
 use crate::debugger::{Debugger, Error};
 use crate::oracle::{ConsolePlugin, Oracle, TuiPlugin};
@@ -283,10 +285,10 @@ impl ConsolePlugin for TokioOracle {
 impl TokioOracle {
     /// Return underline value of loom `AtomicUsize` structure.
     fn extract_value_from_atomic_usize(&self, val: &StructVariable) -> Option<usize> {
-        if let VariableIR::Struct(inner) = val.members.first()? {
-            if let VariableIR::Struct(value) = inner.members.first()? {
-                if let VariableIR::Struct(v) = value.members.first()? {
-                    if let VariableIR::Scalar(value) = v.members.first()? {
+        if let VariableIR::Struct(ref inner) = val.members.first()?.value {
+            if let VariableIR::Struct(ref value) = inner.members.first()?.value {
+                if let VariableIR::Struct(ref v) = value.members.first()?.value {
+                    if let VariableIR::Scalar(ref value) = v.members.first()?.value {
                         if let Some(SupportedScalar::Usize(usize)) = value.value {
                             return Some(usize);
                         }
@@ -319,14 +321,22 @@ impl TokioOracle {
                         var.as_ref().map(|v| v.first())
                     {
                         for member in &header_struct.members {
-                            if let VariableIR::Struct(state_member) = member {
-                                if state_member.identity.name.as_deref() != Some("state") {
+                            if let Member {
+                                field_name,
+                                value: VariableIR::Struct(ref state_member),
+                            } = member
+                            {
+                                if field_name.as_deref() != Some("state") {
                                     continue;
                                 }
 
                                 let val = state_member.members.first();
 
-                                if let Some(VariableIR::Struct(val)) = val {
+                                if let Some(Member {
+                                    value: VariableIR::Struct(val),
+                                    ..
+                                }) = val
+                                {
                                     if let Some(state) = self.extract_value_from_atomic_usize(val) {
                                         task.update_state(state)
                                     }
@@ -407,7 +417,7 @@ impl TokioOracle {
     fn on_new(&self, debugger: &mut Debugger) -> Result<(), Error> {
         let id_args = debugger.read_argument(DQE::Field(
             Box::new(DQE::Variable(Selector::by_name("id", true))),
-            "0".to_string(),
+            "__0".to_string(),
         ))?;
 
         if let VariableIR::Scalar(scalar) = &id_args[0] {
