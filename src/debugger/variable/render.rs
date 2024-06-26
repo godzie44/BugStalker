@@ -1,6 +1,6 @@
 use crate::debugger::debugee::dwarf::r#type::TypeIdentity;
-use crate::debugger::variable::SpecializedVariableIR;
-use crate::debugger::variable::VariableIR;
+use crate::debugger::variable::{ArrayItem, VariableIR};
+use crate::debugger::variable::{Member, SpecializedVariableIR};
 use nix::errno::Errno;
 use nix::libc;
 use nix::sys::time::TimeSpec;
@@ -13,17 +13,11 @@ use std::time::Duration;
 
 pub enum ValueLayout<'a> {
     PreRendered(Cow<'a, str>),
-    Referential {
-        addr: *const (),
-    },
+    Referential(*const ()),
     Wrapped(&'a VariableIR),
-    Structure {
-        members: &'a [VariableIR],
-    },
-    List {
-        members: &'a [VariableIR],
-        indexed: bool,
-    },
+    Structure(&'a [Member]),
+    IndexedList(&'a [ArrayItem]),
+    NonIndexedList(&'a [VariableIR]),
     Map(&'a [(VariableIR, VariableIR)]),
 }
 
@@ -31,11 +25,9 @@ impl Debug for ValueLayout<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ValueLayout::PreRendered(s) => f.debug_tuple("PreRendered").field(s).finish(),
-            ValueLayout::Referential { addr, .. } => {
-                f.debug_tuple("Referential").field(addr).finish()
-            }
+            ValueLayout::Referential(addr) => f.debug_tuple("Referential").field(addr).finish(),
             ValueLayout::Wrapped(v) => f.debug_tuple("Wrapped").field(v).finish(),
-            ValueLayout::Structure { members } => {
+            ValueLayout::Structure(members) => {
                 f.debug_struct("Nested").field("members", members).finish()
             }
             ValueLayout::Map(kvs) => {
@@ -45,24 +37,28 @@ impl Debug for ValueLayout<'_> {
                 }
                 list.finish()
             }
-            ValueLayout::List { members, indexed } => f
-                .debug_struct("List")
-                .field("members", members)
-                .field("indexed", indexed)
-                .finish(),
+            ValueLayout::IndexedList(items) => {
+                f.debug_struct("List").field("items", items).finish()
+            }
+            ValueLayout::NonIndexedList(items) => {
+                f.debug_struct("List").field("items", items).finish()
+            }
         }
     }
 }
 
 pub trait RenderRepr {
-    fn name(&self) -> String;
+    fn name(&self) -> Option<String>;
     fn r#type(&self) -> &TypeIdentity;
     fn value(&self) -> Option<ValueLayout>;
 }
 
 impl RenderRepr for VariableIR {
-    fn name(&self) -> String {
-        self.identity().to_string()
+    fn name(&self) -> Option<String> {
+        self.identity()
+            .name
+            .is_some()
+            .then(|| self.identity().to_string())
     }
 
     fn r#type(&self) -> &TypeIdentity {
@@ -102,9 +98,8 @@ impl RenderRepr for VariableIR {
                 SpecializedVariableIR::Instant(_) => &original.type_ident,
             },
             VariableIR::Specialized { original, .. } => &original.type_ident,
-
             VariableIR::Subroutine(_) => {
-                // currently this line is unreachable cause dereference fn pointer is forbidden
+                // currently this line is unreachable because dereference of fn pointer is forbidden
                 &UNKNOWN_TYPE
             }
             VariableIR::CModifiedVariable(v) => &v.type_ident,
@@ -116,30 +111,25 @@ impl RenderRepr for VariableIR {
             VariableIR::Scalar(scalar) => {
                 ValueLayout::PreRendered(Cow::Owned(scalar.value.as_ref()?.to_string()))
             }
-            VariableIR::Struct(r#struct) => ValueLayout::Structure {
-                members: r#struct.members.as_ref(),
-            },
-            VariableIR::Array(array) => ValueLayout::List {
-                members: array.items.as_deref()?,
-                indexed: true,
-            },
+            VariableIR::Struct(r#struct) => ValueLayout::Structure(r#struct.members.as_ref()),
+            VariableIR::Array(array) => ValueLayout::IndexedList(array.items.as_deref()?),
             VariableIR::CEnum(r#enum) => {
                 ValueLayout::PreRendered(Cow::Borrowed(r#enum.value.as_ref()?))
             }
-            VariableIR::RustEnum(r#enum) => ValueLayout::Wrapped(r#enum.value.as_ref()?),
+            VariableIR::RustEnum(r#enum) => {
+                let enum_val = &r#enum.value.as_ref()?.value;
+                ValueLayout::Wrapped(enum_val)
+            }
             VariableIR::Pointer(pointer) => {
                 let ptr = pointer.value?;
-                ValueLayout::Referential { addr: ptr }
+                ValueLayout::Referential(ptr)
             }
             VariableIR::Specialized {
                 value: Some(spec_val),
                 ..
             } => match spec_val {
                 SpecializedVariableIR::Vector(vec) | SpecializedVariableIR::VecDeque(vec) => {
-                    ValueLayout::List {
-                        members: vec.structure.members.as_ref(),
-                        indexed: true,
-                    }
+                    ValueLayout::Structure(vec.structure.members.as_ref())
                 }
                 SpecializedVariableIR::String(string) => {
                     ValueLayout::PreRendered(Cow::Borrowed(&string.value))
@@ -152,21 +142,15 @@ impl RenderRepr for VariableIR {
                     Some(tls_inner_val) => tls_inner_val.value()?,
                 },
                 SpecializedVariableIR::HashMap(map) => ValueLayout::Map(&map.kv_items),
-                SpecializedVariableIR::HashSet(set) => ValueLayout::List {
-                    members: &set.items,
-                    indexed: false,
-                },
+                SpecializedVariableIR::HashSet(set) => ValueLayout::NonIndexedList(&set.items),
                 SpecializedVariableIR::BTreeMap(map) => ValueLayout::Map(&map.kv_items),
-                SpecializedVariableIR::BTreeSet(set) => ValueLayout::List {
-                    members: &set.items,
-                    indexed: false,
-                },
+                SpecializedVariableIR::BTreeSet(set) => ValueLayout::NonIndexedList(&set.items),
                 SpecializedVariableIR::Cell(cell) | SpecializedVariableIR::RefCell(cell) => {
                     cell.value()?
                 }
                 SpecializedVariableIR::Rc(ptr) | SpecializedVariableIR::Arc(ptr) => {
                     let ptr = ptr.value?;
-                    ValueLayout::Referential { addr: ptr }
+                    ValueLayout::Referential(ptr)
                 }
                 SpecializedVariableIR::Uuid(bytes) => {
                     let uuid = uuid::Uuid::from_slice(bytes).expect("infallible");
@@ -192,11 +176,11 @@ impl RenderRepr for VariableIR {
                     ValueLayout::PreRendered(Cow::Owned(render))
                 }
             },
-            VariableIR::Specialized { original, .. } => ValueLayout::Structure {
-                members: original.members.as_ref(),
-            },
+            VariableIR::Specialized { original, .. } => {
+                ValueLayout::Structure(original.members.as_ref())
+            }
             VariableIR::Subroutine(_) => {
-                // currently this line is unreachable a cause dereference fn pointer is forbidden
+                // currently this line is unreachable because dereference of fn pointer is forbidden
                 return None;
             }
             VariableIR::CModifiedVariable(v) => ValueLayout::Wrapped(v.value.as_ref()?),
