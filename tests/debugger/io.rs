@@ -1,7 +1,9 @@
 use crate::HW_APP;
 use crate::common::TestHooks;
 use crate::common::TestInfo;
-use crate::{CALC_APP, assert_no_proc, prepare_debugee_process};
+use crate::HW_APP;
+use crate::{assert_no_proc, prepare_debugee_process, CALC_APP};
+use bugstalker::debugger::variable::render::{RenderValue, ValueLayout};
 use bugstalker::debugger::DebuggerBuilder;
 use bugstalker::debugger::variable::render::{RenderRepr, ValueLayout};
 use serial_test::serial;
@@ -77,12 +79,13 @@ fn test_read_value_u64() {
     let vars = debugger.read_local_variables().unwrap();
 
     assert_eq!(vars.len(), 5);
-    assert_eq!(vars[4].name().unwrap(), "s");
-    assert_eq!(vars[4].r#type().name_fmt(), "i64");
-    let _six = "6".to_string();
+
+    let s = &vars[4];
+    assert_eq!(s.identity().to_string(), "s");
+    assert_eq!(s.value().r#type().name_fmt(), "i64");
     assert!(matches!(
-        vars[4].value().unwrap(),
-        ValueLayout::PreRendered(Cow::Owned(_six))
+        s.value().value_layout().unwrap(),
+        ValueLayout::PreRendered(Cow::Owned(str)) if str == "6"
     ));
 
     debugger.continue_debugee().unwrap();

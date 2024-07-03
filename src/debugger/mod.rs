@@ -44,8 +44,9 @@ use crate::debugger::process::{Child, Installed};
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::step::StepResult;
-use crate::debugger::variable::select::{Selector, DQE};
-use crate::debugger::variable::VariableIR;
+use crate::debugger::variable::dqe::{Dqe, Selector};
+use crate::debugger::variable::execute::QueryResult;
+use crate::debugger::variable::value::Value;
 use crate::debugger::watchpoint::WatchpointRegistry;
 use crate::debugger::Error::Syscall;
 use crate::oracle::Oracle;
@@ -93,6 +94,7 @@ pub trait EventHook {
     /// * `num`: breakpoint number
     /// * `place`: breakpoint number
     /// * `condition`: reason of a watchpoint activation
+    /// * `dqe_string`: stringifed data query expression (if exist)
     /// * `old_value`: previous expression or mem location value
     /// * `new_value`: current expression or mem location value
     /// * `end_of_scope`: true if watchpoint activated cause end of scope is reached
@@ -103,8 +105,9 @@ pub trait EventHook {
         num: u32,
         place: Option<PlaceDescriptor>,
         condition: BreakCondition,
-        old_value: Option<&VariableIR>,
-        new_value: Option<&VariableIR>,
+        dqe_string: Option<&str>,
+        old_value: Option<&Value>,
+        new_value: Option<&Value>,
         end_of_scope: bool,
     ) -> anyhow::Result<()>;
 
@@ -163,8 +166,9 @@ impl EventHook for NopHook {
         _: u32,
         _: Option<PlaceDescriptor>,
         _: BreakCondition,
-        _: Option<&VariableIR>,
-        _: Option<&VariableIR>,
+        _: Option<&str>,
+        _: Option<&Value>,
+        _: Option<&Value>,
         _: bool,
     ) -> anyhow::Result<()> {
         Ok(())
@@ -872,13 +876,12 @@ impl Debugger {
     }
 
     /// Reads all local variables from current function in current thread.
-    pub fn read_local_variables(&self) -> Result<Vec<VariableIR>, Error> {
+    pub fn read_local_variables(&self) -> Result<Vec<QueryResult>, Error> {
         disable_when_not_stared!(self);
 
-        let evaluator =
-            variable::select::SelectExpressionEvaluator::new(self, DQE::Variable(Selector::Any));
-        let eval_result = evaluator.evaluate()?;
-        Ok(eval_result.into_iter().map(|res| res.variable).collect())
+        let executor = variable::execute::DqeExecutor::new(self);
+        let eval_result = executor.query(&Dqe::Variable(Selector::Any))?;
+        Ok(eval_result)
     }
 
     /// Reads any variable from the current thread, uses a select expression to filter variables
@@ -887,11 +890,11 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_variable(&self, select_expr: DQE) -> Result<Vec<VariableIR>, Error> {
+    pub fn read_variable(&self, select_expr: Dqe) -> Result<Vec<QueryResult>, Error> {
         disable_when_not_stared!(self);
-        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
-        let eval_result = evaluator.evaluate()?;
-        Ok(eval_result.into_iter().map(|res| res.variable).collect())
+        let executor = variable::execute::DqeExecutor::new(self);
+        let eval_result = executor.query(&select_expr)?;
+        Ok(eval_result)
     }
 
     ///  Reads any variable from the current thread, uses a select expression to filter variables
@@ -900,10 +903,10 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_variable_names(&self, select_expr: DQE) -> Result<Vec<String>, Error> {
+    pub fn read_variable_names(&self, select_expr: Dqe) -> Result<Vec<String>, Error> {
         disable_when_not_stared!(self);
-        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
-        evaluator.evaluate_names()
+        let executor = variable::execute::DqeExecutor::new(self);
+        executor.query_names(&select_expr)
     }
 
     /// Reads any argument from the current function, uses a select expression to filter variables
@@ -912,11 +915,11 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_argument(&self, select_expr: DQE) -> Result<Vec<VariableIR>, Error> {
+    pub fn read_argument(&self, select_expr: Dqe) -> Result<Vec<QueryResult>, Error> {
         disable_when_not_stared!(self);
-        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
-        let eval_result = evaluator.evaluate_on_arguments()?;
-        Ok(eval_result.into_iter().map(|res| res.variable).collect())
+        let executor = variable::execute::DqeExecutor::new(self);
+        let eval_result = executor.query_arguments(&select_expr)?;
+        Ok(eval_result)
     }
 
     /// Reads any argument from the current function, uses a select expression to filter arguments
@@ -925,10 +928,10 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_argument_names(&self, select_expr: DQE) -> Result<Vec<String>, Error> {
+    pub fn read_argument_names(&self, select_expr: Dqe) -> Result<Vec<String>, Error> {
         disable_when_not_stared!(self);
-        let evaluator = variable::select::SelectExpressionEvaluator::new(self, select_expr);
-        evaluator.evaluate_on_arguments_names()
+        let executor = variable::execute::DqeExecutor::new(self);
+        executor.query_arguments_names(&select_expr)
     }
 
     /// Return following register value.
