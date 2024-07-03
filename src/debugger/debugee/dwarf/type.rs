@@ -1,4 +1,4 @@
-use crate::debugger::debugee::dwarf::eval::{AddressKind, ExpressionEvaluator};
+use crate::debugger::debugee::dwarf::eval::{AddressKind, EvaluationContext};
 use crate::debugger::debugee::dwarf::unit::{
     ArrayDie, AtomicDie, BaseTypeDie, ConstTypeDie, DieRef, DieVariant, EnumTypeDie, PointerType,
     RestrictDie, StructTypeDie, SubroutineDie, TypeDefDie, TypeMemberDie, UnionTypeDie,
@@ -6,9 +6,7 @@ use crate::debugger::debugee::dwarf::unit::{
 };
 use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::error::Error;
-use crate::debugger::variable::select::ObjectBinaryRepr;
-use crate::debugger::ExplorationContext;
-use crate::version::Version;
+use crate::debugger::variable::ObjectBinaryRepr;
 use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::{AttributeValue, DwAte, Expression};
@@ -16,6 +14,7 @@ use log::warn;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem;
+use std::rc::Rc;
 use strum_macros::Display;
 use uuid::Uuid;
 
@@ -55,6 +54,11 @@ impl TypeIdentity {
     }
 
     #[inline(always)]
+    pub fn namespace(&self) -> &NamespaceHierarchy {
+        &self.namespace
+    }
+
+    #[inline(always)]
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
@@ -90,18 +94,7 @@ impl TypeIdentity {
     }
 }
 
-pub struct EvaluationContext<'a> {
-    pub evaluator: &'a ExpressionEvaluator<'a>,
-    pub expl_ctx: &'a ExplorationContext,
-}
-
-impl<'a> EvaluationContext<'a> {
-    pub fn rustc_version(&self) -> Option<Version> {
-        self.evaluator.unit().rustc_version()
-    }
-}
-
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MemberLocationExpression {
     expr: Expression<EndianArcSlice>,
 }
@@ -120,13 +113,13 @@ impl MemberLocationExpression {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum MemberLocation {
     Offset(i64),
     Expr(MemberLocationExpression),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StructureMember {
     pub in_struct_location: Option<MemberLocation>,
     pub name: Option<String>,
@@ -174,7 +167,7 @@ impl StructureMember {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ArrayBoundValueExpression {
     expr: Expression<EndianArcSlice>,
 }
@@ -188,7 +181,7 @@ impl ArrayBoundValueExpression {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ArrayBoundValue {
     Const(i64),
     Expr(ArrayBoundValueExpression),
@@ -203,13 +196,13 @@ impl ArrayBoundValue {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum UpperBound {
     UpperBound(ArrayBoundValue),
     Count(ArrayBoundValue),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ArrayType {
     pub namespaces: NamespaceHierarchy,
     byte_size: Option<u64>,
@@ -275,7 +268,7 @@ impl ArrayType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ScalarType {
     pub namespaces: NamespaceHierarchy,
     pub name: Option<String>,
@@ -293,7 +286,7 @@ impl ScalarType {
 }
 
 /// List of type modifiers
-#[derive(Display, Clone, Copy, PartialEq)]
+#[derive(Display, Clone, Copy, PartialEq, Debug)]
 #[strum(serialize_all = "snake_case")]
 pub enum CModifier {
     TypeDef,
@@ -303,7 +296,7 @@ pub enum CModifier {
     Restrict,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TypeDeclaration {
     Scalar(ScalarType),
     Array(ArrayType),
@@ -355,14 +348,20 @@ pub enum TypeDeclaration {
 
 /// Type representation. This is a graph of types where vertexes is a type declaration and edges
 /// is a dependencies between types. Type linking implemented by `TypeId` references.
-/// Root is an identity of a main type.
-#[derive(Clone)]
+/// Root is id of a main type.
+#[derive(Clone, Debug)]
 pub struct ComplexType {
     pub types: HashMap<TypeId, TypeDeclaration>,
-    pub root: TypeId,
+    root: TypeId,
 }
 
 impl ComplexType {
+    /// Return root type id.
+    #[inline(always)]
+    pub fn root(&self) -> TypeId {
+        self.root
+    }
+
     /// Return name of some of a type existed in a complex type.
     pub fn identity(&self, typ: TypeId) -> TypeIdentity {
         let Some(r#type) = self.types.get(&typ) else {
@@ -448,7 +447,7 @@ impl ComplexType {
         }
     }
 
-    /// Returns size of some of type existed in a complex type.
+    /// Return size of a type existed from a complex type.
     pub fn type_size_in_bytes(&self, eval_ctx: &EvaluationContext, typ: TypeId) -> Option<u64> {
         match &self.types.get(&typ)? {
             TypeDeclaration::Scalar(s) => s.byte_size,
@@ -569,7 +568,11 @@ impl TypeParser {
     }
 
     /// Parse a `ComplexType` from a DIEs.
-    pub fn parse<T>(self, ctx_die: ContextualDieRef<'_, T>, root_id: TypeId) -> ComplexType {
+    pub fn parse<'dbg, T>(
+        self,
+        ctx_die: ContextualDieRef<'dbg, 'dbg, T>,
+        root_id: TypeId,
+    ) -> ComplexType {
         let mut this = self;
         this.parse_inner(ctx_die, root_id);
         ComplexType {
@@ -578,7 +581,7 @@ impl TypeParser {
         }
     }
 
-    fn parse_inner<T>(&mut self, ctx_die: ContextualDieRef<'_, T>, type_ref: DieRef) {
+    fn parse_inner<T>(&mut self, ctx_die: ContextualDieRef<'_, '_, T>, type_ref: DieRef) {
         // guard from recursion types parsing
         if self.known_type_ids.contains(&type_ref) {
             return;
@@ -670,7 +673,10 @@ impl TypeParser {
         }
     }
 
-    fn parse_base_type(&mut self, ctx_die: ContextualDieRef<'_, BaseTypeDie>) -> TypeDeclaration {
+    fn parse_base_type(
+        &mut self,
+        ctx_die: ContextualDieRef<'_, '_, BaseTypeDie>,
+    ) -> TypeDeclaration {
         let name = ctx_die.die.base_attributes.name.clone();
         TypeDeclaration::Scalar(ScalarType {
             namespaces: ctx_die.namespaces(),
@@ -680,7 +686,10 @@ impl TypeParser {
         })
     }
 
-    fn parse_array(&mut self, ctx_die: ContextualDieRef<'_, ArrayDie>) -> TypeDeclaration {
+    fn parse_array<'dbg>(
+        &mut self,
+        ctx_die: ContextualDieRef<'dbg, 'dbg, ArrayDie>,
+    ) -> TypeDeclaration {
         let mb_type_ref = ctx_die.die.type_ref;
         if let Some(reference) = mb_type_ref {
             self.parse_inner(ctx_die, reference);
@@ -748,7 +757,10 @@ impl TypeParser {
 
     /// Convert DW_TAG_structure_type into TypeDeclaration.
     /// In rust DW_TAG_structure_type DIE can be interpreter as enum, see https://github.com/rust-lang/rust/issues/32920
-    fn parse_struct(&mut self, ctx_die: ContextualDieRef<'_, StructTypeDie>) -> TypeDeclaration {
+    fn parse_struct<'dbg>(
+        &mut self,
+        ctx_die: ContextualDieRef<'dbg, 'dbg, StructTypeDie>,
+    ) -> TypeDeclaration {
         let is_enum = ctx_die.node.children.iter().any(|c_idx| {
             let entry = ctx_resolve_unit_call!(ctx_die, entry, *c_idx);
             matches!(entry.die, DieVariant::VariantPart(_))
@@ -763,7 +775,7 @@ impl TypeParser {
 
     fn parse_struct_struct(
         &mut self,
-        ctx_die: ContextualDieRef<'_, StructTypeDie>,
+        ctx_die: ContextualDieRef<'_, '_, StructTypeDie>,
     ) -> TypeDeclaration {
         let name = ctx_die.die.base_attributes.name.clone();
         let members = ctx_die
@@ -808,7 +820,10 @@ impl TypeParser {
         }
     }
 
-    fn parse_member(&mut self, ctx_die: ContextualDieRef<'_, TypeMemberDie>) -> StructureMember {
+    fn parse_member<'dbg>(
+        &mut self,
+        ctx_die: ContextualDieRef<'dbg, 'dbg, TypeMemberDie>,
+    ) -> StructureMember {
         let loc = ctx_die.die.location.as_ref().map(|attr| attr.value());
         let in_struct_location = if let Some(offset) = loc.as_ref().and_then(|l| l.sdata_value()) {
             Some(MemberLocation::Offset(offset))
@@ -834,7 +849,7 @@ impl TypeParser {
 
     fn parse_struct_enum(
         &mut self,
-        ctx_die: ContextualDieRef<'_, StructTypeDie>,
+        ctx_die: ContextualDieRef<'_, '_, StructTypeDie>,
     ) -> TypeDeclaration {
         let name = ctx_die.die.base_attributes.name.clone();
 
@@ -912,7 +927,10 @@ impl TypeParser {
         }
     }
 
-    fn parse_enum(&mut self, ctx_die: ContextualDieRef<'_, EnumTypeDie>) -> TypeDeclaration {
+    fn parse_enum<'dbg>(
+        &mut self,
+        ctx_die: ContextualDieRef<'dbg, 'dbg, EnumTypeDie>,
+    ) -> TypeDeclaration {
         let name = ctx_die.die.base_attributes.name.clone();
 
         let mb_discr_type = ctx_die.die.type_ref;
@@ -946,7 +964,7 @@ impl TypeParser {
         }
     }
 
-    fn parse_union(&mut self, ctx_die: ContextualDieRef<'_, UnionTypeDie>) -> TypeDeclaration {
+    fn parse_union(&mut self, ctx_die: ContextualDieRef<'_, '_, UnionTypeDie>) -> TypeDeclaration {
         let name = ctx_die.die.base_attributes.name.clone();
         let members = ctx_die
             .node
@@ -974,7 +992,10 @@ impl TypeParser {
         }
     }
 
-    fn parse_pointer(&mut self, ctx_die: ContextualDieRef<'_, PointerType>) -> TypeDeclaration {
+    fn parse_pointer<'dbg>(
+        &mut self,
+        ctx_die: ContextualDieRef<'dbg, 'dbg, PointerType>,
+    ) -> TypeDeclaration {
         let name = ctx_die.die.base_attributes.name.clone();
 
         let mb_type_ref = ctx_die.die.type_ref;
@@ -989,9 +1010,9 @@ impl TypeParser {
         }
     }
 
-    fn parse_subroutine(
+    fn parse_subroutine<'dbg>(
         &mut self,
-        ctx_die: ContextualDieRef<'_, SubroutineDie>,
+        ctx_die: ContextualDieRef<'dbg, 'dbg, SubroutineDie>,
     ) -> TypeDeclaration {
         let name = ctx_die.die.base_attributes.name.clone();
         let mb_ret_type_ref = ctx_die.die.return_type_ref;
@@ -1009,7 +1030,10 @@ impl TypeParser {
 
 macro_rules! parse_modifier_fn {
     ($fn_name: ident, $die: ty, $modifier: expr) => {
-        fn $fn_name(&mut self, ctx_die: ContextualDieRef<'_, $die>) -> TypeDeclaration {
+        fn $fn_name<'dbg>(
+            &mut self,
+            ctx_die: ContextualDieRef<'dbg, 'dbg, $die>,
+        ) -> TypeDeclaration {
             let name = ctx_die.die.base_attributes.name.clone();
             let mb_type_ref = ctx_die.die.type_ref;
             if let Some(inner_type) = mb_type_ref {
@@ -1037,4 +1061,4 @@ impl TypeParser {
 
 /// A cache structure for types.
 /// Every type identified by its `TypeId` and DWARF unit uuid.
-pub type TypeCache = HashMap<(Uuid, TypeId), ComplexType>;
+pub type TypeCache = HashMap<(Uuid, TypeId), Rc<ComplexType>>;

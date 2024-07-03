@@ -353,14 +353,14 @@ class VariablesTestCase(unittest.TestCase):
         self.debugger.cmd('var arr_2[0][2]', 'i32(2)')
         self.debugger.cmd(
             'var arr_1[2..4]',
-            'arr_1 = [i32] {',
+            '[i32] {',
             '2: i32(2)',
             '3: i32(-2)',
             '}',
         )
         self.debugger.cmd(
             'var arr_1[..]',
-            'arr_1 = [i32] {',
+            '[i32] {',
             '0: i32(1)',
             '1: i32(-1)',
             '2: i32(2)',
@@ -370,27 +370,27 @@ class VariablesTestCase(unittest.TestCase):
         )
         self.debugger.cmd(
             'var arr_1[..2]',
-            'arr_1 = [i32] {',
+            '[i32] {',
             '0: i32(1)',
             '1: i32(-1)',
             '}',
         )
         self.debugger.cmd(
             'var arr_1[3..]',
-            'arr_1 = [i32] {',
+            '[i32] {',
             '3: i32(-2)',
             '4: i32(3)',
             '}',
         )
         self.debugger.cmd(
             'var arr_1[4..6]',
-            'arr_1 = [i32] {',
+            '[i32] {',
             '4: i32(3)',
             '}',
         )
         self.debugger.cmd(
             'var arr_1[2..4][1..]',
-            'arr_1 = [i32] {',
+            '[i32] {',
             '3: i32(-2)',
             '}',
         )

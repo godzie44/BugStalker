@@ -1,7 +1,7 @@
 use crate::debugger::address::GlobalAddress;
 use crate::debugger::debugee::dwarf::unit::DieRef;
 use crate::debugger::debugee::RendezvousError;
-use crate::debugger::variable::ParsingError;
+use crate::debugger::variable::value::ParsingError;
 use gimli::UnitOffset;
 use nix::unistd::Pid;
 use std::str::Utf8Error;
