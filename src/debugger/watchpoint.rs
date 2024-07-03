@@ -8,8 +8,9 @@ use crate::debugger::register::debug::{
     BreakCondition, BreakSize, DebugRegisterNumber, HardwareDebugState,
 };
 use crate::debugger::unwind::FrameID;
-use crate::debugger::variable::select::{ScopedVariable, SelectExpressionEvaluator, DQE};
-use crate::debugger::variable::{ScalarVariable, SupportedScalar, VariableIR, VariableIdentity};
+use crate::debugger::variable::dqe::Dqe;
+use crate::debugger::variable::execute::{DqeExecutor, QueryResult};
+use crate::debugger::variable::value::{ScalarValue, SupportedScalar, Value};
 use crate::debugger::Error::Hook;
 use crate::debugger::{Debugger, Error, ExplorationContext, Tracee};
 use crate::{debugger, disable_when_not_stared, weak_error};
@@ -24,9 +25,9 @@ struct ExpressionTarget {
     /// Original DQE string.
     source_string: String,
     /// Address DQE.
-    dqe: DQE,
+    dqe: Dqe,
     /// Last evaluated underlying DQE result.
-    last_value: Option<VariableIR>,
+    last_value: Option<Value>,
     /// ID of in-focus frame at the time when watchpoint was created.
     /// Whether `None` when underlying expression has a global or undefined scope.
     frame_id: Option<FrameID>,
@@ -38,8 +39,8 @@ struct ExpressionTarget {
 }
 
 impl ExpressionTarget {
-    fn underlying_dqe(&self) -> &DQE {
-        let DQE::Address(ref underlying_dqe) = self.dqe else {
+    fn underlying_dqe(&self) -> &Dqe {
+        let Dqe::Address(ref underlying_dqe) = self.dqe else {
             unreachable!("infallible: watchpoint always contains an address DQE");
         };
         underlying_dqe
@@ -49,12 +50,12 @@ impl ExpressionTarget {
 #[derive(Debug)]
 struct AddressTarget {
     /// Last seen dereferenced value.
-    /// This is [`VariableIR::Scalar`] with one of u8, u16, u32 or u64 underlying value.
-    last_value: Option<VariableIR>,
+    /// This is [`Value::Scalar`] with one of u8, u16, u32 or u64 underlying value.
+    last_value: Option<Value>,
 }
 
 impl AddressTarget {
-    fn refresh_last_value(&mut self, pid: Pid, hw: &HardwareBreakpoint) -> Option<VariableIR> {
+    fn refresh_last_value(&mut self, pid: Pid, hw: &HardwareBreakpoint) -> Option<Value> {
         let read_size = match hw.size {
             BreakSize::Bytes1 => 1,
             BreakSize::Bytes2 => 2,
@@ -94,8 +95,7 @@ impl AddressTarget {
                     )),
                 ),
             };
-            VariableIR::Scalar(ScalarVariable {
-                identity: VariableIdentity::no_namespace(Some("data".to_string())),
+            Value::Scalar(ScalarValue {
                 value: Some(u),
                 type_ident: TypeIdentity::no_namespace(t),
                 type_id: None,
@@ -223,20 +223,16 @@ where
 }
 
 impl Watchpoint {
-    fn evaluate_dqe(
-        debugger: &Debugger,
-        expr_source: &str,
-        dqe: DQE,
-    ) -> Result<ScopedVariable, Error> {
-        let expr_evaluator = SelectExpressionEvaluator::new(debugger, dqe);
+    fn execute_dqe(debugger: &Debugger, dqe: Dqe) -> Result<QueryResult, Error> {
+        let executor = DqeExecutor::new(debugger);
 
         // trying to evaluate at variables first,
         // if a result is empty, try to evaluate at function arguments
-        let mut evaluation_on_vars_results = expr_evaluator.evaluate()?;
+        let mut evaluation_on_vars_results = executor.query(&dqe)?;
         let mut evaluation_on_args_results;
-        let mut expr_result = match evaluation_on_vars_results.len() {
+        let expr_result = match evaluation_on_vars_results.len() {
             0 => {
-                evaluation_on_args_results = expr_evaluator.evaluate_on_arguments()?;
+                evaluation_on_args_results = executor.query_arguments(&dqe)?;
                 match evaluation_on_args_results.len() {
                     0 => return Err(Error::WatchSubjectNotFound),
                     1 => evaluation_on_args_results.pop().expect("infallible"),
@@ -246,7 +242,6 @@ impl Watchpoint {
             1 => evaluation_on_vars_results.pop().expect("infallible"),
             _ => return Err(Error::WatchpointCollision),
         };
-        expr_result.variable.identity_mut().name = Some(expr_source.to_string());
         Ok(expr_result)
     }
 
@@ -261,14 +256,14 @@ impl Watchpoint {
     pub fn from_dqe(
         debugger: &mut Debugger,
         expr_source: &str,
-        dqe: DQE,
+        dqe: Dqe,
         condition: BreakCondition,
     ) -> Result<(HardwareDebugState, Self), Error> {
         // wrap expression with address operation
-        let dqe = DQE::Address(dqe.boxed());
+        let dqe = Dqe::Address(dqe.boxed());
 
-        let address_dqe_result = Self::evaluate_dqe(debugger, expr_source, dqe.clone())?;
-        let VariableIR::Pointer(ptr) = &address_dqe_result.variable else {
+        let address_dqe_result = Self::execute_dqe(debugger, dqe.clone())?;
+        let Value::Pointer(ptr) = address_dqe_result.value() else {
             unreachable!("infallible: address DQE always return a pointer")
         };
 
@@ -285,7 +280,7 @@ impl Watchpoint {
 
         let mut end_of_scope_brkpt = None;
         let mut frame_id = None;
-        if let Some(ref scope) = address_dqe_result.scope {
+        if let Some(scope) = address_dqe_result.scope() {
             // take a current frame id
             let expl_ctx = debugger.exploration_ctx();
             let frame_num = expl_ctx.frame_num();
@@ -386,8 +381,8 @@ impl Watchpoint {
             companion: end_of_scope_brkpt,
         };
         let underlying_dqe = target.underlying_dqe().clone();
-        let var = Self::evaluate_dqe(debugger, expr_source, underlying_dqe)
-            .map(|ev| ev.variable)
+        let var = Self::execute_dqe(debugger, underlying_dqe)
+            .map(|ev| ev.into_value())
             .ok();
         target.last_value = var;
 
@@ -447,7 +442,7 @@ impl Watchpoint {
         self.number
     }
 
-    fn last_value(&self) -> Option<&VariableIR> {
+    fn last_value(&self) -> Option<&Value> {
         match &self.subject {
             Subject::Expression(e) => e.last_value.as_ref(),
             Subject::Address(_) => None,
@@ -639,9 +634,9 @@ impl WatchpointRegistry {
         &mut self,
         tracee_ctl: &TraceeCtl,
         breakpoints: &mut BreakpointRegistry,
-        dqe: DQE,
+        dqe: Dqe,
     ) -> Result<Option<WatchpointView>, Error> {
-        let needle = DQE::Address(dqe.boxed());
+        let needle = Dqe::Address(dqe.boxed());
         let Some(to_remove) = self.watchpoints.iter().position(|wp| {
             if let Subject::Expression(ExpressionTarget { dqe: wp_dqe, .. }) = &wp.subject {
                 &needle == wp_dqe
@@ -730,7 +725,7 @@ impl Debugger {
     pub fn set_watchpoint_on_expr(
         &mut self,
         expr_source: &str,
-        dqe: DQE,
+        dqe: Dqe,
         condition: BreakCondition,
     ) -> Result<WatchpointView, Error> {
         disable_when_not_stared!(self);
@@ -790,7 +785,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `dqe`: DQE
-    pub fn remove_watchpoint_by_expr(&mut self, dqe: DQE) -> Result<Option<WatchpointView>, Error> {
+    pub fn remove_watchpoint_by_expr(&mut self, dqe: Dqe) -> Result<Option<WatchpointView>, Error> {
         let breakpoints = &mut self.breakpoints;
         self.watchpoints
             .remove_by_dqe(self.debugee.tracee_ctl(), breakpoints, dqe)
@@ -821,15 +816,16 @@ impl Debugger {
                     match &wp.subject {
                         Subject::Expression(target) => {
                             let dqe = target.underlying_dqe().clone();
-                            let expr_str = target.source_string.clone();
                             let current_tid = self.exploration_ctx().pid_on_focus();
 
                             let new_value = match target.frame_id {
-                                None => Watchpoint::evaluate_dqe(self, &expr_str, dqe),
+                                None => {
+                                    Watchpoint::execute_dqe(self, dqe).map(|qr| qr.into_value())
+                                }
                                 // frame_id is actual if current tid and expression tid are equals,
                                 // otherwise evaluate as is
                                 Some(_) if target.tid != current_tid => {
-                                    Watchpoint::evaluate_dqe(self, &expr_str, dqe)
+                                    Watchpoint::execute_dqe(self, dqe).map(|qr| qr.into_value())
                                 }
                                 Some(frame_id) => {
                                     let bt = self.backtrace(current_tid)?;
@@ -846,12 +842,13 @@ impl Debugger {
                                     );
                                     let ctx = ExplorationContext::new(loc, num as u32);
                                     call_with_context(self, ctx, |debugger| {
-                                        Watchpoint::evaluate_dqe(debugger, &expr_str, dqe)
+                                        Watchpoint::execute_dqe(debugger, dqe)
+                                            .map(|qr| qr.into_value())
                                     })
                                 }
                             };
 
-                            let new_value = new_value.ok().map(|expr| expr.variable);
+                            let new_value = new_value.ok();
 
                             let wp_mut = self
                                 .watchpoints
@@ -876,6 +873,7 @@ impl Debugger {
                                     number,
                                     place,
                                     wp_mut.hw.condition,
+                                    Some(&t.source_string),
                                     old.as_ref(),
                                     t.last_value.as_ref(),
                                     false,
@@ -905,6 +903,7 @@ impl Debugger {
                                     number,
                                     place,
                                     wp_mut.hw.condition,
+                                    None,
                                     old.as_ref(),
                                     t.last_value.as_ref(),
                                     false,
@@ -926,12 +925,22 @@ impl Debugger {
                     weak_error!(dwarf.find_place_from_pc(pc.into_global(&self.debugee)?)).flatten();
 
                 for wp in watchpoints {
+                    let dqe_string =
+                        if let Subject::Expression(ExpressionTarget { source_string, .. }) =
+                            &wp.subject
+                        {
+                            Some(source_string.as_str())
+                        } else {
+                            None
+                        };
+
                     self.hooks
                         .on_watchpoint(
                             pc,
                             wp.number(),
                             place.clone(),
                             wp.hw.condition,
+                            dqe_string,
                             wp.last_value(),
                             None,
                             true,

@@ -1,5 +1,5 @@
 //! data query expressions parser.
-use crate::debugger::variable::select::{Literal, LiteralOrWildcard, Selector, DQE};
+use crate::debugger::variable::dqe::{Dqe, Literal, LiteralOrWildcard, PointerCast, Selector};
 use crate::ui::command::parser::{hex, rust_identifier};
 use chumsky::prelude::*;
 use chumsky::Parser;
@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 type Err<'a> = extra::Err<Rich<'a, char>>;
 
-fn ptr_cast<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> + Clone {
+fn ptr_cast<'a>() -> impl Parser<'a, &'a str, Dqe, Err<'a>> + Clone {
     let op = |c| just(c).padded();
 
     // try to interp any string between brackets as a type
@@ -33,7 +33,7 @@ fn ptr_cast<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> + Clone {
     let type_p = any.delimited_by(op('('), op(')'));
     type_p
         .then(hex())
-        .map(|(r#type, ptr)| DQE::PtrCast(ptr, r#type.trim().to_string()))
+        .map(|(r#type, ptr)| Dqe::PtrCast(PointerCast::new(ptr, r#type.trim())))
         .labelled("pointer cast")
 }
 
@@ -123,10 +123,10 @@ fn literal<'a>() -> impl Parser<'a, &'a str, Literal, Err<'a>> + Clone {
     literal
 }
 
-pub fn parser<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> {
+pub fn parser<'a>() -> impl Parser<'a, &'a str, Dqe, Err<'a>> {
     let base_selector = rust_identifier()
         .padded()
-        .map(|name: &str| DQE::Variable(Selector::by_name(name, false)))
+        .map(|name: &str| Dqe::Variable(Selector::by_name(name, false)))
         .or(ptr_cast());
 
     let expr = recursive(|expr| {
@@ -142,8 +142,8 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> {
 
         let field_op = op('.')
             .ignore_then(field)
-            .map(|field: &str| -> Box<dyn FnOnce(DQE) -> DQE> {
-                Box::new(move |r| DQE::Field(Box::new(r), field.to_string()))
+            .map(|field: &str| -> Box<dyn FnOnce(Dqe) -> Dqe> {
+                Box::new(move |r| Dqe::Field(Box::new(r), field.to_string()))
             })
             .boxed();
 
@@ -151,8 +151,8 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> {
             .padded()
             .labelled("index value")
             .delimited_by(op('['), op(']'))
-            .map(|idx| -> Box<dyn FnOnce(DQE) -> DQE> {
-                Box::new(move |r: DQE| DQE::Index(Box::new(r), idx))
+            .map(|idx| -> Box<dyn FnOnce(Dqe) -> Dqe> {
+                Box::new(move |r: Dqe| Dqe::Index(Box::new(r), idx))
             })
             .boxed();
 
@@ -166,8 +166,8 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> {
             .then(mb_usize)
             .labelled("slice range (start..end)")
             .delimited_by(op('['), op(']'))
-            .map(|(from, to)| -> Box<dyn FnOnce(DQE) -> DQE> {
-                Box::new(move |r: DQE| DQE::Slice(Box::new(r), from, to))
+            .map(|(from, to)| -> Box<dyn FnOnce(Dqe) -> Dqe> {
+                Box::new(move |r: Dqe| Dqe::Slice(Box::new(r), from, to))
             })
             .boxed();
 
@@ -177,9 +177,9 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, DQE, Err<'a>> {
         );
 
         op('*')
-            .to(DQE::Deref as fn(_) -> _)
-            .or(op('&').to(DQE::Address as fn(_) -> _))
-            .or(op('~').to(DQE::Canonic as fn(_) -> _))
+            .to(Dqe::Deref as fn(_) -> _)
+            .or(op('&').to(Dqe::Address as fn(_) -> _))
+            .or(op('~').to(Dqe::Canonic as fn(_) -> _))
             .repeated()
             .foldr(expr, |op, rhs| op(Box::new(rhs)))
     });
@@ -195,23 +195,23 @@ mod test {
     fn test_ptr_cast_parser() {
         struct TestCase {
             string: &'static str,
-            result: Result<DQE, ()>,
+            result: Result<Dqe, ()>,
         }
         let cases = vec![
             TestCase {
                 string: "(*SomeStruct) 0x12345",
-                result: Ok(DQE::PtrCast(0x12345, "*SomeStruct".to_string())),
+                result: Ok(Dqe::PtrCast(PointerCast::new(0x12345, "*SomeStruct"))),
             },
             TestCase {
                 string: " ( &u32 )0x12345",
-                result: Ok(DQE::PtrCast(0x12345, "&u32".to_string())),
+                result: Ok(Dqe::PtrCast(PointerCast::new(0x12345, "&u32"))),
             },
             TestCase {
                 string: "(*const abc::def::SomeType)  0x123AABCD",
-                result: Ok(DQE::PtrCast(
+                result: Ok(Dqe::PtrCast(PointerCast::new(
                     0x123AABCD,
-                    "*const abc::def::SomeType".to_string(),
-                )),
+                    "*const abc::def::SomeType",
+                ))),
             },
             TestCase {
                 string: " ( &u32 )12345",
@@ -219,7 +219,7 @@ mod test {
             },
             TestCase {
                 string: "(*const i32)0x007FFFFFFFDC94",
-                result: Ok(DQE::PtrCast(0x7FFFFFFFDC94, "*const i32".to_string())),
+                result: Ok(Dqe::PtrCast(PointerCast::new(0x7FFFFFFFDC94, "*const i32"))),
             },
         ];
 
@@ -379,40 +379,40 @@ mod test {
     fn test_expr_parsing() {
         struct TestCase {
             string: &'static str,
-            expr: DQE,
+            expr: Dqe,
         }
         let test_cases = vec![
             TestCase {
                 string: "var1",
-                expr: DQE::Variable(Selector::by_name("var1", false)),
+                expr: Dqe::Variable(Selector::by_name("var1", false)),
             },
             TestCase {
                 string: "*var1",
-                expr: DQE::Deref(DQE::Variable(Selector::by_name("var1", false)).boxed()),
+                expr: Dqe::Deref(Dqe::Variable(Selector::by_name("var1", false)).boxed()),
             },
             TestCase {
                 string: "~var1",
-                expr: DQE::Canonic(DQE::Variable(Selector::by_name("var1", false)).boxed()),
+                expr: Dqe::Canonic(Dqe::Variable(Selector::by_name("var1", false)).boxed()),
             },
             TestCase {
                 string: "**var1",
-                expr: DQE::Deref(
-                    DQE::Deref(DQE::Variable(Selector::by_name("var1", false)).boxed()).boxed(),
+                expr: Dqe::Deref(
+                    Dqe::Deref(Dqe::Variable(Selector::by_name("var1", false)).boxed()).boxed(),
                 ),
             },
             TestCase {
                 string: "~*var1",
-                expr: DQE::Canonic(
-                    DQE::Deref(DQE::Variable(Selector::by_name("var1", false)).boxed()).boxed(),
+                expr: Dqe::Canonic(
+                    Dqe::Deref(Dqe::Variable(Selector::by_name("var1", false)).boxed()).boxed(),
                 ),
             },
             TestCase {
                 string: "**var1.field1.field2",
-                expr: DQE::Deref(
-                    DQE::Deref(
-                        DQE::Field(
-                            DQE::Field(
-                                DQE::Variable(Selector::by_name("var1", false)).boxed(),
+                expr: Dqe::Deref(
+                    Dqe::Deref(
+                        Dqe::Field(
+                            Dqe::Field(
+                                Dqe::Variable(Selector::by_name("var1", false)).boxed(),
                                 "field1".to_string(),
                             )
                             .boxed(),
@@ -425,11 +425,11 @@ mod test {
             },
             TestCase {
                 string: "**(var1.field1.field2)",
-                expr: DQE::Deref(
-                    DQE::Deref(
-                        DQE::Field(
-                            DQE::Field(
-                                DQE::Variable(Selector::by_name("var1", false)).boxed(),
+                expr: Dqe::Deref(
+                    Dqe::Deref(
+                        Dqe::Field(
+                            Dqe::Field(
+                                Dqe::Variable(Selector::by_name("var1", false)).boxed(),
                                 "field1".to_string(),
                             )
                             .boxed(),
@@ -442,10 +442,10 @@ mod test {
             },
             TestCase {
                 string: "(**var1).field1.field2",
-                expr: DQE::Field(
-                    DQE::Field(
-                        DQE::Deref(
-                            DQE::Deref(DQE::Variable(Selector::by_name("var1", false)).boxed())
+                expr: Dqe::Field(
+                    Dqe::Field(
+                        Dqe::Deref(
+                            Dqe::Deref(Dqe::Variable(Selector::by_name("var1", false)).boxed())
                                 .boxed(),
                         )
                         .boxed(),
@@ -457,13 +457,13 @@ mod test {
             },
             TestCase {
                 string: "*(*(var1.field1)).field2[1][2]",
-                expr: DQE::Deref(
-                    DQE::Index(
-                        DQE::Index(
-                            DQE::Field(
-                                DQE::Deref(
-                                    DQE::Field(
-                                        DQE::Variable(Selector::by_name("var1", false)).boxed(),
+                expr: Dqe::Deref(
+                    Dqe::Index(
+                        Dqe::Index(
+                            Dqe::Field(
+                                Dqe::Deref(
+                                    Dqe::Field(
+                                        Dqe::Variable(Selector::by_name("var1", false)).boxed(),
                                         "field1".to_string(),
                                     )
                                     .boxed(),
@@ -482,9 +482,9 @@ mod test {
             },
             TestCase {
                 string: "var1.field1[5..]",
-                expr: DQE::Slice(
-                    DQE::Field(
-                        DQE::Variable(Selector::by_name("var1", false)).boxed(),
+                expr: Dqe::Slice(
+                    Dqe::Field(
+                        Dqe::Variable(Selector::by_name("var1", false)).boxed(),
                         "field1".to_string(),
                     )
                     .boxed(),
@@ -494,9 +494,9 @@ mod test {
             },
             TestCase {
                 string: "var1.field1[..5]",
-                expr: DQE::Slice(
-                    DQE::Field(
-                        DQE::Variable(Selector::by_name("var1", false)).boxed(),
+                expr: Dqe::Slice(
+                    Dqe::Field(
+                        Dqe::Variable(Selector::by_name("var1", false)).boxed(),
                         "field1".to_string(),
                     )
                     .boxed(),
@@ -506,9 +506,9 @@ mod test {
             },
             TestCase {
                 string: "var1.field1[5..5]",
-                expr: DQE::Slice(
-                    DQE::Field(
-                        DQE::Variable(Selector::by_name("var1", false)).boxed(),
+                expr: Dqe::Slice(
+                    Dqe::Field(
+                        Dqe::Variable(Selector::by_name("var1", false)).boxed(),
                         "field1".to_string(),
                     )
                     .boxed(),
@@ -518,9 +518,9 @@ mod test {
             },
             TestCase {
                 string: "var1.field1[..]",
-                expr: DQE::Slice(
-                    DQE::Field(
-                        DQE::Variable(Selector::by_name("var1", false)).boxed(),
+                expr: Dqe::Slice(
+                    Dqe::Field(
+                        Dqe::Variable(Selector::by_name("var1", false)).boxed(),
                         "field1".to_string(),
                     )
                     .boxed(),
@@ -530,9 +530,9 @@ mod test {
             },
             TestCase {
                 string: "enum1.0.a",
-                expr: DQE::Field(
-                    DQE::Field(
-                        DQE::Variable(Selector::by_name("enum1", false)).boxed(),
+                expr: Dqe::Field(
+                    Dqe::Field(
+                        Dqe::Variable(Selector::by_name("enum1", false)).boxed(),
                         "0".to_string(),
                     )
                     .boxed(),
@@ -541,32 +541,34 @@ mod test {
             },
             TestCase {
                 string: "(*mut SomeType)0x123AABCD",
-                expr: DQE::PtrCast(0x123AABCD, "*mut SomeType".to_string()),
+                expr: Dqe::PtrCast(PointerCast::new(0x123AABCD, "*mut SomeType")),
             },
             TestCase {
                 string: "(&abc::def::SomeType)0x123AABCD",
-                expr: DQE::PtrCast(0x123AABCD, "&abc::def::SomeType".to_string()),
+                expr: Dqe::PtrCast(PointerCast::new(0x123AABCD, "&abc::def::SomeType")),
             },
             TestCase {
                 string: "(*const abc::def::SomeType)  0x123AABCD",
-                expr: DQE::PtrCast(0x123AABCD, "*const abc::def::SomeType".to_string()),
+                expr: Dqe::PtrCast(PointerCast::new(0x123AABCD, "*const abc::def::SomeType")),
             },
             TestCase {
                 string: "*((*const abc::def::SomeType) 0x123AABCD)",
-                expr: DQE::Deref(
-                    DQE::PtrCast(0x123AABCD, "*const abc::def::SomeType".to_string()).boxed(),
+                expr: Dqe::Deref(
+                    Dqe::PtrCast(PointerCast::new(0x123AABCD, "*const abc::def::SomeType")).boxed(),
                 ),
             },
             TestCase {
                 string: "*(*const i32)0x007FFFFFFFDC94",
-                expr: DQE::Deref(DQE::PtrCast(0x7FFFFFFFDC94, "*const i32".to_string()).boxed()),
+                expr: Dqe::Deref(
+                    Dqe::PtrCast(PointerCast::new(0x7FFFFFFFDC94, "*const i32")).boxed(),
+                ),
             },
             TestCase {
                 string: "var.arr[0].some_val",
-                expr: DQE::Field(
-                    DQE::Index(
-                        DQE::Field(
-                            DQE::Variable(Selector::by_name("var", false)).boxed(),
+                expr: Dqe::Field(
+                    Dqe::Index(
+                        Dqe::Field(
+                            Dqe::Variable(Selector::by_name("var", false)).boxed(),
                             "arr".to_string(),
                         )
                         .boxed(),
@@ -578,12 +580,12 @@ mod test {
             },
             TestCase {
                 string: "arr[0][..][1..][0].some_val",
-                expr: DQE::Field(
-                    DQE::Index(
-                        DQE::Slice(
-                            DQE::Slice(
-                                DQE::Index(
-                                    DQE::Variable(Selector::by_name("arr", false)).boxed(),
+                expr: Dqe::Field(
+                    Dqe::Index(
+                        Dqe::Slice(
+                            Dqe::Slice(
+                                Dqe::Index(
+                                    Dqe::Variable(Selector::by_name("arr", false)).boxed(),
                                     Literal::Int(0),
                                 )
                                 .boxed(),
@@ -603,12 +605,12 @@ mod test {
             },
             TestCase {
                 string: "map[\"key\"][-5][1.1][false][0x12]",
-                expr: DQE::Index(
-                    DQE::Index(
-                        DQE::Index(
-                            DQE::Index(
-                                DQE::Index(
-                                    DQE::Variable(Selector::by_name("map", false)).boxed(),
+                expr: Dqe::Index(
+                    Dqe::Index(
+                        Dqe::Index(
+                            Dqe::Index(
+                                Dqe::Index(
+                                    Dqe::Variable(Selector::by_name("map", false)).boxed(),
                                     Literal::String("key".to_string()),
                                 )
                                 .boxed(),
@@ -626,21 +628,21 @@ mod test {
             },
             TestCase {
                 string: "map[Some(true)]",
-                expr: DQE::Index(
-                    DQE::Variable(Selector::by_name("map", false)).boxed(),
+                expr: Dqe::Index(
+                    Dqe::Variable(Selector::by_name("map", false)).boxed(),
                     Literal::EnumVariant("Some".to_string(), Some(Box::new(Literal::Bool(true)))),
                 ),
             },
             TestCase {
                 string: "&a",
-                expr: DQE::Address(DQE::Variable(Selector::by_name("a", false)).boxed()),
+                expr: Dqe::Address(Dqe::Variable(Selector::by_name("a", false)).boxed()),
             },
             TestCase {
                 string: "&*a.b",
-                expr: DQE::Address(
-                    DQE::Deref(
-                        DQE::Field(
-                            DQE::Variable(Selector::by_name("a", false)).boxed(),
+                expr: Dqe::Address(
+                    Dqe::Deref(
+                        Dqe::Field(
+                            Dqe::Variable(Selector::by_name("a", false)).boxed(),
                             "b".to_string(),
                         )
                         .boxed(),
@@ -650,8 +652,8 @@ mod test {
             },
             TestCase {
                 string: "&&(*i32)0x123",
-                expr: DQE::Address(
-                    DQE::Address(DQE::PtrCast(0x123, "*i32".to_string()).boxed()).boxed(),
+                expr: Dqe::Address(
+                    Dqe::Address(Dqe::PtrCast(PointerCast::new(0x123, "*i32")).boxed()).boxed(),
                 ),
             },
         ];
