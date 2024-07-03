@@ -10,7 +10,8 @@ use crate::debugger::error::Error::{
     NoDieType, Ptrace, TypeBinaryRepr, UnwindNoContext,
 };
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
-use crate::debugger::{ExplorationContext, debugee};
+use crate::debugger::{debugee, ExplorationContext};
+use crate::version::Version;
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{
     DebugAddr, Encoding, EndianSlice, EvaluationResult, Expression, Location, Piece, Register,
@@ -24,8 +25,20 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::mem;
 
+pub struct EvaluationContext<'a> {
+    pub evaluator: &'a ExpressionEvaluator<'a>,
+    pub expl_ctx: &'a ExplorationContext,
+}
+
+impl EvaluationContext<'_> {
+    pub fn rustc_version(&self) -> Option<Version> {
+        self.evaluator.unit().rustc_version()
+    }
+}
+
 /// Resolve requirements that the `ExpressionEvaluator` may need. Relevant for the current breakpoint.
 /// Some options are lazy to avoid overhead on recalculation.
+#[derive(Clone)]
 struct RequirementsResolver<'a> {
     debugee: &'a Debugee,
     cfa: RefCell<HashMap<Pid, RelocatedAddress>>,
@@ -164,6 +177,7 @@ impl ExternalRequirementsResolver {
     }
 }
 
+#[derive(Clone)]
 pub struct ExpressionEvaluator<'a> {
     encoding: Encoding,
     unit: &'a Unit,

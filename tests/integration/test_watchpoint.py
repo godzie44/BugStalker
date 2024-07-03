@@ -15,12 +15,12 @@ class WatchpointTestCase(unittest.TestCase):
         self.debugger.cmd('watch c', 'New watchpoint')
         self.debugger.cmd(
             'continue',
-            'Hit watchpoint',
-            'old value: c = u64(3)',
-            'new value: c = u64(1)',
+            'Hit watchpoint 1 (expr: c) (w)',
+            'old value: u64(3)',
+            'new value: u64(1)',
         )
 
-        self.debugger.cmd('continue', 'Watchpoint 1 end of scope', 'old value: c = u64(1)')
+        self.debugger.cmd('continue', 'Watchpoint 1 (expr: c) end of scope', 'old value: u64(1)')
 
     def test_watchpoint_at_field(self):
         """Add a new watchpoint for structure field or value in vector and check it works"""
@@ -30,19 +30,19 @@ class WatchpointTestCase(unittest.TestCase):
         self.debugger.cmd('watch vector[2]', 'New watchpoint')
         self.debugger.cmd(
             'continue',
-            'Hit watchpoint',
-            'old value: vector[2] = i32(3)',
-            'new value: vector[2] = i32(4)',
+            'Hit watchpoint 1 (expr: vector[2]) (w)',
+            'old value: i32(3)',
+            'new value: i32(4)',
         )
         self.debugger.cmd('continue', 'Hit breakpoint 2')
         self.debugger.cmd('watch s.b', 'New watchpoint')
-        self.debugger.cmd('continue', 'old value: s.b = f64(1)', 'new value: s.b = f64(2)')
+        self.debugger.cmd('continue', 'old value: f64(1)', 'new value: f64(2)')
         self.debugger.cmd(
             'continue',
-            'Watchpoint 1 end of scope',
-            'old value: vector[2] = i32(4)',
-            'Watchpoint 2 end of scope',
-            'old value: s.b = f64(2)',
+            'Watchpoint 1 (expr: vector[2]) end of scope',
+            'old value: i32(4)',
+            'Watchpoint 2 (expr: s.b) end of scope',
+            'old value: f64(2)',
         )
 
     def test_watchpoint_at_address(self):
@@ -57,8 +57,8 @@ class WatchpointTestCase(unittest.TestCase):
         self.debugger.cmd(
             'continue',
             'Hit watchpoint',
-            'old value: data = u64(1)',
-            'new value: data = u64(6)',
+            'old value: u64(1)',
+            'new value: u64(6)',
         )
         self.debugger.cmd('q')
 
@@ -127,15 +127,15 @@ class WatchpointTestCase(unittest.TestCase):
         self.debugger.cmd('break calculations.rs:20', 'New breakpoint')
         self.debugger.cmd('run', 'Hit breakpoint 1')
         self.debugger.cmd('watch +rw a', 'New watchpoint')
-        self.debugger.cmd('continue', 'Hit watchpoint 1 (rw)', 'value: a = u64(1)')
+        self.debugger.cmd('continue', 'Hit watchpoint 1 (expr: a) (rw)', 'value: u64(1)')
         self.debugger.cmd(
             'continue',
-            'Hit watchpoint 1 (rw)',
-            'old value: a = u64(1)',
-            'new value: a = u64(6)',
+            'Hit watchpoint 1 (expr: a) (rw)',
+            'old value: u64(1)',
+            'new value: u64(6)',
         )
-        self.debugger.cmd('continue', 'Hit watchpoint 1 (rw)', 'value: a = u64(6)')
-        self.debugger.cmd('continue', 'Watchpoint 1 end of scope', 'old value: a = u64(6)')
+        self.debugger.cmd('continue', 'Hit watchpoint 1 (expr: a) (rw)', 'value: u64(6)')
+        self.debugger.cmd('continue', 'Watchpoint 1 (expr: a) end of scope', 'old value: u64(6)')
 
     def test_watchpoint_at_addr_rw(self):
         """Add a new watchpoint with read-write condition at address and check it works"""
@@ -145,14 +145,14 @@ class WatchpointTestCase(unittest.TestCase):
         addr = self.debugger.search_in_output(r'&u64 \[0x(.*)\]')
         addr = "0x" + addr[:14]
         self.debugger.cmd(f'watch +rw {addr}:8', 'New watchpoint')
-        self.debugger.cmd('continue', 'Hit watchpoint 1 (rw)', 'value: data = u64(1)')
+        self.debugger.cmd('continue', 'Hit watchpoint 1 (rw)', 'value: u64(1)')
         self.debugger.cmd(
             'continue',
             'Hit watchpoint 1 (rw)',
-            'old value: data = u64(1)',
-            'new value: data = u64(6)',
+            'old value: u64(1)',
+            'new value: u64(6)',
         )
-        self.debugger.cmd('continue', 'Hit watchpoint 1 (rw)', 'value: data = u64(6)')
+        self.debugger.cmd('continue', 'Hit watchpoint 1 (rw)', 'value: u64(6)')
 
     def test_watchpoint_at_complex_data_types(self):
         """Add watchpoints for vector attribute"""
@@ -161,20 +161,20 @@ class WatchpointTestCase(unittest.TestCase):
         self.debugger.cmd('watch (~vector2).len', 'New watchpoint')
         self.debugger.cmd(
             'continue',
-            'Hit watchpoint 1 (w)',
-            'old value: (~vector2).len = usize(2)',
-            'new value: (~vector2).len = usize(3)',
+            'Hit watchpoint 1 (expr: (~vector2).len) (w)',
+            'old value: usize(2)',
+            'new value: usize(3)',
         )
         self.debugger.cmd(
             'continue',
-            'Hit watchpoint 1 (w)',
-            'old value: (~vector2).len = usize(3)',
-            'new value: (~vector2).len = usize(4)',
+            'Hit watchpoint 1 (expr: (~vector2).len) (w)',
+            'old value: usize(3)',
+            'new value: usize(4)',
         )
         self.debugger.cmd(
             'continue',
-            'Watchpoint 1 end of scope',
-            'old value: (~vector2).len = usize(4)',
+            'Watchpoint 1 (expr: (~vector2).len) end of scope',
+            'old value: usize(4)',
         )
 
     def test_watchpoint_at_complex_data_types2(self):
@@ -184,12 +184,12 @@ class WatchpointTestCase(unittest.TestCase):
         self.debugger.cmd('watch (~(~string).vec).len', 'New watchpoint')
         self.debugger.cmd(
             'continue',
-            'Hit watchpoint 1 (w)',
-            'old value: (~(~string).vec).len = usize(3)',
-            'new value: (~(~string).vec).len = usize(7)',
+            'Hit watchpoint 1 (expr: (~(~string).vec).len) (w)',
+            'old value: usize(3)',
+            'new value: usize(7)',
         )
         self.debugger.cmd(
             'continue',
-            'Watchpoint 1 end of scope',
-            'old value: (~(~string).vec).len = usize(7)',
+            'Watchpoint 1 (expr: (~(~string).vec).len) end of scope',
+            'old value: usize(7)',
         )

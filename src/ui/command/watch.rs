@@ -1,3 +1,6 @@
+use crate::debugger::address::RelocatedAddress;
+use crate::debugger::register::debug::{BreakCondition, BreakSize};
+use crate::debugger::variable::dqe::Dqe;
 use crate::debugger::Debugger;
 use crate::debugger::Error;
 use crate::debugger::WatchpointView;
@@ -7,7 +10,7 @@ use crate::debugger::variable::select::DQE;
 
 #[derive(Debug, Clone)]
 pub enum WatchpointIdentity {
-    DQE(String, DQE),
+    DQE(String, Dqe),
     Address(usize, u8),
     Number(u32),
 }

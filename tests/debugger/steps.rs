@@ -1,7 +1,8 @@
 use crate::CALC_APP;
 use crate::common::TestInfo;
-use crate::common::{TestHooks, rust_version};
-use crate::{HW_APP, RECURSION_APP, VARS_APP, assert_no_proc, prepare_debugee_process};
+use crate::common::{rust_version, TestHooks};
+use crate::CALC_APP;
+use crate::{assert_no_proc, prepare_debugee_process, HW_APP, RECURSION_APP, VARS_APP};
 use bugstalker::debugger::variable::{SupportedScalar, VariableIR};
 use bugstalker::debugger::{Debugger, DebuggerBuilder};
 use bugstalker::ui::command::parser::expression;
@@ -64,7 +65,7 @@ fn test_step_into_recursion() {
     fn assert_arg(debugger: &Debugger, expected: u64) {
         let get_i_expr = expression::parser().parse("i").unwrap();
         let i_arg = debugger.read_argument(get_i_expr).unwrap().pop().unwrap();
-        let VariableIR::Scalar(scalar) = i_arg else {
+        let Value::Scalar(scalar) = i_arg.into_value() else {
             panic!("not a scalar");
         };
         assert_eq!(scalar.value, Some(SupportedScalar::U64(expected)));
