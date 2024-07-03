@@ -25,7 +25,7 @@ pub mod thread;
 pub mod variables;
 pub mod watch;
 
-use crate::debugger::variable::select::DQE;
+use crate::debugger::variable::dqe::Dqe;
 use crate::debugger::Error;
 
 #[derive(thiserror::Error, Debug)]
@@ -43,8 +43,8 @@ pub type CommandResult<T> = Result<T, CommandError>;
 /// External commands that can be processed by the debugger.
 #[derive(Debug, Clone)]
 pub enum Command {
-    PrintVariables(DQE),
-    PrintArguments(DQE),
+    PrintVariables(Dqe),
+    PrintArguments(Dqe),
     PrintBacktrace(backtrace::Command),
     Continue,
     Frame(frame::Command),
