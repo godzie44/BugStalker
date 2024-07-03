@@ -1,6 +1,6 @@
 use bugstalker::debugger::address::RelocatedAddress;
 use bugstalker::debugger::register::debug::BreakCondition;
-use bugstalker::debugger::variable::VariableIR;
+use bugstalker::debugger::variable::value::Value;
 use bugstalker::debugger::{EventHook, FunctionDie, PlaceDescriptor};
 use bugstalker::version::Version;
 use nix::sys::signal::Signal;
@@ -15,8 +15,9 @@ pub struct TestInfo {
     pub addr: Arc<Cell<Option<RelocatedAddress>>>,
     pub line: Arc<Cell<Option<u64>>>,
     pub file: Arc<Cell<Option<String>>>,
-    pub old_value: Arc<RefCell<Option<VariableIR>>>,
-    pub new_value: Arc<RefCell<Option<VariableIR>>>,
+    pub wp_dqe_string: Arc<RefCell<Option<String>>>,
+    pub old_value: Arc<RefCell<Option<Value>>>,
+    pub new_value: Arc<RefCell<Option<Value>>>,
 }
 
 #[derive(Default)]
@@ -51,14 +52,18 @@ impl EventHook for TestHooks {
         _: u32,
         place: Option<PlaceDescriptor>,
         _: BreakCondition,
-        old_value: Option<&VariableIR>,
-        new_value: Option<&VariableIR>,
+        dqe_string: Option<&str>,
+        old_value: Option<&Value>,
+        new_value: Option<&Value>,
         _: bool,
     ) -> anyhow::Result<()> {
         self.info.addr.set(Some(pc));
         let file = &self.info.file;
         file.set(place.as_ref().map(|p| p.file.to_str().unwrap().to_string()));
         self.info.line.set(place.map(|p| p.line_number));
+        self.info
+            .wp_dqe_string
+            .replace(dqe_string.map(ToString::to_string));
         self.info.old_value.replace(old_value.cloned());
         self.info.new_value.replace(new_value.cloned());
         Ok(())
