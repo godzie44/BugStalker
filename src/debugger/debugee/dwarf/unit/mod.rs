@@ -405,7 +405,7 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new_leaf(parent: Option<usize>) -> Node {
+    pub const fn new_leaf(parent: Option<usize>) -> Node {
         Self {
             parent,
             children: vec![],

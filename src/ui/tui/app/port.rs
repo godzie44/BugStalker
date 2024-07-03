@@ -1,6 +1,6 @@
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::register::debug::BreakCondition;
-use crate::debugger::variable::VariableIR;
+use crate::debugger::variable::value::Value;
 use crate::debugger::{EventHook, FunctionDie, PlaceDescriptor};
 use crate::ui::tui::output::OutputLine;
 use crate::ui::tui::proto::ClientExchanger;
@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use tuirealm::listener::{ListenerResult, Poll};
 use tuirealm::Event;
 
-impl PartialOrd for VariableIR {
+impl PartialOrd for Value {
     fn partial_cmp(&self, _: &Self) -> Option<Ordering> {
         None
     }
@@ -36,8 +36,8 @@ pub enum UserEvent {
         file: Option<String>,
         line: Option<u64>,
         cond: BreakCondition,
-        old_value: Option<VariableIR>,
-        new_value: Option<VariableIR>,
+        old_value: Option<Value>,
+        new_value: Option<Value>,
         end_of_scope: bool,
     },
     Step {
@@ -148,8 +148,9 @@ impl EventHook for TuiHook {
         num: u32,
         place: Option<PlaceDescriptor>,
         cond: BreakCondition,
-        old: Option<&VariableIR>,
-        new: Option<&VariableIR>,
+        _: Option<&str>,
+        old: Option<&Value>,
+        new: Option<&Value>,
         end_of_scope: bool,
     ) -> anyhow::Result<()> {
         self.event_queue

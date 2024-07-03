@@ -11,9 +11,9 @@ pub use self::unwind::DwarfUnwinder;
 
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::dwarf::eval::AddressKind;
+use crate::debugger::debugee::dwarf::eval::EvaluationContext;
 use crate::debugger::debugee::dwarf::location::Location as DwarfLocation;
 use crate::debugger::debugee::dwarf::r#type::ComplexType;
-use crate::debugger::debugee::dwarf::r#type::EvaluationContext;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
 use crate::debugger::debugee::dwarf::unit::{
     DieRef, DieVariant, DwarfUnitParser, Entry, FunctionDie, Node, ParameterDie,
@@ -26,7 +26,7 @@ use crate::debugger::error::Error::{
     DebugIDFormat, FBANotAnExpression, FunctionNotFound, NoFBA, NoFunctionRanges, UnitNotFound,
 };
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
-use crate::debugger::variable::select::ObjectBinaryRepr;
+use crate::debugger::variable::ObjectBinaryRepr;
 use crate::debugger::ExplorationContext;
 use crate::{muted_error, resolve_unit_call, version_switch, weak_error};
 use fallible_iterator::FallibleIterator;
@@ -512,7 +512,7 @@ impl DebugInformation {
         &self,
         location: Location,
         name: &str,
-    ) -> Result<Vec<ContextualDieRef<'_, VariableDie>>, Error> {
+    ) -> Result<Vec<ContextualDieRef<'_, '_, VariableDie>>, Error> {
         let units = self.get_units()?;
 
         let mut found = vec![];
@@ -944,11 +944,11 @@ impl NamespaceHierarchy {
     }
 }
 
-pub struct ContextualDieRef<'a, T> {
-    pub debug_info: &'a DebugInformation,
+pub struct ContextualDieRef<'node, 'dbg: 'node, T> {
+    pub debug_info: &'dbg DebugInformation,
     pub unit_idx: usize,
-    pub node: &'a Node,
-    pub die: &'a T,
+    pub node: &'node Node,
+    pub die: &'node T,
 }
 
 #[macro_export]
@@ -958,26 +958,26 @@ macro_rules! ctx_resolve_unit_call {
     }};
 }
 
-impl<T> Clone for ContextualDieRef<'_, T> {
+impl<T> Clone for ContextualDieRef<'_, '_, T> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<T> Copy for ContextualDieRef<'_, T> {}
+impl<T> Copy for ContextualDieRef<'_, '_, T> {}
 
-impl<'a, T> ContextualDieRef<'a, T> {
+impl<'dbg, T> ContextualDieRef<'_, 'dbg, T> {
     pub fn namespaces(&self) -> NamespaceHierarchy {
         let entries = ctx_resolve_unit_call!(self, entries,);
         NamespaceHierarchy::for_node(self.node, entries)
     }
 
-    pub fn unit(&self) -> &'a Unit {
+    pub fn unit(&self) -> &'dbg Unit {
         self.debug_info.unit_ensure(self.unit_idx)
     }
 }
 
-impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
+impl<'ctx> ContextualDieRef<'ctx, 'ctx, FunctionDie> {
     pub fn full_name(&self) -> Option<String> {
         self.die
             .base_attributes
@@ -1007,7 +1007,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
     pub fn local_variables<'this>(
         &'this self,
         pc: GlobalAddress,
-    ) -> Vec<ContextualDieRef<'ctx, VariableDie>> {
+    ) -> Vec<ContextualDieRef<'ctx, 'ctx, VariableDie>> {
         let mut result = vec![];
         let mut queue = VecDeque::from(self.node.children.clone());
         while let Some(idx) = queue.pop_front() {
@@ -1033,7 +1033,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         &'this self,
         pc: GlobalAddress,
         needle: &str,
-    ) -> Option<ContextualDieRef<'ctx, VariableDie>> {
+    ) -> Option<ContextualDieRef<'ctx, 'ctx, VariableDie>> {
         let mut queue = VecDeque::from(self.node.children.clone());
         while let Some(idx) = queue.pop_front() {
             let entry = ctx_resolve_unit_call!(self, entry, idx);
@@ -1054,7 +1054,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
         None
     }
 
-    pub fn parameters(&self) -> Vec<ContextualDieRef<'_, ParameterDie>> {
+    pub fn parameters(&self) -> Vec<ContextualDieRef<'ctx, 'ctx, ParameterDie>> {
         let mut result = vec![];
         for &idx in &self.node.children {
             let entry = ctx_resolve_unit_call!(self, entry, idx);
@@ -1139,7 +1139,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
     }
 }
 
-impl ContextualDieRef<'_, VariableDie> {
+impl<'ctx> ContextualDieRef<'ctx, 'ctx, VariableDie> {
     pub fn ranges(&self) -> Option<&[Range]> {
         if let Some(lb_idx) = self.die.lexical_block_idx {
             let entry = ctx_resolve_unit_call!(self, entry, lb_idx);
@@ -1160,7 +1160,7 @@ impl ContextualDieRef<'_, VariableDie> {
             .unwrap_or(true)
     }
 
-    pub fn assume_parent_function(&self) -> Option<ContextualDieRef<'_, FunctionDie>> {
+    pub fn assume_parent_function(&self) -> Option<ContextualDieRef<'_, '_, FunctionDie>> {
         let mut mb_parent = self.node.parent;
 
         while let Some(p) = mb_parent {
@@ -1181,7 +1181,7 @@ impl ContextualDieRef<'_, VariableDie> {
     }
 }
 
-impl ContextualDieRef<'_, ParameterDie> {
+impl<'ctx> ContextualDieRef<'ctx, 'ctx, ParameterDie> {
     /// Return max range (with max `end` address) of an underlying function.
     /// If it's possible, `end` address in range equals to function epilog begin.
     pub fn max_range(&self) -> Option<Range> {
@@ -1205,7 +1205,7 @@ impl ContextualDieRef<'_, ParameterDie> {
     }
 }
 
-impl<D: AsAllocatedData> ContextualDieRef<'_, D> {
+impl<'ctx, D: AsAllocatedData> ContextualDieRef<'ctx, 'ctx, D> {
     pub fn r#type(&self) -> Option<ComplexType> {
         let parser = r#type::TypeParser::new();
         Some(parser.parse(*self, self.die.type_ref()?))
@@ -1227,7 +1227,7 @@ impl<D: AsAllocatedData> ContextualDieRef<'_, D> {
                         evaluator: &evaluator,
                         expl_ctx: ctx,
                     },
-                    r#type.root,
+                    r#type.root(),
                 )? as usize;
                 let (address, raw_data) =
                     weak_error!(eval_result.into_raw_bytes(type_size, AddressKind::MemoryAddress))?;

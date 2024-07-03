@@ -1,7 +1,7 @@
 use crate::debugger::unwind::{Backtrace, FrameSpan};
-use crate::debugger::variable::select::{Selector, DQE};
-use crate::debugger::variable::{
-    Member, ScalarVariable, StructVariable, SupportedScalar, VariableIR,
+use crate::debugger::variable::dqe::{Dqe, PointerCast, Selector};
+use crate::debugger::variable::value::{
+    Member, PointerValue, ScalarValue, StructValue, SupportedScalar, Value,
 };
 use crate::debugger::CreateTransparentBreakpointRequest;
 use crate::debugger::{Debugger, Error};
@@ -284,11 +284,11 @@ impl ConsolePlugin for TokioOracle {
 
 impl TokioOracle {
     /// Return underline value of loom `AtomicUsize` structure.
-    fn extract_value_from_atomic_usize(&self, val: &StructVariable) -> Option<usize> {
-        if let VariableIR::Struct(ref inner) = val.members.first()?.value {
-            if let VariableIR::Struct(ref value) = inner.members.first()?.value {
-                if let VariableIR::Struct(ref v) = value.members.first()?.value {
-                    if let VariableIR::Scalar(ref value) = v.members.first()?.value {
+    fn extract_value_from_atomic_usize(&self, val: &StructValue) -> Option<usize> {
+        if let Value::Struct(ref inner) = val.members.first()?.value {
+            if let Value::Struct(ref value) = inner.members.first()?.value {
+                if let Value::Struct(ref v) = value.members.first()?.value {
+                    if let Value::Scalar(ref value) = v.members.first()?.value {
                         if let Some(SupportedScalar::Usize(usize)) = value.value {
                             return Some(usize);
                         }
@@ -309,21 +309,21 @@ impl TokioOracle {
             .filter(|(_, task)| task.dropped_at.is_none())
             .for_each(|(_, task)| {
                 if let Some(ptr) = task.ptr {
-                    let var = dbg.read_variable(DQE::Deref(
-                        DQE::PtrCast(
+                    let var = dbg.read_variable(Dqe::Deref(
+                        Dqe::PtrCast(PointerCast::new(
                             ptr as usize,
-                            "*const tokio::runtime::task::core::Header".to_string(),
-                        )
+                            "*const tokio::runtime::task::core::Header",
+                        ))
                         .boxed(),
                     ));
 
-                    if let Ok(Some(VariableIR::Struct(header_struct))) =
-                        var.as_ref().map(|v| v.first())
+                    if let Ok(Some(Value::Struct(header_struct))) =
+                        var.as_ref().map(|v| v.first().map(|v| v.value()))
                     {
                         for member in &header_struct.members {
                             if let Member {
                                 field_name,
-                                value: VariableIR::Struct(ref state_member),
+                                value: Value::Struct(ref state_member),
                             } = member
                             {
                                 if field_name.as_deref() != Some("state") {
@@ -333,7 +333,7 @@ impl TokioOracle {
                                 let val = state_member.members.first();
 
                                 if let Some(Member {
-                                    value: VariableIR::Struct(val),
+                                    value: Value::Struct(val),
                                     ..
                                 }) = val
                                 {
@@ -350,47 +350,51 @@ impl TokioOracle {
 
     /// Read `self` function argument, interpret it as a task and return (task_id, task pointer) pair.
     fn get_header_from_self(dbg: &mut Debugger) -> Result<Option<(u64, *const ())>, Error> {
-        let header_pointer_expr = DQE::Field(
-            DQE::Field(
-                DQE::Variable(Selector::by_name("self", true)).boxed(),
+        let header_pointer_expr = Dqe::Field(
+            Dqe::Field(
+                Dqe::Variable(Selector::by_name("self", true)).boxed(),
                 "ptr".to_string(),
             )
             .boxed(),
             "pointer".to_string(),
         );
 
-        let header_args = dbg.read_argument(header_pointer_expr.clone())?;
-        let VariableIR::Pointer(header_pointer) = &header_args[0] else {
+        let mut header_args = dbg.read_argument(header_pointer_expr)?;
+        let Some(header) = header_args.pop() else {
             return Ok(None);
         };
 
-        let id_offset_args = dbg.read_argument(DQE::Field(
-            DQE::Deref(
-                DQE::Field(
-                    DQE::Deref(header_pointer_expr.boxed()).boxed(),
-                    "vtable".to_string(),
-                )
-                .boxed(),
-            )
-            .boxed(),
-            "id_offset".to_string(),
-        ))?;
+        let Value::Pointer(PointerValue {
+            value: Some(header_ptr),
+            ..
+        }) = header.value()
+        else {
+            return Ok(None);
+        };
+        let header_ptr = *header_ptr;
 
-        let Some(VariableIR::Scalar(ScalarVariable {
+        let Some(id_offset) = header.modify_value(|ctx, value| {
+            let deref = value.deref(ctx)?;
+            let vtable = deref.field("vtable")?;
+            let deref = vtable.deref(ctx)?;
+            deref.field("id_offset")
+        }) else {
+            return Ok(None);
+        };
+
+        let Value::Scalar(ScalarValue {
             value: Some(SupportedScalar::Usize(id_offset)),
             ..
-        })) = &id_offset_args.first()
+        }) = id_offset.value()
         else {
             return Ok(None);
         };
 
-        if let Some(header_ptr) = header_pointer.value {
-            let id_addr = header_ptr as usize + *id_offset;
+        let id_addr = header_ptr as usize + *id_offset;
 
-            if let Ok(memory) = dbg.read_memory(id_addr, size_of::<u64>()) {
-                let task_id = u64::from_ne_bytes(memory.try_into().unwrap());
-                return Ok(Some((task_id, header_ptr)));
-            }
+        if let Ok(memory) = dbg.read_memory(id_addr, size_of::<u64>()) {
+            let task_id = u64::from_ne_bytes(memory.try_into().unwrap());
+            return Ok(Some((task_id, header_ptr)));
         }
 
         Ok(None)
@@ -415,12 +419,12 @@ impl TokioOracle {
     }
 
     fn on_new(&self, debugger: &mut Debugger) -> Result<(), Error> {
-        let id_args = debugger.read_argument(DQE::Field(
-            Box::new(DQE::Variable(Selector::by_name("id", true))),
+        let id_args = debugger.read_argument(Dqe::Field(
+            Box::new(Dqe::Variable(Selector::by_name("id", true))),
             "__0".to_string(),
         ))?;
 
-        if let VariableIR::Scalar(scalar) = &id_args[0] {
+        if let Value::Scalar(scalar) = id_args[0].value() {
             if let Some(SupportedScalar::U64(id_value)) = scalar.value {
                 let bt = debugger
                     .backtrace(debugger.exploration_ctx().pid_on_focus())
