@@ -1,21 +1,23 @@
 use crate::debugger::address::RelocatedAddress;
-use crate::debugger::variable::VariableIR;
-use crate::debugger::variable::render::{RenderRepr, ValueLayout};
+use crate::debugger::variable::execute::{QueryResult, QueryResultKind};
+use crate::debugger::variable::render::{RenderValue, ValueLayout};
+use crate::debugger::variable::value::Value;
 use crate::ui::syntax;
 use crate::ui::syntax::StylizedLine;
 use syntect::util::as_24_bit_terminal_escaped;
 
 const TAB: &str = "\t";
 
-pub fn render_variable(var: &VariableIR) -> anyhow::Result<String> {
+pub fn render_variable(var: &QueryResult) -> anyhow::Result<String> {
     let syntax_renderer = syntax::rust_syntax_renderer();
     let mut line_renderer = syntax_renderer.line_renderer();
-    let prefix = var
-        .name()
-        .map(|name| format!("{name} = "))
-        .unwrap_or_default();
+    let prefix = if var.kind() == QueryResultKind::Root && var.identity().name.is_some() {
+        format!("{} = ", var.identity())
+    } else {
+        String::default()
+    };
 
-    let var_as_string = format!("{prefix}{}", render_variable_ir(var, 0));
+    let var_as_string = format!("{prefix}{}", render_value(var.value()));
     Ok(var_as_string
         .lines()
         .map(|l| -> anyhow::Result<String> {
@@ -32,29 +34,33 @@ pub fn render_variable(var: &VariableIR) -> anyhow::Result<String> {
         .join("\n"))
 }
 
-pub fn render_variable_ir(view: &VariableIR, depth: usize) -> String {
-    match view.value() {
-        Some(value) => match value {
-            ValueLayout::PreRendered(rendered_value) => match view {
-                VariableIR::CEnum(_) => format!("{}::{}", view.r#type().name_fmt(), rendered_value),
-                _ => format!("{}({})", view.r#type().name_fmt(), rendered_value),
+pub fn render_value(value: &Value) -> String {
+    render_value_inner(value, 0)
+}
+
+fn render_value_inner(value: &Value, depth: usize) -> String {
+    match value.value_layout() {
+        Some(layout) => match layout {
+            ValueLayout::PreRendered(rendered_value) => match value {
+                Value::CEnum(_) => format!("{}::{}", value.r#type().name_fmt(), rendered_value),
+                _ => format!("{}({})", value.r#type().name_fmt(), rendered_value),
             },
             ValueLayout::Referential(addr) => {
                 format!(
                     "{} [{}]",
-                    view.r#type().name_fmt(),
+                    value.r#type().name_fmt(),
                     RelocatedAddress::from(addr as usize)
                 )
             }
             ValueLayout::Wrapped(val) => {
                 format!(
                     "{}::{}",
-                    view.r#type().name_fmt(),
-                    render_variable_ir(val, depth)
+                    value.r#type().name_fmt(),
+                    render_value_inner(val, depth)
                 )
             }
             ValueLayout::Structure(members) => {
-                let mut render = format!("{} {{", view.r#type().name_fmt());
+                let mut render = format!("{} {{", value.r#type().name_fmt());
 
                 let tabs = TAB.repeat(depth + 1);
 
@@ -63,14 +69,14 @@ pub fn render_variable_ir(view: &VariableIR, depth: usize) -> String {
                     render = format!(
                         "{render}{tabs}{}: {}",
                         member.field_name.as_deref().unwrap_or_default(),
-                        render_variable_ir(&member.value, depth + 1)
+                        render_value_inner(&member.value, depth + 1)
                     );
                 }
 
                 format!("{render}\n{}}}", TAB.repeat(depth))
             }
             ValueLayout::Map(kv_children) => {
-                let mut render = format!("{} {{", view.r#type().name_fmt());
+                let mut render = format!("{} {{", value.r#type().name_fmt());
 
                 let tabs = TAB.repeat(depth + 1);
 
@@ -78,15 +84,15 @@ pub fn render_variable_ir(view: &VariableIR, depth: usize) -> String {
                     render = format!("{render}\n");
                     render = format!(
                         "{render}{tabs}{}: {}",
-                        render_variable_ir(&kv.0, depth + 1),
-                        render_variable_ir(&kv.1, depth + 1)
+                        render_value_inner(&kv.0, depth + 1),
+                        render_value_inner(&kv.1, depth + 1)
                     );
                 }
 
                 format!("{render}\n{}}}", TAB.repeat(depth))
             }
             ValueLayout::IndexedList(items) => {
-                let mut render = format!("{} {{", view.r#type().name_fmt());
+                let mut render = format!("{} {{", value.r#type().name_fmt());
 
                 let tabs = TAB.repeat(depth + 1);
 
@@ -95,25 +101,25 @@ pub fn render_variable_ir(view: &VariableIR, depth: usize) -> String {
                     render = format!(
                         "{render}{tabs}{}: {}",
                         item.index,
-                        render_variable_ir(&item.value, depth + 1)
+                        render_value_inner(&item.value, depth + 1)
                     );
                 }
 
                 format!("{render}\n{}}}", TAB.repeat(depth))
             }
             ValueLayout::NonIndexedList(values) => {
-                let mut render = format!("{} {{", view.r#type().name_fmt());
+                let mut render = format!("{} {{", value.r#type().name_fmt());
 
                 let tabs = TAB.repeat(depth + 1);
 
                 for val in values {
                     render = format!("{render}\n");
-                    render = format!("{render}{tabs}{}", render_variable_ir(val, depth + 1));
+                    render = format!("{render}{tabs}{}", render_value_inner(val, depth + 1));
                 }
 
                 format!("{render}\n{}}}", TAB.repeat(depth))
             }
         },
-        None => format!("{}(unknown)", view.r#type().name_fmt()),
+        None => format!("{}(unknown)", value.r#type().name_fmt()),
     }
 }
