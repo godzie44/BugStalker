@@ -1,5 +1,5 @@
-use crate::debugger::variable::select::DQE;
-use crate::debugger::variable::VariableIR;
+use crate::debugger::variable::dqe::Dqe;
+use crate::debugger::variable::execute::QueryResult;
 use crate::debugger::Debugger;
 use crate::ui::command;
 
@@ -12,7 +12,7 @@ impl<'a> Handler<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&self, select_expression: DQE) -> command::CommandResult<Vec<VariableIR>> {
+    pub fn handle(&self, select_expression: Dqe) -> command::CommandResult<Vec<QueryResult>> {
         Ok(self.dbg.read_argument(select_expression)?)
     }
 }
