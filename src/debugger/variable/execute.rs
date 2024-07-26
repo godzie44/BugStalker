@@ -1,6 +1,6 @@
 use crate::debugger::debugee::dwarf::eval::{EvaluationContext, ExpressionEvaluator};
 use crate::debugger::debugee::dwarf::r#type::ComplexType;
-use crate::debugger::debugee::dwarf::unit::{ParameterDie, VariableDie};
+use crate::debugger::debugee::dwarf::unit::{ParameterDie, Unit, VariableDie};
 use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, DebugInformation};
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::FunctionNotFound;
@@ -28,7 +28,8 @@ pub enum QueryResultKind {
 /// Result of DQE evaluation.
 #[derive(Clone)]
 pub struct QueryResult<'a> {
-    value: Option<Value>,
+    // TODO tmp pub
+    pub value: Option<Value>,
     scope: Option<Box<[Range]>>,
     kind: QueryResultKind,
     base_type: Rc<ComplexType>,
@@ -37,6 +38,11 @@ pub struct QueryResult<'a> {
 }
 
 impl<'a> QueryResult<'a> {
+    /// Return CU in which result values are located.
+    pub fn unit(&self) -> &Unit {
+        self.eval_ctx_builder.unit()
+    }
+
     /// Return underlying typed value representation.
     #[inline(always)]
     pub fn value(&self) -> &Value {
@@ -125,6 +131,17 @@ enum EvaluationContextBuilder<'a> {
 }
 
 impl<'a> EvaluationContextBuilder<'a> {
+    pub fn unit(&self) -> &Unit {
+        match self {
+            EvaluationContextBuilder::Ready(_, evaluator) => evaluator.unit(),
+            EvaluationContextBuilder::Virtual {
+                debug_info,
+                unit_idx,
+                ..
+            } => debug_info.unit_ensure(*unit_idx),
+        }
+    }
+
     fn with_eval_ctx<T, F: FnOnce(&EvaluationContext) -> T>(&self, cb: F) -> T {
         let evaluator;
         let ctx = match self {

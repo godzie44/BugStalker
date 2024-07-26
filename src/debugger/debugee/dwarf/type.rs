@@ -13,6 +13,7 @@ use gimli::{AttributeValue, DwAte, Expression};
 use log::warn;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt::{Display, Formatter};
 use std::mem;
 use std::rc::Rc;
 use strum_macros::Display;
@@ -63,7 +64,7 @@ impl TypeIdentity {
         self.name.as_deref()
     }
 
-    /// Return formatted type name.  
+    /// Return formatted type name.
     #[inline(always)]
     pub fn name_fmt(&self) -> &str {
         self.name().unwrap_or("unknown")
@@ -91,6 +92,16 @@ impl TypeIdentity {
     #[inline(always)]
     pub fn as_array_type(&self) -> TypeIdentity {
         TypeIdentity::no_namespace(format!("[{}]", self.name_fmt()))
+    }
+}
+
+impl Display for TypeIdentity {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "{}::{}",
+            self.namespace.join("::"),
+            self.name_fmt()
+        ))
     }
 }
 
@@ -552,7 +563,7 @@ impl<'a> Iterator for BfsIterator<'a> {
     }
 }
 
-/// Dwarf DIE parser.
+/// DWARF DIE parser.
 pub struct TypeParser {
     known_type_ids: HashSet<TypeId>,
     processed_types: HashMap<TypeId, TypeDeclaration>,

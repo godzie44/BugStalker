@@ -1,6 +1,6 @@
 use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, NamespaceHierarchy};
 use bytes::Bytes;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Display, Formatter};
 
 pub mod dqe;
 pub mod execute;
@@ -10,7 +10,7 @@ mod r#virtual;
 
 /// Identifier of a query result.
 /// Consists name and namespace of the variable or argument.
-#[derive(Clone, Default, PartialEq, Debug)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Identity {
     namespace: NamespaceHierarchy,
     pub name: Option<String>,

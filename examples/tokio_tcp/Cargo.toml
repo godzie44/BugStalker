@@ -1,11 +1,11 @@
 [package]
-name = "tokioticker"
+name = "tokio_tcp"
 version = "0.0.0"
 edition = "2021"
 workspace = "./.."
 publish = false
 
 [dependencies]
-tokio = { version = "1.40.0", features = ["time", "default", "rt-multi-thread", "macros"] }
+tokio = { version = "1.40.0", features = ["full"] }
 rand = "0.8"
 log = "0.4.20"

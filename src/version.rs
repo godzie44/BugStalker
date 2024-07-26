@@ -5,7 +5,7 @@ use once_cell::sync;
 use regex::Regex;
 
 /// Compiler SemVer version.
-#[derive(PartialEq, PartialOrd)]
+#[derive(PartialEq, PartialOrd, Debug)]
 pub struct Version(pub (u32, u32, u32));
 
 impl Version {

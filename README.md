@@ -23,6 +23,8 @@
     * [Examining the stack](#examining-the-stack)
     * [Examining source files](#examining-source-files)
     * [Examining data](#examining-data)
+    * [Async rust](#async-rust)
+        * [Async backtrace](#async-backtrace)
     * [Other commands](#other-commands)
     * [Tui interface](#tui-interface)
         * [Configuration](#configuration)
@@ -425,6 +427,34 @@ Some examples:
   index 2 in
   element at index 1 at field `field2` in dereferenced value of field `field1`
   at variable var1 🤡
+
+## Async rust
+
+Now BugStalker support some commands for interaction with async runtimes (currently only tokio multithread runtime is
+supported).
+There is also `oracle tokio`, but it adds some overhead to your program and
+is not very informative unlike the commands presented below.
+
+### Async backtrace
+
+[demo async backtrace](https://github.com/godzie44/BugStalker/blob/master/doc/demo_async_bt.gif)
+
+While debugging an asynchronous application, you may want to control the state of your application.
+If it were a regular synchronous application, you could use the `backtrace` command,
+unfortunately for an application with an asynchronous runtime, this command is of little use.
+
+Therefore, BugStalker presents a family of commands "asynchronous backtrace". With their help
+you can get information about the state of your asynchronous runtime -
+the state of asynchronous workers and blocking threads, as well as information about each task in the system,
+including its current state and its own "backtrace" - a stack of futures starting from the root.
+
+- `async backtrace` - show information about tokio async workers and blocking threads (alias: `async bt`).
+  It contains worker/blocking thread id, worker local tasks queue info, currently executed tasks for each worker.
+- `async backtrace all` - same as previous (alias: `async bt all`), but contains information about all tasks in the
+  system.
+  Each task contains an id, and represents as a futures stack, where one future wait for other, and so on.
+- `async task {regex}` - print all task with root async functions with names matched to regex. If regex are empty
+  then print active task.
 
 ## Other commands
 
