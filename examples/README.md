@@ -62,3 +62,7 @@ Initiated by user or system panic (like divide by zero panic).
 ### Calculations
 
 Program that calculates some values. Useful for watchpoints testing.
+
+### Tokio_tcp
+
+Tokio tcp echo-server. Useful for testing `async ...` commands.

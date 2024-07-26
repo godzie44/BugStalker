@@ -538,6 +538,13 @@ fn thread_local_const_init() {
     let nop: Option<u8> = None;
 }
 
+fn boxed_array() {
+    let v = vec![1, 2, 3, 4, 5];
+    let box_v = v.into_boxed_slice();
+
+    let nop: Option<u8> = None;
+}
+
 pub fn main() {
     scalar_types();
     compound_types();
@@ -571,4 +578,5 @@ pub fn main() {
     uuid();
     datetime();
     thread_local_const_init();
+    boxed_array();
 }

@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 mod bfs;
 pub(super) mod parser;
-mod specialization;
+pub mod specialization;
 
 pub use crate::debugger::variable::value::specialization::SpecializedValue;
 
@@ -137,7 +137,7 @@ pub struct ScalarValue {
 }
 
 impl ScalarValue {
-    fn try_as_number(&self) -> Option<i64> {
+    pub fn try_as_number(&self) -> Option<i64> {
         match self.value {
             Some(SupportedScalar::I8(num)) => Some(num as i64),
             Some(SupportedScalar::I16(num)) => Some(num as i64),
@@ -182,6 +182,15 @@ impl StructValue {
                 None
             }
         })
+    }
+
+    pub fn into_member_n(self, n: usize) -> Option<Value> {
+        let mut this = self;
+        if this.members.len() > n {
+            let m = this.members.swap_remove(n);
+            return Some(m.value);
+        };
+        None
     }
 }
 
@@ -381,6 +390,20 @@ impl Debug for Value {
 }
 
 impl Value {
+    pub fn into_scalar(self) -> Option<ScalarValue> {
+        match self {
+            Value::Scalar(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn into_array(self) -> Option<ArrayValue> {
+        match self {
+            Value::Array(arr) => Some(arr),
+            _ => None,
+        }
+    }
+
     /// Return literal equals representation of a value.
     pub fn as_literal(&self) -> Option<Literal> {
         match self {

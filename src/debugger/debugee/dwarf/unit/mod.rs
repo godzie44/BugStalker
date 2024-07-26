@@ -740,7 +740,16 @@ impl Unit {
         }
     }
 
+    /// Return iterator over pairs (type_name, offset).
+    pub fn type_iter(&self) -> UnitResult<impl Iterator<Item = (&String, &UnitOffset)>> {
+        match self.lazy_part.get() {
+            None => UnitResult::Reload,
+            Some(additional) => UnitResult::Ok(additional.type_index.iter()),
+        }
+    }
+
     /// Return all function entries suitable for template.
+    /// Note: this method requires a full unit.
     ///
     /// # Arguments
     ///

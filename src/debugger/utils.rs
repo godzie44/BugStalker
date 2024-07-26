@@ -21,3 +21,22 @@ impl<T> TryGetOrInsert<T> for Option<T> {
         }
     }
 }
+
+pub trait PopIf<T> {
+    fn pop_if_cond<F>(&mut self, pred: F) -> Option<T>
+    where
+        F: FnOnce(&Self) -> bool;
+}
+
+impl<T> PopIf<T> for Vec<T> {
+    fn pop_if_cond<F>(&mut self, pred: F) -> Option<T>
+    where
+        F: FnOnce(&Self) -> bool,
+    {
+        if pred(self) {
+            self.pop()
+        } else {
+            None
+        }
+    }
+}
