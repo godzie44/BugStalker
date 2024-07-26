@@ -52,6 +52,7 @@ pub struct FrameInfo {
 }
 
 /// Debugee thread description.
+#[derive(Debug, Clone)]
 pub struct ThreadSnapshot {
     /// Running thread info - pid, number and status.
     pub thread: Tracee,
