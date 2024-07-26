@@ -1,3 +1,23 @@
+use std::io::{BufRead, BufReader};
+use std::process::exit;
+use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::{mpsc, Arc, Mutex, Once};
+use std::thread;
+use std::time::Duration;
+
+use crossterm::style::{Color, Stylize};
+use nix::sys::signal::{kill, Signal};
+use nix::unistd::Pid;
+use rustyline::error::ReadlineError;
+use rustyline::history::MemHistory;
+use rustyline::Editor;
+use timeout_readwrite::TimeoutReader;
+
+use debugger::Error;
+use r#break::Command as BreakpointCommand;
+
 use crate::debugger;
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::dqe::{Dqe, Selector};
@@ -5,6 +25,10 @@ use crate::debugger::{Debugger, DebuggerBuilder};
 use crate::ui::DebugeeOutReader;
 use crate::ui::command::arguments::Handler as ArgumentsHandler;
 use crate::ui::command::backtrace::Handler as BacktraceHandler;
+use crate::ui::command::frame::ExecutionResult as FrameResult;
+use crate::ui::command::frame::Handler as FrameHandler;
+use crate::ui::command::memory::Handler as MemoryHandler;
+use crate::ui::command::r#async::Command as AsyncCommand;
 use crate::ui::command::r#break::ExecutionResult;
 use crate::ui::command::r#break::Handler as BreakpointHandler;
 use crate::ui::command::r#continue::Handler as ContinueHandler;
@@ -33,26 +57,14 @@ use crate::ui::console::print::style::{
     AddressView, AsmInstructionView, AsmOperandsView, ErrorView, FilePathView, FunctionNameView,
     KeywordView,
 };
+use crate::ui::console::print::ExternalPrinter;
+use crate::ui::console::r#async::print_backtrace;
+use crate::ui::console::r#async::print_backtrace_full;
+use crate::ui::console::r#async::print_task_ex;
 use crate::ui::console::variable::render_variable;
 use crate::ui::{command, supervisor};
-use r#break::Command as BreakpointCommand;
-use crossterm::style::{Color, Stylize};
-use debugger::Error;
-use nix::sys::signal::{Signal, kill};
-use nix::unistd::Pid;
-use rustyline::Editor;
-use rustyline::error::ReadlineError;
-use rustyline::history::MemHistory;
-use std::io::{BufRead, BufReader};
-use std::process::exit;
-use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{Arc, Mutex, Once, mpsc};
-use std::thread;
-use std::time::Duration;
-use timeout_readwrite::TimeoutReader;
 
+mod r#async;
 mod editor;
 pub mod file;
 mod help;
@@ -716,6 +728,22 @@ impl AppLoop {
                     }
                 }
             },
+            Command::Async(cmd) => {
+                let mut handler = command::r#async::Handler::new(&mut self.debugger);
+                let mut backtrace = handler.handle(&cmd)?;
+
+                match cmd {
+                    AsyncCommand::ShortBacktrace => {
+                        print_backtrace(&mut backtrace, &self.printer);
+                    }
+                    AsyncCommand::FullBacktrace => {
+                        print_backtrace_full(&mut backtrace, &self.printer);
+                    }
+                    AsyncCommand::CurrentTask(regex) => {
+                        print_task_ex(&backtrace, &self.printer, regex.as_deref());
+                    }
+                }
+            }
             Command::Oracle(name, subcmd) => match self.debugger.get_oracle(&name) {
                 None => self
                     .printer

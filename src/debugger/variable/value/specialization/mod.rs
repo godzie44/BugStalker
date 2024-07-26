@@ -388,6 +388,10 @@ impl<'a> VariableParserExtension<'a> {
         inner_val: Value,
         type_params: &HashMap<String, Option<TypeId>>,
     ) -> Result<Option<TlsVariable>, ParsingError> {
+        if type_params.is_empty() {
+            return Ok(None);
+        }
+
         let inner_type = type_params
             .get("T")
             .ok_or(TypeParameterNotFound("T"))?
