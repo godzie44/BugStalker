@@ -15,6 +15,7 @@ members = [
     "shlib/calc_bin",
     "shlib/printer_lib",
     "panic",
-    "calculations"
+    "calculations",
+    "tokio_tcp"
 ]
 resolver = "2"

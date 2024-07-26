@@ -28,7 +28,8 @@ pub enum QueryResultKind {
 /// Result of DQE evaluation.
 #[derive(Clone)]
 pub struct QueryResult<'a> {
-    value: Option<Value>,
+    // TODO tmp pub
+    pub value: Option<Value>,
     scope: Option<Box<[Range]>>,
     kind: QueryResultKind,
     base_type: Rc<ComplexType>,

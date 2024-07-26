@@ -1,4 +1,5 @@
 pub mod address;
+pub mod r#async;
 mod breakpoint;
 mod code;
 mod debugee;
@@ -422,6 +423,10 @@ impl Debugger {
             0,
         );
         Ok(&self.expl_context)
+    }
+
+    fn expl_ctx_swap(&mut self, new: ExplorationContext) {
+        self.expl_context = new;
     }
 
     /// Restore frame from user defined to real.

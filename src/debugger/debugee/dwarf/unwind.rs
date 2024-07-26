@@ -215,6 +215,7 @@ impl<'a> UnwindContext<'a> {
 
     fn return_address(&self) -> Option<RelocatedAddress> {
         let register = self.fde.cie().return_address_register();
+        println!("register for unwind: {:?}", register);
         self.registers
             .value(register)
             .map(RelocatedAddress::from)

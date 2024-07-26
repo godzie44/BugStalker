@@ -2,10 +2,10 @@
 //! This is the most preferred way to use a debugger functional from UI layer.
 //!
 //! Contains commands and corresponding command handlers. Command is a some sort of request to
-//! debugger that define an action and a list of input arguments. Command handler validate command,
-//! define what exactly debugger must to do and return result of it.
+//! debugger that defines an action and a list of input arguments.
 
 pub mod arguments;
+pub mod r#async;
 pub mod backtrace;
 pub mod r#break;
 pub mod r#continue;
@@ -63,6 +63,7 @@ pub enum Command {
     SourceCode(source_code::Command),
     SkipInput,
     Oracle(String, Option<String>),
+    Async(r#async::Command),
     Help {
         command: Option<String>,
         reason: Option<String>,

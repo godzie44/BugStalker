@@ -4,7 +4,7 @@
 //!
 //! - `GET /todos`: return a JSON list of Todos.
 //! - `POST /todos`: create a new Todo.
-//! - `PUT /todos/:id`: update a specific Todo.
+//! - `PATCH /todos/:id`: update a specific Todo.
 //! - `DELETE /todos/:id`: delete a specific Todo.
 //!
 //! Run with
@@ -57,7 +57,7 @@ async fn main() {
                     } else {
                         Err((
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            format!("Unhandled internal error: {}", error),
+                            format!("Unhandled internal error: {error}"),
                         ))
                     }
                 }))
@@ -67,11 +67,11 @@ async fn main() {
         )
         .with_state(db);
 
-    tracing::debug!("listening on 127.0.0.1:3000");
-    axum::Server::bind(&"127.0.0.1:3000".parse().unwrap())
-        .serve(app.into_make_service())
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
         .await
         .unwrap();
+    tracing::debug!("listening on {}", listener.local_addr().unwrap());
+    axum::serve(listener, app).await.unwrap();
 }
 
 // The query parameters for todos index
