@@ -2,6 +2,7 @@ use crate::debugger::address::GlobalAddress;
 use crate::debugger::debugee::RendezvousError;
 use crate::debugger::debugee::dwarf::unit::DieRef;
 use crate::debugger::debugee::RendezvousError;
+use crate::debugger::r#async::AsyncError;
 use crate::debugger::variable::value::ParsingError;
 use gimli::UnitOffset;
 use nix::unistd::Pid;
@@ -167,6 +168,10 @@ pub enum Error {
     AttachedProcessNotFound(Pid),
     #[error("attach a running process: {0}")]
     Attach(nix::Error),
+
+    // --------------------------------- async exploration errors ----------------------------------
+    #[error("{0}. Maybe your async runtime version is unsupported.")]
+    Async(#[from] AsyncError),
 }
 
 impl Error {
@@ -229,6 +234,7 @@ impl Error {
             Error::AddressAlreadyObserved => false,
             Error::UnknownScope => false,
             Error::VarFrameNotFound => false,
+            Error::Async(_) => false,
 
             // currently fatal errors
             Error::DwarfParsing(_) => true,

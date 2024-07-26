@@ -1,8 +1,8 @@
 pub mod expression;
 
 use super::r#break::BreakpointIdentity;
-use super::{Command, CommandError, frame, memory, register, source_code, thread, watch};
-use super::{CommandResult, r#break};
+use super::{frame, memory, r#async, register, source_code, thread, watch, Command, CommandError};
+use super::{r#break, CommandResult};
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::dqe::Dqe;
 use crate::debugger::variable::dqe::Selector;
@@ -66,6 +66,10 @@ pub const SOURCE_COMMAND: &str = "source";
 pub const SOURCE_COMMAND_DISASM_SUBCOMMAND: &str = "asm";
 pub const SOURCE_COMMAND_FUNCTION_SUBCOMMAND: &str = "fn";
 pub const ORACLE_COMMAND: &str = "oracle";
+pub const ASYNC_COMMAND: &str = "async";
+pub const ASYNC_COMMAND_BACKTRACE_SUBCOMMAND: &str = "backtrace";
+pub const ASYNC_COMMAND_BACKTRACE_SUBCOMMAND_SHORT: &str = "bt";
+pub const ASYNC_COMMAND_TASK_SUBCOMMAND: &str = "task";
 pub const HELP_COMMAND: &str = "help";
 pub const HELP_COMMAND_SHORT: &str = "h";
 
@@ -265,6 +269,7 @@ impl Command {
 
         let op2 = |full, short| op(full).or(op(short));
         let op2_w_arg = |full, short| op_w_arg(full).or(op_w_arg(short));
+        let sub_op2 = |full, short| sub_op(full).or(sub_op(short));
         let sub_op2_w_arg = |full, short| sub_op_w_arg(full).or(sub_op_w_arg(short));
 
         let r#continue = op2(CONTINUE_COMMAND, CONTINUE_COMMAND_SHORT).to(Command::Continue);
@@ -420,6 +425,33 @@ impl Command {
             .to(Command::SharedLib)
             .boxed();
 
+        let r#async = op_w_arg(ASYNC_COMMAND)
+            .ignore_then(choice((
+                sub_op2(
+                    ASYNC_COMMAND_BACKTRACE_SUBCOMMAND,
+                    ASYNC_COMMAND_BACKTRACE_SUBCOMMAND_SHORT,
+                )
+                .ignore_then(sub_op(BACKTRACE_ALL_SUBCOMMAND).or_not())
+                .map(|all| {
+                    if all.is_some() {
+                        Command::Async(r#async::Command::FullBacktrace)
+                    } else {
+                        Command::Async(r#async::Command::ShortBacktrace)
+                    }
+                }),
+                sub_op(ASYNC_COMMAND_TASK_SUBCOMMAND)
+                    .ignore_then(any().repeated().padded().to_slice())
+                    .map(|s| {
+                        let s = s.trim();
+                        if s.is_empty() {
+                            Command::Async(r#async::Command::CurrentTask(None))
+                        } else {
+                            Command::Async(r#async::Command::CurrentTask(Some(s.to_string())))
+                        }
+                    }),
+            )))
+            .boxed();
+
         let oracle = op_w_arg(ORACLE_COMMAND)
             .ignore_then(text::ident().padded().then(text::ident().or_not()))
             .map(|(name, subcmd)| {
@@ -449,6 +481,7 @@ impl Command {
             command(SHARED_LIB_COMMAND, shared_lib),
             command(ORACLE_COMMAND, oracle),
             command(WATCH_COMMAND, watchpoint),
+            command(ASYNC_COMMAND, r#async),
         ))
     }
 
@@ -972,6 +1005,42 @@ fn test_parser() {
                 assert!(matches!(
                     result.unwrap(),
                     Command::SourceCode(source_code::Command::Range(r)) if r == 12
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["async backtrace", " async   bt  "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Async(r#async::Command::ShortBacktrace)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["async backtrace all", " async   bt  all "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Async(r#async::Command::FullBacktrace)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["async task", " async   task "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Async(r#async::Command::CurrentTask(None))
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["async task abc.*", " async   task abc.*  "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Async(r#async::Command::CurrentTask(Some(s))) if s == "abc.*"
                 ));
             },
         },
