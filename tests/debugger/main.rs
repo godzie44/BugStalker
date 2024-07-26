@@ -6,6 +6,7 @@ mod multithreaded;
 mod signal;
 mod steps;
 mod symbol;
+mod tokio;
 mod variables;
 mod watchpoint;
 
@@ -47,6 +48,7 @@ const SHARED_LIB_APP: &str = "./examples/target/debug/calc_bin";
 const SLEEPER_APP: &str = "./examples/target/debug/sleeper";
 const FIZZBUZZ_APP: &str = "./examples/target/debug/fizzbuzz";
 const CALCULATIONS_APP: &str = "./examples/target/debug/calculations";
+const TOKIO_TICKER_APP: &str = "./examples/target/debug/tokioticker";
 
 #[test]
 #[serial]

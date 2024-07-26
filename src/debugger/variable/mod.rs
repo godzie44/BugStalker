@@ -1,13 +1,6 @@
 use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, NamespaceHierarchy};
 use bytes::Bytes;
-use gimli::{
-    DW_ATE_address, DW_ATE_boolean, DW_ATE_float, DW_ATE_signed, DW_ATE_signed_char,
-    DW_ATE_unsigned, DW_ATE_unsigned_char, DW_ATE_ASCII, DW_ATE_UTF,
-};
-use log::warn;
-pub use specialization::SpecializedVariableIR;
-use std::collections::{HashMap, VecDeque};
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Display, Formatter};
 
 pub mod dqe;
 pub mod execute;
@@ -17,7 +10,7 @@ mod r#virtual;
 
 /// Identifier of a query result.
 /// Consists name and namespace of the variable or argument.
-#[derive(Clone, Default, PartialEq, Debug)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Identity {
     namespace: NamespaceHierarchy,
     pub name: Option<String>,
