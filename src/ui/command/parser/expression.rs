@@ -25,6 +25,9 @@ fn ptr_cast<'a>() -> impl Parser<'a, &'a str, Dqe, Err<'a>> + Clone {
                 || *c == '&'
                 || *c == '_'
                 || *c == ','
+                || *c == '{'
+                || *c == '}'
+                || *c == '#'
                 || *c == '\''
         })
         .repeated()

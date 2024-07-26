@@ -2546,7 +2546,7 @@ fn test_read_static_in_fn_variable() {
     // brkpt in function where static is declared
     debugger.set_breakpoint_at_line("vars.rs", 504).unwrap();
     // brkpt outside function where static is declared
-    debugger.set_breakpoint_at_line("vars.rs", 570).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 577).unwrap();
 
     debugger.start_debugee().unwrap();
     assert_eq!(info.line.take(), Some(504));
@@ -2556,7 +2556,7 @@ fn test_read_static_in_fn_variable() {
     assert_scalar(inner_static.value(), "u32", Some(SupportedScalar::U32(1)));
 
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(570));
+    assert_eq!(info.line.take(), Some(577));
 
     read_var_dqe!(debugger, Dqe::Variable(Selector::by_name("INNER_STATIC", false)) => inner_static);
     assert_idents!(inner_static => "vars::inner_static::INNER_STATIC");

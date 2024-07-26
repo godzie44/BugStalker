@@ -17,7 +17,7 @@ use crate::debugger::debugee::dwarf::r#type::ComplexType;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
 use crate::debugger::debugee::dwarf::unit::{
     DieRef, DieVariant, DwarfUnitParser, Entry, FunctionDie, Node, ParameterDie,
-    PlaceDescriptorOwned, Unit, VariableDie,
+    PlaceDescriptorOwned, TemplateTypeParameter, Unit, VariableDie,
 };
 use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::{Debugee, Location};
@@ -54,7 +54,8 @@ pub type EndianArcSlice = gimli::EndianArcSlice<gimli::RunTimeEndian>;
 
 pub struct DebugInformation<R: gimli::Reader = EndianArcSlice> {
     file: PathBuf,
-    inner: Dwarf<R>,
+    // TODO tpm pub
+    pub inner: Dwarf<R>,
     eh_frame: EhFrame<R>,
     bases: BaseAddresses,
     units: Option<Vec<Unit>>,
@@ -1136,6 +1137,23 @@ impl<'ctx> ContextualDieRef<'ctx, 'ctx, FunctionDie> {
             entry.node.children.iter().for_each(|i| queue.push_back(*i));
         }
         ranges
+    }
+
+    /// Return template parameter die by its name.
+    ///
+    /// # Arguments
+    ///
+    /// * `name`: tpl parameter name
+    pub fn get_template_parameter(&self, name: &str) -> Option<&TemplateTypeParameter> {
+        self.node.children.iter().find_map(|&idx| {
+            let entry = ctx_resolve_unit_call!(self, entry, idx);
+            if let DieVariant::TemplateType(ref tpl) = entry.die {
+                if tpl.base_attributes.name.as_deref() == Some(name) {
+                    return Some(tpl);
+                }
+            }
+            None
+        })
     }
 }
 
