@@ -8,3 +8,7 @@ publish = false
 [dependencies]
 rocket = "0.5.0-rc.3"
 rand = "0.8"
+
+# FIXME: looks like rocket currently doesnt work with rust 1.80+
+[patch.crates-io]
+time = { git = "https://github.com/time-rs/time" }

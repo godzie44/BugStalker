@@ -19,6 +19,7 @@ use anyhow::Context;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use itertools::Itertools;
+use log::warn;
 use std::collections::HashMap;
 use AssumeError::{FieldNotFound, IncompleteInterp, UnknownSize};
 
@@ -343,7 +344,7 @@ impl<'a> VariableParserExtension<'a> {
         };
 
         let items = raw_items_iter
-            .map(|(i, chunk)| {
+            .filter_map(|(i, chunk)| {
                 let data = ObjectBinaryRepr {
                     raw_data: raw_data.slice_ref(chunk),
                     address: Some(data_ptr + (i * el_type_size)),
@@ -392,20 +393,20 @@ impl<'a> VariableParserExtension<'a> {
         })
     }
 
-    pub fn parse_tls(
+    pub fn parse_tls_old(
         &self,
         structure: StructVariable,
         type_params: &HashMap<String, Option<TypeIdentity>>,
     ) -> SpecializedVariableIR {
         SpecializedVariableIR::Tls {
             tls_var: weak_error!(self
-                .parse_tls_inner(VariableIR::Struct(structure.clone()), type_params)
+                .parse_tls_inner_old(VariableIR::Struct(structure.clone()), type_params)
                 .context("TLS variable interpretation")),
             original: structure,
         }
     }
 
-    fn parse_tls_inner(
+    fn parse_tls_inner_old(
         &self,
         ir: VariableIR,
         type_params: &HashMap<String, Option<TypeIdentity>>,
@@ -450,6 +451,74 @@ impl<'a> VariableParserExtension<'a> {
                 inner_type: self.parser.r#type.type_name(inner_type),
             });
         }
+
+        Err(ParsingError::Assume(IncompleteInterp(
+            "expect TLS inner value as option",
+        )))
+    }
+
+    pub fn parse_tls(
+        &self,
+        structure: StructVariable,
+        type_params: &HashMap<String, Option<TypeIdentity>>,
+    ) -> Option<SpecializedVariableIR> {
+        let tls_var = self
+            .parse_tls_inner(VariableIR::Struct(structure.clone()), type_params)
+            .context("TLS variable interpretation");
+
+        let var = match tls_var {
+            Ok(Some(var)) => Some(var),
+            Ok(None) => return None,
+            Err(e) => {
+                let e = e.context("TLS variable interpretation");
+                warn!(target: "debugger", "{:#}", e);
+                None
+            }
+        };
+
+        Some(SpecializedVariableIR::Tls {
+            tls_var: var,
+            original: structure,
+        })
+    }
+
+    fn parse_tls_inner(
+        &self,
+        ir: VariableIR,
+        type_params: &HashMap<String, Option<TypeIdentity>>,
+    ) -> Result<Option<TlsVariable>, ParsingError> {
+        // we assume that tls variable name represents in dwarf
+        // as namespace flowed before "__getit" namespace
+        let namespace = &ir.identity().namespace;
+        let name = namespace
+            .iter()
+            .find_position(|&ns| ns.contains("{constant#"))
+            .map(|(pos, _)| namespace[pos - 1].clone());
+
+        let inner_type = type_params
+            .get("T")
+            .ok_or(TypeParameterNotFound("T"))?
+            .ok_or(TypeParameterTypeNotFound("T"))?;
+
+        let state = ir
+            .bfs_iterator()
+            .find(|child| child.name() == "state")
+            .ok_or(FieldNotFound("state"))?;
+
+        let state = state.assume_field_as_rust_enum("value")?;
+        if let Some(VariableIR::Struct(val)) = state.value.as_deref() {
+            let tls_val = if val.identity.name.as_deref() == Some("Alive") {
+                Some(Box::new(val.members[0].clone()))
+            } else {
+                return Ok(None);
+            };
+
+            return Ok(Some(TlsVariable {
+                identity: VariableIdentity::no_namespace(name),
+                inner_value: tls_val,
+                inner_type: self.parser.r#type.type_name(inner_type),
+            }));
+        };
 
         Err(ParsingError::Assume(IncompleteInterp(
             "expect TLS inner value as option",
@@ -510,7 +579,7 @@ impl<'a> VariableParserExtension<'a> {
                     kv_type,
                 );
 
-                if let VariableIR::Struct(mut tuple) = tuple {
+                if let Some(VariableIR::Struct(mut tuple)) = tuple {
                     if tuple.members.len() == 2 {
                         let v = tuple.members.pop();
                         let k = tuple.members.pop();
@@ -584,7 +653,7 @@ impl<'a> VariableParserExtension<'a> {
                     kv_type,
                 );
 
-                if let VariableIR::Struct(mut tuple) = tuple {
+                if let Some(VariableIR::Struct(mut tuple)) = tuple {
                     if tuple.members.len() == 2 {
                         let _ = tuple.members.pop();
                         let k = tuple.members.pop().unwrap();
@@ -653,22 +722,26 @@ impl<'a> VariableParserExtension<'a> {
         let iterator = reflection.iter(eval_ctx)?;
         let kv_items = iterator
             .map_err(ParsingError::from)
-            .map(|(k, v)| {
-                let key = self.parser.parse_inner(
+            .filter_map(|(k, v)| {
+                let Some(key) = self.parser.parse_inner(
                     eval_ctx,
                     VariableIdentity::no_namespace(Some("k".to_string())),
                     Some(k),
                     k_type,
-                );
+                ) else {
+                    return Ok(None);
+                };
 
-                let value = self.parser.parse_inner(
+                let Some(value) = self.parser.parse_inner(
                     eval_ctx,
                     VariableIdentity::no_namespace(Some("v".to_string())),
                     Some(v),
                     v_type,
-                );
+                ) else {
+                    return Ok(None);
+                };
 
-                Ok((key, value))
+                Ok(Some((key, value)))
             })
             .collect::<Vec<_>>()?;
 
@@ -778,7 +851,7 @@ impl<'a> VariableParserExtension<'a> {
             .0
             .chain(slice_ranges.1)
             .enumerate()
-            .map(|(i, real_idx)| {
+            .filter_map(|(i, real_idx)| {
                 let offset = real_idx * el_type_size;
                 let el_raw_data = &data[offset..(real_idx + 1) * el_type_size];
                 let el_data = ObjectBinaryRepr {

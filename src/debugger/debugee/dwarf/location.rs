@@ -15,7 +15,8 @@ impl<'a> Location<'a> {
     /// - DW_FORM_loclistx
     /// - W_FORM_sec_offset
     /// - DW_FORM_loclistx
-    /// Return `None` otherwise.
+    ///
+    ///  Return `None` otherwise.
     pub(super) fn try_as_expression(
         &self,
         dwarf_ctx: &DebugInformation<EndianArcSlice>,

@@ -21,11 +21,12 @@ struct PathIndexInner<T> {
 /// This index is optimized for queries along the last parts of the path. Optimization is based on
 /// the expectation that the last part of the path (head) has a high cardinality.
 ///
-/// For example, if index contain function paths like "namespace_1::namespace_2::my_fn" than acceptable
+/// For example, if index contains function paths like "namespace_1::namespace_2::my_fn" than acceptable
 /// requests are:
 /// - "my_fn"
 /// - "namespace_2::my_fn"
 /// - "namespace_1::namespace_2::my_fn"
+///
 /// Other requests are not accepted.
 #[derive(Clone, Debug)]
 pub struct PathSearchIndex<T> {

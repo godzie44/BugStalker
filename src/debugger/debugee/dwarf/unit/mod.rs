@@ -745,6 +745,7 @@ impl Unit {
     /// # Arguments
     ///
     /// * `template`: function search template, contains a function name and full or partial namespace.
+    ///
     /// For example: "ns1::ns2::fn1" or "ns2::fn1"
     pub fn search_functions(&self, template: &str) -> UnitResult<Vec<&Entry>> {
         match self.lazy_part.get() {

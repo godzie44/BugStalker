@@ -514,7 +514,7 @@ fn shadowing() {
 
 fn uuid() {
     let uuid_v4 = uuid::Uuid::new_v4();
-    let uuid_v7 = uuid::Uuid::new_v7(uuid::timestamp::Timestamp::from_rfc4122(1, 1));
+    let uuid_v7 = uuid::Uuid::new_v7(uuid::timestamp::Timestamp::from_gregorian(1, 1));
 
     let nop: Option<u8> = None;
 }
