@@ -302,7 +302,7 @@ impl PointerVariable {
             return None;
         }
 
-        self.value.map(|ptr| {
+        self.value.and_then(|ptr| {
             let data = deref_size.and_then(|sz| {
                 let raw_data = debugger::read_memory_by_pid(
                     eval_ctx.expl_ctx.pid_on_focus(),
@@ -350,7 +350,7 @@ impl PointerVariable {
             let items = raw_data
                 .chunks(deref_size)
                 .enumerate()
-                .map(|(i, chunk)| {
+                .filter_map(|(i, chunk)| {
                     let data = ObjectBinaryRepr {
                         raw_data: raw_data.slice_ref(chunk),
                         address: Some(base_addr + (i * deref_size)),
@@ -1158,12 +1158,12 @@ impl<'a> VariableParser<'a> {
         };
         let member_val = parent_data.and_then(|data| member.value(eval_ctx, self.r#type, data));
 
-        Some(self.parse_inner(
+        self.parse_inner(
             eval_ctx,
             VariableIdentity::no_namespace(member.name.clone()),
             member_val,
             type_ref,
-        ))
+        )
     }
 
     fn parse_array(
@@ -1194,7 +1194,7 @@ impl<'a> VariableParser<'a> {
 
             Some(
                 raw_items_iter
-                    .map(|(i, chunk)| {
+                    .filter_map(|(i, chunk)| {
                         let offset = i * el_size;
                         let data = ObjectBinaryRepr {
                             raw_data: bytes.slice_ref(chunk),
@@ -1235,7 +1235,7 @@ impl<'a> VariableParser<'a> {
         enumerators: &HashMap<i64, String>,
     ) -> CEnumVariable {
         let in_debugee_loc = data.as_ref().and_then(|d| d.address);
-        let mb_discr = discr_type.map(|type_id| {
+        let mb_discr = discr_type.and_then(|type_id| {
             self.parse_inner(
                 eval_ctx,
                 VariableIdentity::no_namespace(None),
@@ -1331,11 +1331,14 @@ impl<'a> VariableParser<'a> {
         identity: VariableIdentity,
         data: Option<ObjectBinaryRepr>,
         type_id: TypeIdentity,
-    ) -> VariableIR {
+    ) -> Option<VariableIR> {
         match &self.r#type.types[&type_id] {
-            TypeDeclaration::Scalar(scalar_type) => {
-                VariableIR::Scalar(self.parse_scalar(identity, data, type_id, scalar_type))
-            }
+            TypeDeclaration::Scalar(scalar_type) => Some(VariableIR::Scalar(self.parse_scalar(
+                identity,
+                data,
+                type_id,
+                scalar_type,
+            ))),
             TypeDeclaration::Structure {
                 namespaces: type_ns_h,
                 members,
@@ -1366,21 +1369,25 @@ impl<'a> VariableParser<'a> {
                 // - cell/refcell
                 // - rc/arc
                 if struct_name.as_deref() == Some("&str") {
-                    return VariableIR::Specialized(parser_ext.parse_str(eval_ctx, struct_var));
+                    return Some(VariableIR::Specialized(
+                        parser_ext.parse_str(eval_ctx, struct_var),
+                    ));
                 };
 
                 if struct_name.as_deref() == Some("String") {
-                    return VariableIR::Specialized(parser_ext.parse_string(eval_ctx, struct_var));
+                    return Some(VariableIR::Specialized(
+                        parser_ext.parse_string(eval_ctx, struct_var),
+                    ));
                 };
 
                 if struct_name.as_ref().map(|name| name.starts_with("Vec")) == Some(true)
                     && type_ns_h.contains(&["vec"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_vector(
+                    return Some(VariableIR::Specialized(parser_ext.parse_vector(
                         eval_ctx,
                         struct_var,
                         type_params,
-                    ));
+                    )));
                 };
 
                 let rust_version = eval_ctx.rustc_version().unwrap_or_default();
@@ -1391,19 +1398,28 @@ impl<'a> VariableParser<'a> {
                     (1, 78, 0) ..= (1, u32::MAX, u32::MAX) => type_ns_h.contains(&["std", "sys", "thread_local", "fast_local"]),
                 );
                 if is_tls_type == Some(true) {
-                    return VariableIR::Specialized(parser_ext.parse_tls(struct_var, type_params));
+                    return version_switch!(
+                        rust_version,
+                        (1, 0, 0) ..= (1, 79, u32::MAX) => Some(VariableIR::Specialized(parser_ext.parse_tls_old(struct_var, type_params))),
+                        (1, 80, 0) ..= (1, u32::MAX, u32::MAX) => Some(VariableIR::Specialized(parser_ext.parse_tls(struct_var, type_params)?)),
+                    )
+                        .expect("infallible: all rustc versions are covered");
                 }
 
                 if struct_name.as_ref().map(|name| name.starts_with("HashMap")) == Some(true)
                     && type_ns_h.contains(&["collections", "hash", "map"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_hashmap(eval_ctx, struct_var));
+                    return Some(VariableIR::Specialized(
+                        parser_ext.parse_hashmap(eval_ctx, struct_var),
+                    ));
                 };
 
                 if struct_name.as_ref().map(|name| name.starts_with("HashSet")) == Some(true)
                     && type_ns_h.contains(&["collections", "hash", "set"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_hashset(eval_ctx, struct_var));
+                    return Some(VariableIR::Specialized(
+                        parser_ext.parse_hashset(eval_ctx, struct_var),
+                    ));
                 };
 
                 if struct_name
@@ -1412,12 +1428,12 @@ impl<'a> VariableParser<'a> {
                     == Some(true)
                     && type_ns_h.contains(&["collections", "btree", "map"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_btree_map(
+                    return Some(VariableIR::Specialized(parser_ext.parse_btree_map(
                         eval_ctx,
                         struct_var,
                         type_id,
                         type_params,
-                    ));
+                    )));
                 };
 
                 if struct_name
@@ -1426,7 +1442,9 @@ impl<'a> VariableParser<'a> {
                     == Some(true)
                     && type_ns_h.contains(&["collections", "btree", "set"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_btree_set(struct_var));
+                    return Some(VariableIR::Specialized(
+                        parser_ext.parse_btree_set(struct_var),
+                    ));
                 };
 
                 if struct_name
@@ -1435,23 +1453,25 @@ impl<'a> VariableParser<'a> {
                     == Some(true)
                     && type_ns_h.contains(&["collections", "vec_deque"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_vec_dequeue(
+                    return Some(VariableIR::Specialized(parser_ext.parse_vec_dequeue(
                         eval_ctx,
                         struct_var,
                         type_params,
-                    ));
+                    )));
                 };
 
                 if struct_name.as_ref().map(|name| name.starts_with("Cell")) == Some(true)
                     && type_ns_h.contains(&["cell"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_cell(struct_var));
+                    return Some(VariableIR::Specialized(parser_ext.parse_cell(struct_var)));
                 };
 
                 if struct_name.as_ref().map(|name| name.starts_with("RefCell")) == Some(true)
                     && type_ns_h.contains(&["cell"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_refcell(struct_var));
+                    return Some(VariableIR::Specialized(
+                        parser_ext.parse_refcell(struct_var),
+                    ));
                 };
 
                 if struct_name
@@ -1460,7 +1480,7 @@ impl<'a> VariableParser<'a> {
                     == Some(true)
                     && type_ns_h.contains(&["rc"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_rc(struct_var));
+                    return Some(VariableIR::Specialized(parser_ext.parse_rc(struct_var)));
                 };
 
                 if struct_name
@@ -1469,47 +1489,47 @@ impl<'a> VariableParser<'a> {
                     == Some(true)
                     && type_ns_h.contains(&["sync"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_arc(struct_var));
+                    return Some(VariableIR::Specialized(parser_ext.parse_arc(struct_var)));
                 };
 
                 if struct_name.as_ref().map(|name| name == "Uuid") == Some(true)
                     && type_ns_h.contains(&["uuid"])
                 {
-                    return VariableIR::Specialized(parser_ext.parse_uuid(struct_var));
+                    return Some(VariableIR::Specialized(parser_ext.parse_uuid(struct_var)));
                 };
 
-                VariableIR::Struct(struct_var)
+                Some(VariableIR::Struct(struct_var))
             }
-            TypeDeclaration::Array(decl) => {
-                VariableIR::Array(self.parse_array(eval_ctx, identity, data, type_id, decl))
-            }
+            TypeDeclaration::Array(decl) => Some(VariableIR::Array(
+                self.parse_array(eval_ctx, identity, data, type_id, decl),
+            )),
             TypeDeclaration::CStyleEnum {
                 discr_type,
                 enumerators,
                 ..
-            } => VariableIR::CEnum(self.parse_c_enum(
+            } => Some(VariableIR::CEnum(self.parse_c_enum(
                 eval_ctx,
                 identity,
                 data,
                 type_id,
                 *discr_type,
                 enumerators,
-            )),
+            ))),
             TypeDeclaration::RustEnum {
                 discr_type,
                 enumerators,
                 ..
-            } => VariableIR::RustEnum(self.parse_rust_enum(
+            } => Some(VariableIR::RustEnum(self.parse_rust_enum(
                 eval_ctx,
                 identity,
                 data,
                 type_id,
                 discr_type.as_ref().map(|t| t.as_ref()),
                 enumerators,
+            ))),
+            TypeDeclaration::Pointer { target_type, .. } => Some(VariableIR::Pointer(
+                self.parse_pointer(identity, data, type_id, *target_type),
             )),
-            TypeDeclaration::Pointer { target_type, .. } => {
-                VariableIR::Pointer(self.parse_pointer(identity, data, type_id, *target_type))
-            }
             TypeDeclaration::Union { members, .. } => {
                 let struct_var = self.parse_struct_variable(
                     eval_ctx,
@@ -1519,7 +1539,7 @@ impl<'a> VariableParser<'a> {
                     HashMap::new(),
                     members,
                 );
-                VariableIR::Struct(struct_var)
+                Some(VariableIR::Struct(struct_var))
             }
             TypeDeclaration::Subroutine { return_type, .. } => {
                 let ret_type = return_type.and_then(|t_id| self.r#type.type_name(t_id));
@@ -1529,22 +1549,24 @@ impl<'a> VariableParser<'a> {
                     return_type_name: ret_type,
                     address: data.and_then(|d| d.address),
                 };
-                VariableIR::Subroutine(fn_var)
+                Some(VariableIR::Subroutine(fn_var))
             }
             TypeDeclaration::ModifiedType {
                 inner, modifier, ..
             } => {
                 let in_debugee_loc = data.as_ref().and_then(|d| d.address);
-                VariableIR::CModifiedVariable(CModifiedVariable {
+                Some(VariableIR::CModifiedVariable(CModifiedVariable {
                     identity: identity.clone(),
                     type_id: Some(type_id),
                     type_name: self.r#type.type_name(type_id),
                     modifier: *modifier,
-                    value: inner.map(|inner_type| {
-                        Box::new(self.parse_inner(eval_ctx, identity, data, inner_type))
+                    value: inner.and_then(|inner_type| {
+                        Some(Box::new(
+                            self.parse_inner(eval_ctx, identity, data, inner_type)?,
+                        ))
                     }),
                     address: in_debugee_loc,
-                })
+                }))
             }
         }
     }
@@ -1554,7 +1576,7 @@ impl<'a> VariableParser<'a> {
         eval_ctx: &EvaluationContext,
         identity: VariableIdentity,
         value: Option<ObjectBinaryRepr>,
-    ) -> VariableIR {
+    ) -> Option<VariableIR> {
         self.parse_inner(eval_ctx, identity, value, self.r#type.root)
     }
 }

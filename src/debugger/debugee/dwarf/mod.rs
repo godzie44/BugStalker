@@ -28,7 +28,7 @@ use crate::debugger::error::Error::{
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::variable::select::ObjectBinaryRepr;
 use crate::debugger::ExplorationContext;
-use crate::{muted_error, resolve_unit_call, weak_error};
+use crate::{muted_error, resolve_unit_call, version_switch, weak_error};
 use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;
 use gimli::{
@@ -537,27 +537,43 @@ impl DebugInformation {
             }
         }
 
-        // now check tls variables
-        // for rust we expect that tls variable represents in dwarf like
-        // variable with name "__KEY" and namespace like [.., variable_name, __getit]
-        let tls_ns_part = &[name, "__getit"];
         for unit in units {
-            let mb_var_locations = resolve_unit_call!(self.dwarf(), unit, locate_var_die, "__KEY");
-            if let Some(vars) = mb_var_locations {
-                vars.iter().for_each(|(namespaces, entry_idx)| {
-                    if namespaces.contains(tls_ns_part) {
-                        let entry = resolve_unit_call!(&self.inner, unit, entry, *entry_idx);
-                        if let DieVariant::Variable(ref var) = entry.die {
-                            found.push(ContextualDieRef {
-                                debug_info: self,
-                                unit_idx: unit.idx(),
-                                node: &entry.node,
-                                die: var,
-                            });
-                        }
+            let rustc_version = unit.rustc_version().unwrap_or_default();
+
+            let tls_ns_part = version_switch!(
+                rustc_version,
+                (1, 0, 0) ..= (1, 79, u32::MAX) => {
+                    // now check tls variables
+                    // for rust we expect that tls variable represents in dwarf like
+                    // variable with name "__KEY" and namespace like [.., variable_name, __getit]
+                    vec![name, "__getit"]
+                },
+                (1, 80, 0) ..= (1, u32::MAX, u32::MAX) => {
+                    vec![name]
+                },
+            );
+            let tls_ns_part = tls_ns_part.expect("infallible: all rustc versions are covered");
+
+            let mut tls_collector = |(namespaces, entry_idx): &(NamespaceHierarchy, usize)| {
+                if namespaces.contains(&tls_ns_part) {
+                    let entry = resolve_unit_call!(&self.inner, unit, entry, *entry_idx);
+                    if let DieVariant::Variable(ref var) = entry.die {
+                        found.push(ContextualDieRef {
+                            debug_info: self,
+                            unit_idx: unit.idx(),
+                            node: &entry.node,
+                            die: var,
+                        });
                     }
-                });
-            }
+                }
+            };
+
+            if let Some(vars) = resolve_unit_call!(self.dwarf(), unit, locate_var_die, "__KEY") {
+                vars.iter().for_each(&mut tls_collector);
+            };
+            if let Some(vars) = resolve_unit_call!(self.dwarf(), unit, locate_var_die, "VAL") {
+                vars.iter().for_each(&mut tls_collector);
+            };
         }
 
         Ok(found)

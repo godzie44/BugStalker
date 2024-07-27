@@ -7,6 +7,7 @@ use bugstalker::debugger::variable::select::{Literal, LiteralOrWildcard, Variabl
 use bugstalker::debugger::variable::{select, VariableIR};
 use bugstalker::debugger::{variable, Debugger, DebuggerBuilder};
 use bugstalker::ui::command::parser::expression;
+use bugstalker::version::Version;
 use bugstalker::{debugger, version_switch};
 use chumsky::Parser;
 use debugger::variable::SupportedScalar;
@@ -1045,7 +1046,16 @@ fn test_read_tls_variables() {
             only_local: false,
         }))
         .unwrap();
-    assert_uninit_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>");
+    let rust_version = rust_version(VARS_APP).unwrap();
+    version_switch!(
+            rust_version,
+            (1, 0, 0) ..= (1, 79, u32::MAX) => {
+                assert_uninit_tls(&vars[0], "THREAD_LOCAL_VAR_1", "Cell<i32>");
+            },
+            (1, 80, 0) ..= (1, u32::MAX, u32::MAX) => {
+                assert!(vars.is_empty());
+            },
+    );
 
     // assert tls variables changes in another thread
     debugger.set_breakpoint_at_line("vars.rs", 203).unwrap();
@@ -1092,6 +1102,8 @@ fn test_read_closures() {
     assert_struct(&vars[3], "closure", "{closure_env#2}", |_, member| {
         assert_string(member, "outer", "outer val")
     });
+
+    let rust_version = rust_version(VARS_APP).unwrap();
     assert_struct(
         &vars[7],
         "trait_once",
@@ -1112,12 +1124,15 @@ fn test_read_closures() {
                 );
             }
             1 => {
-                assert_pointer(member, "vtable", "&[usize; 3]");
+                let exp_type = if rust_version >= Version((1, 80, 0)) {
+                    "&[usize; 4]"
+                } else {
+                    "&[usize; 3]"
+                };
+
+                assert_pointer(member, "vtable", exp_type);
                 let deref = read_single_var(&debugger, "*trait_once.vtable");
-                assert_array(&deref, "*vtable", "[usize]", |i, _| match i {
-                    0..=2 => {}
-                    _ => panic!("3 items expected"),
-                });
+                assert_array(&deref, "*vtable", "[usize]", |_, _| {});
             }
             _ => panic!("2 members expected"),
         },
@@ -1142,12 +1157,14 @@ fn test_read_closures() {
                 );
             }
             1 => {
-                assert_pointer(member, "vtable", "&[usize; 3]");
+                let exp_type = if rust_version >= Version((1, 80, 0)) {
+                    "&[usize; 5]"
+                } else {
+                    "&[usize; 3]"
+                };
+                assert_pointer(member, "vtable", exp_type);
                 let deref = read_single_var(&debugger, "*trait_mut.vtable");
-                assert_array(&deref, "*vtable", "[usize]", |i, _| match i {
-                    0..=2 => {}
-                    _ => panic!("3 items expected"),
-                });
+                assert_array(&deref, "*vtable", "[usize]", |_, _| {});
             }
             _ => panic!("2 members expected"),
         },
@@ -1172,12 +1189,14 @@ fn test_read_closures() {
                 );
             }
             1 => {
-                assert_pointer(member, "vtable", "&[usize; 3]");
+                let exp_type = if rust_version >= Version((1, 80, 0)) {
+                    "&[usize; 6]"
+                } else {
+                    "&[usize; 3]"
+                };
+                assert_pointer(member, "vtable", exp_type);
                 let deref = read_single_var(&debugger, "*trait_fn.vtable");
-                assert_array(&deref, "*vtable", "[usize]", |i, _| match i {
-                    0..=2 => {}
-                    _ => panic!("3 items expected"),
-                });
+                assert_array(&deref, "*vtable", "[usize]", |_, _| {});
             }
             _ => panic!("2 members expected"),
         },

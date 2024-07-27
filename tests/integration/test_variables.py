@@ -335,16 +335,16 @@ class VariablesTestCase(unittest.TestCase):
         """Reading rust tls variables"""
         self.debugger.cmd('break vars.rs:194', 'New breakpoint')
         self.debugger.cmd('run', '194         let nop: Option<u8> = None;')
-        self.debugger.cmd('var THREAD_LOCAL_VAR_1', 'vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(2)')
-        self.debugger.cmd('var THREAD_LOCAL_VAR_2', 'vars::THREAD_LOCAL_VAR_2::__getit::__KEY = Cell<&str>(2)')
+        self.debugger.cmd('var THREAD_LOCAL_VAR_1', '::VAL = Cell<i32>(2)')
+        self.debugger.cmd('var THREAD_LOCAL_VAR_2', '::VAL = Cell<&str>(2)')
         # assert uninit tls variables
         self.debugger.cmd('break vars.rs:199', 'New breakpoint')
         self.debugger.cmd('continue', '199         let nop: Option<u8> = None;')
-        self.debugger.cmd('var THREAD_LOCAL_VAR_1', 'vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(uninit)')
+        self.debugger.cmd('var THREAD_LOCAL_VAR_1')
         # assert tls variables changes in another thread
         self.debugger.cmd('break vars.rs:203', 'New breakpoint')
         self.debugger.cmd('continue', '203     let nop: Option<u8> = None;')
-        self.debugger.cmd('var THREAD_LOCAL_VAR_1', 'vars::THREAD_LOCAL_VAR_1::__getit::__KEY = Cell<i32>(1)')
+        self.debugger.cmd('var THREAD_LOCAL_VAR_1', '::VAL = Cell<i32>(1)')
 
     def test_custom_select(self):
         """Reading memory by select expressions"""

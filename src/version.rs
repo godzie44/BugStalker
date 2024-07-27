@@ -56,6 +56,7 @@ static SUPPORTED_RUSTC: &[(Version, Version)] = &[
     (Version((1, 77, 0)), Version((1, 77, u32::MAX))),
     (Version((1, 78, 0)), Version((1, 78, u32::MAX))),
     (Version((1, 79, 0)), Version((1, 79, u32::MAX))),
+    (Version((1, 80, 0)), Version((1, 80, u32::MAX))),
 ];
 
 pub fn supported_versions_to_string() -> String {
@@ -68,7 +69,7 @@ pub fn supported_versions_to_string() -> String {
     )
 }
 
-/// Check rustc version, return true if a version supported, false otherwise. False positive.
+/// Check a rustc version, return true if a version supported, false otherwise. False positive.
 pub fn probe_file(obj: &object::File) -> bool {
     let Some(comment_sect) = obj.section_by_name(".comment") else {
         return true;

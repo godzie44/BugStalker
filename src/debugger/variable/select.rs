@@ -452,11 +452,11 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     &self.debugger.debugee,
                     r#type,
                 );
-                Some(parser.parse(
+                parser.parse(
                     evaluation_context,
                     VariableIdentity::from_variable_die(variable_die),
                     data,
-                ))
+                )
             }
             DQE::PtrCast(addr, ..) => {
                 let data = ObjectBinaryRepr {
@@ -464,11 +464,11 @@ impl<'a> SelectExpressionEvaluator<'a> {
                     address: None,
                     size: std::mem::size_of::<usize>(),
                 };
-                Some(parser.parse(
+                parser.parse(
                     evaluation_context,
                     VariableIdentity::new(NamespaceHierarchy::default(), None),
                     Some(data),
-                ))
+                )
             }
             DQE::Field(expr, field) => {
                 let var = self.evaluate_single_variable(expr, variable_die, r#type)?;
