@@ -76,6 +76,7 @@ class SharedLibTestCase(unittest.TestCase):
         self.debugger.cmd('step')
         self.debugger.cmd('step')
         self.debugger.cmd('step')
+        self.debugger.cmd('step')
         self.debugger.cmd('step', '3     println!("sum is {num}")')
 
     def test_deferred_breakpoint(self):

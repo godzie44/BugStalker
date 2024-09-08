@@ -1,10 +1,11 @@
-use crate::common::TestHooks;
 use crate::common::TestInfo;
+use crate::common::{rust_version, TestHooks};
 use crate::CALC_APP;
 use crate::{assert_no_proc, prepare_debugee_process, HW_APP, RECURSION_APP, VARS_APP};
 use bugstalker::debugger::variable::{SupportedScalar, VariableIR};
 use bugstalker::debugger::{Debugger, DebuggerBuilder};
 use bugstalker::ui::command::parser::expression;
+use bugstalker::version_switch;
 use chumsky::Parser;
 use serial_test::serial;
 use std::mem;
@@ -107,6 +108,15 @@ fn test_step_out() {
     debugger.step_into().unwrap();
     debugger.step_into().unwrap();
     debugger.step_into().unwrap();
+    let rust_version = rust_version(HW_APP).unwrap();
+    version_switch!(
+            rust_version,
+            (1, 0, 0) ..= (1, 80, u32::MAX) => {},
+            (1, 81, 0) ..= (1, u32::MAX, u32::MAX) => {
+                debugger.step_into().unwrap();
+            },
+    );
+
     assert_eq!(info.line.take(), Some(15));
 
     debugger.step_out().unwrap();
