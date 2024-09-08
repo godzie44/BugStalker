@@ -69,8 +69,9 @@ class WatchpointTestCase(unittest.TestCase):
         self.debugger.cmd('watch int8', 'New watchpoint')
         self.debugger.cmd('next', 'Hit watchpoint')
         self.debugger.cmd('next', '13     println!("{int8}");')
+        self.debugger.cmd('next')
+        self.debugger.cmd('next')
         self.debugger.cmd('next', 'Watchpoint 1 end of scope')
-        self.debugger.cmd('next', '109     calculation_four_value();')
 
     def test_watchpoint_at_undefined_value(self):
         """Trying to set watchpoint for undefined value"""

@@ -57,6 +57,7 @@ static SUPPORTED_RUSTC: &[(Version, Version)] = &[
     (Version((1, 78, 0)), Version((1, 78, u32::MAX))),
     (Version((1, 79, 0)), Version((1, 79, u32::MAX))),
     (Version((1, 80, 0)), Version((1, 80, u32::MAX))),
+    (Version((1, 81, 0)), Version((1, 81, u32::MAX))),
 ];
 
 pub fn supported_versions_to_string() -> String {
