@@ -89,9 +89,8 @@ impl Tracee {
         );
 
         sys::ptrace::cont(self.pid, sig)
-            .map(|ok| {
+            .inspect(|_| {
                 self.update_status(Running);
-                ok
             })
             .map_err(Ptrace)
     }
