@@ -151,13 +151,18 @@ impl AppBuilder {
     }
 }
 
+enum ChangeMode {
+    Tui,
+    Heh,
+}
+
 enum UserAction {
     /// New command from user received
     Cmd(String),
     /// Terminate application
     Terminate,
     /// Switch to TUI mode
-    ChangeMode,
+    ChangeMode(ChangeMode),
     /// Do nothing
     Nop,
 }
@@ -286,7 +291,10 @@ impl TerminalApplication {
                                 _ = control_tx.send(UserAction::Terminate);
                                 break;
                             } else if input == "tui" {
-                                _ = control_tx.send(UserAction::ChangeMode);
+                                _ = control_tx.send(UserAction::ChangeMode(ChangeMode::Tui));
+                                break;
+                            } else if input == "heh" {
+                                _ = control_tx.send(UserAction::ChangeMode(ChangeMode::Heh));
                                 break;
                             } else {
                                 _ = editor.add_history_entry(&input);
@@ -354,7 +362,7 @@ impl AppLoop {
                     "n" | "no" => false,
                     _ => continue,
                 },
-                UserAction::Terminate | UserAction::ChangeMode | UserAction::Nop => false,
+                UserAction::Terminate | UserAction::ChangeMode(_) | UserAction::Nop => false,
             };
         }
     }
@@ -763,13 +771,24 @@ impl AppLoop {
                 UserAction::Terminate => {
                     return Ok(supervisor::ControlFlow::Exit);
                 }
-                UserAction::ChangeMode => {
+                UserAction::ChangeMode(ChangeMode::Tui) => {
                     self.cancel_output_flag.store(true, Ordering::SeqCst);
                     let tui_builder =
                         crate::ui::tui::AppBuilder::new(self.debugee_out, self.debugee_err);
                     let app = tui_builder.extend(self.debugger);
                     return Ok(supervisor::ControlFlow::Switch(
                         supervisor::Application::TUI(app),
+                    ));
+                }
+                UserAction::ChangeMode(ChangeMode::Heh) => {
+                    self.cancel_output_flag.store(true, Ordering::SeqCst);
+                    let heh_builder = crate::ui::third_party::heh::AppBuilder::new(
+                        self.debugee_out,
+                        self.debugee_err,
+                    );
+                    let app = heh_builder.extend(self.debugger);
+                    return Ok(supervisor::ControlFlow::Switch(
+                        supervisor::Application::Heh(app),
                     ));
                 }
             }

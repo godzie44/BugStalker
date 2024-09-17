@@ -72,6 +72,8 @@ serde = { version = "1.0.164", features = ["derive"] }
 toml = "0.8.13"
 home = "0.5.9"
 which = "6.0.1"
+ratatui = "0.28"
+heh = "0.6"
 
 [dev-dependencies]
 serial_test = "3.0.0"

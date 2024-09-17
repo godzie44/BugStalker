@@ -4,6 +4,7 @@ pub mod console;
 pub mod short;
 pub mod supervisor;
 mod syntax;
+mod third_party;
 pub mod tui;
 
 use os_pipe::PipeReader;

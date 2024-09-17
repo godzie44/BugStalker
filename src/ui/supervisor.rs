@@ -4,6 +4,7 @@ use crate::debugger::process::Child;
 use crate::debugger::DebuggerBuilder;
 use crate::oracle::builtin;
 use crate::ui::console::TerminalApplication;
+use crate::ui::third_party::heh::HehApplication;
 use crate::ui::tui::TuiApplication;
 use crate::ui::{console, tui};
 use anyhow::Context;
@@ -28,6 +29,7 @@ pub enum DebugeeSource<'a> {
 pub enum Application {
     TUI(TuiApplication),
     Terminal(TerminalApplication),
+    Heh(HehApplication),
 }
 
 impl Application {
@@ -35,6 +37,7 @@ impl Application {
         match self {
             Application::TUI(tui_app) => tui_app.run(),
             Application::Terminal(term_app) => term_app.run(),
+            Application::Heh(heh) => heh.run(),
         }
     }
 }
