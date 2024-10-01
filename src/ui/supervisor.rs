@@ -28,6 +28,8 @@ pub enum DebugeeSource<'a> {
 pub enum Application {
     TUI(TuiApplication),
     Terminal(TerminalApplication),
+    #[cfg(feature = "binsider-integration")]
+    Binsider(crate::ui::third_party::binsider::BinsiderApplication),
 }
 
 impl Application {
@@ -35,6 +37,8 @@ impl Application {
         match self {
             Application::TUI(tui_app) => tui_app.run(),
             Application::Terminal(term_app) => term_app.run(),
+            #[cfg(feature = "binsider-integration")]
+            Application::Binsider(bs) => bs.run(),
         }
     }
 }

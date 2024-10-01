@@ -72,11 +72,14 @@ serde = { version = "1.0.164", features = ["derive"] }
 toml = "0.8.13"
 home = "0.5.9"
 which = "6.0.1"
+ratatui = { version = "0.28", optional = true }
+binsider = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
 serial_test = "3.0.0"
 
 [features]
-default = ["libunwind"]
+default = ["libunwind", "binsider-integration"]
 libunwind = ["unwind"]
+binsider-integration = ["binsider", "ratatui"]
 int_test = []
