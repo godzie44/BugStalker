@@ -26,6 +26,7 @@ source asm|fn|<bounds>                      -- show source code or assembly inst
 oracle <oracle> <>|<subcommand>             -- execute a specific oracle
 h, help <>|<command>                        -- show help
 tui                                         -- change ui mode to tui
+binsider                                    -- run binsider (https://binsider.dev)
 q, quit                                     -- exit the BugStalker 
 "#;
 
@@ -280,6 +281,12 @@ pub const HELP_TUI: &str = "\
 Change ui mode to terminal ui.
 ";
 
+#[cfg(feature = "binsider-integration")]
+pub const HELP_BINSIDER: &str = "\
+\x1b[32;1mbn, binsider\x1b[0m
+Run binsider (powerful static and dynamic analysis tools, see https://binsider.dev) inside bugstalker.
+";
+
 pub const HELP_ORACLE: &str = "\
 \x1b[32;1moracle\x1b[0m
 Execute a specific oracle.
@@ -333,7 +340,15 @@ impl Helper {
                 oracles.for_each(|oracle| help = format!("{help}{}\n", oracle.help()));
                 help
             }),
-            Some("tui") => HELP_TUI,
+            Some(super::editor::TUI_COMMAND) => HELP_TUI,
+            #[cfg(feature = "binsider-integration")]
+            Some(super::editor::BINSIDER_COMMAND) | Some(super::editor::BINSIDER_COMMAND_SHORT) => {
+                HELP_BINSIDER
+            }
+            #[cfg(not(feature = "binsider-integration"))]
+            Some(super::editor::BINSIDER_COMMAND) | Some(super::editor::BINSIDER_COMMAND_SHORT) => {
+                "disabled, compile with `binsider-integration` feature"
+            }
             Some("q") | Some("quit") => HELP_QUIT,
             _ => "unknown command",
         }

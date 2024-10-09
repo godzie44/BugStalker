@@ -23,7 +23,7 @@ use crate::ui::command::{
     r#break, source_code, step_instruction, step_into, step_out, step_over, CommandError,
 };
 use crate::ui::command::{run, Command};
-use crate::ui::console::editor::{create_editor, CommandCompleter, RLHelper};
+use crate::ui::console::editor::{create_editor, CommandCompleter, RLHelper, TUI_COMMAND};
 use crate::ui::console::file::FileView;
 use crate::ui::console::help::*;
 use crate::ui::console::hook::TerminalHook;
@@ -151,13 +151,19 @@ impl AppBuilder {
     }
 }
 
+enum TuiVariant {
+    Tui,
+    #[cfg(feature = "binsider-integration")]
+    Binsider,
+}
+
 enum UserAction {
     /// New command from user received
     Cmd(String),
     /// Terminate application
     Terminate,
     /// Switch to TUI mode
-    ChangeMode,
+    ChangeMode(TuiVariant),
     /// Do nothing
     Nop,
 }
@@ -281,18 +287,26 @@ impl TerminalApplication {
 
                     let line = editor.readline(promt);
                     match line {
-                        Ok(input) => {
-                            if input == "q" || input == "quit" {
+                        Ok(input) => match input.as_str() {
+                            "q" | "quit" => {
                                 _ = control_tx.send(UserAction::Terminate);
-                                break;
-                            } else if input == "tui" {
-                                _ = control_tx.send(UserAction::ChangeMode);
-                                break;
-                            } else {
+                                return;
+                            }
+                            TUI_COMMAND => {
+                                _ = control_tx.send(UserAction::ChangeMode(TuiVariant::Tui));
+                                return;
+                            }
+                            #[cfg(feature = "binsider-integration")]
+                            crate::ui::console::editor::BINSIDER_COMMAND
+                            | crate::ui::console::editor::BINSIDER_COMMAND_SHORT => {
+                                _ = control_tx.send(UserAction::ChangeMode(TuiVariant::Binsider));
+                                return;
+                            }
+                            _ => {
                                 _ = editor.add_history_entry(&input);
                                 _ = control_tx.send(UserAction::Cmd(input));
                             }
-                        }
+                        },
                         Err(err) => match err {
                             ReadlineError::Interrupted => {
                                 // this branch chosen if SIGINT coming
@@ -354,7 +368,7 @@ impl AppLoop {
                     "n" | "no" => false,
                     _ => continue,
                 },
-                UserAction::Terminate | UserAction::ChangeMode | UserAction::Nop => false,
+                UserAction::Terminate | UserAction::ChangeMode(_) | UserAction::Nop => false,
             };
         }
     }
@@ -763,13 +777,25 @@ impl AppLoop {
                 UserAction::Terminate => {
                     return Ok(supervisor::ControlFlow::Exit);
                 }
-                UserAction::ChangeMode => {
+                UserAction::ChangeMode(TuiVariant::Tui) => {
                     self.cancel_output_flag.store(true, Ordering::SeqCst);
                     let tui_builder =
                         crate::ui::tui::AppBuilder::new(self.debugee_out, self.debugee_err);
                     let app = tui_builder.extend(self.debugger);
                     return Ok(supervisor::ControlFlow::Switch(
                         supervisor::Application::TUI(app),
+                    ));
+                }
+                #[cfg(feature = "binsider-integration")]
+                UserAction::ChangeMode(TuiVariant::Binsider) => {
+                    self.cancel_output_flag.store(true, Ordering::SeqCst);
+                    let binsider_builder = crate::ui::third_party::binsider::AppBuilder::new(
+                        self.debugee_out,
+                        self.debugee_err,
+                    );
+                    let app = binsider_builder.extend(self.debugger);
+                    return Ok(supervisor::ControlFlow::Switch(
+                        supervisor::Application::Binsider(app),
                     ));
                 }
             }

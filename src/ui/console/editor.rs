@@ -32,6 +32,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use trie_rs::{Trie, TrieBuilder};
 
+pub const TUI_COMMAND: &str = "tui";
+pub const BINSIDER_COMMAND: &str = "binsider";
+pub const BINSIDER_COMMAND_SHORT: &str = "bn";
+
 struct CommandHint {
     short: Option<String>,
     long: String,
@@ -417,6 +421,12 @@ pub fn create_editor(
             short: None,
             long: ORACLE_COMMAND.to_string(),
             subcommands: oracles.iter().map(ToString::to_string).collect(),
+        },
+        TUI_COMMAND.into(),
+        CommandHint {
+            short: Some(BINSIDER_COMMAND_SHORT.to_string()),
+            long: BINSIDER_COMMAND.to_string(),
+            subcommands: vec![],
         },
         ("q", "quit").into(),
     ];

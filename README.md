@@ -26,6 +26,8 @@
     * [Other commands](#other-commands)
     * [Tui interface](#tui-interface)
         * [Configuration](#configuration)
+    * [Integrations](#integrations)
+        * [Binsider](#binsider)
     * [Oracles](#oracles)
 - [Contributing](#contributing)
 
@@ -459,6 +461,18 @@ at https://github.com/godzie44/BugStalker/tree/master/src/ui/tui/config/preset/k
 To override any of the defaults, begin by creating the corresponding file (from the file linked above) to:
 `~/.config/bs/keymap.toml`.
 You can change keybindings configuration file by exporting the `KEYMAP_FILE` environment variable.
+
+## Integrations
+
+BugStalker has integration with some useful tools that can help you when researching programs.
+
+### Binsider
+
+According to [official site](https://binsider.dev/), `binsider` offers powerful static and dynamic analysis tools,
+similar to readelf(1) and strace(1).
+It lets you inspect strings, examine linked libraries, and perform hexdumps, all within a user-friendly TUI.
+
+- `binsider` - run binsider inside a debugger (alias: `bn`)
 
 ## Oracles
 
