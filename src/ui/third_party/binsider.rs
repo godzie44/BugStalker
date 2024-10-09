@@ -1,17 +1,10 @@
-use crate::debugger::Debugger;
-use crate::ui::tui::app::port::DebuggerEventQueue;
-use crate::ui::tui::TuiHook;
+use crate::debugger::{Debugger, NopHook};
 use crate::ui::{console, supervisor, DebugeeOutReader};
-use binsider::prelude::{Command, Event};
-use binsider::{prelude::*, tui::ui::Tab};
-use ratatui::{
-    crossterm::event::{self, Event as CrosstermEvent, KeyCode},
-    Frame,
-};
+use binsider::prelude::Event;
+use binsider::prelude::*;
+use ratatui::{crossterm::event::KeyCode, Frame};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::mpsc;
-use std::time::Duration;
 
 pub struct AppBuilder {
     debugee_out: DebugeeOutReader,
@@ -27,9 +20,7 @@ impl AppBuilder {
     }
 
     pub fn extend(self, mut debugger: Debugger) -> BinsiderApplication {
-        let debugger_event_queue = DebuggerEventQueue::default();
-        debugger.set_hook(TuiHook::new(debugger_event_queue.clone()));
-
+        debugger.set_hook(NopHook {});
         BinsiderApplication::new(debugger, self.debugee_out, self.debugee_err)
     }
 }
@@ -65,8 +56,8 @@ impl BinsiderApplication {
         )?;
         let analyzer = Analyzer::new(file_info, 15, vec![])?;
         let mut state = State::new(analyzer)?;
-        let (sender, receiver) = mpsc::channel();
-        state.analyzer.extract_strings(sender.clone());
+        let events = EventHandler::new(250);
+        state.analyzer.extract_strings(events.sender.clone());
 
         let mut terminal = ratatui::init();
         loop {
@@ -75,26 +66,34 @@ impl BinsiderApplication {
                 render(&mut state, frame);
             })?;
 
-            // Handle terminal events.
-            if event::poll(Duration::from_millis(16))? {
-                if let CrosstermEvent::Key(key) = event::read()? {
-                    if key.code == KeyCode::Char('q') {
+            let event = events.next()?;
+            match event {
+                Event::Key(key_event) => {
+                    if key_event.code == KeyCode::Char('q') {
                         break;
                     }
-                    let command = Command::from(key);
-                    state.run_command(command, sender.clone())?;
+                    binsider::handle_event(Event::Key(key_event), &events, &mut state)?;
                 }
-            }
+                Event::Restart(None) => {
+                    break;
+                }
+                Event::Restart(Some(path)) => {
+                    let Some(path) = path.to_str() else { break };
+                    let file_data = std::fs::read(path)?;
+                    let bytes = file_data.as_slice();
+                    let file_info = FileInfo::new(path, Some(vec![]), bytes)?;
+                    let analyzer = Analyzer::new(file_info, 15, vec![])?;
 
-            // Handle binsider events.
-            if let Ok(Event::FileStrings(strings)) = receiver.try_recv() {
-                state.strings_loaded = true;
-                state.analyzer.strings = Some(strings?.into_iter().map(|(v, l)| (l, v)).collect());
-                if state.tab == Tab::Strings {
+                    state.change_analyzer(analyzer);
                     state.handle_tab()?;
+                    state.analyzer.extract_strings(events.sender.clone());
+                }
+                _ => {
+                    binsider::handle_event(event, &events, &mut state)?;
                 }
             }
         }
+        events.stop();
         ratatui::restore();
 
         let builder = console::AppBuilder::new(self.debugee_out, self.debugee_err);

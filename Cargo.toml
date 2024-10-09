@@ -73,7 +73,7 @@ toml = "0.8.13"
 home = "0.5.9"
 which = "6.0.1"
 ratatui = { version = "0.28", optional = true }
-binsider = { version = "0.2.0", optional = true }
+binsider = { git = "https://github.com/godzie44/binsider.git", branch = "godzie44/run_as_widget", optional = true }
 
 [dev-dependencies]
 serial_test = "3.0.0"

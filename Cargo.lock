@@ -365,8 +365,7 @@ dependencies = [
 [[package]]
 name = "binsider"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d8cd28b8669d44691f621f4b14e6b8c3236d41806273e0e8efe3211ff3b298f"
+source = "git+https://github.com/godzie44/binsider.git?branch=godzie44/run_as_widget#c224619d3ce5fd5ccc03889c34092543d853d7c5"
 dependencies = [
  "ansi-to-tui",
  "better-panic",
