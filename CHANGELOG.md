@@ -16,6 +16,15 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+# [0.2.4] Oct 20 2024
+
+### Added
+
+- debugger: added support for rustc 1.82
+- debugger: fix flaky ordering in `sharedlib info` command
+
+---
+
 # [0.2.3] Sep 8 2024
 
 ### Added
