@@ -16,7 +16,7 @@ class SharedLibTestCase(unittest.TestCase):
             # assert that main executable showing
             '???     ./examples/target/debug/calc_bin',
             # assert that shared lib showing
-            '???     ./examples/target/debug/libcalc_lib.so',
+            'libcalc_lib.so',
         )
 
         self.debugger.cmd('break main.rs:7', 'New breakpoint')
@@ -27,7 +27,7 @@ class SharedLibTestCase(unittest.TestCase):
             # assert that main executable showing with mapping address
             r'0x.*\.\/examples\/target\/debug\/calc_bin',
             # assert that shared lib showing with mapping address
-            r'0x.*\.\/examples\/target\/debug\/libcalc_lib\.so',
+            r'0x.*\/libcalc_lib\.so',
         )
 
     def test_lib_step(self):
@@ -51,24 +51,24 @@ class SharedLibTestCase(unittest.TestCase):
     def test_dynamic_load_lib_info(self):
         """View information about shared libraries loaded dynamically"""
         self.debugger.cmd('b main.rs:8', 'New breakpoint 1')
-        self.debugger.cmd('b main.rs:14', 'New breakpoint 2')
+        self.debugger.cmd('b main.rs:19', 'New breakpoint 2')
         self.debugger.cmd('run', 'Hit breakpoint 1')
         self.debugger.cmd('sharedlib info')
 
         try:
-            self.debugger.expect_in_output('./examples/target/debug/libprinter_lib.so')
+            self.debugger.expect_in_output('libprinter_lib.so', timeout=1)
         except pexpect.ExceptionPexpect:
             self.debugger.cmd('continue')
         else:
             raise pexpect.ExceptionPexpect("lib is not loading at this point")
 
         self.debugger.expect_in_output('Hit breakpoint 2')
-        self.debugger.cmd('sharedlib info', './examples/target/debug/libprinter_lib.so')
+        self.debugger.cmd('sharedlib info', 'libprinter_lib.so')
 
     def test_dynamic_load_lib_step(self):
         """Do steps into dynamically loaded shared library code"""
-        self.debugger.cmd('break main.rs:19', 'New breakpoint')
-        self.debugger.cmd('run', 'Hit breakpoint 1', '19         print_sum_fn(sum_1_2);')
+        self.debugger.cmd('break main.rs:24', 'New breakpoint')
+        self.debugger.cmd('run', 'Hit breakpoint 1', '24         print_sum_fn(sum_1_2);')
         self.debugger.cmd('step')
         self.debugger.cmd('step')
         self.debugger.cmd('step')

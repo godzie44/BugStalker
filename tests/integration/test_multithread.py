@@ -86,19 +86,14 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.cmd('thread switch 2', 'Thread #2 brought into focus')
         self.debugger.cmd('thread current', '#2 thread id')
 
-        # try to step into a new in-focus thread, if there is no debug info for shared libs
-        # in a system (libc in this case), we must do a single step, if debug info exists
-        # two steps is needed
-        try:
-            self.debugger.cmd('step', '/linux/nanosleep.c')
-        except pexpect.ExceptionPexpect:
-            self.debugger.cmd('step', '/linux/nanosleep.c')
+        while True:
+            try:
+                self.debugger.expect_in_output('24     let mut sum = 0;', timeout=1)
+            except pexpect.ExceptionPexpect:
+                self.debugger.cmd('step')
+            else:
+                break
 
-        self.debugger.cmd('step')
-        time.sleep(1)
-        self.debugger.cmd('step')
-        time.sleep(1)
-        self.debugger.cmd('step', '24     let mut sum = 0;')
         self.debugger.cmd('step', '25     for i in 0..10000')
         # try to view variables from a new in-focus thread
         self.debugger.cmd('var locals', 'sum = i32(0)')
