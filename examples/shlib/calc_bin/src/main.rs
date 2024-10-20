@@ -7,8 +7,13 @@ pub fn main() {
     let sum_1_2 = unsafe { calc_add(1, 2) };
     let sub_2_1 = unsafe { calc_sub(2, 1) };
 
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .to_string()
+        + "/examples/target/debug";
     let print_lib =
-        unsafe { libloading::Library::new("./examples/target/debug/libprinter_lib.so").unwrap() };
+        unsafe { libloading::Library::new(format!("{cwd}/libprinter_lib.so")).unwrap() };
 
     let print_sum_fn: libloading::Symbol<unsafe extern "C" fn(u32)> =
         unsafe { print_lib.get(b"print_sum").unwrap() };
@@ -17,6 +22,8 @@ pub fn main() {
 
     unsafe {
         print_sum_fn(sum_1_2);
+    }
+    unsafe {
         print_sub_fn(sub_2_1);
     }
 }

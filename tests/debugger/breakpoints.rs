@@ -124,9 +124,9 @@ fn test_brkpt_on_line_collision() {
     let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
-    debugger.set_breakpoint_at_line("main.rs", 14).unwrap();
+    debugger.set_breakpoint_at_line("main.rs", 19).unwrap();
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(14));
+    assert_eq!(info.line.take(), Some(19));
 
     // assert that two breakpoints is set at two lib.rs from two shared libraries
     let brkpts = debugger.set_breakpoint_at_line("lib.rs", 3).unwrap();
