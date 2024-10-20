@@ -23,6 +23,7 @@ reg, register read|write|info <addr>        -- read, write, or view debugged pro
 thread info|current|switch <number>         -- show list of threads or current (in focus) thread or set thread in focus
 sharedlib info                              -- show list of shared libraries
 source asm|fn|<bounds>                      -- show source code or assembly instructions for current (in focus) function
+async backtrace|backtrace all|task          -- commands for async rust
 oracle <oracle> <>|<subcommand>             -- execute a specific oracle
 h, help <>|<command>                        -- show help
 tui                                         -- change ui mode to tui
@@ -275,6 +276,17 @@ source asm - show assembly of function in focus
 source <bounds> - show line in focus with <bounds> lines up and down of this line
 ";
 
+pub const HELP_ASYNC: &str = "\
+\x1b[32;1masync\x1b[0m
+Commands for async rust (currently for tokio runtime only).
+
+Available subcomands:
+async backtrace - show state of async workers and blocking threads
+async backtrace all - show state of async workers and blocking threads, show info about all running tasks 
+async task <async_fn_regex> - show active task (active task means a task that is running on the thread that is currently in focus) if `async_fn_regex` parameter is empty,
+or show task list with async functions matched by regular expression.
+";
+
 pub const HELP_TUI: &str = "\
 \x1b[32;1mtui\x1b[0m
 Change ui mode to terminal ui.
@@ -327,6 +339,7 @@ impl Helper {
             Some(parser::THREAD_COMMAND) => HELP_THREAD,
             Some(parser::SHARED_LIB_COMMAND) => HELP_SHARED_LIB,
             Some(parser::SOURCE_COMMAND) => HELP_SOURCE,
+            Some(parser::ASYNC_COMMAND) => HELP_ASYNC,
             Some(parser::ORACLE_COMMAND) => self.oracle_help.get_or_insert_with(|| {
                 let mut help = HELP_ORACLE.to_string();
                 let oracles = debugger.all_oracles();
