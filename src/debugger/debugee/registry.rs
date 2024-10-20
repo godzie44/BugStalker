@@ -277,7 +277,7 @@ impl DwarfRegistry {
         }
     }
 
-    /// Return a ordered list of mapped regions (main executable region at first place).
+    /// Return an ordered list of mapped regions (main executable region at first place).
     pub fn dump(&self) -> Vec<RegionInfo> {
         let mut regions: Vec<_> = self
             .files
@@ -296,6 +296,9 @@ impl DwarfRegistry {
             if i1.path == self.program_path {
                 return Ordering::Less;
             };
+            if i2.path == self.program_path {
+                return Ordering::Greater;
+            }
             i1.path.cmp(&i2.path)
         });
         regions
