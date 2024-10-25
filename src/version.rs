@@ -34,42 +34,71 @@ impl Default for Version {
     }
 }
 
+#[macro_export]
+macro_rules! _version_switch {
+    ($lang_v: expr, ($major_1: expr, $minor_1: expr) ..) => {
+        $lang_v >= $crate::version::Version(($major_1, $minor_1, 0))
+            && $lang_v <= $crate::version::Version(($major_1, u32::MAX, u32::MAX))
+    };
+    ($lang_v: expr, .. ($major_2: expr, $minor_2: expr)) => {
+        $lang_v >= $crate::version::Version((1, 0, 0))
+            && $lang_v < $crate::version::Version(($major_2, $minor_2, 0))
+    };
+    ($lang_v: expr, ($major_1: expr, $minor_1: expr) .. ($major_2: expr, $minor_2: expr)) => {
+        $lang_v >= $crate::version::Version(($major_1, $minor_1, 0))
+            && $lang_v < $crate::version::Version(($major_2, $minor_2, 0))
+    };
+}
+
 /// Execute expression depending on compiler version.
 #[macro_export]
 macro_rules! version_switch {
-            ($lang_v:expr, $($v1:tt ..= $v2:expr => $code: expr),+ $(,)?) => {
-                $(
-                    if $lang_v >= $crate::version::Version($v1) && $lang_v <= $crate::version::Version($v2) {
-                        Some($code)
-                    } else
-                )*
-                {
-                    None
-                }
-            };
+    ($lang_v: expr, $($(($major_1: tt.$minor_1: tt))? .. $(($major_2: tt.$minor_2: tt))? => $code: expr),+ $(,)?) => {
+        {
+            $(
+                 if $crate::_version_switch!($lang_v, $(($major_1, $minor_1))? .. $(($major_2, $minor_2))?) {
+                     Some($code)
+                 } else
+            )*
+            {
+                None
+            }
+
         }
+    };
+}
+
+macro_rules! supported {
+    ($($ver_major: tt . $ver_minor: expr);+ $(;)?) => {
+        &[
+            $(
+                (Version(($ver_major, $ver_minor, 0)), Version(($ver_major, $ver_minor, u32::MAX))),
+            )*
+        ]
+    };
+}
 
 /// Supported rustc version diapasons.
-static SUPPORTED_RUSTC: &[(Version, Version)] = &[
-    (Version((1, 75, 0)), Version((1, 75, u32::MAX))),
-    (Version((1, 76, 0)), Version((1, 76, u32::MAX))),
-    (Version((1, 77, 0)), Version((1, 77, u32::MAX))),
-    (Version((1, 78, 0)), Version((1, 78, u32::MAX))),
-    (Version((1, 79, 0)), Version((1, 79, u32::MAX))),
-    (Version((1, 80, 0)), Version((1, 80, u32::MAX))),
-    (Version((1, 81, 0)), Version((1, 81, u32::MAX))),
-    (Version((1, 82, 0)), Version((1, 82, u32::MAX))),
-    (Version((1, 83, 0)), Version((1, 83, u32::MAX))),
-    (Version((1, 84, 0)), Version((1, 84, u32::MAX))),
-    (Version((1, 85, 0)), Version((1, 85, u32::MAX))),
-];
+static SUPPORTED_RUSTC: &[(Version, Version)] = supported!(
+    1 . 75;
+    1 . 76;
+    1 . 77;
+    1 . 78;
+    1 . 79;
+    1 . 80;
+    1 . 81;
+    1 . 82;
+    1 . 83;
+    1 . 84;
+    1 . 85;
+);
 
 pub fn supported_versions_to_string() -> String {
     format!(
         "[{}]",
         SUPPORTED_RUSTC
             .iter()
-            .map(|(v, _)| format!("{}.{}.x", v.0.0, v.0.1))
+            .map(|(v, _)| format!("{}.{}.x", v.0 .0, v.0 .1))
             .join(", ")
     )
 }

@@ -545,13 +545,13 @@ impl DebugInformation {
 
             let tls_ns_part = version_switch!(
                 rustc_version,
-                (1, 0, 0) ..= (1, 79, u32::MAX) => {
+                .. (1 . 80) => {
                     // now check tls variables
                     // for rust we expect that tls variable represents in dwarf like
                     // variable with name "__KEY" and namespace like [.., variable_name, __getit]
                     vec![name, "__getit"]
                 },
-                (1, 80, 0) ..= (1, u32::MAX, u32::MAX) => {
+                (1 . 80) .. => {
                     vec![name]
                 },
             );
