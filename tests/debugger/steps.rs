@@ -108,14 +108,11 @@ fn test_step_out() {
     let rust_version = rust_version(HW_APP).unwrap();
     let step_count = version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 80, u32::MAX) => 4,
-            (1, 81, 0) ..= (1, 84, u32::MAX) => 5,
-            (1, 85, 0) ..= (1, u32::MAX, u32::MAX) => 1,
-    )
-    .unwrap();
-    for _ in 0..step_count {
-        debugger.step_into().unwrap();
-    }
+            .. (1 . 81) => {},
+            (1 . 81) .. => {
+                debugger.step_into().unwrap();
+            },
+    );
 
     assert_eq!(info.line.take(), Some(15));
 
