@@ -1016,10 +1016,10 @@ fn test_read_tls_variables() {
 
     version_switch!(
         rust_version,
-        (1, 0, 0) ..= (1, 79, u32::MAX) => {
+        .. (1 . 80) => {
             assert_idents!(tls_var_1 => "vars::THREAD_LOCAL_VAR_1::__getit::__KEY");
         },
-        (1, 80, 0) ..= (1, u32::MAX, u32::MAX) => {
+        (1 . 80) .. => {
             assert_idents!(tls_var_1 => "vars::THREAD_LOCAL_VAR_1::{constant#0}::{closure#1}::VAL");
         }
     );
@@ -1035,10 +1035,10 @@ fn test_read_tls_variables() {
         )) => tls_var_2);
     version_switch!(
         rust_version,
-        (1, 0, 0) ..= (1, 79, u32::MAX) => {
+        .. (1 . 80) => {
             assert_idents!(tls_var_2 => "vars::THREAD_LOCAL_VAR_2::__getit::__KEY");
         },
-        (1, 80, 0) ..= (1, u32::MAX, u32::MAX) => {
+        (1 . 80) .. => {
             assert_idents!(tls_var_2 => "vars::THREAD_LOCAL_VAR_2::{constant#0}::{closure#1}::VAL");
         }
     );
@@ -1053,7 +1053,7 @@ fn test_read_tls_variables() {
 
     version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 79, u32::MAX) => {
+            .. (1 . 80) => {
                 read_var_dqe!(debugger, Dqe::Variable(Selector::by_name(
                     "THREAD_LOCAL_VAR_1",
                     false,
@@ -1061,7 +1061,7 @@ fn test_read_tls_variables() {
                 assert_idents!(tls_var_1 => "vars::THREAD_LOCAL_VAR_1::__getit::__KEY");
                 assert_uninit_tls(tls_var_1.value(), "Cell<i32>");
             },
-            (1, 80, 0) ..= (1, u32::MAX, u32::MAX) => {
+            (1 . 80) .. => {
                 let vars = debugger.read_variable(Dqe::Variable(Selector::by_name(
                     "THREAD_LOCAL_VAR_1",
                     false,
@@ -1114,10 +1114,10 @@ fn test_read_tls_const_variables() {
         )) => const_tls);
     version_switch!(
         rust_version,
-        (1, 0, 0) ..= (1, 79, u32::MAX) => {
+        .. (1 . 80) => {
             assert_idents!(const_tls => "vars::thread_local_const_init::CONSTANT_THREAD_LOCAL::__getit::VAL");
         },
-        (1, 80, 0) ..= (1, u32::MAX, u32::MAX) => {
+        (1 . 80) .. => {
             assert_idents!(const_tls => "vars::thread_local_const_init::CONSTANT_THREAD_LOCAL::{constant#0}::{closure#0}::VAL");
         }
     );
@@ -1368,9 +1368,10 @@ fn test_read_hashmap() {
     let rust_version = rust_version(VARS_APP).unwrap();
     let hash_map_type = version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<bool, i64, std::collections::hash::map::RandomState>",
-            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<bool, i64, std::hash::random::RandomState>",
-    ).unwrap();
+            .. (1 . 76) => "HashMap<bool, i64, std::collections::hash::map::RandomState>",
+            (1 . 76) .. => "HashMap<bool, i64, std::hash::random::RandomState>",
+    )
+    .unwrap();
 
     read_locals!(debugger => hm1, hm2, hm3, hm4, _a, b, _hm5, _hm6);
     assert_idents!(hm1 => "hm1", hm2 => "hm2", hm3 => "hm3", hm4 => "hm4");
@@ -1385,8 +1386,8 @@ fn test_read_hashmap() {
 
     let hash_map_type = version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<&str, alloc::vec::Vec<i32, alloc::alloc::Global>, std::collections::hash::map::RandomState>",
-            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<&str, alloc::vec::Vec<i32, alloc::alloc::Global>, std::hash::random::RandomState>",
+            .. (1 . 76) => "HashMap<&str, alloc::vec::Vec<i32, alloc::alloc::Global>, std::collections::hash::map::RandomState>",
+            (1 . 76) .. => "HashMap<&str, alloc::vec::Vec<i32, alloc::alloc::Global>, std::hash::random::RandomState>",
     ).unwrap();
     assert_hashmap(hm2.value(), hash_map_type, |items| {
         assert_eq!(items.len(), 2);
@@ -1412,9 +1413,10 @@ fn test_read_hashmap() {
 
     let hash_map_type = version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<i32, i32, std::collections::hash::map::RandomState>",
-            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<i32, i32, std::hash::random::RandomState>",
-    ).unwrap();
+            .. (1 . 76) => "HashMap<i32, i32, std::collections::hash::map::RandomState>",
+            (1 . 76) .. => "HashMap<i32, i32, std::hash::random::RandomState>",
+    )
+    .unwrap();
     assert_hashmap(hm3.value(), hash_map_type, |items| {
         assert_eq!(items.len(), 100);
 
@@ -1431,14 +1433,15 @@ fn test_read_hashmap() {
 
     let hash_map_type = version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<alloc::string::String, std::collections::hash::map::HashMap<i32, i32, std::collections::hash::map::RandomState>, std::collections::hash::map::RandomState>",
-            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<alloc::string::String, std::collections::hash::map::HashMap<i32, i32, std::hash::random::RandomState>, std::hash::random::RandomState>",
+            .. (1 . 76) => "HashMap<alloc::string::String, std::collections::hash::map::HashMap<i32, i32, std::collections::hash::map::RandomState>, std::collections::hash::map::RandomState>",
+            (1 . 76) .. => "HashMap<alloc::string::String, std::collections::hash::map::HashMap<i32, i32, std::hash::random::RandomState>, std::hash::random::RandomState>",
     ).unwrap();
     let inner_hash_map_type = version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<i32, i32, std::collections::hash::map::RandomState>",
-            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<i32, i32, std::hash::random::RandomState>",
-    ).unwrap();
+            .. (1 . 76) => "HashMap<i32, i32, std::collections::hash::map::RandomState>",
+            (1 . 76) .. => "HashMap<i32, i32, std::hash::random::RandomState>",
+    )
+    .unwrap();
     assert_hashmap(hm4.value(), hash_map_type, |items| {
         assert_eq!(items.len(), 2);
         assert_string(&items[0].0, "1");
@@ -1546,9 +1549,10 @@ fn test_read_hashset() {
     let rust_version = rust_version(VARS_APP).unwrap();
     let hashset_type = version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashSet<i32, std::collections::hash::map::RandomState>",
-            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashSet<i32, std::hash::random::RandomState>",
-    ).unwrap();
+            .. (1 . 76) => "HashSet<i32, std::collections::hash::map::RandomState>",
+            (1 . 76) .. => "HashSet<i32, std::hash::random::RandomState>",
+    )
+    .unwrap();
 
     read_locals!(debugger => hs1, hs2, hs3, _a, b, _hs4);
     assert_idents!(hs1 => "hs1", hs2 => "hs2", hs3 => "hs3");
@@ -1572,8 +1576,8 @@ fn test_read_hashset() {
 
     let hashset_type = version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashSet<alloc::vec::Vec<i32, alloc::alloc::Global>, std::collections::hash::map::RandomState>",
-            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashSet<alloc::vec::Vec<i32, alloc::alloc::Global>, std::hash::random::RandomState>",
+            .. (1 . 76) => "HashSet<alloc::vec::Vec<i32, alloc::alloc::Global>, std::collections::hash::map::RandomState>",
+            (1 . 76) .. => "HashSet<alloc::vec::Vec<i32, alloc::alloc::Global>, std::hash::random::RandomState>",
     ).unwrap();
     assert_hashset(hs3.value(), hashset_type, |items| {
         assert_eq!(items.len(), 1);
@@ -1644,6 +1648,7 @@ fn test_circular_ref_types() {
     );
 
     let deref = a_circ.clone().modify_value(|ctx, v| v.deref(ctx));
+    let rust_version = rust_version(VARS_APP).unwrap();
     let deref_type = version_switch!(
         rust_version,
         .. (1 . 84) => "RcBox<vars::circular::List>",
@@ -2166,7 +2171,7 @@ fn test_shared_ptr() {
     let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
-    let rust_version: Version = rust_version(VARS_APP).unwrap();
+    let rust_version = rust_version(VARS_APP).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 475).unwrap();
 
@@ -2180,11 +2185,10 @@ fn test_shared_ptr() {
 
     assert_rc(rc0.value(), "Rc<i32, alloc::alloc::Global>");
     let deref = rc0.clone().modify_value(|ctx, v| v.deref(ctx));
-    let rust_version = rust_version(VARS_APP).unwrap();
     let deref_type = version_switch!(
         rust_version,
-        .. (1 . 84) => "RcBox<vars::circular::List>",
-        (1 . 84) .. => "RcInner<vars::circular::List>",
+        .. (1 . 84) => "RcBox<i32>",
+        (1 . 84) .. => "RcInner<i32>",
     )
     .unwrap();
     assert_struct(deref.unwrap().value(), deref_type, |i, member| match i {
@@ -2449,9 +2453,10 @@ fn test_zst_types() {
     let rust_version = rust_version(VARS_APP).unwrap();
     let hashmap_type = version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<(), i32, std::collections::hash::map::RandomState>",
-            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<(), i32, std::hash::random::RandomState>",
-    ).unwrap();
+            .. (1 . 76) => "HashMap<(), i32, std::collections::hash::map::RandomState>",
+            (1 . 76) .. => "HashMap<(), i32, std::hash::random::RandomState>",
+    )
+    .unwrap();
     assert_hashmap(hash_map_zst_key.value(), hashmap_type, |items| {
         assert_eq!(items.len(), 1);
         assert_scalar(&items[0].0, "()", Some(SupportedScalar::Empty()));
@@ -2460,9 +2465,10 @@ fn test_zst_types() {
 
     let hashmap_type = version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<i32, (), std::collections::hash::map::RandomState>",
-            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<i32, (), std::hash::random::RandomState>",
-    ).unwrap();
+            .. (1 . 76) => "HashMap<i32, (), std::collections::hash::map::RandomState>",
+            (1 . 76) .. => "HashMap<i32, (), std::hash::random::RandomState>",
+    )
+    .unwrap();
     assert_hashmap(hash_map_zst_val.value(), hashmap_type, |items| {
         assert_eq!(items.len(), 1);
         assert_scalar(&items[0].0, "i32", Some(SupportedScalar::I32(1)));
@@ -2471,9 +2477,10 @@ fn test_zst_types() {
 
     let hashmap_type = version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashMap<(), (), std::collections::hash::map::RandomState>",
-            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashMap<(), (), std::hash::random::RandomState>",
-    ).unwrap();
+            .. (1 . 76) => "HashMap<(), (), std::collections::hash::map::RandomState>",
+            (1 . 76) .. => "HashMap<(), (), std::hash::random::RandomState>",
+    )
+    .unwrap();
     assert_hashmap(hash_map_zst.value(), hashmap_type, |items| {
         assert_eq!(items.len(), 1);
         assert_scalar(&items[0].0, "()", Some(SupportedScalar::Empty()));
@@ -2482,9 +2489,10 @@ fn test_zst_types() {
 
     let hashset_type = version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 75, u32::MAX) => "HashSet<(), std::collections::hash::map::RandomState>",
-            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "HashSet<(), std::hash::random::RandomState>",
-    ).unwrap();
+            .. (1 . 76) => "HashSet<(), std::collections::hash::map::RandomState>",
+            (1 . 76) .. => "HashSet<(), std::hash::random::RandomState>",
+    )
+    .unwrap();
     assert_hashset(hash_set_zst.value(), hashset_type, |items| {
         assert_eq!(items.len(), 1);
         assert_scalar(&items[0], "()", Some(SupportedScalar::Empty()));
@@ -2790,9 +2798,10 @@ fn test_address_operator() {
     read_var_dqe!(debugger, addr_of("hm3", true) => addr_hm3);
     let inner_hash_map_type = version_switch!(
             rust_version(VARS_APP).unwrap(),
-            (1, 0, 0) ..= (1, 75, u32::MAX) => "&HashMap<i32, i32, std::collections::hash::map::RandomState>",
-            (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => "&HashMap<i32, i32, std::hash::random::RandomState>",
-    ).unwrap();
+            .. (1 . 76) => "&HashMap<i32, i32, std::collections::hash::map::RandomState>",
+            (1 . 76) .. => "&HashMap<i32, i32, std::hash::random::RandomState>",
+    )
+    .unwrap();
     assert_pointer(addr_hm3.value(), inner_hash_map_type);
 
     read_var_dqe!(debugger, addr_of_index("hm3", 11) => addr_el_11);

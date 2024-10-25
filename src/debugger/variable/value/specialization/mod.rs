@@ -1021,8 +1021,8 @@ fn extract_capacity(ctx: &ParseContext, val: &Value) -> Result<usize, ParsingErr
 
     version_switch!(
     rust_version,
-    (1, 0, 0) ..= (1, 75, u32::MAX) => val.assume_field_as_scalar_number("cap")? as usize,
-    (1, 76, 0) ..= (1, u32::MAX, u32::MAX) => {
+    .. (1 . 76) => val.assume_field_as_scalar_number("cap")? as usize,
+    (1 . 76) .. => {
             let cap_s = val.assume_field_as_struct("cap")?;
             let cap = &cap_s.members.first().ok_or(IncompleteInterp("Vec"))?.value;
             if let Value::Scalar(ScalarValue {value: Some(SupportedScalar::Usize(cap)), ..}) = cap {
