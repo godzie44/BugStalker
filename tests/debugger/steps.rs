@@ -111,8 +111,8 @@ fn test_step_out() {
     let rust_version = rust_version(HW_APP).unwrap();
     version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 80, u32::MAX) => {},
-            (1, 81, 0) ..= (1, u32::MAX, u32::MAX) => {
+            .. (1 . 81) => {},
+            (1 . 81) .. => {
                 debugger.step_into().unwrap();
             },
     );
