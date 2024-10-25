@@ -15,16 +15,15 @@ impl TaskIdValue {
     /// current rustc version.
     pub fn from_value(unit: &Unit, value: Value) -> Result<Self, AsyncError> {
         let rustc_version = unit.rustc_version().unwrap_or_default();
-
         let task_id = value
             .field("__0")
             .and_then(|v| {
                 version_switch!(
                     rustc_version,
-                    (1, 0, 0) ..= (1, 78, u32::MAX) => {
+                    .. (1 . 79) => {
                         v.field("__0")?
                     },
-                    (1, 79, 0) ..= (1, u32::MAX, u32::MAX) => {
+                    (1 . 79) .. => {
                         v.field("__0")?.field("__0")?
                     },
                 )

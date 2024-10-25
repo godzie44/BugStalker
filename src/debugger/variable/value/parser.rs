@@ -430,9 +430,9 @@ impl ValueParser {
                 let rust_version = ctx.evaluation_context.rustc_version().unwrap_or_default();
                 let type_is_tls = version_switch!(
                     rust_version,
-                    (1, 0, 0) ..= (1, 76, u32::MAX) => type_ns_h.contains(&["std", "sys", "common", "thread_local", "fast_local"]),
-                    (1, 77, 0) ..= (1, 77, u32::MAX) => type_ns_h.contains(&["std", "sys", "pal", "common", "thread_local", "fast_local"]),
-                    (1, 78, 0) ..= (1, u32::MAX, u32::MAX) => type_ns_h.contains(&["std", "sys", "thread_local", "fast_local"]),
+                    .. (1 . 77) => type_ns_h.contains(&["std", "sys", "common", "thread_local", "fast_local"]),
+                    (1 . 77) .. (1 . 78) => type_ns_h.contains(&["std", "sys", "pal", "common", "thread_local", "fast_local"]),
+                    (1 . 78) .. => type_ns_h.contains(&["std", "sys", "thread_local", "fast_local"]),
                 ).unwrap_or_default();
 
                 if type_is_tls || modifiers.tls {
