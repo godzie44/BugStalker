@@ -161,8 +161,8 @@ mod test {
         index.insert_w_head(["ns3", "ns2"], "fn1", 11);
         index.insert_w_head(["ns1"], "fn2", 2);
         index.insert_w_head(["ns1", "ns2"], "fn3", 3);
-        index.insert_w_head(&Vec::<&str>::new(), "fn4", 4);
-        index.insert_w_head(&Vec::<&str>::new(), "fn5", 5);
+        index.insert_w_head(Vec::<&str>::new(), "fn4", 4);
+        index.insert_w_head(Vec::<&str>::new(), "fn5", 5);
         index.insert_w_head(["ns3", "ns2"], "fn3", 6);
         index.insert_w_head(["ns3", "ns2"], "fn6", 7);
         index.insert_w_head(["ns3", "ns2"], "fn7", 8);
