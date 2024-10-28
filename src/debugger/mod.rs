@@ -95,7 +95,7 @@ pub trait EventHook {
     /// * `num`: breakpoint number
     /// * `place`: breakpoint number
     /// * `condition`: reason of a watchpoint activation
-    /// * `dqe_string`: stringifed data query expression (if exist)
+    /// * `dqe_string`: stringified data query expression (if exist)
     /// * `old_value`: previous expression or mem location value
     /// * `new_value`: current expression or mem location value
     /// * `end_of_scope`: true if watchpoint activated cause end of scope is reached
