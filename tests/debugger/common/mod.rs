@@ -2,7 +2,7 @@ use bugstalker::debugger::address::RelocatedAddress;
 use bugstalker::debugger::register::debug::BreakCondition;
 use bugstalker::debugger::variable::value::Value;
 use bugstalker::debugger::{EventHook, FunctionDie, PlaceDescriptor};
-use bugstalker::version::Version;
+use bugstalker::version::RustVersion;
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use object::{Object, ObjectSection};
@@ -100,7 +100,7 @@ macro_rules! assert_no_proc {
     };
 }
 
-pub fn rust_version(file: &str) -> Option<Version> {
+pub fn rust_version(file: &str) -> Option<RustVersion> {
     let file = fs::File::open(file).unwrap();
     let mmap = unsafe { memmap2::Mmap::map(&file).unwrap() };
     let object = object::File::parse(&*mmap).unwrap();
@@ -111,5 +111,5 @@ pub fn rust_version(file: &str) -> Option<Version> {
     let data = sect.data().unwrap();
     let string_data = std::str::from_utf8(data).unwrap();
 
-    Version::rustc_parse(string_data)
+    RustVersion::parse(string_data)
 }

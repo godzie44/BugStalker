@@ -11,7 +11,7 @@ use crate::debugger::error::Error::{
 };
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::{debugee, ExplorationContext};
-use crate::version::Version;
+use crate::version::RustVersion;
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{
     DebugAddr, Encoding, EndianSlice, EvaluationResult, Expression, Location, Piece, Register,
@@ -31,7 +31,7 @@ pub struct EvaluationContext<'a> {
 }
 
 impl EvaluationContext<'_> {
-    pub fn rustc_version(&self) -> Option<Version> {
+    pub fn rustc_version(&self) -> Option<RustVersion> {
         self.evaluator.unit().rustc_version()
     }
 }
