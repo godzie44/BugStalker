@@ -1,5 +1,6 @@
+use super::task::Task;
 use crate::debugger::r#async::context::TokioAnalyzeContext;
-use crate::debugger::r#async::{AsyncError, Task, TaskBacktrace};
+use crate::debugger::r#async::{AsyncError, TaskBacktrace};
 use crate::debugger::utils::PopIf;
 use crate::debugger::variable::dqe::{Dqe, Selector};
 use crate::debugger::variable::value::Value;
