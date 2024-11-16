@@ -9,7 +9,8 @@ pub mod tracer;
 pub use registry::RegionInfo;
 pub use rendezvous::RendezvousError;
 
-use super::r#async::tokio::{self, TokioVersion};
+use super::r#async::extract_tokio_version_naive;
+use super::r#async::TokioVersion;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BrkptType};
 use crate::debugger::debugee::disasm::Disassembler;
@@ -145,7 +146,7 @@ impl Debugee {
         let tokio_ver: Option<TokioVersion> = object
             .section_by_name(".rodata")
             .and_then(|sect| sect.data().ok())
-            .and_then(tokio::extract_version_naive);
+            .and_then(extract_tokio_version_naive);
 
         Ok(Self {
             execution_status: ExecutionStatus::Unload,
@@ -186,7 +187,7 @@ impl Debugee {
         let tokio_ver: Option<TokioVersion> = object
             .section_by_name(".rodata")
             .and_then(|sect| sect.data().ok())
-            .and_then(tokio::extract_version_naive);
+            .and_then(extract_tokio_version_naive);
 
         let mut debugee = Self {
             execution_status: ExecutionStatus::InProgress,
