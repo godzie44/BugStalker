@@ -1,6 +1,7 @@
 mod context;
 mod future;
 mod park;
+pub mod tokio;
 mod types;
 mod worker;
 
@@ -276,12 +277,13 @@ fn task_from_header<'a>(
 
 impl Debugger {
     pub fn async_backtrace(&mut self) -> Result<AsyncBacktrace, Error> {
+        let tokio_version = self.debugee.tokio_version();
         disable_when_not_stared!(self);
 
         let expl_ctx = self.exploration_ctx().clone();
 
         let threads = self.debugee.thread_state(&expl_ctx)?;
-        let mut analyze_context = TokioAnalyzeContext::new(self);
+        let mut analyze_context = TokioAnalyzeContext::new(self, tokio_version.unwrap_or_default());
         let mut backtrace = AsyncBacktrace {
             workers: vec![],
             block_threads: vec![],
