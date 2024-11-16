@@ -1,7 +1,7 @@
+use super::types::TaskIdValue;
 use crate::debugger::r#async::context::TokioAnalyzeContext;
-use crate::debugger::r#async::task_from_header;
-use crate::debugger::r#async::types::TaskIdValue;
-use crate::debugger::r#async::Task;
+use crate::debugger::r#async::tokio::task::task_from_header;
+use crate::debugger::r#async::tokio::task::Task;
 use crate::debugger::r#async::{AsyncError, TaskBacktrace};
 use crate::debugger::utils::PopIf;
 use crate::debugger::variable::dqe::{Dqe, Literal, Selector};
@@ -274,4 +274,110 @@ pub fn try_as_worker(
     };
 
     Ok(Some(worker_bt))
+}
+
+/// Container for storing the tasks spawned on a scheduler.
+pub struct OwnedList {}
+
+impl OwnedList {
+    pub fn try_extract<'a>(
+        analyze_ctx: &'a TokioAnalyzeContext,
+        context: QueryResult<'a>,
+    ) -> Result<Vec<Task>, Error> {
+        let list = context
+            .modify_value(|ctx, val| {
+                val.field("current")?
+                    .field("handle")?
+                    .field("value")?
+                    .field("__0")?
+                    .field("__0")?
+                    .deref(ctx)?
+                    .field("data")?
+                    .field("shared")?
+                    .field("owned")?
+                    .field("list")
+            })
+            .ok_or(AsyncError::IncorrectAssumption("error while extract field (*CONTEXT.current.handle.value.__0.__0).data.shared.owned.list"))?;
+
+        let lists =
+            list.modify_value(|_, l| l.field("lists"))
+                .ok_or(AsyncError::IncorrectAssumption(
+                    "error while extract field `list.lists`",
+                ))?;
+        let lists_len = lists
+            .clone()
+            .into_value()
+            .field("length")
+            .ok_or(AsyncError::IncorrectAssumption(
+                "error while extract field `list.lists.length`",
+            ))?
+            .into_scalar()
+            .and_then(|scalar| scalar.try_as_number())
+            .ok_or(AsyncError::IncorrectAssumption(
+                "`list.lists.length` should be number",
+            ))?;
+
+        let data_qr = lists
+            .modify_value(|ctx, val| {
+                val.field("data_ptr")?
+                    .slice(ctx, None, Some(lists_len as usize))
+            })
+            .ok_or(AsyncError::IncorrectAssumption(
+                "error while extract field `list.lists.data_ptr`",
+            ))?;
+
+        let data =
+            data_qr
+                .clone()
+                .into_value()
+                .into_array()
+                .ok_or(AsyncError::IncorrectAssumption(
+                    "`list.lists.data_ptr` should be an array",
+                ))?;
+
+        let mut tasks = vec![];
+        for el in data.items.unwrap_or_default() {
+            let value = el.value;
+
+            let is_parking_lot_mutex = value
+                .clone()
+                .field("__0")
+                .ok_or(AsyncError::IncorrectAssumption("`__0` field not found"))?
+                .field("data")
+                .is_none();
+            let field = if is_parking_lot_mutex { "__1" } else { "__0" };
+
+            let maybe_head = value
+                .field(field)
+                .and_then(|f| {
+                    f.field("data")
+                        .and_then(|f| f.field("value").and_then(|f| f.field("head")))
+                })
+                .ok_or(AsyncError::IncorrectAssumption(
+                    "error while extract field `__0(__1).data.value.head` of OwnedList element",
+                ))?;
+
+            if let Some(ptr) = maybe_head.field("__0") {
+                let ptr = ptr.field("pointer").ok_or(AsyncError::IncorrectAssumption(
+                    "`pointer` field not found in OwnedList element",
+                ))?;
+                let mut next_ptr_qr = data_qr.clone().modify_value(|_, _| Some(ptr));
+
+                while let Some(ptr_qr) = next_ptr_qr {
+                    next_ptr_qr = ptr_qr.clone().modify_value(|ctx, val| {
+                        val.deref(ctx)?
+                            .field("queue_next")?
+                            .field("__0")?
+                            .field("value")?
+                            .field("__0")?
+                            .field("pointer")
+                    });
+
+                    tasks.push(task_from_header(analyze_ctx.debugger(), ptr_qr)?);
+                }
+            }
+        }
+
+        Ok(tasks)
+    }
 }

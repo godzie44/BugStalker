@@ -1,6 +1,12 @@
-use core::str;
+pub mod park;
+pub mod task;
+mod types;
+pub mod worker;
 
 use crate::{version::Version, version_specialized};
+use core::str;
+
+use super::{AsyncError, Future, TaskBacktrace};
 
 version_specialized!(TokioVersion, "Tokio SemVer version");
 
@@ -14,7 +20,7 @@ impl Default for TokioVersion {
 /// Temporary function, parse tokio version from static string found in `rodata`` section.
 ///
 /// WAITFORFIX: https://github.com/tokio-rs/tokio/issues/6950
-pub fn extract_version_naive(rodata: &[u8]) -> Option<TokioVersion> {
+pub fn extract_tokio_version_naive(rodata: &[u8]) -> Option<TokioVersion> {
     const TOKIO_V_TPL: &str = "tokio-1.";
 
     let tpl = TOKIO_V_TPL.as_bytes();
