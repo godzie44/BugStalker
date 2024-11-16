@@ -8,7 +8,7 @@ use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::error::Error;
-use crate::version::Version;
+use crate::version::RustVersion;
 use gimli::{
     Attribute, AttributeValue, DW_LANG_Rust, DebugAddrBase, DebugInfoOffset, DebugLocListsBase,
     DwAte, DwLang, Encoding, Range, UnitHeader, UnitOffset,
@@ -587,10 +587,10 @@ impl Unit {
 
     /// Return rust SEMVER value. If rust is not unit language or
     /// if version determine fail return `None`.
-    pub fn rustc_version(&self) -> Option<Version> {
+    pub fn rustc_version(&self) -> Option<RustVersion> {
         if self.language == Some(DW_LANG_Rust) {
             if let Some(producer) = self.producer.as_ref() {
-                return Version::rustc_parse(producer);
+                return RustVersion::parse(producer);
             }
         }
         None
