@@ -9,7 +9,7 @@ pub mod tracer;
 pub use registry::RegionInfo;
 pub use rendezvous::RendezvousError;
 
-use crate::debugger::Error::FunctionRangeNotFound;
+use super::r#async::tokio::{self, TokioVersion};
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BrkptType};
 use crate::debugger::debugee::disasm::Disassembler;
@@ -120,6 +120,8 @@ pub struct Debugee {
     disassembly: Disassembler,
     /// Loaded libthread_db.
     libthread_db: Arc<thread_db::Lib>,
+    /// Version of tokio runtime, if exist.
+    tokio_version: Option<TokioVersion>,
 }
 
 impl Debugee {
@@ -140,6 +142,11 @@ impl Debugee {
         );
         parse_dependencies_into_registry(&mut registry, deps.unwrap_or_default().into_iter(), true);
 
+        let tokio_ver: Option<TokioVersion> = object
+            .section_by_name(".rodata")
+            .and_then(|sect| sect.data().ok())
+            .and_then(tokio::extract_version_naive);
+
         Ok(Self {
             execution_status: ExecutionStatus::Unload,
             path: path.into(),
@@ -152,6 +159,7 @@ impl Debugee {
             dwarf_registry: registry,
             disassembly: Disassembler::new()?,
             libthread_db: Arc::new(thread_db::Lib::try_load()?),
+            tokio_version: tokio_ver,
         })
     }
 
@@ -175,6 +183,10 @@ impl Debugee {
             .sections()
             .filter_map(|section| Some((section.name().ok()?.to_string(), section.address())))
             .collect();
+        let tokio_ver: Option<TokioVersion> = object
+            .section_by_name(".rodata")
+            .and_then(|sect| sect.data().ok())
+            .and_then(tokio::extract_version_naive);
 
         let mut debugee = Self {
             execution_status: ExecutionStatus::InProgress,
@@ -195,6 +207,7 @@ impl Debugee {
             dwarf_registry: registry,
             disassembly: Disassembler::new()?,
             libthread_db: Arc::new(thread_db::Lib::try_load()?),
+            tokio_version: tokio_ver,
         };
 
         debugee.attach_libthread_db();
@@ -218,7 +231,12 @@ impl Debugee {
             dwarf_registry: self.dwarf_registry.extend(proc),
             disassembly: Disassembler::new().expect("infallible"),
             libthread_db: self.libthread_db.clone(),
+            tokio_version: self.tokio_version,
         }
+    }
+
+    pub fn tokio_version(&self) -> Option<TokioVersion> {
+        self.tokio_version
     }
 
     pub fn execution_status(&self) -> ExecutionStatus {

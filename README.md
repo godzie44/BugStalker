@@ -438,6 +438,11 @@ supported).
 There is also `oracle tokio`, but it adds some overhead to your program and
 is not very informative unlike the commands presented below.
 
+Supported `tokio` versions:
+
+- 1.40
+- 1.41
+
 ### Async backtrace
 
 [demo async backtrace](https://github.com/godzie44/BugStalker/blob/master/doc/demo_async_bt.gif)
