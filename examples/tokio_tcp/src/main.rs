@@ -1,3 +1,8 @@
+#[cfg(feature = "tokio_v_1_40")]
+use tokio_1_40 as tokio;
+#[cfg(feature = "tokio_v_1_41")]
+use tokio_1_41 as tokio;
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 

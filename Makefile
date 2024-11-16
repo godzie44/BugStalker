@@ -5,7 +5,11 @@ build-test:
 	cargo build --features "int_test"
 
 build-examples:
-	cd examples ; cargo build -p calc_lib ; cargo build
+	cd examples; \
+	cargo build -p calc_lib; \
+	$(SHLIB_SO_PATH) cargo build; \
+	cargo build -p tokio_tcp --bin tokio_tcp_1_40 --no-default-features --features tokio_v_1_40; \
+	cargo build -p tokio_tcp --bin tokio_tcp_1_41 --no-default-features --features tokio_v_1_41
 
 build-all: build build-examples
 
