@@ -65,4 +65,7 @@ Program that calculates some values. Useful for watchpoints testing.
 
 ### Tokio_tcp
 
-Tokio tcp echo-server. Useful for testing `async ...` commands.
+A list of tokio tcp echo-servers with different tokio versions. Useful for testing `async ...` commands.
+
+**TODO**
+This should be a single application that may compiled into binaries with different library versions. But, for now, looks like this is not possible.

@@ -8,8 +8,8 @@ build-examples:
 	cd examples; \
 	cargo build -p calc_lib; \
 	$(SHLIB_SO_PATH) cargo build; \
-	cargo build -p tokio_tcp --bin tokio_tcp_1_40 --no-default-features --features tokio_v_1_40; \
-	cargo build -p tokio_tcp --bin tokio_tcp_1_41 --no-default-features --features tokio_v_1_41
+	cargo build --manifest-path tokio_tcp/tokio_tcp_1_40/Cargo.toml; \
+	cargo build --manifest-path tokio_tcp/tokio_tcp_1_41/Cargo.toml; \
 
 build-all: build build-examples
 

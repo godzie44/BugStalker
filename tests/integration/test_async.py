@@ -27,7 +27,7 @@ def tokio_binaries():
 class CommandTestCase(unittest.TestCase):           
     def test_runtime_info_1(self):
         for binary in tokio_binaries():
-            self.debugger = Debugger(path=f"./examples/target/debug/{binary}")
+            self.debugger = Debugger(path=f"./examples/tokio_tcp/{binary}/target/debug/{binary}")
             self.debugger.cmd_re('run', r'Listening on: .*:8080')
 
             thread = threading.Thread(target=send_tcp_request)
@@ -68,8 +68,8 @@ class CommandTestCase(unittest.TestCase):
         """Stop async runtime at breakpoint and assert futures state"""
         
         for binary in tokio_binaries():
-            self.debugger = Debugger(path=f"./examples/target/debug/{binary}")
-            self.debugger.cmd('break main.rs:59')
+            self.debugger = Debugger(path=f"./examples/tokio_tcp/{binary}/target/debug/{binary}")
+            self.debugger.cmd('break main.rs:54')
             self.debugger.cmd_re('run', r'Listening on: .*:8080')
 
             thread = threading.Thread(target=send_tcp_request)

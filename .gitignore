@@ -1,5 +1,7 @@
 /target
 /examples/target
+/examples/tokio_tcp/tokio_tcp_1_40/target
+/examples/tokio_tcp/tokio_tcp_1_41/target
 /examples/pastebin/upload
 .idea
 /tests/integration/__pycache__
