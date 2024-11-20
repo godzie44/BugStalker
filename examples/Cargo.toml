@@ -16,6 +16,8 @@ members = [
     "shlib/printer_lib",
     "panic",
     "calculations",
-    "tokio_tcp"
 ]
+
+exclude = ["tokio_tcp/tokio_tcp_1_40", "tokio_tcp/tokio_tcp_1_41"]
+
 resolver = "2"

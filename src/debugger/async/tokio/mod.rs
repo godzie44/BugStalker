@@ -5,6 +5,8 @@ pub mod worker;
 
 use crate::{version::Version, version_specialized};
 use core::str;
+use log::info;
+use std::fmt::Display;
 
 use super::{AsyncError, Future, TaskBacktrace};
 
@@ -17,6 +19,12 @@ impl Default for TokioVersion {
     }
 }
 
+impl Display for TokioVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("v{}.{}.x", self.0 .0 .0, self.0 .0 .1))
+    }
+}
+
 /// Temporary function, parse tokio version from static string found in `rodata`` section.
 ///
 /// WAITFORFIX: https://github.com/tokio-rs/tokio/issues/6950
@@ -25,7 +33,6 @@ pub fn extract_tokio_version_naive(rodata: &[u8]) -> Option<TokioVersion> {
 
     let tpl = TOKIO_V_TPL.as_bytes();
     let pos = rodata.windows(tpl.len()).position(|w| w == tpl)?;
-
     // get next number between dots
     let mut pos = pos + tpl.len();
     let mut minor = vec![];
@@ -34,5 +41,8 @@ pub fn extract_tokio_version_naive(rodata: &[u8]) -> Option<TokioVersion> {
         pos += 1;
     }
     let minor = str::from_utf8(&minor).ok()?;
-    Some(TokioVersion(Version((1, minor.parse().ok()?, 0))))
+    let version = TokioVersion(Version((1, minor.parse().ok()?, 0)));
+    info!(target: "debugger", "tokio runtime {version} discovered");
+
+    Some(version)
 }
