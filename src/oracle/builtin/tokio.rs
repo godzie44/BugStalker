@@ -481,8 +481,8 @@ pub mod tui {
         Alignment, BorderSides, BorderType, Borders, Color, Layout, PropPayload, PropValue, Style,
         TableBuilder, TextSpan,
     };
-    use tuirealm::tui::layout;
-    use tuirealm::tui::layout::Constraint;
+    use tuirealm::ratatui::layout;
+    use tuirealm::ratatui::layout::Constraint;
     use tuirealm::{AttrValue, Attribute, Component, Event, MockComponent};
 
     impl State {

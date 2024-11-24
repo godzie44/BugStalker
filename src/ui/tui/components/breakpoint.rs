@@ -15,8 +15,8 @@ use std::sync::Arc;
 use tui_realm_stdlib::List;
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
 use tuirealm::props::{BorderType, Borders, Style, TableBuilder, TextSpan};
-use tuirealm::tui::layout::{Alignment, Rect};
-use tuirealm::tui::style::Color;
+use tuirealm::ratatui::layout::{Alignment, Rect};
+use tuirealm::ratatui::style::Color;
 use tuirealm::{AttrValue, Attribute, Component, Event, Frame, MockComponent, State, StateValue};
 
 #[derive(PartialEq)]
