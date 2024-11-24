@@ -6,9 +6,9 @@ use crate::ui::tui::{Id, Msg};
 use tui_realm_stdlib::Textarea;
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
 use tuirealm::props::{Borders, PropPayload, PropValue, Style, TextSpan};
-use tuirealm::tui::layout::Alignment;
-use tuirealm::tui::prelude::Color;
-use tuirealm::tui::widgets::BorderType;
+use tuirealm::ratatui::layout::Alignment;
+use tuirealm::ratatui::prelude::Color;
+use tuirealm::ratatui::widgets::BorderType;
 use tuirealm::{
     AttrValue, Attribute, Component, Event, MockComponent, Sub, SubClause, SubEventClause,
 };

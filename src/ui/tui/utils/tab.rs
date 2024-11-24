@@ -8,8 +8,8 @@ use tuirealm::command::{Cmd, CmdResult, Direction};
 use tuirealm::props::{
     Alignment, BorderSides, BorderType, Borders, Color, Layout, PropPayload, PropValue,
 };
-use tuirealm::tui::layout::Rect;
-use tuirealm::{AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State, props};
+use tuirealm::ratatui::layout::Rect;
+use tuirealm::{props, AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State};
 
 #[derive(FromRepr, PartialEq, Clone, Copy)]
 #[repr(u8)]
@@ -86,11 +86,11 @@ impl TabWindow {
             .foreground(Color::Yellow)
             .layout(
                 Layout::default()
-                    .direction(tuirealm::tui::layout::Direction::Vertical)
+                    .direction(tuirealm::ratatui::layout::Direction::Vertical)
                     .constraints(
                         [
-                            tuirealm::tui::layout::Constraint::Length(3),
-                            tuirealm::tui::layout::Constraint::Min(3),
+                            tuirealm::ratatui::layout::Constraint::Length(3),
+                            tuirealm::ratatui::layout::Constraint::Min(3),
                         ]
                         .as_ref(),
                     ),

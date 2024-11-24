@@ -15,8 +15,8 @@ use std::sync::Arc;
 use tui_realm_treeview::{Node, TREE_CMD_CLOSE, TREE_CMD_OPEN, TREE_INITIAL_NODE, Tree, TreeView};
 use tuirealm::command::{Cmd, Direction, Position};
 use tuirealm::props::{BorderType, Borders, TextSpan};
-use tuirealm::tui::layout::Alignment;
-use tuirealm::tui::style::{Color, Style};
+use tuirealm::ratatui::layout::Alignment;
+use tuirealm::ratatui::style::{Color, Style};
 use tuirealm::{
     AttrValue, Attribute, Component, Event, MockComponent, Sub, SubClause, SubEventClause,
 };

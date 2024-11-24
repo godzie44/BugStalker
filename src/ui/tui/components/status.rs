@@ -8,9 +8,9 @@ use nix::sys::signal::Signal;
 use tui_realm_stdlib::Container;
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::props::{Borders, Layout, PropPayload, PropValue, TextSpan};
-use tuirealm::tui::layout::{Alignment, Rect};
-use tuirealm::tui::style::Color;
-use tuirealm::tui::widgets::BorderType;
+use tuirealm::ratatui::layout::{Alignment, Rect};
+use tuirealm::ratatui::style::Color;
+use tuirealm::ratatui::widgets::BorderType;
 use tuirealm::{
     AttrValue, Attribute, Component, Event, Frame, MockComponent, State, Sub, SubClause,
     SubEventClause,
@@ -74,11 +74,11 @@ impl Status {
             component: Container::default()
                 .layout(
                     Layout::default()
-                        .direction(tuirealm::tui::layout::Direction::Horizontal)
+                        .direction(tuirealm::ratatui::layout::Direction::Horizontal)
                         .constraints(
                             [
-                                tuirealm::tui::layout::Constraint::Percentage(80),
-                                tuirealm::tui::layout::Constraint::Percentage(20),
+                                tuirealm::ratatui::layout::Constraint::Percentage(80),
+                                tuirealm::ratatui::layout::Constraint::Percentage(20),
                             ]
                             .as_ref(),
                         ),
