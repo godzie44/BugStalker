@@ -24,7 +24,7 @@ impl MSTextareaStates {
 
     /// ### incr_list_index
     ///
-    /// Incremenet list index
+    /// Increment list index
     pub fn incr_list_index(&mut self) {
         // Check if index is at last element
         if self.list_index + 1 < self.list_len {
@@ -44,7 +44,7 @@ impl MSTextareaStates {
 
     /// ### fix_list_index
     ///
-    /// Keep index if possible, otherwise set to lenght - 1
+    /// Keep index if possible, otherwise set to length - 1
     pub fn fix_list_index(&mut self) {
         if self.list_index >= self.list_len && self.list_len > 0 {
             self.list_index = self.list_len - 1;

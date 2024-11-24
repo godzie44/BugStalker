@@ -9,13 +9,13 @@ pub fn into_text_span(
 ) -> anyhow::Result<TextSpan> {
     Ok(TextSpan {
         content: String::from(content),
-        fg: translate_colour(style.foreground).unwrap_or_default(),
+        fg: translate_color(style.foreground).unwrap_or_default(),
         bg: Color::default(),
         modifiers: translate_font_style(style.font_style)?,
     })
 }
 
-pub fn translate_colour(syntect_color: syntect::highlighting::Color) -> Option<Color> {
+pub fn translate_color(syntect_color: syntect::highlighting::Color) -> Option<Color> {
     match syntect_color {
         syntect::highlighting::Color { r, g, b, a } if a > 0 => Some(Color::Rgb(r, g, b)),
         _ => None,
