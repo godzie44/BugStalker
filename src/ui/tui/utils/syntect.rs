@@ -1,8 +1,8 @@
 /// Translate syntect styled text to [`tuirealm::props::TextSpan`]
 use anyhow::anyhow;
 use tuirealm::props::TextSpan;
-use tuirealm::tui::style::Color;
-use tuirealm::tui::style::Modifier;
+use tuirealm::ratatui::style::Color;
+use tuirealm::ratatui::style::Modifier;
 
 pub fn into_text_span(
     (style, content): (syntect::highlighting::Style, &str),

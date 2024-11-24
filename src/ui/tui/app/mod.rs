@@ -31,11 +31,12 @@ use std::borrow::Cow;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tuirealm::listener::Port;
 use tuirealm::props::{PropPayload, PropValue, TextSpan};
-use tuirealm::terminal::TerminalBridge;
-use tuirealm::tui::layout::Alignment;
-use tuirealm::tui::layout::{Constraint, Direction, Layout};
-use tuirealm::tui::style::Color;
+use tuirealm::ratatui::layout::Alignment;
+use tuirealm::ratatui::layout::{Constraint, Direction, Layout};
+use tuirealm::ratatui::style::Color;
+use tuirealm::terminal::{CrosstermTerminalAdapter, TerminalBridge};
 use tuirealm::{
     props, Application, AttrValue, Attribute, EventListenerCfg, Sub, SubClause, SubEventClause,
 };
@@ -50,7 +51,7 @@ pub struct Model {
     /// Tells whether to redraw interface
     pub redraw: bool,
     /// Used to draw to terminal
-    pub terminal: TerminalBridge,
+    pub terminal: TerminalBridge<CrosstermTerminalAdapter>,
     /// Message exchanger with tracer (debugger) thread
     exchanger: Arc<ClientExchanger>,
     /// Layout of main tabs
@@ -76,7 +77,7 @@ impl Model {
             app: Self::init_app(output_buf, event_queue, exchanger.clone(), log_buffer)?,
             quit: false,
             redraw: true,
-            terminal: TerminalBridge::new().expect("Cannot initialize terminal"),
+            terminal: TerminalBridge::init_crossterm().expect("Cannot initialize terminal"),
             exchanger,
             tabs_layout: Self::DEFAULT_TABS_LAYOUT,
         })
@@ -98,7 +99,7 @@ impl Model {
                 .direction(Direction::Vertical)
                 .margin(1)
                 .constraints(constraints)
-                .split(f.size());
+                .split(f.area());
 
             let tabs_rect = main_chunks[0];
             let tab_chunks = Layout::default()
@@ -117,7 +118,7 @@ impl Model {
             }
 
             if popup_in_focus {
-                self.app.view(&Id::Popup, f, f.size());
+                self.app.view(&Id::Popup, f, f.area());
             }
         });
     }
@@ -130,23 +131,27 @@ impl Model {
     ) -> anyhow::Result<Application<Id, Msg, UserEvent>> {
         let mut app: Application<Id, Msg, UserEvent> = Application::init(
             EventListenerCfg::default()
-                .default_input_listener(Duration::from_millis(20))
-                .port(
+                .crossterm_input_listener(Duration::from_millis(20), 3)
+                .port(Port::new(
                     Box::new(OutputPort::new(output_buf.data.clone())),
                     Duration::from_millis(10),
-                )
-                .port(
+                    1,
+                ))
+                .port(Port::new(
                     Box::new(DebuggerEventsPort::new(event_queue)),
                     Duration::from_millis(10),
-                )
-                .port(
+                    1,
+                ))
+                .port(Port::new(
                     Box::new(AsyncResponsesPort::new(exchanger.clone())),
                     Duration::from_millis(10),
-                )
-                .port(
+                    1,
+                ))
+                .port(Port::new(
                     Box::new(LoggerPort::new(log_buffer)),
                     Duration::from_millis(10),
-                )
+                    1,
+                ))
                 .poll_timeout(Duration::from_millis(10))
                 .tick_interval(Duration::from_millis(200)),
         );
