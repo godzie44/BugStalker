@@ -8,9 +8,9 @@ use crate::ui::tui::{Id, Msg};
 use std::sync::Arc;
 use tuirealm::command::{Cmd, Direction, Position};
 use tuirealm::props::{Borders, Style, TextSpan};
-use tuirealm::tui::layout::Alignment;
-use tuirealm::tui::prelude::Color;
-use tuirealm::tui::widgets::BorderType;
+use tuirealm::ratatui::layout::Alignment;
+use tuirealm::ratatui::prelude::Color;
+use tuirealm::ratatui::widgets::BorderType;
 use tuirealm::{
     AttrValue, Attribute, Component, Event, MockComponent, Sub, SubClause, SubEventClause,
 };
