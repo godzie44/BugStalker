@@ -6,11 +6,11 @@ use std::str::FromStr;
 use tui_realm_stdlib::Radio;
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::props::{BorderSides, Borders, PropPayload, PropValue};
-use tuirealm::tui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use tuirealm::tui::prelude::Style;
-use tuirealm::tui::style::{Color, Stylize};
-use tuirealm::tui::widgets;
-use tuirealm::tui::widgets::{Block, BorderType, Clear, Paragraph};
+use tuirealm::ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use tuirealm::ratatui::prelude::Style;
+use tuirealm::ratatui::style::{Color, Stylize};
+use tuirealm::ratatui::widgets;
+use tuirealm::ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 use tuirealm::{
     AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State, command,
 };

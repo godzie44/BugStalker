@@ -3,9 +3,9 @@ use tuirealm::props::{
     Alignment, AttrValue, Attribute, Borders, Color, PropPayload, PropValue, Props, Style,
     TextModifiers,
 };
-use tuirealm::tui::text::Line as Spans;
-use tuirealm::tui::widgets::{ListDirection, ListItem, ListState};
-use tuirealm::tui::{layout::Rect, widgets::Tabs};
+use tuirealm::ratatui::text::Line as Spans;
+use tuirealm::ratatui::widgets::{ListDirection, ListItem, ListState};
+use tuirealm::ratatui::{layout::Rect, widgets::Tabs};
 use tuirealm::{Frame, MockComponent, State, StateValue};
 
 #[derive(PartialEq, Clone, Copy, Default)]
@@ -176,7 +176,7 @@ impl MockComponent for Radio {
                         .iter()
                         .map(|s| ListItem::new(s.to_string()))
                         .collect();
-                    let radio = tuirealm::tui::widgets::List::new(list_items)
+                    let radio = tuirealm::ratatui::widgets::List::new(list_items)
                         .block(div)
                         .highlight_style(Style::default().fg(fg).add_modifier(modifiers))
                         .direction(ListDirection::TopToBottom);

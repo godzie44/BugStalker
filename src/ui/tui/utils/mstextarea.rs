@@ -1,9 +1,9 @@
 use std::collections::LinkedList;
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
 use tuirealm::props::{Borders, PropPayload, PropValue, Style, TextModifiers, TextSpan};
-use tuirealm::tui::layout::{Alignment, Rect};
-use tuirealm::tui::prelude::Color;
-use tuirealm::tui::widgets::{List, ListDirection, ListItem, ListState};
+use tuirealm::ratatui::layout::{Alignment, Rect};
+use tuirealm::ratatui::prelude::Color;
+use tuirealm::ratatui::widgets::{List, ListDirection, ListItem, ListState};
 use tuirealm::{AttrValue, Attribute, Frame, MockComponent, Props, State};
 use unicode_width::UnicodeWidthStr;
 
