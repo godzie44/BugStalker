@@ -160,7 +160,7 @@ enum CompletableCommand<'a> {
 }
 
 impl<'a> CompletableCommand<'a> {
-    fn recognize(line: &'a str) -> Option<CompletableCommand> {
+    fn recognize(line: &'a str) -> Option<CompletableCommand<'a>> {
         let op = just::<_, _, extra::Default>;
 
         let bp = op(BREAK_COMMAND)

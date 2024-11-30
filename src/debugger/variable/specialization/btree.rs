@@ -533,7 +533,7 @@ pub struct KVIterator<'a> {
     v_size: usize,
 }
 
-impl<'a> FallibleIterator for KVIterator<'a> {
+impl FallibleIterator for KVIterator<'_> {
     type Item = (ObjectBinaryRepr, ObjectBinaryRepr);
     type Error = ParsingError;
 

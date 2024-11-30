@@ -27,7 +27,7 @@ pub struct EvaluationContext<'a> {
     pub expl_ctx: &'a ExplorationContext,
 }
 
-impl<'a> EvaluationContext<'a> {
+impl EvaluationContext<'_> {
     pub fn rustc_version(&self) -> Option<Version> {
         self.evaluator.unit().rustc_version()
     }

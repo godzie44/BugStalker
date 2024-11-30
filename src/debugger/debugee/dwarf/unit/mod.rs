@@ -115,7 +115,7 @@ impl<'a> From<(&'a Unit, usize, &LineRow)> for PlaceDescriptor<'a> {
     }
 }
 
-impl<'a> Debug for PlaceDescriptor<'a> {
+impl Debug for PlaceDescriptor<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
             "file: {:?}, line: {}, addr: {}, is_stmt: {}, col: {}, epilog_begin: {}, prolog_end: {}",
@@ -151,7 +151,7 @@ impl<'a> PlaceDescriptor<'a> {
     }
 }
 
-impl<'a> PartialEq for PlaceDescriptor<'a> {
+impl PartialEq for PlaceDescriptor<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.file == other.file
             && self.address == other.address
@@ -814,7 +814,7 @@ impl Unit {
     pub fn evaluator<'this>(
         &'this self,
         debugee: &'this Debugee,
-    ) -> UnitResult<ExpressionEvaluator> {
+    ) -> UnitResult<ExpressionEvaluator<'this>> {
         match self.lazy_part.get() {
             None => UnitResult::Reload,
             Some(_) => UnitResult::Ok(ExpressionEvaluator::new(self, self.encoding(), debugee)),
