@@ -48,3 +48,13 @@ or add support for one of `rustc` versions):
 ## Useful links
 
 * [GitFlow] -- https://nvie.com/posts/a-successful-git-branching-model/
+
+## Adding support for new compiler version, checklist
+
+- [ ] add a new rustc version into `src/version.rs`
+- [ ] update `.github/workflows/ci.yml` by adding a new version for integration and functional tests
+- [ ] make sure the tests are not broken (in github ci too), correct test or sources if necessary
+- [ ] fix `cargo fmt` and `cargo clippy` if needed
+- [ ] add information about new version into `README.md` and `CHANGELOG.md`
+- [ ] merge branch into master, rebase develop branch too
+- [ ] create a new release from master branch
