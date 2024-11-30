@@ -239,7 +239,7 @@ impl<'a> DwarfUnwinder<'a> {
     /// # Arguments
     ///
     /// * `debugee`: current debugee program.
-    pub fn new(debugee: &'a Debugee) -> DwarfUnwinder {
+    pub fn new(debugee: &'a Debugee) -> DwarfUnwinder<'a> {
         Self { debugee }
     }
 

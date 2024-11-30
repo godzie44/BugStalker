@@ -358,7 +358,7 @@ pub enum AddressKind {
     Value,
 }
 
-impl<'a> CompletedResult<'a> {
+impl CompletedResult<'_> {
     pub fn into_scalar<T: Copy>(self, address_kind: AddressKind) -> Result<T, Error> {
         let (_, bytes) = self.into_raw_bytes(mem::size_of::<T>(), address_kind)?;
         Ok(scalar_from_bytes(&bytes))

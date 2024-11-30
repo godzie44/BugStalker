@@ -19,7 +19,7 @@ pub enum ValueLayout<'a> {
     Map(&'a [(VariableIR, VariableIR)]),
 }
 
-impl<'a> Debug for ValueLayout<'a> {
+impl Debug for ValueLayout<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ValueLayout::PreRendered(s) => f.debug_tuple("PreRendered").field(s).finish(),

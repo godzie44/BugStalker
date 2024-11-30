@@ -17,7 +17,7 @@ pub enum StylizedLine<'a> {
     Stylized(Vec<(Style, &'a str)>),
 }
 
-impl<'a> RustCodeLineRenderer<'a> {
+impl RustCodeLineRenderer<'_> {
     /// Prettify rust code-line if needed.
     pub fn render_line<'s>(&mut self, line: &'s str) -> anyhow::Result<StylizedLine<'s>> {
         match &mut self.highlighter {

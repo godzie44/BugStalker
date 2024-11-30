@@ -875,7 +875,7 @@ pub struct BreakpointView<'a> {
     pub place: Option<Cow<'a, PlaceDescriptorOwned>>,
 }
 
-impl<'a> From<Breakpoint> for BreakpointView<'a> {
+impl From<Breakpoint> for BreakpointView<'_> {
     fn from(brkpt: Breakpoint) -> Self {
         Self {
             addr: Address::Relocated(brkpt.addr),
@@ -895,7 +895,7 @@ impl<'a> From<&'a Breakpoint> for BreakpointView<'a> {
     }
 }
 
-impl<'a> From<UninitBreakpoint> for BreakpointView<'a> {
+impl From<UninitBreakpoint> for BreakpointView<'_> {
     fn from(brkpt: UninitBreakpoint) -> Self {
         Self {
             addr: brkpt.addr,
@@ -922,7 +922,7 @@ pub struct BreakpointViewOwned {
     pub place: Option<PlaceDescriptorOwned>,
 }
 
-impl<'a> BreakpointView<'a> {
+impl BreakpointView<'_> {
     pub fn to_owned(&self) -> BreakpointViewOwned {
         BreakpointViewOwned {
             addr: self.addr,

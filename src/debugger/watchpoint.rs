@@ -517,7 +517,7 @@ impl<'a> From<&'a Watchpoint> for WatchpointView<'a> {
     }
 }
 
-impl<'a> From<Watchpoint> for WatchpointView<'a> {
+impl From<Watchpoint> for WatchpointView<'_> {
     fn from(mut wp: Watchpoint) -> Self {
         Self {
             number: wp.number,
@@ -534,7 +534,7 @@ impl<'a> From<Watchpoint> for WatchpointView<'a> {
     }
 }
 
-impl<'a> WatchpointView<'a> {
+impl WatchpointView<'_> {
     pub fn to_owned(&self) -> WatchpointViewOwned {
         WatchpointViewOwned {
             number: self.number,

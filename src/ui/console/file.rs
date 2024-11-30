@@ -65,11 +65,7 @@ impl FileView {
             place.line_number
         };
         let line_pos = line_number - 1;
-        let start = if line_pos < bounds {
-            0
-        } else {
-            line_pos - bounds
-        };
+        let start = line_pos.saturating_sub(bounds);
 
         self.render(place.file, start, bounds * 2 + 1)
     }

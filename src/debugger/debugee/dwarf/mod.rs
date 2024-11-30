@@ -958,13 +958,13 @@ macro_rules! ctx_resolve_unit_call {
     }};
 }
 
-impl<'a, T> Clone for ContextualDieRef<'a, T> {
+impl<T> Clone for ContextualDieRef<'_, T> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'a, T> Copy for ContextualDieRef<'a, T> {}
+impl<T> Copy for ContextualDieRef<'_, T> {}
 
 impl<'a, T> ContextualDieRef<'a, T> {
     pub fn namespaces(&self) -> NamespaceHierarchy {
@@ -1139,7 +1139,7 @@ impl<'ctx> ContextualDieRef<'ctx, FunctionDie> {
     }
 }
 
-impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
+impl ContextualDieRef<'_, VariableDie> {
     pub fn ranges(&self) -> Option<&[Range]> {
         if let Some(lb_idx) = self.die.lexical_block_idx {
             let entry = ctx_resolve_unit_call!(self, entry, lb_idx);
@@ -1181,7 +1181,7 @@ impl<'ctx> ContextualDieRef<'ctx, VariableDie> {
     }
 }
 
-impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
+impl ContextualDieRef<'_, ParameterDie> {
     /// Return max range (with max `end` address) of an underlying function.
     /// If it's possible, `end` address in range equals to function epilog begin.
     pub fn max_range(&self) -> Option<Range> {
@@ -1205,7 +1205,7 @@ impl<'ctx> ContextualDieRef<'ctx, ParameterDie> {
     }
 }
 
-impl<'ctx, D: AsAllocatedData> ContextualDieRef<'ctx, D> {
+impl<D: AsAllocatedData> ContextualDieRef<'_, D> {
     pub fn r#type(&self) -> Option<ComplexType> {
         let parser = r#type::TypeParser::new();
         Some(parser.parse(*self, self.die.type_ref()?))

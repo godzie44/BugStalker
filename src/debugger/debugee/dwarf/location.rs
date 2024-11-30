@@ -7,7 +7,7 @@ use gimli::{Attribute, AttributeValue, Expression};
 
 pub(super) struct Location<'a>(pub(super) &'a Attribute<EndianArcSlice>);
 
-impl<'a> Location<'a> {
+impl Location<'_> {
     /// Converts location attribute to a dwarf expression.
     /// Expect location attribute one of:
     /// - DW_FORM_exprloc
