@@ -14,7 +14,7 @@ use std::mem::MaybeUninit;
 use std::ops::Sub;
 use std::time::Duration;
 
-fn print_future(num: u32, future: &Future, printer: &ExternalPrinter) {
+fn print_future(backtrace: &AsyncBacktrace, num: u32, future: &Future, printer: &ExternalPrinter) {
     match future {
         Future::AsyncFn(fn_fut) => {
             printer.println(format!(
@@ -40,6 +40,21 @@ fn print_future(num: u32, future: &Future, printer: &ExternalPrinter) {
             printer.println(format!(
                 "#{num} future {}",
                 FutureTypeView::from(custom_fut.name.to_string())
+            ));
+        }
+        Future::TokioJoinHandleFuture(jh_fut) => {
+            let wait_for = backtrace
+                .tasks
+                .iter()
+                .find(|t| t.raw_ptr == jh_fut.wait_for_task);
+            let wait_for_str = wait_for
+                .map(|task| format!(", wait for task id={}", task.task_id))
+                .unwrap_or_default();
+
+            printer.println(format!(
+                "#{num} Join future {}{}",
+                FutureTypeView::from(jh_fut.name.to_string()),
+                wait_for_str,
             ));
         }
         Future::TokioSleep(sleep_fut) => {
@@ -81,20 +96,22 @@ fn print_future(num: u32, future: &Future, printer: &ExternalPrinter) {
     }
 }
 
-fn print_task(task: &TaskBacktrace, printer: &ExternalPrinter) {
+fn print_task(backtrace: &AsyncBacktrace, task: &TaskBacktrace, printer: &ExternalPrinter) {
     let task_descr = format!("Task id: {}", task.task_id).bold();
     printer.println(AsyncTaskView::from(task_descr));
 
     for (i, fut) in task.futures.iter().enumerate() {
-        print_future(i as u32, fut, printer);
+        print_future(backtrace, i as u32, fut, printer);
     }
 }
 
-pub fn print_backtrace(backtrace: &mut AsyncBacktrace, printer: &ExternalPrinter) {
-    backtrace.workers.sort_by_key(|w| w.thread.number);
-    backtrace.block_threads.sort_by_key(|pt| pt.thread.number);
+pub fn print_backtrace(backtrace: &AsyncBacktrace, printer: &ExternalPrinter) {
+    let mut workers = backtrace.workers.clone();
+    let mut block_threads = backtrace.block_threads.clone();
+    workers.sort_by_key(|w| w.thread.number);
+    block_threads.sort_by_key(|pt| pt.thread.number);
 
-    for bt in &backtrace.block_threads {
+    for bt in &block_threads {
         let block_thread_header = format!(
             "Thread #{} (pid: {}) block on:",
             bt.thread.number, bt.thread.pid,
@@ -106,13 +123,13 @@ pub fn print_backtrace(backtrace: &mut AsyncBacktrace, printer: &ExternalPrinter
         }
 
         for (i, fut) in bt.bt.futures.iter().enumerate() {
-            print_future(i as u32, fut, printer);
+            print_future(backtrace, i as u32, fut, printer);
         }
     }
 
     printer.println("");
 
-    for worker in &backtrace.workers {
+    for worker in &workers {
         let worker_header = format!(
             "Async worker #{} (pid: {}, local queue length: {})",
             worker.thread.number,
@@ -136,21 +153,21 @@ pub fn print_backtrace(backtrace: &mut AsyncBacktrace, printer: &ExternalPrinter
                 printer.println(AsyncTaskView::from(task_descr));
 
                 for (i, fut) in active_task.futures.iter().enumerate() {
-                    print_future(i as u32, fut, printer);
+                    print_future(backtrace, i as u32, fut, printer);
                 }
             }
         }
     }
 }
 
-pub fn print_backtrace_full(backtrace: &mut AsyncBacktrace, printer: &ExternalPrinter) {
+pub fn print_backtrace_full(backtrace: &AsyncBacktrace, printer: &ExternalPrinter) {
     print_backtrace(backtrace, printer);
 
     printer.println("");
     printer.println("Known tasks:");
 
     for task in backtrace.tasks.iter() {
-        print_task(task, printer);
+        print_task(backtrace, task, printer);
     }
 }
 
@@ -162,37 +179,19 @@ pub fn print_task_ex(backtrace: &AsyncBacktrace, printer: &ExternalPrinter, rege
         for task in tasks.iter() {
             if let Some(Future::AsyncFn(f)) = task.futures.first() {
                 if re.find(&f.async_fn).is_some() {
-                    print_task(task, printer);
+                    print_task(backtrace, task, printer);
                 }
             }
         }
     } else {
         // print current task
-
-        let mb_active_block_thread = backtrace.block_threads.iter().find(|t| t.in_focus);
-        let active_task = if let Some(bt) = mb_active_block_thread {
-            &bt.bt
-        } else {
-            let mb_active_worker = backtrace.workers.iter().find(|t| t.in_focus);
-            let Some(active_worker) = mb_active_worker else {
-                printer.println(ErrorView::from("no active worker found"));
-                return;
-            };
-            let active_task_id = active_worker.active_task;
-            let mb_active_task = if let Some(active_task_id) = active_task_id {
-                backtrace.tasks.iter().find(|t| t.task_id == active_task_id)
-            } else {
-                active_worker.active_task_standby.as_ref()
-            };
-
-            let Some(active_task) = mb_active_task else {
-                printer.println(ErrorView::from("no active task found for current worker"));
-                return;
-            };
-
-            active_task
+        let Some(active_task) = backtrace.current_task() else {
+            printer.println(ErrorView::from(
+                "no active task found for current worker, or no active worker found",
+            ));
+            return;
         };
 
-        print_task(active_task, printer);
+        print_task(backtrace, active_task, printer);
     }
 }

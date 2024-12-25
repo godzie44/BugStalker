@@ -178,7 +178,7 @@ impl WorkerInternal {
 }
 
 /// Tokio async worker (https://github.com/tokio-rs/tokio/blob/tokio-1.39.x/tokio/src/runtime/scheduler/multi_thread/worker.rs#L91) representation.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Worker {
     /// Active task number.
     pub active_task: Option<u64>,
