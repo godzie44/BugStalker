@@ -1,3 +1,4 @@
+use crate::debugger::address::RelocatedAddress;
 use crate::debugger::debugee::dwarf::r#type::TypeIdentity;
 use crate::debugger::r#async::AsyncError;
 use crate::debugger::variable::value::{RustEnumValue, SpecializedValue, StructValue, Value};
@@ -13,7 +14,7 @@ pub enum ParseFutureStateError {
     UnexpectedState(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AsyncFnFutureState {
     /// A future in this state is suspended at the await point in the code.
     /// The compiler generates a special type to indicate a stop at such await point -
@@ -29,7 +30,7 @@ pub enum AsyncFnFutureState {
     Unresumed,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AsyncFnFuture {
     /// Future name (from debug info).
     pub name: String,
@@ -84,7 +85,7 @@ impl TryFrom<&RustEnumValue> for AsyncFnFuture {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CustomFuture {
     pub name: TypeIdentity,
 }
@@ -96,7 +97,7 @@ impl From<&StructValue> for CustomFuture {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TokioSleepFuture {
     pub name: TypeIdentity,
     pub instant: (i64, u32),
@@ -134,10 +135,51 @@ impl TryFrom<StructValue> for TokioSleepFuture {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct TokioJoinHandleFuture {
+    pub name: TypeIdentity,
+    pub wait_for_task: RelocatedAddress,
+}
+
+impl TryFrom<StructValue> for TokioJoinHandleFuture {
+    type Error = AsyncError;
+
+    fn try_from(val: StructValue) -> Result<Self, Self::Error> {
+        let name = val.type_ident.clone();
+
+        let header_field = val
+            .field("raw")
+            .and_then(|raw| raw.field("ptr")?.field("pointer"));
+        let Some(header) = header_field else {
+            return Err(AsyncError::IncorrectAssumption(
+                "JoinHandle future should contains `raw` field",
+            ));
+        };
+
+        let Value::Pointer(ref ptr) = header else {
+            return Err(AsyncError::IncorrectAssumption(
+                "JoinHandler::raw.ptr.pointer not a pointer",
+            ));
+        };
+        let wait_for_task = ptr
+            .value
+            .map(|p| RelocatedAddress::from(p as usize))
+            .ok_or(AsyncError::IncorrectAssumption(
+                "JoinHandler::raw.ptr.pointer not a pointer",
+            ))?;
+
+        Ok(Self {
+            name,
+            wait_for_task,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Future {
     AsyncFn(AsyncFnFuture),
     TokioSleep(TokioSleepFuture),
+    TokioJoinHandleFuture(TokioJoinHandleFuture),
     Custom(CustomFuture),
     UnknownFuture,
 }

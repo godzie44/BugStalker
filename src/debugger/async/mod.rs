@@ -9,6 +9,7 @@ pub use tokio::park::BlockThread;
 pub use tokio::worker::Worker;
 pub use tokio::TokioVersion;
 
+use crate::debugger::address::RelocatedAddress;
 use crate::debugger::r#async::context::TokioAnalyzeContext;
 use crate::debugger::r#async::future::ParseFutureStateError;
 use crate::debugger::r#async::tokio::worker::OwnedList;
@@ -22,8 +23,10 @@ use std::rc::Rc;
 use tokio::park::try_as_park_thread;
 use tokio::worker::try_as_worker;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TaskBacktrace {
+    /// Address of the `Header` structure
+    pub raw_ptr: RelocatedAddress,
     /// Tokio task id.
     pub task_id: u64,
     /// Futures stack.
@@ -39,6 +42,24 @@ pub struct AsyncBacktrace {
     pub block_threads: Vec<BlockThread>,
     /// Known tasks. Each task has own backtrace, where root is an async function.
     pub tasks: Rc<Vec<TaskBacktrace>>,
+}
+
+impl AsyncBacktrace {
+    pub fn current_task(&self) -> Option<&TaskBacktrace> {
+        let mb_active_block_thread = self.block_threads.iter().find(|t| t.in_focus);
+        if let Some(bt) = mb_active_block_thread {
+            Some(&bt.bt)
+        } else {
+            let active_worker = self.workers.iter().find(|t| t.in_focus)?;
+            let active_task_id = active_worker.active_task;
+            let active_task = if let Some(active_task_id) = active_task_id {
+                self.tasks.iter().find(|t| t.task_id == active_task_id)
+            } else {
+                active_worker.active_task_standby.as_ref()
+            }?;
+            Some(active_task)
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
