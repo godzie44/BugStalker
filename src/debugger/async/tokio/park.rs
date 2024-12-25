@@ -1,4 +1,5 @@
 use super::task::Task;
+use crate::debugger::address::RelocatedAddress;
 use crate::debugger::r#async::context::TokioAnalyzeContext;
 use crate::debugger::r#async::{AsyncError, TaskBacktrace};
 use crate::debugger::utils::PopIf;
@@ -7,7 +8,7 @@ use crate::debugger::variable::value::Value;
 use crate::debugger::{Error, ThreadSnapshot, Tracee};
 
 /// Represent a thread that blocks on future execution (`tokio::task::spawn_blocking` for example how to create this thread).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockThread {
     /// A thread that block on future.
     pub thread: Tracee,
@@ -53,7 +54,11 @@ pub fn try_as_park_thread(
             "it looks like it's a park thread, but variable `f` not a future",
         )));
     };
-    let task = Task::from_enum_repr(0, fut);
+    let task = Task::from_enum_repr(
+        RelocatedAddress::from(fut.raw_address.unwrap_or_default()),
+        0,
+        fut,
+    );
 
     Ok(Some(BlockThread {
         thread: thread.thread.clone(),
