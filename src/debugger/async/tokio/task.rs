@@ -3,7 +3,7 @@ use crate::{
     debugger::{
         address::RelocatedAddress,
         debugee::dwarf::unit::DieVariant,
-        r#async::future::{AsyncFnFuture, CustomFuture, TokioSleepFuture},
+        r#async::future::{AsyncFnFuture, CustomFuture, TokioJoinHandleFuture, TokioSleepFuture},
         utils::PopIf,
         variable::{
             dqe::{Dqe, PointerCast},
@@ -19,16 +19,18 @@ use core::str;
 pub struct Task {
     pub id: u64,
     repr: RustEnumValue,
+    raw_ptr: RelocatedAddress,
 }
 
 impl Task {
-    pub fn from_enum_repr(id: u64, repr: RustEnumValue) -> Self {
-        Self { id, repr }
+    pub fn from_enum_repr(raw_ptr: RelocatedAddress, id: u64, repr: RustEnumValue) -> Self {
+        Self { raw_ptr, id, repr }
     }
 
     pub fn backtrace(self) -> Result<TaskBacktrace, AsyncError> {
         Ok(TaskBacktrace {
             task_id: self.id,
+            raw_ptr: self.raw_ptr,
             futures: self.future_stack()?,
         })
     }
@@ -57,16 +59,22 @@ impl Task {
                 }
                 Some(Value::Struct(next_future)) => {
                     let type_ident = &next_future.type_ident;
-
-                    match type_ident.name_fmt() {
+                    let fmt_name = type_ident.name_fmt();
+                    match fmt_name {
                         "Sleep" => {
                             let future = weak_error!(TokioSleepFuture::try_from(next_future))
                                 .map(Future::TokioSleep)
                                 .unwrap_or(Future::UnknownFuture);
                             result.push(future);
                         }
+                        _ if fmt_name.contains("JoinHandle") => {
+                            let future = weak_error!(TokioJoinHandleFuture::try_from(next_future))
+                                .map(Future::TokioJoinHandleFuture)
+                                .unwrap_or(Future::UnknownFuture);
+                            result.push(future);
+                        }
                         _ => {
-                            let future = CustomFuture::from(&next_future);
+                            let future: CustomFuture = CustomFuture::from(&next_future);
                             result.push(Future::Custom(future));
                         }
                     }
@@ -173,7 +181,7 @@ pub fn task_from_header<'a>(
         "NonNull<tokio::runtime::task::core::{}>",
         cell_type_die.base_attributes.name.unwrap()
     );
-    // let dqe = format!("*(({typ}){}).pointer", ptr);
+
     let dqe = Dqe::Deref(
         Dqe::Field(
             Dqe::PtrCast(PointerCast {
@@ -230,6 +238,6 @@ pub fn task_from_header<'a>(
             "task root future not found",
         )));
     };
-    let task = Task::from_enum_repr(task_id, future);
+    let task = Task::from_enum_repr(ptr, task_id, future);
     Ok(task)
 }
