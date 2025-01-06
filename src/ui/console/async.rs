@@ -34,6 +34,9 @@ fn print_future(backtrace: &AsyncBacktrace, num: u32, future: &Future, printer: 
                 AsyncFnFutureState::Unresumed => {
                     printer.println("\tjust created");
                 }
+                AsyncFnFutureState::Ok => {
+                    printer.println("\tcompleted");
+                }
             }
         }
         Future::Custom(custom_fut) => {
