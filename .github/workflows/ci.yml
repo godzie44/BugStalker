@@ -45,18 +45,23 @@ jobs:
           toolchain: 1.83.0
           override: true
           components: rustfmt, clippy
-      - name: Set up Python 3.7
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.7
+          python-version: '3.13'
+      - name: Install pip and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip
+          if [ -f requirements.txt ]; then sudo pip install -r requirements.txt; fi
+      - name: Verify installation
+        run: |
+          python --version
+          pip --version
       - name: Install libunwind and debug symbols
         run: |
           sudo apt-get update
           sudo apt-get install libunwind-dev libc6-dbg
-      - name: Install test dependencies
-        run: |
-          sudo python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then sudo pip install -r requirements.txt; fi
       - name: Build debugger and test programs
         run: make build-all
       - name: Run integration tests
