@@ -28,6 +28,8 @@ pub enum AsyncFnFutureState {
     /// Already created async fn future but not yet polled (using await or select! or any other
     /// async operation).
     Unresumed,
+    /// Future already in a completed state.
+    Ok,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +50,7 @@ impl TryFrom<&RustEnumValue> for AsyncFnFuture {
         const RETURNED_STATE: &str = "Returned";
         const PANICKED_STATE: &str = "Panicked";
         const SUSPEND_STATE: &str = "Suspend";
+        const OK_STATE: &str = "Ok";
 
         let async_fn = repr.type_ident.namespace().join("::").to_string();
         let name = repr.type_ident.name_fmt().to_string();
@@ -62,6 +65,7 @@ impl TryFrom<&RustEnumValue> for AsyncFnFuture {
             UNRESUMED_STATE => Ok(AsyncFnFutureState::Unresumed),
             RETURNED_STATE => Ok(AsyncFnFutureState::Returned),
             PANICKED_STATE => Ok(AsyncFnFutureState::Panicked),
+            OK_STATE => Ok(AsyncFnFutureState::Ok),
             str => {
                 if str.starts_with(SUSPEND_STATE) {
                     let str = str.trim_start_matches(SUSPEND_STATE);
@@ -158,14 +162,14 @@ impl TryFrom<StructValue> for TokioJoinHandleFuture {
 
         let Value::Pointer(ref ptr) = header else {
             return Err(AsyncError::IncorrectAssumption(
-                "JoinHandler::raw.ptr.pointer not a pointer",
+                "JoinHandle::raw.ptr.pointer not a pointer",
             ));
         };
         let wait_for_task = ptr
             .value
             .map(|p| RelocatedAddress::from(p as usize))
             .ok_or(AsyncError::IncorrectAssumption(
-                "JoinHandler::raw.ptr.pointer not a pointer",
+                "JoinHandle::raw.ptr.pointer not a pointer",
             ))?;
 
         Ok(Self {
