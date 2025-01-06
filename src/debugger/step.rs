@@ -290,6 +290,7 @@ impl Debugger {
             }
             current_location = self.exploration_ctx().location();
         };
+        let fn_file = func.die.decl_file_line.map(|fl| fl.0);
 
         let prolog = func.prolog()?;
         let dwarf = &self.debugee.debug_info(current_location.pc)?;
@@ -310,6 +311,14 @@ impl Debugger {
                 .ok_or_else(|| NoFunctionRanges(fn_full_name.clone()))?;
 
             while place.address.in_range(range) {
+                if Some(place.file_idx) != fn_file {
+                    match place.next() {
+                        None => break,
+                        Some(n) => place = n,
+                    }
+                    continue;
+                }
+
                 // skip places in function prolog
                 if place.address.in_range(&prolog) {
                     match place.next() {
