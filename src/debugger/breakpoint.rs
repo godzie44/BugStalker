@@ -482,8 +482,10 @@ pub enum BrkptType {
     /// Stops the program when the watchpoint expression leaves a scope where it is valid.
     /// Contains linked watchpoint numbers.
     WatchpointCompanion(Vec<u32>),
-    /// Auxiliary breakpoints, using, for example, in step-over implementation
+    /// Auxiliary breakpoints, using, for example, in step-over implementation.
     Temporary,
+    /// Same is temporary breakpoints, using in async steps implementation.
+    TemporaryAsync,
     /// Breakpoint at linker internal function that will always be called when the linker
     /// begins to map in a library or unmap it, and again when the mapping change is complete.
     LinkerMapFn,
@@ -501,6 +503,7 @@ impl Debug for BrkptType {
             BrkptType::LinkerMapFn => f.write_str("linker-map"),
             BrkptType::Transparent(_) => f.write_str("transparent"),
             BrkptType::WatchpointCompanion(_) => f.write_str("watchpoint-companion"),
+            BrkptType::TemporaryAsync => f.write_str("temporary-async"),
         }
     }
 }
@@ -516,6 +519,9 @@ impl PartialEq for BrkptType {
             }
             BrkptType::Temporary => {
                 matches!(other, BrkptType::Temporary)
+            }
+            BrkptType::TemporaryAsync => {
+                matches!(other, BrkptType::TemporaryAsync)
             }
             BrkptType::LinkerMapFn => {
                 matches!(other, BrkptType::LinkerMapFn)
@@ -627,6 +633,22 @@ impl Breakpoint {
     }
 
     #[inline(always)]
+    pub fn new_temporary_async(
+        debug_info_file: impl Into<PathBuf>,
+        addr: RelocatedAddress,
+        pid: Pid,
+    ) -> Self {
+        Self::new_inner(
+            addr,
+            pid,
+            0,
+            None,
+            BrkptType::TemporaryAsync,
+            debug_info_file.into(),
+        )
+    }
+
+    #[inline(always)]
     pub fn new_linker_map(addr: RelocatedAddress, pid: Pid) -> Self {
         Self::new_inner(
             addr,
@@ -705,6 +727,7 @@ impl Breakpoint {
             BrkptType::UserDefined => self.place.as_ref(),
             BrkptType::EntryPoint
             | BrkptType::Temporary
+            | BrkptType::TemporaryAsync
             | BrkptType::LinkerMapFn
             | BrkptType::WatchpointCompanion(_)
             | BrkptType::Transparent(_) => {
@@ -729,6 +752,11 @@ impl Breakpoint {
     #[inline(always)]
     pub fn is_temporary(&self) -> bool {
         matches!(self.r#type, BrkptType::Temporary)
+    }
+
+    #[inline(always)]
+    pub fn is_temporary_async(&self) -> bool {
+        matches!(self.r#type, BrkptType::TemporaryAsync)
     }
 
     pub fn enable(&self) -> Result<(), Error> {
@@ -1139,6 +1167,7 @@ impl BreakpointRegistry {
                     ));
                 }
                 BrkptType::Temporary
+                |BrkptType::TemporaryAsync
                 | BrkptType::LinkerMapFn
                 | BrkptType::Transparent(_)
                 | BrkptType::WatchpointCompanion(_) => {}

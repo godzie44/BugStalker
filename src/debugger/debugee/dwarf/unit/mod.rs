@@ -71,6 +71,7 @@ pub struct DieRange {
 #[derive(Clone)]
 pub struct PlaceDescriptor<'a> {
     pub file: &'a Path,
+    pub file_idx: u64,
     pub address: GlobalAddress,
     pub line_number: u64,
     pub pos_in_unit: usize,
@@ -102,6 +103,7 @@ impl<'a> From<(&'a Unit, usize, &LineRow)> for PlaceDescriptor<'a> {
                 .files
                 .get(line_row.file_index as usize)
                 .expect("file should exists"),
+            file_idx: line_row.file_index,
             address: line_row.address.into(),
             line_number: line_row.line,
             column_number: line_row.column,
