@@ -338,10 +338,14 @@ fn test_max_watchpoint_count_at_address() {
     let ptr_d = get_ptr_of(&dbg, "d");
 
     let b8 = Bytes8;
-    dbg.set_watchpoint_on_memory(ptr_a, b8, DataWrites).unwrap();
-    dbg.set_watchpoint_on_memory(ptr_b, b8, DataWrites).unwrap();
-    dbg.set_watchpoint_on_memory(ptr_c, b8, DataWrites).unwrap();
-    dbg.set_watchpoint_on_memory(ptr_d, b8, DataWrites).unwrap();
+    dbg.set_watchpoint_on_memory(ptr_a, b8, DataWrites, false)
+        .unwrap();
+    dbg.set_watchpoint_on_memory(ptr_b, b8, DataWrites, false)
+        .unwrap();
+    dbg.set_watchpoint_on_memory(ptr_c, b8, DataWrites, false)
+        .unwrap();
+    dbg.set_watchpoint_on_memory(ptr_d, b8, DataWrites, false)
+        .unwrap();
 
     dbg.continue_debugee().unwrap();
     let (old, new) = (SupportedScalar::U64(1), Some(SupportedScalar::U64(6)));

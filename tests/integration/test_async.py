@@ -18,10 +18,11 @@ SUPPORTED_TOKIO_V = [
   "1_41",  
 ];
 
+
 def tokio_binaries():
     binaries = []
     for v in SUPPORTED_TOKIO_V:
-        binaries.append(f"tokio_tcp_{v}")
+        binaries.append(f"tokio_{v}")
     return binaries
 
 class CommandTestCase(unittest.TestCase):           
@@ -90,3 +91,20 @@ class CommandTestCase(unittest.TestCase):
                 'suspended at await point 1',
                 '#1 sleep future, sleeping'
             )
+            
+    def test_step_over(self):
+        """Do async step over until future ends"""
+        
+        for binary in tokio_binaries():
+            self.debugger = Debugger(path=f"./examples/tokio_vars/{binary}/target/debug/{binary}")
+            self.debugger.cmd('break main.rs:29')
+            self.debugger.cmd('run')
+            self.debugger.cmd_re('async next', r'Task id: \d', r'30     let _b = inner_1')
+            self.debugger.cmd_re('async next', r'Task id: \d', r'32     tokio::time::sleep')
+            self.debugger.cmd_re('async next', r'Task id: \d', r'28     let _a')
+            self.debugger.cmd_re('async next', r'Task id: \d', r'26 async fn f2')
+            self.debugger.cmd_re('async next', r'Task id: \d', r'32     tokio::time::sleep')
+            self.debugger.cmd_re('async next', r'Task id: \d', r'33     let _c = inner_1')
+            self.debugger.cmd_re('async next', r'Task id: \d', r'34 }')
+            self.debugger.cmd_re('async next', r'Task #\d completed, stopped')
+

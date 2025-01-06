@@ -184,6 +184,17 @@ impl EventHook for TuiHook {
         Ok(())
     }
 
+    fn on_async_step(
+        &self,
+        pc: RelocatedAddress,
+        place: Option<PlaceDescriptor>,
+        function: Option<&FunctionDie>,
+        _: u64,
+        _: bool,
+    ) -> anyhow::Result<()> {
+        self.on_step(pc, place, function)
+    }
+
     fn on_signal(&self, signal: Signal) {
         self.event_queue
             .lock()

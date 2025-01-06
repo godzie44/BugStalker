@@ -18,6 +18,7 @@ use timeout_readwrite::TimeoutReader;
 use debugger::Error;
 use r#break::Command as BreakpointCommand;
 
+use super::command::r#async::AsyncCommandResult;
 use crate::debugger;
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::dqe::{Dqe, Selector};
@@ -28,7 +29,6 @@ use crate::ui::command::backtrace::Handler as BacktraceHandler;
 use crate::ui::command::frame::ExecutionResult as FrameResult;
 use crate::ui::command::frame::Handler as FrameHandler;
 use crate::ui::command::memory::Handler as MemoryHandler;
-use crate::ui::command::r#async::Command as AsyncCommand;
 use crate::ui::command::r#break::ExecutionResult;
 use crate::ui::command::r#break::Handler as BreakpointHandler;
 use crate::ui::command::r#continue::Handler as ContinueHandler;
@@ -429,7 +429,7 @@ impl AppLoop {
                             let fn_name = frame.func_name.clone().unwrap_or_default();
 
                             let user_bt_end = fn_name == "main"
-                                || fn_name.contains("::main")
+                                //|| fn_name.contains("::main")
                                 || fn_name.contains("::thread_start");
 
                             let fn_ip_or_zero = frame.fn_start_ip.unwrap_or_default();
@@ -730,17 +730,20 @@ impl AppLoop {
             },
             Command::Async(cmd) => {
                 let mut handler = command::r#async::Handler::new(&mut self.debugger);
-                let mut backtrace = handler.handle(&cmd)?;
+                let result: command::r#async::AsyncCommandResult = handler.handle(&cmd)?;
 
-                match cmd {
-                    AsyncCommand::ShortBacktrace => {
-                        print_backtrace(&mut backtrace, &self.printer);
+                match result {
+                    AsyncCommandResult::ShortBacktrace(mut bt) => {
+                        print_backtrace(&mut bt, &self.printer);
                     }
-                    AsyncCommand::FullBacktrace => {
-                        print_backtrace_full(&mut backtrace, &self.printer);
+                    AsyncCommandResult::FullBacktrace(mut bt) => {
+                        print_backtrace_full(&mut bt, &self.printer);
                     }
-                    AsyncCommand::CurrentTask(regex) => {
-                        print_task_ex(&backtrace, &self.printer, regex.as_deref());
+                    AsyncCommandResult::CurrentTask(bt, regex) => {
+                        print_task_ex(&bt, &self.printer, regex);
+                    }
+                    AsyncCommandResult::StepOver => {
+                        _ = self.update_completer_variables();
                     }
                 }
             }

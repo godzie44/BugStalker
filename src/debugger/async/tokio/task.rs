@@ -89,6 +89,63 @@ impl Task {
     }
 }
 
+/// Return task header state value and point pair.
+pub fn task_header_state_value_and_ptr(
+    debugger: &Debugger,
+    header_ptr: RelocatedAddress,
+) -> Result<(usize, usize), Error> {
+    let dqe: Dqe = Dqe::Field(
+        Dqe::Deref(
+            Dqe::Field(
+                Dqe::PtrCast(PointerCast {
+                    ptr: header_ptr.as_usize(),
+                    ty: types::header_type_name().to_string(),
+                })
+                .boxed(),
+                "pointer".to_string(),
+            )
+            .boxed(),
+        )
+        .boxed(),
+        "state".to_string(),
+    );
+
+    let state = debugger
+        .read_variable(dqe)?
+        .pop_if_cond(|v| v.len() == 1)
+        .ok_or(Error::Async(AsyncError::IncorrectAssumption(
+            "Header::state field not found in structure",
+        )))?;
+
+    let state = state
+        .modify_value(|_, state| {
+            state
+                .field("val")?
+                .field("inner")?
+                .field("value")?
+                .field("v")?
+                .field("value")
+        })
+        .ok_or(Error::Async(AsyncError::IncorrectAssumption(
+            "Unexpected Header::state layout",
+        )))?;
+
+    let value = state.into_value();
+    let addr = value
+        .in_memory_location()
+        .ok_or(Error::Async(AsyncError::IncorrectAssumption(
+            "Header::state without address",
+        )))?;
+    let value = value
+        .into_scalar()
+        .and_then(|s| s.try_as_number())
+        .ok_or(Error::Async(AsyncError::IncorrectAssumption(
+            "Header::state should be usize",
+        )))? as usize;
+
+    Ok((value, addr))
+}
+
 /// Get task information using `Header` structure.
 /// See https://github.com/tokio-rs/tokio/blob/tokio-1.38.0/tokio/src/runtime/task/core.rs#L150
 pub fn task_from_header<'a>(
