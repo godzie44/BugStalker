@@ -12,6 +12,11 @@ use tokio::task::task_header_state_value_and_ptr;
 pub use tokio::worker::Worker;
 pub use tokio::TokioVersion;
 
+use super::address::GlobalAddress;
+use super::breakpoint::Breakpoint;
+use super::debugee::tracer::WatchpointHitType;
+use super::register::debug::BreakCondition;
+use super::register::debug::BreakSize;
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::error::Error::NoFunctionRanges;
 use crate::debugger::error::Error::PlaceNotFound;
@@ -28,11 +33,6 @@ use nix::unistd::Pid;
 use std::rc::Rc;
 use tokio::park::try_as_park_thread;
 use tokio::worker::try_as_worker;
-use super::address::GlobalAddress;
-use super::breakpoint::Breakpoint;
-use super::debugee::tracer::WatchpointHitType;
-use super::register::debug::BreakCondition;
-use super::register::debug::BreakSize;
 
 #[derive(Debug, Clone)]
 pub struct TaskBacktrace {
@@ -242,9 +242,9 @@ impl Debugger {
             .pop_if_cond(|results| results.len() == 1)
             .and_then(|t_ctx| t_ctx.into_value().into_raw_ptr())
             .and_then(|ptr| ptr.value)
-            .ok_or_else(|| {
-                AsyncError::IncorrectAssumption("`_task_context` local variable should exist")
-            })? as usize;
+            .ok_or(AsyncError::IncorrectAssumption(
+                "`_task_context` local variable should exist",
+            ))? as usize;
 
         let task_ptr = current_task.raw_ptr;
 
@@ -252,7 +252,7 @@ impl Debugger {
             if let Future::TokioJoinHandleFuture(jh_f) = f {
                 return jh_f.wait_for_task == task_ptr;
             }
-            return false;
+            false
         };
 
         let waiter_found = async_bt
@@ -424,8 +424,8 @@ impl Debugger {
                 .and_then(|ptr| ptr.value)
                 .map(|t_ctx| t_ctx as usize);
 
-            let context_equals = if let Some(task_context) = mb_task_context {
-                task_context as usize == initial_task_context
+            let context_equals: bool = if let Some(task_context) = mb_task_context {
+                task_context == initial_task_context
             } else {
                 false
             };

@@ -729,11 +729,11 @@ impl AppLoop {
                 let result: command::r#async::AsyncCommandResult = handler.handle(&cmd)?;
 
                 match result {
-                    AsyncCommandResult::ShortBacktrace(mut bt) => {
-                        print_backtrace(&mut bt, &self.printer);
+                    AsyncCommandResult::ShortBacktrace(bt) => {
+                        print_backtrace(&bt, &self.printer);
                     }
-                    AsyncCommandResult::FullBacktrace(mut bt) => {
-                        print_backtrace_full(&mut bt, &self.printer);
+                    AsyncCommandResult::FullBacktrace(bt) => {
+                        print_backtrace_full(&bt, &self.printer);
                     }
                     AsyncCommandResult::CurrentTask(bt, regex) => {
                         print_task_ex(&bt, &self.printer, regex);
