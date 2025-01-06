@@ -414,12 +414,15 @@ impl Tracer {
                                 return Ok(None);
                             };
 
-                            let has_tmp_breakpoints =
-                                ctx.breakpoints.iter().any(|b| b.is_temporary());
+                            let has_tmp_breakpoints = ctx
+                                .breakpoints
+                                .iter()
+                                .any(|b| b.is_temporary() | b.is_temporary_async());
                             if has_tmp_breakpoints {
                                 let temporary_hit = brkpt.is_temporary() && pid == brkpt.pid;
+                                let temporary_async_hit = brkpt.is_temporary_async();
                                 let watchpoint_hit = brkpt.is_wp_companion();
-                                if !temporary_hit && !watchpoint_hit {
+                                if !temporary_hit && !watchpoint_hit && !temporary_async_hit {
                                     let mut unusual_brkpt = brkpt.clone();
                                     unusual_brkpt.pid = pid;
                                     if unusual_brkpt.is_enabled() {

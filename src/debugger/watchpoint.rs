@@ -210,6 +210,8 @@ pub struct Watchpoint {
     hw: HardwareBreakpoint,
     /// Subject for observation.
     subject: Subject,
+    /// Temporary watchpoint may be created by step's algorithms
+    temporary: bool,
 }
 
 fn call_with_context<F, T>(debugger: &mut Debugger, ctx: ExplorationContext, f: F) -> T
@@ -223,6 +225,10 @@ where
 }
 
 impl Watchpoint {
+    pub fn is_temporary(&self) -> bool {
+        self.temporary
+    }
+
     fn execute_dqe(debugger: &Debugger, dqe: Dqe) -> Result<QueryResult, Error> {
         let executor = DqeExecutor::new(debugger);
 
@@ -393,6 +399,7 @@ impl Watchpoint {
             number: GLOBAL_WP_COUNTER.fetch_add(1, Ordering::Relaxed),
             hw: hw_brkpt,
             subject: Subject::Expression(target),
+            temporary: false,
         };
         Ok((state, this))
     }
@@ -405,11 +412,13 @@ impl Watchpoint {
     /// * `addr`: memory location address
     /// * `size`: memory location size
     /// * `condition`: condition for activating a watchpoint
+    /// * `temporary`: set temporary flag, temporary watchpoint ignores in hooks
     fn from_raw_addr(
         tracee_ctl: &TraceeCtl,
         addr: RelocatedAddress,
         size: BreakSize,
         condition: BreakCondition,
+        temporary: bool,
     ) -> Result<(HardwareDebugState, Self), Error> {
         debug_assert!(
             condition == BreakCondition::DataWrites || condition == BreakCondition::DataReadsWrites
@@ -427,6 +436,7 @@ impl Watchpoint {
             number: GLOBAL_WP_COUNTER.fetch_add(1, Ordering::Relaxed),
             hw: hw_brkpt,
             subject: Subject::Address(target),
+            temporary,
         };
 
         Ok((state, this))
@@ -745,10 +755,11 @@ impl Debugger {
         addr: RelocatedAddress,
         size: BreakSize,
         condition: BreakCondition,
+        temporary: bool,
     ) -> Result<WatchpointView, Error> {
         disable_when_not_stared!(self);
         let (hw_state, wp) =
-            Watchpoint::from_raw_addr(self.debugee.tracee_ctl(), addr, size, condition)?;
+            Watchpoint::from_raw_addr(self.debugee.tracee_ctl(), addr, size, condition, temporary)?;
         Ok(self.watchpoints.add(hw_state, wp))
     }
 
@@ -808,7 +819,7 @@ impl Debugger {
                     .watchpoints
                     .all()
                     .iter()
-                    .find(|wp| wp.register() == Some(*reg));
+                    .find(|wp| wp.register() == Some(*reg) && !wp.temporary);
 
                 if let Some(wp) = maybe_wp {
                     let number = wp.number();

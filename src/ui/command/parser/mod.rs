@@ -70,6 +70,12 @@ pub const ASYNC_COMMAND: &str = "async";
 pub const ASYNC_COMMAND_BACKTRACE_SUBCOMMAND: &str = "backtrace";
 pub const ASYNC_COMMAND_BACKTRACE_SUBCOMMAND_SHORT: &str = "bt";
 pub const ASYNC_COMMAND_TASK_SUBCOMMAND: &str = "task";
+pub const ASYNC_COMMAND_STEP_INTO_SUBCOMMAND: &str = "stepinto";
+pub const ASYNC_COMMAND_STEP_INTO_SUBCOMMAND_SHORT: &str = "step";
+pub const ASYNC_COMMAND_STEP_OVER_SUBCOMMAND: &str = "stepover";
+pub const ASYNC_COMMAND_STEP_OVER_SUBCOMMAND_SHORT: &str = "next";
+pub const ASYNC_COMMAND_STEP_OUT_SUBCOMMAND: &str = "stepout";
+pub const ASYNC_COMMAND_STEP_OUT_SUBCOMMAND_SHORT: &str = "finish";
 pub const HELP_COMMAND: &str = "help";
 pub const HELP_COMMAND_SHORT: &str = "h";
 
@@ -449,6 +455,21 @@ impl Command {
                             Command::Async(r#async::Command::CurrentTask(Some(s.to_string())))
                         }
                     }),
+                sub_op2(
+                    ASYNC_COMMAND_STEP_INTO_SUBCOMMAND,
+                    ASYNC_COMMAND_STEP_INTO_SUBCOMMAND_SHORT,
+                )
+                .to(Command::Async(r#async::Command::StepInto)),
+                sub_op2(
+                    ASYNC_COMMAND_STEP_OVER_SUBCOMMAND,
+                    ASYNC_COMMAND_STEP_OVER_SUBCOMMAND_SHORT,
+                )
+                .to(Command::Async(r#async::Command::StepOver)),
+                sub_op2(
+                    ASYNC_COMMAND_STEP_OUT_SUBCOMMAND,
+                    ASYNC_COMMAND_STEP_OUT_SUBCOMMAND_SHORT,
+                )
+                .to(Command::Async(r#async::Command::StepOut)),
             )))
             .boxed();
 
@@ -1032,6 +1053,33 @@ fn test_parser() {
                 assert!(matches!(
                     result.unwrap(),
                     Command::Async(r#async::Command::CurrentTask(None))
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["async step", " async   stepinto "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Async(r#async::Command::StepInto)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["async stepover", " async   next "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Async(r#async::Command::StepOver)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["async stepout", " async   finish "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Async(r#async::Command::StepOut)
                 ));
             },
         },
