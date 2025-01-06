@@ -8,12 +8,14 @@ use crate::ui::console::print::style::{AddressView, FilePathView, FunctionNameVi
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::variable::render_value;
 use crate::version;
+use crossterm::style::Stylize;
 use log::warn;
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use std::cell::RefCell;
 use std::ops::Add;
 use std::rc::Rc;
+use super::print::style::AsyncTaskView;
 
 #[derive(Default)]
 struct Context {
@@ -128,6 +130,47 @@ impl EventHook for TerminalHook {
         mb_place: Option<PlaceDescriptor>,
         mb_func: Option<&FunctionDie>,
     ) -> anyhow::Result<()> {
+        if let Some(place) = mb_place {
+            if self.context.borrow().prev_func.as_ref() != mb_func {
+                self.context.borrow_mut().prev_func = mb_func.cloned();
+
+                let func_name = mb_func.map(|f| {
+                    f.namespace
+                        .join("::")
+                        .add("::")
+                        .add(f.base_attributes.name.as_deref().unwrap_or_default())
+                });
+
+                self.printer.println(format!(
+                    "{} at {}:{}",
+                    FunctionNameView::from(func_name),
+                    FilePathView::from(place.file.to_string_lossy()),
+                    place.line_number,
+                ));
+            }
+            self.printer.print(self.file_view.render_source(&place, 0)?);
+        } else {
+            self.printer.println("undefined place, go to next");
+        }
+
+        Ok(())
+    }
+
+    fn on_async_step(
+        &self,
+        _: RelocatedAddress,
+        mb_place: Option<PlaceDescriptor>,
+        mb_func: Option<&FunctionDie>,
+        task_id: u64,
+        task_completed: bool,
+    ) -> anyhow::Result<()> {
+        let text = if task_completed {
+            format!("Task #{task_id} completed, stopped").bold()
+        } else {
+            format!("Task id: {task_id}").bold()
+        };
+        self.printer.println(AsyncTaskView::from(text));
+
         if let Some(place) = mb_place {
             if self.context.borrow().prev_func.as_ref() != mb_func {
                 self.context.borrow_mut().prev_func = mb_func.cloned();

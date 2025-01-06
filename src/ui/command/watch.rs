@@ -45,6 +45,7 @@ impl<'a> Handler<'a> {
                         RelocatedAddress::from(addr),
                         BreakSize::try_from(size).expect("infallible (checked by parser)"),
                         cond,
+                        false,
                     ),
                     WatchpointIdentity::Number(_) => {
                         unreachable!()

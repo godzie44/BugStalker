@@ -126,6 +126,24 @@ pub trait EventHook {
         function: Option<&FunctionDie>,
     ) -> anyhow::Result<()>;
 
+    /// Called when one of async step commands is done.
+    ///
+    /// # Arguments
+    ///
+    /// * `pc`: address of instruction where breakpoint is reached
+    /// * `place`: stop place information
+    /// * `function`: function debug information entry
+    /// * `task_id`: asynchronous task id
+    /// * `task_completed`: true if task is already completed
+    fn on_async_step(
+        &self,
+        pc: RelocatedAddress,
+        place: Option<PlaceDescriptor>,
+        function: Option<&FunctionDie>,
+        task_id: u64,
+        task_completed: bool,
+    ) -> anyhow::Result<()>;
+
     /// Called when debugee receive an OS signal. Debugee is in signal-stop at this moment.
     ///
     /// # Arguments
@@ -180,6 +198,17 @@ impl EventHook for NopHook {
         _: RelocatedAddress,
         _: Option<PlaceDescriptor>,
         _: Option<&FunctionDie>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn on_async_step(
+        &self,
+        _: RelocatedAddress,
+        _: Option<PlaceDescriptor>,
+        _: Option<&FunctionDie>,
+        _: u64,
+        _: bool,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -559,7 +588,7 @@ impl Debugger {
                             BrkptType::WatchpointCompanion(_) => {
                                 unreachable!("should not coming from tracer directly");
                             }
-                            BrkptType::Temporary => {
+                            BrkptType::Temporary | BrkptType::TemporaryAsync => {
                                 break event;
                             }
                             BrkptType::Transparent(callback) => {
@@ -751,6 +780,21 @@ impl Debugger {
             .flatten()
             .map(|f| f.die);
         self.hooks.on_step(pc, place, func).map_err(Hook)
+    }
+
+    /// Execute `on_async_step` callback with current exploration context
+    fn execute_on_async_step_hook(&self, task_id: u64, task_completed: bool) -> Result<(), Error> {
+        let ctx = self.exploration_ctx();
+        let pc = ctx.location().pc;
+        let global_pc = ctx.location().global_pc;
+        let dwarf = self.debugee.debug_info(pc)?;
+        let place = weak_error!(dwarf.find_place_from_pc(global_pc)).flatten();
+        let func = weak_error!(dwarf.find_function_by_pc(global_pc))
+            .flatten()
+            .map(|f| f.die);
+        self.hooks
+            .on_async_step(pc, place, func, task_id, task_completed)
+            .map_err(Hook)
     }
 
     /// Do a single step (until debugee reaches a different source line).

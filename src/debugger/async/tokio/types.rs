@@ -46,3 +46,8 @@ impl From<TaskIdValue> for u64 {
         value.id
     }
 }
+
+#[inline(always)]
+pub fn header_type_name() -> &'static str {
+    "NonNull<tokio::runtime::task::core::Header>"
+}

@@ -18,6 +18,11 @@ members = [
     "calculations",
 ]
 
-exclude = ["tokio_tcp/tokio_tcp_1_40", "tokio_tcp/tokio_tcp_1_41"]
+exclude = [
+    "tokio_tcp/tokio_1_40",
+    "tokio_tcp/tokio_1_41",
+    "tokio_vars/tokio_1_40",
+    "tokio_vars/tokio_1_41",
+]
 
 resolver = "2"
