@@ -1167,7 +1167,7 @@ impl BreakpointRegistry {
                     ));
                 }
                 BrkptType::Temporary
-                |BrkptType::TemporaryAsync
+                | BrkptType::TemporaryAsync
                 | BrkptType::LinkerMapFn
                 | BrkptType::Transparent(_)
                 | BrkptType::WatchpointCompanion(_) => {}

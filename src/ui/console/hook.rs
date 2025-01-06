@@ -1,4 +1,4 @@
-use crate::debugger::PlaceDescriptor;
+use super::print::style::AsyncTaskView;
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::VariableIR;
@@ -17,7 +17,6 @@ use nix::unistd::Pid;
 use std::cell::RefCell;
 use std::ops::Add;
 use std::rc::Rc;
-use super::print::style::AsyncTaskView;
 
 #[derive(Default)]
 struct Context {
