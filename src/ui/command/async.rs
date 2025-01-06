@@ -6,6 +6,16 @@ pub enum Command {
     ShortBacktrace,
     FullBacktrace,
     CurrentTask(Option<String>),
+    StepInto,
+    StepOver,
+    StepOut,
+}
+
+pub enum AsyncCommandResult<'a> {
+    StepOver,
+    ShortBacktrace(AsyncBacktrace),
+    FullBacktrace(AsyncBacktrace),
+    CurrentTask(AsyncBacktrace, Option<&'a str>),
 }
 
 pub struct Handler<'a> {
@@ -17,11 +27,23 @@ impl<'a> Handler<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&mut self, cmd: &Command) -> Result<AsyncBacktrace, Error> {
+    pub fn handle<'cmd>(&mut self, cmd: &'cmd Command) -> Result<AsyncCommandResult<'cmd>, Error> {
         let result = match cmd {
-            Command::ShortBacktrace => self.dbg.async_backtrace()?,
-            Command::FullBacktrace => self.dbg.async_backtrace()?,
-            Command::CurrentTask(_) => self.dbg.async_backtrace()?,
+            Command::ShortBacktrace => {
+                AsyncCommandResult::ShortBacktrace(self.dbg.async_backtrace()?)
+            }
+            Command::FullBacktrace => {
+                AsyncCommandResult::FullBacktrace(self.dbg.async_backtrace()?)
+            }
+            Command::CurrentTask(regex) => {
+                AsyncCommandResult::CurrentTask(self.dbg.async_backtrace()?, regex.as_deref())
+            }
+            Command::StepInto => todo!(),
+            Command::StepOver => {
+                self.dbg.async_step_over()?;
+                AsyncCommandResult::StepOver
+            }
+            Command::StepOut => todo!(),
         };
         Ok(result)
     }

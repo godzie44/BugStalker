@@ -25,6 +25,7 @@
     * [Examining data](#examining-data)
     * [Async rust](#async-rust)
         * [Async backtrace](#async-backtrace)
+        * [Async steps](#async-steps)
     * [Other commands](#other-commands)
     * [Tui interface](#tui-interface)
         * [Configuration](#configuration)
@@ -451,7 +452,7 @@ While debugging an asynchronous application, you may want to control the state o
 If it were a regular synchronous application, you could use the `backtrace` command,
 unfortunately for an application with an asynchronous runtime, this command is of little use.
 
-Therefore, BugStalker presents a family of commands "asynchronous backtrace". With their help
+Therefore, BugStalker presents a family of commands: "asynchronous backtrace". With their help
 you can get information about the state of your asynchronous runtime -
 the state of asynchronous workers and blocking threads, as well as information about each task in the system,
 including its current state and its own "backtrace" - a stack of futures starting from the root.
@@ -463,6 +464,14 @@ including its current state and its own "backtrace" - a stack of futures startin
   Each task contains an id, and represents as a futures stack, where one future wait for other, and so on.
 - `async task {regex}` - print all task with root async functions with names matched to regex. If regex are empty
   then print active task.
+
+### Async steps
+
+An async step works like a usual step (step, stepover, stepout) but in the context of the current task. In other words, an async step guarantees that your application stops at the current task or when the current task moves into a completed state.
+
+[demo async stepover](https://github.com/godzie44/BugStalker/blob/master/doc/demo_async_bt.gif)
+- `async stepover` - step a program, stepping over subroutine (function) calls, ends if task going into a completed state (alias: `async next`).
+
 
 ## Other commands
 

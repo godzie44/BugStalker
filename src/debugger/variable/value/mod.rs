@@ -404,6 +404,13 @@ impl Value {
         }
     }
 
+    pub fn into_raw_ptr(self) -> Option<PointerValue> {
+        match self {
+            Value::Pointer(p) => Some(p),
+            _ => None,
+        }
+    }
+
     /// Return literal equals representation of a value.
     pub fn as_literal(&self) -> Option<Literal> {
         match self {

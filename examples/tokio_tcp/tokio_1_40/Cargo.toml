@@ -1,5 +1,5 @@
 [package]
-name = "tokio_tcp_1_40"
+name = "tokio_1_40"
 version = "0.0.0"
 edition = "2021"
 publish = false
