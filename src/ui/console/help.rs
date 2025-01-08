@@ -286,6 +286,7 @@ async backtrace all - show state of async workers and blocking threads, show inf
 async task <async_fn_regex> - show active task (active task means a task that is running on the thread that is currently in focus) if `async_fn_regex` parameter is empty,
 or show task list with async functions matched by regular expression
 async next, async stepover - perform a stepover within the context of the current task. If the task moves into a completed state, the application will stop too
+async finish, async stepout - execute the program until the current task moves into the completed state
 ";
 
 pub const HELP_TUI: &str = "\

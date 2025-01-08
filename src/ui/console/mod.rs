@@ -741,6 +741,9 @@ impl AppLoop {
                     AsyncCommandResult::StepOver => {
                         _ = self.update_completer_variables();
                     }
+                    AsyncCommandResult::StepOut => {
+                        _ = self.update_completer_variables();
+                    }
                 }
             }
             Command::Oracle(name, subcmd) => match self.debugger.get_oracle(&name) {
