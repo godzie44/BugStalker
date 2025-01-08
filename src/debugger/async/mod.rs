@@ -105,6 +105,11 @@ enum AsyncStepResult {
         ty: WatchpointHitType,
         quiet: bool,
     },
+    #[allow(unused)]
+    Breakpoint {
+        pid: Pid,
+        addr: RelocatedAddress,
+    },
 }
 
 impl AsyncStepResult {
@@ -368,17 +373,23 @@ impl Debugger {
                     .map(|_| ())
             })?;
 
+        macro_rules! clear {
+            () => {
+                to_delete.into_iter().try_for_each(|addr| {
+                    self.remove_breakpoint(Address::Relocated(addr)).map(|_| ())
+                })?;
+                if let Some(wp) = waiter_wp {
+                    self.remove_watchpoint_by_addr(wp.address)?;
+                }
+            };
+        }
+
         loop {
             let stop_reason = self.continue_execution()?;
             // hooks already called at [`Self::continue_execution`], so use `quite` opt
             match stop_reason {
                 super::StopReason::SignalStop(_, sign) => {
-                    to_delete.into_iter().try_for_each(|addr| {
-                        self.remove_breakpoint(Address::Relocated(addr)).map(|_| ())
-                    })?;
-                    if let Some(wp) = waiter_wp {
-                        self.remove_watchpoint_by_addr(wp.address)?;
-                    }
+                    clear!();
                     return Ok(AsyncStepResult::signal_interrupt_quiet(sign));
                 }
                 super::StopReason::Watchpoint(pid, current_pc, ty) => {
@@ -392,26 +403,22 @@ impl Debugger {
                     };
 
                     if is_tmp_wp {
-                        // taken from tokio sources
-                        const COMPLETE: usize = 0b0010;
                         let (value, _) = task_header_state_value_and_ptr(self, task_ptr)?;
 
-                        if value & COMPLETE == COMPLETE {
+                        if value & tokio::types::complete_flag() == tokio::types::complete_flag() {
                             task_completed = true;
                             break;
                         } else {
                             continue;
                         }
                     } else {
-                        to_delete.into_iter().try_for_each(|addr| {
-                            self.remove_breakpoint(Address::Relocated(addr)).map(|_| ())
-                        })?;
-                        if let Some(wp) = waiter_wp {
-                            self.remove_watchpoint_by_addr(wp.address)?;
-                        }
-
+                        clear!();
                         return Ok(AsyncStepResult::wp_interrupt_quite(pid, current_pc, ty));
                     }
+                }
+                super::StopReason::DebugeeExit(code) => {
+                    clear!();
+                    return Err(ProcessExit(code));
                 }
                 _ => {}
             }
@@ -450,23 +457,137 @@ impl Debugger {
             // wait until next break are hits
         }
 
-        to_delete
-            .into_iter()
-            .try_for_each(|addr| self.remove_breakpoint(Address::Relocated(addr)).map(|_| ()))?;
-
-        if let Some(wp) = waiter_wp {
-            self.remove_watchpoint_by_addr(wp.address)?;
-        }
-
-        if self.debugee.is_exited() {
-            // todo add exit code here
-            return Err(ProcessExit(0));
-        }
-
+        clear!();
         self.expl_ctx_update_location()?;
         Ok(AsyncStepResult::Done {
             task_id,
             completed: task_completed,
+        })
+    }
+
+    /// Wait for current task ends.
+    pub fn async_step_out(&mut self) -> Result<(), Error> {
+        disable_when_not_stared!(self);
+        self.expl_ctx_restore_frame()?;
+
+        match self.step_out_task()? {
+            AsyncStepResult::Done { task_id, completed } => {
+                self.execute_on_async_step_hook(task_id, completed)?
+            }
+            AsyncStepResult::SignalInterrupt { signal, quiet } if !quiet => {
+                self.hooks.on_signal(signal);
+            }
+            AsyncStepResult::WatchpointInterrupt {
+                pid,
+                addr,
+                ref ty,
+                quiet,
+            } if !quiet => self.execute_on_watchpoint_hook(pid, addr, ty)?,
+            _ => {}
+        };
+
+        Ok(())
+    }
+
+    /// Do step out from current task.
+    /// Returns [`StepResult::SignalInterrupt`] if step is interrupted by a signal,
+    /// [`StepResult::WatchpointInterrupt`] if step is interrupted by a watchpoint,
+    /// or [`StepResult::Done`] if step done or task completed.
+    ///
+    /// **! change exploration context**
+    fn step_out_task(&mut self) -> Result<AsyncStepResult, Error> {
+        let async_bt = self.async_backtrace()?;
+        let current_task = async_bt
+            .current_task()
+            .ok_or(AsyncError::NoCurrentTaskFound)?;
+        let task_id = current_task.task_id;
+        let task_ptr = current_task.raw_ptr;
+
+        let (_, state_ptr) = task_header_state_value_and_ptr(self, task_ptr)?;
+        let state_addr = RelocatedAddress::from(state_ptr);
+        let wp = self
+            .set_watchpoint_on_memory(
+                state_addr,
+                BreakSize::Bytes8,
+                BreakCondition::DataWrites,
+                true,
+            )?
+            .to_owned();
+
+        // ignore all breakpoint until step ends
+        self.breakpoints
+            .active_breakpoints()
+            .iter()
+            .for_each(|brkpt| {
+                _ = brkpt.disable();
+            });
+
+        macro_rules! clear {
+            () => {
+                self.breakpoints
+                    .active_breakpoints()
+                    .iter()
+                    .for_each(|brkpt| {
+                        _ = brkpt.enable();
+                    });
+                self.remove_watchpoint_by_addr(wp.address)?;
+            };
+        }
+
+        loop {
+            let stop_reason = self.continue_execution()?;
+            // hooks already called at [`Self::continue_execution`], so use `quite` opt
+            match stop_reason {
+                super::StopReason::SignalStop(_, sign) => {
+                    clear!();
+                    return Ok(AsyncStepResult::signal_interrupt_quiet(sign));
+                }
+                super::StopReason::Watchpoint(pid, current_pc, ty) => {
+                    let is_tmp_wp = if let WatchpointHitType::DebugRegister(ref reg) = ty {
+                        self.watchpoints
+                            .all()
+                            .iter()
+                            .any(|wp| wp.register() == Some(*reg) && wp.is_temporary())
+                    } else {
+                        false
+                    };
+
+                    if is_tmp_wp {
+                        let (value, _) = task_header_state_value_and_ptr(self, task_ptr)?;
+
+                        if value & tokio::types::complete_flag() == tokio::types::complete_flag() {
+                            break;
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        self.remove_watchpoint_by_addr(wp.address)?;
+                        return Ok(AsyncStepResult::wp_interrupt_quite(pid, current_pc, ty));
+                    }
+                }
+                super::StopReason::DebugeeExit(code) => {
+                    clear!();
+                    return Err(ProcessExit(code));
+                }
+                super::StopReason::Breakpoint(_, _) => {
+                    continue;
+                }
+                super::debugee::tracer::StopReason::NoSuchProcess(_) => {
+                    clear!();
+                    debug_assert!(false, "unreachable error `NoSuchProcess`");
+                    return Err(ProcessExit(0));
+                }
+                super::debugee::tracer::StopReason::DebugeeStart => {
+                    unreachable!()
+                }
+            }
+        }
+
+        clear!();
+        self.expl_ctx_update_location()?;
+        Ok(AsyncStepResult::Done {
+            task_id,
+            completed: true,
         })
     }
 }

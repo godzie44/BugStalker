@@ -13,6 +13,7 @@ pub enum Command {
 
 pub enum AsyncCommandResult<'a> {
     StepOver,
+    StepOut,
     ShortBacktrace(AsyncBacktrace),
     FullBacktrace(AsyncBacktrace),
     CurrentTask(AsyncBacktrace, Option<&'a str>),
@@ -43,7 +44,10 @@ impl<'a> Handler<'a> {
                 self.dbg.async_step_over()?;
                 AsyncCommandResult::StepOver
             }
-            Command::StepOut => todo!(),
+            Command::StepOut => {
+                self.dbg.async_step_out()?;
+                AsyncCommandResult::StepOut
+            }
         };
         Ok(result)
     }
