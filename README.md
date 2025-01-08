@@ -471,6 +471,9 @@ An async step works like a usual step (step, stepover, stepout) but in the conte
 [demo async stepover](https://github.com/godzie44/BugStalker/blob/master/doc/demo_async_bt.gif)
 - `async stepover` - step a program, stepping over subroutine (function) calls, ends if task going into a completed state (alias: `async next`).
 
+[demo async stepout](https://github.com/godzie44/BugStalker/blob/master/doc/demo_async_stepout.gif)
+- `async stepout` - execute the program until the current task moves into the completed state (alias: `async finish`).
+
 
 ## Other commands
 

@@ -108,3 +108,15 @@ class CommandTestCase(unittest.TestCase):
             self.debugger.cmd_re('async next', r'Task id: \d', r'34 }')
             self.debugger.cmd_re('async next', r'Task #\d completed, stopped')
 
+    def test_step_out(self):
+        """Do async step out"""
+        
+        for binary in tokio_binaries():
+            self.debugger = Debugger(path=f"./examples/tokio_vars/{binary}/target/debug/{binary}")
+            self.debugger.cmd('break main.rs:18')
+            self.debugger.cmd('break main.rs:28')
+            self.debugger.cmd('run', 'Hit breakpoint 1')
+            self.debugger.cmd_re('async stepout', r'Task #\d completed, stopped')
+            self.debugger.cmd('continue', 'Hit breakpoint 2')
+            self.debugger.cmd_re('async stepout', r'Task #\d completed, stopped')
+
