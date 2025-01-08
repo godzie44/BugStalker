@@ -51,3 +51,10 @@ impl From<TaskIdValue> for u64 {
 pub fn header_type_name() -> &'static str {
     "NonNull<tokio::runtime::task::core::Header>"
 }
+
+#[inline(always)]
+pub fn complete_flag() -> usize {
+    // taken from tokio sources
+    const COMPLETE: usize = 0b0010;
+    COMPLETE
+}
