@@ -1,6 +1,6 @@
 pub mod park;
 pub mod task;
-mod types;
+pub mod types;
 pub mod worker;
 
 use crate::{version::Version, version_specialized};
