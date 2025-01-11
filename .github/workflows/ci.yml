@@ -6,7 +6,7 @@ jobs:
   test:
     strategy:
       matrix:
-        rustc_sup_version: [ 1.79.0, 1.80.0, 1.81.0, 1.82.0, 1.83.0 ]
+        rustc_sup_version: [ 1.80.0, 1.81.0, 1.82.0, 1.83.0, 1.84.0 ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -25,7 +25,7 @@ jobs:
       - name: Install actual rustc
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.83.0
+          toolchain: 1.84.0
           override: true
           components: rustfmt, clippy
       - name: Run functional tests on own stack unwind implementation
@@ -42,7 +42,7 @@ jobs:
       - name: Install rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.83.0
+          toolchain: 1.84.0
           override: true
           components: rustfmt, clippy
       - name: Set up Python
@@ -74,7 +74,7 @@ jobs:
       - name: Install rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.83.0
+          toolchain: 1.84.0
           override: true
           components: rustfmt, clippy
       - name: Install libunwind

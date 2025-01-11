@@ -1645,41 +1645,43 @@ fn test_circular_ref_types() {
     );
 
     let deref = read_single_var(&debugger, "*a_circ");
-    assert_struct(
-        &deref,
-        "*a_circ",
-        "RcBox<vars::circular::List>",
-        |i, member| match i {
-            0 => assert_cell(member, "strong", "Cell<usize>", |inner| {
-                assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(2)))
-            }),
-            1 => assert_cell(member, "weak", "Cell<usize>", |inner| {
-                assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(1)))
-            }),
-            2 => {
-                assert_rust_enum(member, "value", "List", |enum_member| {
-                    assert_struct(enum_member, "Cons", "Cons", |i, cons_member| match i {
-                        0 => assert_scalar(cons_member, "0", "i32", Some(SupportedScalar::I32(5))),
-                        1 => assert_refcell(
-                            cons_member,
-                            "1",
-                            "RefCell<alloc::rc::Rc<vars::circular::List, alloc::alloc::Global>>",
-                            0,
-                            |inner| {
-                                assert_rc(
-                                    inner,
-                                    "value",
-                                    "Rc<vars::circular::List, alloc::alloc::Global>",
-                                )
-                            },
-                        ),
-                        _ => panic!("2 members expected"),
-                    });
+    let rust_version: Version = rust_version(VARS_APP).unwrap();
+    let deref_type = version_switch!(
+        rust_version,
+        (1, 0, 0) ..= (1, 83, u32::MAX) => "RcBox<vars::circular::List>",
+        (1, 84, 0) ..= (1, u32::MAX, u32::MAX) => "RcInner<vars::circular::List>",
+    )
+    .unwrap();
+    assert_struct(&deref, "*a_circ", deref_type, |i, member| match i {
+        0 => assert_cell(member, "strong", "Cell<usize>", |inner| {
+            assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(2)))
+        }),
+        1 => assert_cell(member, "weak", "Cell<usize>", |inner| {
+            assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(1)))
+        }),
+        2 => {
+            assert_rust_enum(member, "value", "List", |enum_member| {
+                assert_struct(enum_member, "Cons", "Cons", |i, cons_member| match i {
+                    0 => assert_scalar(cons_member, "0", "i32", Some(SupportedScalar::I32(5))),
+                    1 => assert_refcell(
+                        cons_member,
+                        "1",
+                        "RefCell<alloc::rc::Rc<vars::circular::List, alloc::alloc::Global>>",
+                        0,
+                        |inner| {
+                            assert_rc(
+                                inner,
+                                "value",
+                                "Rc<vars::circular::List, alloc::alloc::Global>",
+                            )
+                        },
+                    ),
+                    _ => panic!("2 members expected"),
                 });
-            }
-            _ => panic!("3 members expected"),
-        },
-    );
+            });
+        }
+        _ => panic!("3 members expected"),
+    });
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
@@ -2229,6 +2231,7 @@ fn test_shared_ptr() {
     let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
+    let rust_version: Version = rust_version(VARS_APP).unwrap();
 
     debugger.set_breakpoint_at_line("vars.rs", 475).unwrap();
 
@@ -2238,7 +2241,13 @@ fn test_shared_ptr() {
     let vars = debugger.read_local_variables().unwrap();
     assert_rc(&vars[0], "rc0", "Rc<i32, alloc::alloc::Global>");
     let deref = read_single_var(&debugger, "*rc0");
-    assert_struct(&deref, "*rc0", "RcBox<i32>", |i, member| match i {
+    let deref_type = version_switch!(
+        rust_version,
+        (1, 0, 0) ..= (1, 83, u32::MAX) => "RcBox<i32>",
+        (1, 84, 0) ..= (1, u32::MAX, u32::MAX) => "RcInner<i32>",
+    )
+    .unwrap();
+    assert_struct(&deref, "*rc0", deref_type, |i, member| match i {
         0 => assert_cell(member, "strong", "Cell<usize>", |inner| {
             assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(2)))
         }),
@@ -2250,7 +2259,7 @@ fn test_shared_ptr() {
     });
     assert_rc(&vars[1], "rc1", "Rc<i32, alloc::alloc::Global>");
     let deref = read_single_var(&debugger, "*rc1");
-    assert_struct(&deref, "*rc1", "RcBox<i32>", |i, member| match i {
+    assert_struct(&deref, "*rc1", deref_type, |i, member| match i {
         0 => assert_cell(member, "strong", "Cell<usize>", |inner| {
             assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(2)))
         }),
@@ -2262,7 +2271,7 @@ fn test_shared_ptr() {
     });
     assert_rc(&vars[2], "weak_rc2", "Weak<i32, alloc::alloc::Global>");
     let deref = read_single_var(&debugger, "*weak_rc2");
-    assert_struct(&deref, "*weak_rc2", "RcBox<i32>", |i, member| match i {
+    assert_struct(&deref, "*weak_rc2", deref_type, |i, member| match i {
         0 => assert_cell(member, "strong", "Cell<usize>", |inner| {
             assert_scalar(inner, "value", "usize", Some(SupportedScalar::Usize(2)))
         }),

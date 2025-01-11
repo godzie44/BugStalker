@@ -16,6 +16,16 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+# [0.2.6] Jan 13 2025
+
+### Added
+- debugger: added support for rustc 1.84
+
+### Fixed
+- update github actions 
+
+---
+
 # [0.2.5] Nov 30 2024
 
 ### Added
