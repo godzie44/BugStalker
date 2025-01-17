@@ -10,8 +10,12 @@ build-examples:
 	$(SHLIB_SO_PATH) cargo build; \
 	cargo build --manifest-path tokio_tcp/tokio_1_40/Cargo.toml; \
 	cargo build --manifest-path tokio_tcp/tokio_1_41/Cargo.toml; \
+	cargo build --manifest-path tokio_tcp/tokio_1_42/Cargo.toml; \
+	cargo build --manifest-path tokio_tcp/tokio_1_43/Cargo.toml; \
 	cargo build --manifest-path tokio_vars/tokio_1_40/Cargo.toml; \
 	cargo build --manifest-path tokio_vars/tokio_1_41/Cargo.toml; \
+	cargo build --manifest-path tokio_vars/tokio_1_42/Cargo.toml; \
+	cargo build --manifest-path tokio_vars/tokio_1_43/Cargo.toml; \
 
 build-all: build build-examples
 

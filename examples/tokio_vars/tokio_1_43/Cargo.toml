@@ -1,0 +1,8 @@
+[package]
+name = "tokio_1_43"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tokio = { package = "tokio", version = "=1.43.0", features = ["full"] }
