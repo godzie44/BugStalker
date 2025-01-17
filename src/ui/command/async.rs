@@ -6,7 +6,6 @@ pub enum Command {
     ShortBacktrace,
     FullBacktrace,
     CurrentTask(Option<String>),
-    StepInto,
     StepOver,
     StepOut,
 }
@@ -39,7 +38,6 @@ impl<'a> Handler<'a> {
             Command::CurrentTask(regex) => {
                 AsyncCommandResult::CurrentTask(self.dbg.async_backtrace()?, regex.as_deref())
             }
-            Command::StepInto => todo!(),
             Command::StepOver => {
                 self.dbg.async_step_over()?;
                 AsyncCommandResult::StepOver
