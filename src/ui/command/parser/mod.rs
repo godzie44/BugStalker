@@ -456,11 +456,6 @@ impl Command {
                         }
                     }),
                 sub_op2(
-                    ASYNC_COMMAND_STEP_INTO_SUBCOMMAND,
-                    ASYNC_COMMAND_STEP_INTO_SUBCOMMAND_SHORT,
-                )
-                .to(Command::Async(r#async::Command::StepInto)),
-                sub_op2(
                     ASYNC_COMMAND_STEP_OVER_SUBCOMMAND,
                     ASYNC_COMMAND_STEP_OVER_SUBCOMMAND_SHORT,
                 )
@@ -1053,15 +1048,6 @@ fn test_parser() {
                 assert!(matches!(
                     result.unwrap(),
                     Command::Async(r#async::Command::CurrentTask(None))
-                ));
-            },
-        },
-        TestCase {
-            inputs: vec!["async step", " async   stepinto "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Async(r#async::Command::StepInto)
                 ));
             },
         },
