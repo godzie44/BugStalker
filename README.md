@@ -443,6 +443,8 @@ Supported `tokio` versions:
 
 - 1.40
 - 1.41
+- 1.42
+- 1.43
 
 ### Async backtrace
 
