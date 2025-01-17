@@ -16,6 +16,8 @@ def send_tcp_request():
 SUPPORTED_TOKIO_V = [
   "1_40",
   "1_41",  
+  "1_42",  
+  "1_43",  
 ];
 
 
