@@ -33,7 +33,7 @@ class ExternalProcessTestCase(unittest.TestCase):
         self.debugger.cmd('break sleeper.rs:24', 'New breakpoint')
         self.debugger.cmd('continue', 'Hit breakpoint 1')
         self.debugger.cmd('run', 'Restart a program?')
-        self.debugger.cmd('y', 'Hit breakpoint 2')
+        self.debugger.cmd('y', 'Hit breakpoint 1')
         self.debugger.cmd('continue')
 
     def test_external_process_resume_process(self):
