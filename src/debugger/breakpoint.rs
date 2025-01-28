@@ -834,6 +834,17 @@ impl UninitBreakpoint {
         )
     }
 
+    pub fn new_inherited(addr: Address, brkpt: Breakpoint) -> Self {
+        Self::new_inner(
+            addr,
+            brkpt.pid,
+            brkpt.number,
+            brkpt.place,
+            BrkptType::UserDefined,
+            Some(brkpt.debug_info_file).map(|path| path.into()),
+        )
+    }
+
     pub fn new_entry_point(
         debug_info_file: Option<impl Into<PathBuf>>,
         addr: Address,
@@ -1159,12 +1170,7 @@ impl BreakpointRegistry {
                     ));
                 }
                 BrkptType::UserDefined => {
-                    self.add_uninit(UninitBreakpoint::new(
-                        Some(brkpt.debug_info_file),
-                        addr,
-                        brkpt.pid,
-                        brkpt.place,
-                    ));
+                    self.add_uninit(UninitBreakpoint::new_inherited(addr, brkpt));
                 }
                 BrkptType::Temporary
                 | BrkptType::TemporaryAsync
