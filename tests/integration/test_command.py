@@ -209,7 +209,7 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.cmd('run', 'Hello, world!', 'Hit breakpoint 1')
         self.debugger.cmd('continue', 'bye!')
         self.debugger.cmd('run', 'Restart a program?')
-        self.debugger.cmd('y', 'Hello, world!', 'Hit breakpoint 2')
+        self.debugger.cmd('y', 'Hello, world!', 'Hit breakpoint 1')
         self.debugger.cmd('quit')
 
     @staticmethod
