@@ -22,6 +22,7 @@ pub mod step_out;
 pub mod step_over;
 pub mod symbol;
 pub mod thread;
+pub mod trigger;
 pub mod variables;
 pub mod watch;
 
@@ -64,6 +65,7 @@ pub enum Command {
     SkipInput,
     Oracle(String, Option<String>),
     Async(r#async::Command),
+    Trigger(trigger::Command),
     Help {
         command: Option<String>,
         reason: Option<String>,

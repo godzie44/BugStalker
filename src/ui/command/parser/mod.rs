@@ -1,7 +1,9 @@
 pub mod expression;
 
 use super::r#break::BreakpointIdentity;
-use super::{frame, memory, r#async, register, source_code, thread, watch, Command, CommandError};
+use super::{
+    frame, memory, r#async, register, source_code, thread, trigger, watch, Command, CommandError,
+};
 use super::{r#break, CommandResult};
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::dqe::Dqe;
@@ -76,6 +78,11 @@ pub const ASYNC_COMMAND_STEP_OVER_SUBCOMMAND: &str = "stepover";
 pub const ASYNC_COMMAND_STEP_OVER_SUBCOMMAND_SHORT: &str = "next";
 pub const ASYNC_COMMAND_STEP_OUT_SUBCOMMAND: &str = "stepout";
 pub const ASYNC_COMMAND_STEP_OUT_SUBCOMMAND_SHORT: &str = "finish";
+pub const TRIGGER_COMMAND: &str = "trigger";
+pub const TRIGGER_COMMAND_ANY_TRIGGER_SUBCOMMAND: &str = "any";
+pub const TRIGGER_COMMAND_BRKPT_TRIGGER_SUBCOMMAND: &str = "b";
+pub const TRIGGER_COMMAND_WP_TRIGGER_SUBCOMMAND: &str = "w";
+pub const TRIGGER_COMMAND_INFO_SUBCOMMAND: &str = "info";
 pub const HELP_COMMAND: &str = "help";
 pub const HELP_COMMAND_SHORT: &str = "h";
 
@@ -468,6 +475,40 @@ impl Command {
             )))
             .boxed();
 
+        let trigger = op(TRIGGER_COMMAND)
+            .ignore_then(choice((
+                choice((
+                    sub_op(TRIGGER_COMMAND_INFO_SUBCOMMAND).to(trigger::Command::Info),
+                    sub_op(TRIGGER_COMMAND_ANY_TRIGGER_SUBCOMMAND).to(
+                        trigger::Command::AttachToDefined(trigger::TriggerEvent::Any),
+                    ),
+                    sub_op(TRIGGER_COMMAND_BRKPT_TRIGGER_SUBCOMMAND)
+                        .ignore_then(text::int(10))
+                        .from_str()
+                        .unwrapped()
+                        .map(|num| {
+                            trigger::Command::AttachToDefined(trigger::TriggerEvent::Breakpoint(
+                                num,
+                            ))
+                        }),
+                    sub_op(TRIGGER_COMMAND_WP_TRIGGER_SUBCOMMAND)
+                        .ignore_then(text::int(10))
+                        .from_str()
+                        .unwrapped()
+                        .map(|num| {
+                            trigger::Command::AttachToDefined(trigger::TriggerEvent::Watchpoint(
+                                num,
+                            ))
+                        }),
+                ))
+                .padded(),
+                end()
+                    .to(trigger::Command::AttachToPreviouslyCreated)
+                    .padded(),
+            )))
+            .map(Command::Trigger)
+            .boxed();
+
         let oracle = op_w_arg(ORACLE_COMMAND)
             .ignore_then(text::ident().padded().then(text::ident().or_not()))
             .map(|(name, subcmd)| {
@@ -498,6 +539,7 @@ impl Command {
             command(ORACLE_COMMAND, oracle),
             command(WATCH_COMMAND, watchpoint),
             command(ASYNC_COMMAND, r#async),
+            command(TRIGGER_COMMAND, trigger),
         ))
     }
 
@@ -1075,6 +1117,57 @@ fn test_parser() {
                 assert!(matches!(
                     result.unwrap(),
                     Command::Async(r#async::Command::CurrentTask(Some(s))) if s == "abc.*"
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["trigger", " trigger  "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Trigger(trigger::Command::AttachToPreviouslyCreated)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["trigger any", " trigger any  "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Trigger(trigger::Command::AttachToDefined(
+                        trigger::TriggerEvent::Any
+                    ))
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["trigger info", " trigger info  "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Trigger(trigger::Command::Info)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["trigger b 1", " trigger  b 1 "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Trigger(trigger::Command::AttachToDefined(
+                        trigger::TriggerEvent::Breakpoint(num)
+                    )) if num == 1
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["trigger w 2", " trigger  w 2 "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Trigger(trigger::Command::AttachToDefined(
+                        trigger::TriggerEvent::Watchpoint(num)
+                    )) if num == 2
                 ));
             },
         },

@@ -4,12 +4,14 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{mpsc, Arc, Mutex, Once};
-use std::thread;
 use std::time::Duration;
+use std::{thread, vec};
 
 use crossterm::style::{Color, Stylize};
+use itertools::Itertools;
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
+use print::style::ImportantView;
 use rustyline::error::ReadlineError;
 use rustyline::history::MemHistory;
 use rustyline::Editor;
@@ -17,8 +19,11 @@ use timeout_readwrite::TimeoutReader;
 
 use debugger::Error;
 use r#break::Command as BreakpointCommand;
+use trigger::TriggerRegistry;
 
 use super::command::r#async::AsyncCommandResult;
+use super::command::r#async::Command as AsyncCommand;
+use super::command::trigger::TriggerEvent;
 use crate::debugger;
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::dqe::{Dqe, Selector};
@@ -59,6 +64,7 @@ use crate::ui::console::r#async::print_task_ex;
 use crate::ui::console::variable::render_variable;
 use crate::ui::DebugeeOutReader;
 use crate::ui::{command, supervisor};
+use command::trigger::Command as UserCommandTarget;
 
 mod r#async;
 mod editor;
@@ -66,6 +72,7 @@ pub mod file;
 mod help;
 pub mod hook;
 pub mod print;
+mod trigger;
 mod variable;
 
 const WELCOME_TEXT: &str = r#"
@@ -73,6 +80,7 @@ BugStalker greets
 "#;
 const PROMT: &str = "(bs) ";
 const PROMT_YES_NO: &str = "(bs y/n) ";
+const PROMT_USER_PROGRAM: &str = "> ";
 
 type BSEditor = Editor<RLHelper, MemHistory>;
 
@@ -100,10 +108,12 @@ impl AppBuilder {
         let (user_cmd_tx, user_cmd_rx) = mpsc::sync_channel::<UserAction>(0);
         let mut editor = create_editor(PROMT, oracles)?;
         let file_view = Rc::new(FileView::new());
+        let trigger_reg = Rc::new(TriggerRegistry::default());
         let hook = TerminalHook::new(
             ExternalPrinter::new(&mut editor)?,
             file_view.clone(),
             move |pid| DEBUGEE_PID.store(pid.as_raw(), Ordering::Release),
+            trigger_reg.clone(),
         );
 
         let debugger = debugger_lazy(hook)?;
@@ -122,6 +132,7 @@ impl AppBuilder {
             debugee_err: self.debugee_err,
             user_act_tx: user_cmd_tx,
             user_act_rx: user_cmd_rx,
+            trigger_reg,
         })
     }
 
@@ -173,6 +184,7 @@ enum UserAction {
 enum EditorMode {
     Default,
     YesNo,
+    UserProgram,
 }
 
 pub struct TerminalApplication {
@@ -183,6 +195,7 @@ pub struct TerminalApplication {
     debugee_err: DebugeeOutReader,
     user_act_tx: SyncSender<UserAction>,
     user_act_rx: Receiver<UserAction>,
+    trigger_reg: Rc<TriggerRegistry>,
 }
 
 pub static HELLO_ONCE: Once = Once::new();
@@ -254,6 +267,7 @@ impl TerminalApplication {
             cancel_output_flag: cancel,
             ready_to_next_command_tx,
             helper: Default::default(),
+            trigger_reg: self.trigger_reg,
         };
 
         static CTRLC_ONCE: Once = Once::new();
@@ -280,6 +294,7 @@ impl TerminalApplication {
                     let promt = match ready_to_next_command_rx.recv() {
                         Ok(EditorMode::Default) => PROMT,
                         Ok(EditorMode::YesNo) => PROMT_YES_NO,
+                        Ok(EditorMode::UserProgram) => PROMT_USER_PROGRAM,
                         Err(_) => return,
                     };
 
@@ -344,6 +359,7 @@ struct AppLoop {
     cancel_output_flag: Arc<AtomicBool>,
     helper: Helper,
     ready_to_next_command_tx: mpsc::Sender<EditorMode>,
+    trigger_reg: Rc<TriggerRegistry>,
 }
 
 impl AppLoop {
@@ -367,6 +383,59 @@ impl AppLoop {
         }
     }
 
+    fn take_user_command_list(&self, help: &str) -> Result<trigger::UserProgram, CommandError> {
+        self.printer.println(help);
+        let mut result = vec![];
+        loop {
+            _ = self.ready_to_next_command_tx.send(EditorMode::UserProgram);
+            let act = self
+                .user_input_rx
+                .recv()
+                .expect("unexpected sender disconnect");
+            match act {
+                UserAction::Cmd(input) => {
+                    if input.as_str().trim() == "end" {
+                        break;
+                    }
+
+                    let cmd = Command::parse(&input)?;
+                    match cmd {
+                        Command::PrintVariables(_)
+                        | Command::PrintArguments(_)
+                        | Command::PrintBacktrace(_)
+                        | Command::Frame(_)
+                        | Command::PrintSymbol(_)
+                        | Command::Memory(_)
+                        | Command::Register(_)
+                        | Command::Thread(_)
+                        | Command::SharedLib
+                        | Command::SourceCode(_)
+                        | Command::Oracle(_, _)
+                        | Command::Async(AsyncCommand::FullBacktrace)
+                        | Command::Async(AsyncCommand::ShortBacktrace)
+                        | Command::Async(AsyncCommand::CurrentTask(_)) => {
+                            result.push((cmd, input));
+                            continue;
+                        }
+                        _ => {
+                            self.printer
+                                .println("unsupported command, try another one or `end`");
+                            continue;
+                        }
+                    }
+                }
+
+                UserAction::Terminate | UserAction::ChangeMode | UserAction::Nop => {
+                    self.printer
+                        .println("unsupported command, try another one or `end`");
+                    continue;
+                }
+            };
+        }
+
+        Ok(result)
+    }
+
     fn update_completer_variables(&self) -> anyhow::Result<()> {
         let vars = self
             .debugger
@@ -381,12 +450,16 @@ impl AppLoop {
         Ok(())
     }
 
-    fn handle_command(&mut self, cmd: &str) -> Result<(), CommandError> {
+    fn handle_command_str(&mut self, cmd: &str) -> Result<(), CommandError> {
         if cmd.is_empty() {
             return Ok(());
         }
 
-        match Command::parse(cmd)? {
+        self.handle_command(Command::parse(cmd)?)
+    }
+
+    fn handle_command(&mut self, cmd: Command) -> Result<(), CommandError> {
+        match cmd {
             Command::PrintVariables(print_var_command) => VariablesHandler::new(&self.debugger)
                 .handle(print_var_command)?
                 .into_iter()
@@ -522,14 +595,17 @@ impl AppLoop {
                 loop {
                     match BreakpointHandler::new(&mut self.debugger).handle(&brkpt_cmd) {
                         Ok(r#break::ExecutionResult::New(brkpts)) => {
-                            brkpts
-                                .iter()
-                                .for_each(|brkpt| print_bp("New breakpoint", brkpt));
+                            brkpts.iter().for_each(|brkpt| {
+                                print_bp("New breakpoint", brkpt);
+                                self.trigger_reg.set_previous_brkpt(brkpt.number);
+                            });
                         }
                         Ok(r#break::ExecutionResult::Removed(brkpts)) => {
-                            brkpts
-                                .iter()
-                                .for_each(|brkpt| print_bp("Removed breakpoint", brkpt));
+                            brkpts.iter().for_each(|brkpt| {
+                                print_bp("Removed breakpoint", brkpt);
+                                self.trigger_reg
+                                    .remove(TriggerEvent::Breakpoint(brkpt.number));
+                            });
                         }
                         Ok(r#break::ExecutionResult::Dump(brkpts)) => brkpts
                             .iter()
@@ -571,9 +647,13 @@ impl AppLoop {
                 let mut handler = WatchpointHandler::new(&mut self.debugger);
                 let res = handler.handle(cmd)?;
                 match res {
-                    WatchpointExecutionResult::New(wp) => print_wp("New watchpoint", wp),
+                    WatchpointExecutionResult::New(wp) => {
+                        self.trigger_reg.set_previous_wp(wp.number);
+                        print_wp("New watchpoint", wp);
+                    }
                     WatchpointExecutionResult::Removed(Some(wp)) => {
-                        print_wp("Removed watchpoint", wp)
+                        self.trigger_reg.remove(TriggerEvent::Watchpoint(wp.number));
+                        print_wp("Removed watchpoint", wp);
                     }
                     WatchpointExecutionResult::Removed(_) => {
                         self.printer.println("No watchpoint found")
@@ -746,6 +826,41 @@ impl AppLoop {
                     }
                 }
             }
+            Command::Trigger(cmd) => {
+                let event = match cmd {
+                    UserCommandTarget::AttachToPreviouslyCreated => {
+                        let Some(event) = self.trigger_reg.get_previous_event() else {
+                            self.printer.println(ErrorView::from(
+                                "No previously added watchpoints or breakpoints exist",
+                            ));
+                            return Ok(());
+                        };
+                        event
+                    }
+                    UserCommandTarget::AttachToDefined(event) => event,
+                    UserCommandTarget::Info => {
+                        self.printer.println(format!("{:<30}  Program", "Event"));
+
+                        self.trigger_reg.for_each_trigger(|event, program| {
+                            self.printer.println(format!(
+                                "{:<30}  {}",
+                                event.to_string(),
+                                KeywordView::from(program.iter().map(|(_, str)| str).join(", ")),
+                            ));
+                        });
+                        return Ok(());
+                    }
+                };
+
+                let help = match event {
+                    TriggerEvent::Breakpoint(num) => format!("Print the commands to be executed on breakpoint {num}"),
+                    TriggerEvent::Watchpoint(num) => format!("Print the commands to be executed on watchpoint {num}"),
+                    TriggerEvent::Any => "Print the commands to be executed on each breakpoint or watchpoint, and print 'end' for end".to_string(),
+                };
+
+                let commands = self.take_user_command_list(&help)?;
+                self.trigger_reg.add(event, commands);
+            }
             Command::Oracle(name, subcmd) => match self.debugger.get_oracle(&name) {
                 None => self
                     .printer
@@ -757,8 +872,40 @@ impl AppLoop {
         Ok(())
     }
 
+    fn handle_error(&self, error: CommandError) {
+        match error {
+            CommandError::Parsing(pretty_error) => {
+                self.printer.println(pretty_error);
+            }
+            CommandError::FileRender(_) => {
+                self.printer
+                    .println(ErrorView::from(format!("Render file error: {error:#}")));
+            }
+            CommandError::Handle(ref err) if err.is_fatal() => {
+                self.printer.println(ErrorView::from("Shutdown debugger"));
+                self.printer
+                    .println(ErrorView::from(format!("Fatal error: {error:#}")));
+                exit(1);
+            }
+            CommandError::Handle(_) => {
+                self.printer
+                    .println(ErrorView::from(format!("Error: {error:#}")));
+            }
+        }
+    }
+
     fn run(mut self) -> anyhow::Result<supervisor::ControlFlow> {
         loop {
+            if let Some(user_program) = self.trigger_reg.take_program() {
+                self.printer
+                    .println(ImportantView::from("Related program found:"));
+                user_program.into_iter().for_each(|(cmd, _)| {
+                    if let Err(e) = self.handle_command(cmd) {
+                        self.handle_error(e);
+                    }
+                });
+            };
+
             _ = self.ready_to_next_command_tx.send(EditorMode::Default);
 
             let Ok(action) = self.user_input_rx.recv() else {
@@ -767,26 +914,8 @@ impl AppLoop {
 
             match action {
                 UserAction::Cmd(command) => {
-                    if let Err(e) = self.handle_command(&command) {
-                        match e {
-                            CommandError::Parsing(pretty_error) => {
-                                self.printer.println(pretty_error);
-                            }
-                            CommandError::FileRender(_) => {
-                                self.printer
-                                    .println(ErrorView::from(format!("Render file error: {e:#}")));
-                            }
-                            CommandError::Handle(ref err) if err.is_fatal() => {
-                                self.printer.println(ErrorView::from("Shutdown debugger"));
-                                self.printer
-                                    .println(ErrorView::from(format!("Fatal error: {e:#}")));
-                                exit(1);
-                            }
-                            CommandError::Handle(_) => {
-                                self.printer
-                                    .println(ErrorView::from(format!("Error: {e:#}")));
-                            }
-                        }
+                    if let Err(e) = self.handle_command_str(&command) {
+                        self.handle_error(e);
                     }
                 }
                 UserAction::Nop => {}

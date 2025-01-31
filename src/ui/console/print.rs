@@ -114,6 +114,7 @@ pub mod style {
     view_struct!(AsmInstructionView, Color::DarkRed);
     view_struct!(AsmOperandsView, Color::DarkGreen);
     view_struct!(ErrorView, Color::DarkRed);
+    view_struct!(ImportantView, Color::Magenta);
 
     view_struct!(AsyncTaskView, Color::Green);
     view_struct!(FutureFunctionView, Color::Yellow);
