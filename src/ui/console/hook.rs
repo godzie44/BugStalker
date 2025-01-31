@@ -1,9 +1,11 @@
 use super::print::style::AsyncTaskView;
+use super::trigger::TriggerRegistry;
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::VariableIR;
 use crate::debugger::PlaceDescriptor;
 use crate::debugger::{EventHook, FunctionDie};
+use crate::ui::command;
 use crate::ui::console::file::FileView;
 use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::print::style::{AddressView, FilePathView, FunctionNameView, KeywordView};
@@ -28,6 +30,7 @@ pub struct TerminalHook {
     on_install_proc: Box<dyn Fn(Pid)>,
     printer: ExternalPrinter,
     context: RefCell<Context>,
+    trigger_reg: Rc<TriggerRegistry>,
 }
 
 impl TerminalHook {
@@ -35,12 +38,14 @@ impl TerminalHook {
         printer: ExternalPrinter,
         fv: Rc<FileView>,
         on_install_proc: impl Fn(Pid) + 'static,
+        trigger_reg: Rc<TriggerRegistry>,
     ) -> Self {
         Self {
             file_view: fv,
             on_install_proc: Box::new(on_install_proc),
             printer,
             context: RefCell::new(Context::default()),
+            trigger_reg,
         }
     }
 }
@@ -66,6 +71,8 @@ impl EventHook for TerminalHook {
         }
 
         self.context.borrow_mut().prev_func = mb_func.cloned();
+        self.trigger_reg
+            .fire_event(command::trigger::TriggerEvent::Breakpoint(num));
 
         Ok(())
     }
@@ -121,6 +128,9 @@ impl EventHook for TerminalHook {
                 self.printer.println(format!("new value: {new}"));
             }
         }
+
+        self.trigger_reg
+            .fire_event(command::trigger::TriggerEvent::Watchpoint(num));
 
         Ok(())
     }

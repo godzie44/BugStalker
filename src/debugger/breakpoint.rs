@@ -841,7 +841,7 @@ impl UninitBreakpoint {
             brkpt.number,
             brkpt.place,
             BrkptType::UserDefined,
-            Some(brkpt.debug_info_file).map(|path| path.into()),
+            Some(brkpt.debug_info_file),
         )
     }
 
