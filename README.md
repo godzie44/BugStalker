@@ -492,6 +492,7 @@ Of course, the debugger provides many more commands:
   alias: `reg write`)
 - `register info` - print list of registers with it values (alias: `reg info`)
 - `sharedlib info` - show list of shared libraries
+- `trigger` - define a list of commands that will be executed when a certain event is triggered (at a breakpoint or watchpoint hit), see `help trigger` for more info
 - `quit` - exit the BugStalker (alias: `q`)
 
 ## Tui interface
