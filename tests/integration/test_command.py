@@ -301,3 +301,46 @@ class CommandTestCase(unittest.TestCase):
         debugger.cmd('break rust_panic', 'New breakpoint')
         debugger.cmd('run', 'attempt to divide by zero')
         debugger.cmd('bt', 'rust_panic', 'panic::divided_by_zero')
+
+    @staticmethod
+    def test_trigger():
+        """Test trigger command"""
+        debugger = Debugger(path='./examples/target/debug/vars')
+        debugger.cmd('trigger any')
+        debugger.cmd('backtrace')
+        debugger.cmd('var int8')
+        debugger.cmd('end')
+        debugger.cmd('break vars.rs:19', 'New breakpoint 1')
+        debugger.cmd('run', 'Hit breakpoint 1', 'vars::scalar_types', 'int8 = i8(1)')
+
+        # set trigger for a last created breakpoint
+        debugger.cmd('trigger')
+        debugger.cmd('var int16')
+        debugger.cmd('end')
+        
+
+        debugger.cmd('trigger info', 'Any breakpoint or watchpoint', 'backtrace, var int8', 'Breakpoint 1', 'var int16')
+
+        # remove trigger for any brkpt/wp
+        debugger.cmd('trigger any')
+        debugger.cmd('end')
+
+        debugger.cmd('run')
+        debugger.cmd('y', 'Hit breakpoint 1', 'int16 = i16(-1)')
+        
+        # set trigger for breakpoint 2
+        debugger.cmd('break vars.rs:30', 'New breakpoint 2')
+        debugger.cmd('trigger b 2')
+        debugger.cmd('var f32')
+        debugger.cmd('var f64')
+        debugger.cmd('end')
+
+        # set trigger for watchpoint 2
+        debugger.cmd('watch int16', 'New watchpoint 1')
+        debugger.cmd('trigger w 1')
+        debugger.cmd('backtrace')
+        debugger.cmd('end')
+
+        debugger.cmd('c', 'f32 = f32(1.1)', 'f64 = f64(1.2)')
+        debugger.cmd('c', 'vars::scalar_types')
+
