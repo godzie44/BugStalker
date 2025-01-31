@@ -24,6 +24,7 @@ thread info|current|switch <number>         -- show list of threads or current (
 sharedlib info                              -- show list of shared libraries
 source asm|fn|<bounds>                      -- show source code or assembly instructions for current (in focus) function
 async backtrace|backtrace all|task          -- commands for async rust
+trigger info|any|<>|b <number>|w <number>   -- define a list of commands that will be executed when a certain event is triggered
 oracle <oracle> <>|<subcommand>             -- execute a specific oracle
 h, help <>|<command>                        -- show help
 tui                                         -- change ui mode to tui
@@ -94,7 +95,7 @@ pub const HELP_VAR: &str = "\
 \x1b[32;1mvar\x1b[0m
 Show local and global variables, supports data queries expressions over variables (see `help dqe`).
 
-Available subcomands:
+Available subcommands:
 var locals - print current stack frame local variables
 var <name or expression> - print local and global variables with selected name
 
@@ -112,7 +113,7 @@ pub const HELP_ARG: &str = "\
 \x1b[32;1marg\x1b[0m
 Show current stack frame arguments, supports data queries expressions over arguments (see `help dqe`).
 
-Available subcomands:
+Available subcommands:
 arg all - print all arguments
 arg <name or expression> - print argument with selected name
 
@@ -126,7 +127,7 @@ pub const HELP_BACKTRACE: &str = "\
 \x1b[32;1mbt, backtrace\x1b[0m
 Show backtrace of all stack frames in current thread or from all threads.
 
-Available subcomands:
+Available subcommands:
 backtrace all - show backtrace for all running threads
 backtrace - show backtrace of current thread
 
@@ -141,7 +142,7 @@ pub const HELP_FRAME: &str = "\
 \x1b[32;1mf, frame\x1b[0m
 Show current stack frame info or set frame to focus.
 
-Available subcomands:
+Available subcommands:
 frame info - show current stack frame information (see output explanation)
 frame switch <number> - set frame <number> to focus
 
@@ -184,12 +185,12 @@ pub const HELP_BREAK: &str = "\
 \x1b[32;1mb, break\x1b[0m
 Manage breakpoints.
 
-Available subcomands:
+Available subcommands:
 break <location> - set breakpoint to location
 break remove <location>|<number> - deactivate and delete selected breakpoint
 break info - show all breakpoints
 
-Posible location format:
+Possible location format:
 - at instruction. Example: break 0x55555555BD30
 - at function start. A function can be defined by its full name (with namespace) 
 or by function name (in case of possible collisions, breakpoints will be set in 
@@ -207,7 +208,7 @@ or raw memory region have a different lifetimes. Watchpoints for global variable
 are lives until BugStalker session is alive. On the contrary, watchpoints for local variables
 are lives until debugee is not restarted, and will be removed automatically.
 
-Available subcomands:
+Available subcommands:
 watch +rw|+w| <addr:size> - set write or read-write watchpoint (write by default) to memory location [addr; addr+size], size must be one of [1,2,4,8] bytes
 watch +rw|+w| <expression> - set write or read-write watchpoint (write by default) to DQE result (see `help dqe`), expression result must one of [1,2,4,8] bytes
 watch remove <addr:size>|<expression>|<number> - deactivate and delete selected watchpoint
@@ -225,7 +226,7 @@ pub const HELP_SYMBOL: &str = "\
 \x1b[32;1msymbol\x1b[0m
 Print symbols matched by regular expression.
 
-Available subcomands:
+Available subcommands:
 symbol <name_regex>
 ";
 
@@ -233,7 +234,7 @@ pub const HELP_MEMORY: &str = "\
 \x1b[32;1mmem, memory\x1b[0m
 Read or write into debugged program memory.
 
-Available subcomands:
+Available subcommands:
 memory read <address> - print 8-byte block at address in debugee memory
 memory write <address> <value> - writes 8-byte value to address in debugee memory
 ";
@@ -242,7 +243,7 @@ pub const HELP_REGISTER: &str = "\
 \x1b[32;1mreg, register\x1b[0m
 Read, write, or view debugged program registers (x86_64 registers support).
 
-Available subcomands:
+Available subcommands:
 register read <reg_name> - print value of register by name (x86_64 register name in lowercase)
 register write <reg_name> <value> - set new value to register by name
 register info - print list of registers with it values
@@ -252,7 +253,7 @@ pub const HELP_THREAD: &str = "\
 \x1b[32;1mthread\x1b[0m
 Show threads information or set thread to focus.
 
-Available subcomands:
+Available subcommands:
 thread info - print list of thread information
 thread current - prints thread that has focus
 thread switch <number> - set thread <number> to focus
@@ -262,7 +263,7 @@ pub const HELP_SHARED_LIB: &str = "\
 \x1b[32;1msharedlib\x1b[0m
 Show shared libraries information.
 
-Available subcomands:
+Available subcommands:
 sharedlib info - print list of loaded shared libraries and their mapping addresses
 ";
 
@@ -270,7 +271,7 @@ pub const HELP_SOURCE: &str = "\
 \x1b[32;1msource\x1b[0m
 Show source code or assembly instructions for current (in focus) function.
 
-Available subcomands:
+Available subcommands:
 source fn - show code of function in focus 
 source asm - show assembly of function in focus 
 source <bounds> - show line in focus with <bounds> lines up and down of this line
@@ -280,13 +281,25 @@ pub const HELP_ASYNC: &str = "\
 \x1b[32;1masync\x1b[0m
 Commands for async rust (currently for tokio runtime only).
 
-Available subcomands:
+Available subcommands:
 async backtrace - show state of async workers and blocking threads
 async backtrace all - show state of async workers and blocking threads, show info about all running tasks 
 async task <async_fn_regex> - show active task (active task means a task that is running on the thread that is currently in focus) if `async_fn_regex` parameter is empty,
 or show task list with async functions matched by regular expression
 async next, async stepover - perform a stepover within the context of the current task. If the task moves into a completed state, the application will stop too
 async finish, async stepout - execute the program until the current task moves into the completed state
+";
+
+pub const HELP_TRIGGER: &str = "\
+\x1b[32;1mtrigger\x1b[0m
+Define a list of commands that will be executed when a certain event is triggered (at a breakpoint or watchpoint hit).
+
+Available subcommands:
+trigger any - define a list of commands that will be executed when any breakpoint or watchpoint is hit
+trigger - define a list of commands that will be executed when a previously defined breakpoint or watchpoint is hit
+trigger b <number> - define a list of commands that will be executed when the given breakpoint is hit
+trigger w <number> - define a list of commands that will be executed when the given watchpoint is hit
+trigger info - show the list of triggers
 ";
 
 pub const HELP_TUI: &str = "\
@@ -342,6 +355,7 @@ impl Helper {
             Some(parser::SHARED_LIB_COMMAND) => HELP_SHARED_LIB,
             Some(parser::SOURCE_COMMAND) => HELP_SOURCE,
             Some(parser::ASYNC_COMMAND) => HELP_ASYNC,
+            Some(parser::TRIGGER_COMMAND) => HELP_TRIGGER,
             Some(parser::ORACLE_COMMAND) => self.oracle_help.get_or_insert_with(|| {
                 let mut help = HELP_ORACLE.to_string();
                 let oracles = debugger.all_oracles();
