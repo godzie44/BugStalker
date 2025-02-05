@@ -72,7 +72,7 @@ class TodosTestCase(unittest.TestCase):
         self.debugger.cmd(
             'var locals',
             'todos = Vec<todos::Todo, alloc::alloc::Global> {',
-            '0: Todo {',
+            '0: {',
             'text: String(test todo)',
             'completed: bool(false)',
         )
