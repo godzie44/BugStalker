@@ -6,7 +6,7 @@ use crate::ui::syntax;
 use crate::ui::syntax::StylizedLine;
 use syntect::util::as_24_bit_terminal_escaped;
 
-const TAB: &str = "\t";
+const TAB: &str = "    ";
 
 pub fn render_variable(var: &QueryResult) -> anyhow::Result<String> {
     let syntax_renderer = syntax::rust_syntax_renderer();
