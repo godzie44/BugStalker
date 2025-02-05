@@ -35,32 +35,41 @@ pub fn render_variable(var: &QueryResult) -> anyhow::Result<String> {
 }
 
 pub fn render_value(value: &Value) -> String {
-    render_value_inner(value, 0)
+    render_value_inner(value, 0, true)
 }
 
-fn render_value_inner(value: &Value, depth: usize) -> String {
+fn render_value_inner(value: &Value, depth: usize, print_type: bool) -> String {
     match value.value_layout() {
         Some(layout) => match layout {
             ValueLayout::PreRendered(rendered_value) => match value {
                 Value::CEnum(_) => format!("{}::{}", value.r#type().name_fmt(), rendered_value),
-                _ => format!("{}({})", value.r#type().name_fmt(), rendered_value),
+                _ if print_type => format!("{}({})", value.r#type().name_fmt(), rendered_value),
+                _ => format!("{}", rendered_value),
             },
             ValueLayout::Referential(addr) => {
-                format!(
-                    "{} [{}]",
-                    value.r#type().name_fmt(),
-                    RelocatedAddress::from(addr as usize)
-                )
+                if print_type {
+                    format!(
+                        "{} [{}]",
+                        value.r#type().name_fmt(),
+                        RelocatedAddress::from(addr as usize)
+                    )
+                } else {
+                    format!("{}", RelocatedAddress::from(addr as usize))
+                }
             }
             ValueLayout::Wrapped(val) => {
                 format!(
                     "{}::{}",
                     value.r#type().name_fmt(),
-                    render_value_inner(val, depth)
+                    render_value_inner(val, depth, true)
                 )
             }
             ValueLayout::Structure(members) => {
-                let mut render = format!("{} {{", value.r#type().name_fmt());
+                let mut render = if print_type {
+                    format!("{} {{", value.r#type().name_fmt())
+                } else {
+                    format!("{{")
+                };
 
                 let tabs = TAB.repeat(depth + 1);
 
@@ -69,7 +78,7 @@ fn render_value_inner(value: &Value, depth: usize) -> String {
                     render = format!(
                         "{render}{tabs}{}: {}",
                         member.field_name.as_deref().unwrap_or_default(),
-                        render_value_inner(&member.value, depth + 1)
+                        render_value_inner(&member.value, depth + 1, true)
                     );
                 }
 
@@ -80,13 +89,21 @@ fn render_value_inner(value: &Value, depth: usize) -> String {
 
                 let tabs = TAB.repeat(depth + 1);
 
-                for kv in kv_children {
+                let mut last_seen_kv_types = None;
+                let mut show_kv_type = false;
+                for (key, val) in kv_children {
+                    if last_seen_kv_types != Some((key.r#type(), val.r#type())) {
+                        last_seen_kv_types = Some((key.r#type(), val.r#type()));
+                        show_kv_type = true;
+                    }
+
                     render = format!("{render}\n");
                     render = format!(
                         "{render}{tabs}{}: {}",
-                        render_value_inner(&kv.0, depth + 1),
-                        render_value_inner(&kv.1, depth + 1)
+                        render_value_inner(&key, depth + 1, show_kv_type),
+                        render_value_inner(&val, depth + 1, show_kv_type)
                     );
+                    show_kv_type = false;
                 }
 
                 format!("{render}\n{}}}", TAB.repeat(depth))
@@ -101,7 +118,7 @@ fn render_value_inner(value: &Value, depth: usize) -> String {
                     render = format!(
                         "{render}{tabs}{}: {}",
                         item.index,
-                        render_value_inner(&item.value, depth + 1)
+                        render_value_inner(&item.value, depth + 1, false)
                     );
                 }
 
@@ -114,7 +131,10 @@ fn render_value_inner(value: &Value, depth: usize) -> String {
 
                 for val in values {
                     render = format!("{render}\n");
-                    render = format!("{render}{tabs}{}", render_value_inner(val, depth + 1));
+                    render = format!(
+                        "{render}{tabs}{}",
+                        render_value_inner(val, depth + 1, false)
+                    );
                 }
 
                 format!("{render}\n{}}}", TAB.repeat(depth))
