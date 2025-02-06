@@ -31,24 +31,28 @@ pub struct Variables {
 
 fn render_var_inner(
     name: Option<&str>,
-    typ: &str,
+    typ: Option<&str>,
     value: Option<&str>,
 ) -> anyhow::Result<Vec<TextSpan>> {
     let syntax_renderer = syntax::rust_syntax_renderer();
     let mut line_renderer = syntax_renderer.line_renderer();
 
-    let line = match (value, name) {
-        (None, None) => typ.to_string(),
-        (Some(val), None) => {
-            format!("{typ}({val})")
+    let mut line = String::default();
+    if let Some(n) = name {
+        line += n;
+    }
+    if let Some(t) = typ {
+        line += " ";
+        line += t;
+    }
+    if let Some(v) = value {
+        line += " ";
+        if typ.is_some() {
+            line += &format!("({v})");
+        } else {
+            line += v;
         }
-        (None, Some(name)) => {
-            format!("{name} {typ}")
-        }
-        (Some(val), Some(name)) => {
-            format!("{name} {typ}({val})")
-        }
-    };
+    }
 
     let line_spans = match line_renderer.render_line(&line)? {
         StylizedLine::NoneStyle(l) => {
@@ -62,21 +66,26 @@ fn render_var_inner(
     Ok(line_spans)
 }
 
-fn render_var(name: Option<&str>, typ: &str, value: &str) -> anyhow::Result<Vec<TextSpan>> {
+fn render_var(name: Option<&str>, typ: Option<&str>, value: &str) -> anyhow::Result<Vec<TextSpan>> {
     render_var_inner(name, typ, Some(value))
 }
 
-fn render_var_def(name: Option<&str>, typ: &str) -> anyhow::Result<Vec<TextSpan>> {
+fn render_var_def(name: Option<&str>, typ: Option<&str>) -> anyhow::Result<Vec<TextSpan>> {
     render_var_inner(name, typ, None)
 }
 
-fn node_from_var2(
+fn node_from_var(
     recursion: u32,
     node_name: &str,
     name: Option<&str>,
     qr: QueryResult,
+    print_type: bool,
 ) -> Node<Vec<TextSpan>> {
-    let ty = qr.value().r#type().name_fmt();
+    let ty = if print_type {
+        Some(qr.value().r#type().name_fmt())
+    } else {
+        None
+    };
 
     // recursion guard
     if recursion >= MAX_RECURSION {
@@ -106,11 +115,12 @@ fn node_from_var2(
                 let qr = qr.modify_value(|ctx, val| val.deref(ctx));
 
                 if let Some(qr) = qr {
-                    let deref_node = node_from_var2(
+                    let deref_node = node_from_var(
                         recursion + 1,
                         format!("{node_name}_deref").as_str(),
                         Some("*"),
                         qr,
+                        true,
                     );
                     node.add_child(deref_node);
                 }
@@ -127,11 +137,12 @@ fn node_from_var2(
                     .modify_value(|_, _| Some(inner.clone()))
                     .expect("should be `Some`");
 
-                node.add_child(node_from_var2(
+                node.add_child(node_from_var(
                     recursion + 1,
                     format!("{node_name}_1").as_str(),
                     None,
                     qr,
+                    true,
                 ));
 
                 node
@@ -147,11 +158,12 @@ fn node_from_var2(
                         .modify_value(|_, _| Some(member.value.clone()))
                         .expect("should be `Some`");
 
-                    node.add_child(node_from_var2(
+                    node.add_child(node_from_var(
                         recursion + 1,
                         format!("{node_name}_{i}").as_str(),
                         member.field_name.as_deref(),
                         member_var,
+                        true,
                     ));
                 }
                 node
@@ -167,11 +179,12 @@ fn node_from_var2(
                         .modify_value(|_, _| Some(item.value.clone()))
                         .expect("should be `Some`");
 
-                    node.add_child(node_from_var2(
+                    node.add_child(node_from_var(
                         recursion + 1,
                         format!("{node_name}_{i}").as_str(),
                         Some(&format!("{}", item.index)),
                         item_var,
+                        false,
                     ));
                 }
                 node
@@ -187,11 +200,12 @@ fn node_from_var2(
                         .modify_value(|_, _| Some(value.clone()))
                         .expect("should be `Some`");
 
-                    node.add_child(node_from_var2(
+                    node.add_child(node_from_var(
                         recursion + 1,
                         format!("{node_name}_{i}").as_str(),
                         None,
                         item_var,
+                        false,
                     ));
                 }
                 node
@@ -213,11 +227,12 @@ fn node_from_var2(
                         .expect("should be `Some`");
                     let key_literal = key_var.value().as_literal();
 
-                    kv_pair.add_child(node_from_var2(
+                    kv_pair.add_child(node_from_var(
                         recursion + 1,
                         format!("{node_name}_kv_{i}_key").as_str(),
                         Some("key"),
                         key_var,
+                        true,
                     ));
 
                     if let Some(ref key_literal) = key_literal {
@@ -225,11 +240,12 @@ fn node_from_var2(
                         let value_var = value_var.modify_value(|_, value| value.index(key_literal));
 
                         if let Some(value_var) = value_var {
-                            kv_pair.add_child(node_from_var2(
+                            kv_pair.add_child(node_from_var(
                                 recursion + 1,
                                 format!("{node_name}_kv_{i}_val").as_str(),
                                 Some("value"),
                                 value_var,
+                                true,
                             ));
                         }
                     }
@@ -259,7 +275,7 @@ impl Variables {
                     None
                 };
 
-                let var_node = node_from_var2(0, &node_name, name.as_deref(), var);
+                let var_node = node_from_var(0, &node_name, name.as_deref(), var, true);
                 vars_node.add_child(var_node);
             }
 
@@ -283,7 +299,7 @@ impl Variables {
                     None
                 };
 
-                let var_node = node_from_var2(0, &node_name, name.as_deref(), arg);
+                let var_node = node_from_var(0, &node_name, name.as_deref(), arg, true);
                 args_node.add_child(var_node);
             }
             args_node
