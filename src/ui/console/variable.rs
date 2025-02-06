@@ -64,6 +64,7 @@ fn render_value_inner(value: &Value, depth: usize, print_type: bool) -> String {
                     render_value_inner(val, depth, true)
                 )
             }
+            #[allow(clippy::useless_format)]
             ValueLayout::Structure(members) => {
                 let mut render = if print_type {
                     format!("{} {{", value.r#type().name_fmt())
@@ -100,8 +101,8 @@ fn render_value_inner(value: &Value, depth: usize, print_type: bool) -> String {
                     render = format!("{render}\n");
                     render = format!(
                         "{render}{tabs}{}: {}",
-                        render_value_inner(&key, depth + 1, show_kv_type),
-                        render_value_inner(&val, depth + 1, show_kv_type)
+                        render_value_inner(key, depth + 1, show_kv_type),
+                        render_value_inner(val, depth + 1, show_kv_type)
                     );
                     show_kv_type = false;
                 }
