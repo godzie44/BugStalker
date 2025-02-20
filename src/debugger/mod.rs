@@ -881,7 +881,8 @@ impl Debugger {
         read_memory_by_pid(self.debugee.tracee_ctl().proc_pid(), addr, read_n).map_err(Ptrace)
     }
 
-    /// Write sizeof(uintptr_t) bytes in debugee address space
+    /// Write sizeof(uintptr_t) bytes in debugee address space.
+    /// Note that little endian byte order will be used when writing.
     ///
     /// # Arguments
     ///
