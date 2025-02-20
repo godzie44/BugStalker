@@ -235,8 +235,9 @@ pub const HELP_MEMORY: &str = "\
 Read or write into debugged program memory.
 
 Available subcommands:
-memory read <address> - print 8-byte block at address in debugee memory
-memory write <address> <value> - writes 8-byte value to address in debugee memory
+memory read <address> - print 8-byte block at address in debuggee memory
+memory write <address> <value> - writes 8-byte value to address in debuggee memory. 
+Note that little endian byte order will be used when writing, so the last byte of <value> will be written at the first byte of the address
 ";
 
 pub const HELP_REGISTER: &str = "\

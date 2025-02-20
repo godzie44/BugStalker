@@ -669,7 +669,10 @@ impl AppLoop {
             }
             Command::Memory(mem_cmd) => {
                 let read = MemoryHandler::new(&self.debugger).handle(mem_cmd)?;
-                self.printer.println(format!("{:#016X}", read));
+                for b in read {
+                    self.printer.print(format!("0x{:X} ", b));
+                }
+                self.printer.println("");
             }
             Command::Register(reg_cmd) => {
                 let response = RegisterHandler::new(&self.debugger).handle(&reg_cmd)?;
