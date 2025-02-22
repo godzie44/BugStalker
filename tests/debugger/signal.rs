@@ -1,6 +1,6 @@
 use crate::common::TestHooks;
 use crate::common::TestInfo;
-use crate::{assert_no_proc, prepare_debugee_process, SIGNALS_APP, SLEEPER_APP};
+use crate::{SIGNALS_APP, SLEEPER_APP, assert_no_proc, prepare_debugee_process};
 use bugstalker::debugger::DebuggerBuilder;
 use nix::sys::signal;
 use nix::sys::signal::{SIGINT, SIGUSR1, SIGUSR2};

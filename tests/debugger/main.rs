@@ -12,7 +12,7 @@ mod watchpoint;
 use crate::common::{TestHooks, TestInfo};
 use bugstalker::debugger::process::{Child, Installed};
 use bugstalker::debugger::register::{Register, RegisterMap};
-use bugstalker::debugger::{rust, DebuggerBuilder};
+use bugstalker::debugger::{DebuggerBuilder, rust};
 use serial_test::serial;
 use std::io::{BufRead, BufReader};
 use std::thread;

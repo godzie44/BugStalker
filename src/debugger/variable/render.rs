@@ -162,7 +162,7 @@ impl RenderRepr for VariableIR {
                     None => ValueLayout::Structure {
                         members: original.members.as_ref(),
                     },
-                    Some(ref tls_val) => match tls_val.inner_value.as_ref() {
+                    Some(tls_val) => match tls_val.inner_value.as_ref() {
                         None => ValueLayout::PreRendered(Cow::Borrowed("uninit")),
                         Some(tls_inner_val) => tls_inner_val.value()?,
                     },

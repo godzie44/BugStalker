@@ -1,6 +1,6 @@
 use crate::debugger::address::GlobalAddress;
-use crate::debugger::debugee::dwarf::unit::DieRef;
 use crate::debugger::debugee::RendezvousError;
+use crate::debugger::debugee::dwarf::unit::DieRef;
 use crate::debugger::variable::ParsingError;
 use gimli::UnitOffset;
 use nix::unistd::Pid;
@@ -76,7 +76,9 @@ pub enum Error {
     WatchpointNoAddress,
     #[error("size of watch object is undefined")]
     WatchpointUndefinedSize,
-    #[error("the size of the watch object does not fit into one of the size class (1, 2, 4, 8 bytes), try to specify a field to observ")]
+    #[error(
+        "the size of the watch object does not fit into one of the size class (1, 2, 4, 8 bytes), try to specify a field to observ"
+    )]
     WatchpointWrongSize,
     #[error("watchpoint limit is reached (maximum 4 watchpoints), try to remove unused")]
     WatchpointLimitReached,

@@ -2,26 +2,26 @@ mod btree;
 mod hashbrown;
 
 use crate::debugger::debugee::dwarf::r#type::{EvaluationContext, TypeIdentity};
-use crate::debugger::variable::render::RenderRepr;
-use crate::debugger::variable::select::ObjectBinaryRepr;
-use crate::debugger::variable::specialization::btree::BTreeReflection;
-use crate::debugger::variable::specialization::hashbrown::HashmapReflection;
 use crate::debugger::variable::AssumeError::{
     TypeParameterNotFound, TypeParameterTypeNotFound, UnexpectedType,
 };
 use crate::debugger::variable::ParsingError::Assume;
+use crate::debugger::variable::render::RenderRepr;
+use crate::debugger::variable::select::ObjectBinaryRepr;
+use crate::debugger::variable::specialization::btree::BTreeReflection;
+use crate::debugger::variable::specialization::hashbrown::HashmapReflection;
 use crate::debugger::variable::{
     ArrayVariable, AssumeError, ParsingError, PointerVariable, ScalarVariable, StructVariable,
     SupportedScalar, VariableIR, VariableIdentity, VariableParser,
 };
 use crate::{debugger, version_switch, weak_error};
+use AssumeError::{FieldNotFound, IncompleteInterp, UnknownSize};
 use anyhow::Context;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
 use itertools::Itertools;
 use log::warn;
 use std::collections::HashMap;
-use AssumeError::{FieldNotFound, IncompleteInterp, UnknownSize};
 
 /// During program execution, the debugger may encounter uninitialized variables.
 /// For example look at this code:
@@ -40,19 +40,11 @@ const LEN_GUARD: i64 = 10_000;
 const CAP_GUARD: i64 = 10_000;
 
 fn guard_len(len: i64) -> i64 {
-    if len > LEN_GUARD {
-        LEN_GUARD
-    } else {
-        len
-    }
+    if len > LEN_GUARD { LEN_GUARD } else { len }
 }
 
 fn guard_cap(cap: i64) -> i64 {
-    if cap > CAP_GUARD {
-        CAP_GUARD
-    } else {
-        cap
-    }
+    if cap > CAP_GUARD { CAP_GUARD } else { cap }
 }
 
 #[derive(Clone, PartialEq)]
@@ -221,9 +213,10 @@ impl<'a> VariableParserExtension<'a> {
         structure: StructVariable,
     ) -> SpecializedVariableIR {
         SpecializedVariableIR::Str {
-            string: weak_error!(self
-                .parse_str_inner(eval_ctx, VariableIR::Struct(structure.clone()))
-                .context("&str interpretation")),
+            string: weak_error!(
+                self.parse_str_inner(eval_ctx, VariableIR::Struct(structure.clone()))
+                    .context("&str interpretation")
+            ),
             original: structure,
         }
     }
@@ -257,9 +250,10 @@ impl<'a> VariableParserExtension<'a> {
         structure: StructVariable,
     ) -> SpecializedVariableIR {
         SpecializedVariableIR::String {
-            string: weak_error!(self
-                .parse_string_inner(eval_ctx, VariableIR::Struct(structure.clone()))
-                .context("String interpretation")),
+            string: weak_error!(
+                self.parse_string_inner(eval_ctx, VariableIR::Struct(structure.clone()))
+                    .context("String interpretation")
+            ),
             original: structure,
         }
     }
@@ -293,9 +287,14 @@ impl<'a> VariableParserExtension<'a> {
         type_params: &HashMap<String, Option<TypeIdentity>>,
     ) -> SpecializedVariableIR {
         SpecializedVariableIR::Vector {
-            vec: weak_error!(self
-                .parse_vector_inner(eval_ctx, VariableIR::Struct(structure.clone()), type_params)
-                .context("Vec<T> interpretation")),
+            vec: weak_error!(
+                self.parse_vector_inner(
+                    eval_ctx,
+                    VariableIR::Struct(structure.clone()),
+                    type_params
+                )
+                .context("Vec<T> interpretation")
+            ),
             original: structure,
         }
     }
@@ -399,9 +398,10 @@ impl<'a> VariableParserExtension<'a> {
         type_params: &HashMap<String, Option<TypeIdentity>>,
     ) -> SpecializedVariableIR {
         SpecializedVariableIR::Tls {
-            tls_var: weak_error!(self
-                .parse_tls_inner_old(VariableIR::Struct(structure.clone()), type_params)
-                .context("TLS variable interpretation")),
+            tls_var: weak_error!(
+                self.parse_tls_inner_old(VariableIR::Struct(structure.clone()), type_params)
+                    .context("TLS variable interpretation")
+            ),
             original: structure,
         }
     }
@@ -531,9 +531,10 @@ impl<'a> VariableParserExtension<'a> {
         structure: StructVariable,
     ) -> SpecializedVariableIR {
         SpecializedVariableIR::HashMap {
-            map: weak_error!(self
-                .parse_hashmap_inner(eval_ctx, VariableIR::Struct(structure.clone()))
-                .context("HashMap<K, V> interpretation")),
+            map: weak_error!(
+                self.parse_hashmap_inner(eval_ctx, VariableIR::Struct(structure.clone()))
+                    .context("HashMap<K, V> interpretation")
+            ),
             original: structure,
         }
     }
@@ -604,9 +605,10 @@ impl<'a> VariableParserExtension<'a> {
         structure: StructVariable,
     ) -> SpecializedVariableIR {
         SpecializedVariableIR::HashSet {
-            set: weak_error!(self
-                .parse_hashset_inner(eval_ctx, VariableIR::Struct(structure.clone()))
-                .context("HashSet<T> interpretation")),
+            set: weak_error!(
+                self.parse_hashset_inner(eval_ctx, VariableIR::Struct(structure.clone()))
+                    .context("HashSet<T> interpretation")
+            ),
             original: structure,
         }
     }
@@ -680,14 +682,15 @@ impl<'a> VariableParserExtension<'a> {
         type_params: &HashMap<String, Option<TypeIdentity>>,
     ) -> SpecializedVariableIR {
         SpecializedVariableIR::BTreeMap {
-            map: weak_error!(self
-                .parse_btree_map_inner(
+            map: weak_error!(
+                self.parse_btree_map_inner(
                     eval_ctx,
                     VariableIR::Struct(structure.clone()),
                     identity,
                     type_params
                 )
-                .context("BTreeMap<K, V> interpretation")),
+                .context("BTreeMap<K, V> interpretation")
+            ),
             original: structure,
         }
     }
@@ -754,9 +757,10 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_btree_set(&self, structure: StructVariable) -> SpecializedVariableIR {
         SpecializedVariableIR::BTreeSet {
-            set: weak_error!(self
-                .parse_btree_set_inner(VariableIR::Struct(structure.clone()))
-                .context("BTreeSet interpretation")),
+            set: weak_error!(
+                self.parse_btree_set_inner(VariableIR::Struct(structure.clone()))
+                    .context("BTreeSet interpretation")
+            ),
             original: structure,
         }
     }
@@ -766,7 +770,7 @@ impl<'a> VariableParserExtension<'a> {
             .bfs_iterator()
             .find_map(|child| {
                 if let VariableIR::Specialized(SpecializedVariableIR::BTreeMap {
-                    map: Some(ref map),
+                    map: Some(map),
                     ..
                 }) = child
                 {
@@ -792,13 +796,14 @@ impl<'a> VariableParserExtension<'a> {
         type_params: &HashMap<String, Option<TypeIdentity>>,
     ) -> SpecializedVariableIR {
         SpecializedVariableIR::VecDeque {
-            vec: weak_error!(self
-                .parse_vec_dequeue_inner(
+            vec: weak_error!(
+                self.parse_vec_dequeue_inner(
                     eval_ctx,
                     VariableIR::Struct(structure.clone()),
                     type_params
                 )
-                .context("VeqDequeue<T> interpretation")),
+                .context("VeqDequeue<T> interpretation")
+            ),
             original: structure,
         }
     }
@@ -908,9 +913,10 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_cell(&self, structure: StructVariable) -> SpecializedVariableIR {
         SpecializedVariableIR::Cell {
-            value: weak_error!(self
-                .parse_cell_inner(VariableIR::Struct(structure.clone()))
-                .context("Cell<T> interpretation"))
+            value: weak_error!(
+                self.parse_cell_inner(VariableIR::Struct(structure.clone()))
+                    .context("Cell<T> interpretation")
+            )
             .map(Box::new),
             original: structure,
         }
@@ -927,9 +933,10 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_refcell(&self, structure: StructVariable) -> SpecializedVariableIR {
         SpecializedVariableIR::RefCell {
-            value: weak_error!(self
-                .parse_refcell_inner(VariableIR::Struct(structure.clone()))
-                .context("RefCell<T> interpretation"))
+            value: weak_error!(
+                self.parse_refcell_inner(VariableIR::Struct(structure.clone()))
+                    .context("RefCell<T> interpretation")
+            )
             .map(Box::new),
             original: structure,
         }
@@ -974,9 +981,10 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_rc(&self, structure: StructVariable) -> SpecializedVariableIR {
         SpecializedVariableIR::Rc {
-            value: weak_error!(self
-                .parse_rc_inner(VariableIR::Struct(structure.clone()))
-                .context("Rc<T> interpretation")),
+            value: weak_error!(
+                self.parse_rc_inner(VariableIR::Struct(structure.clone()))
+                    .context("Rc<T> interpretation")
+            ),
             original: structure,
         }
     }
@@ -999,9 +1007,10 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_arc(&self, structure: StructVariable) -> SpecializedVariableIR {
         SpecializedVariableIR::Arc {
-            value: weak_error!(self
-                .parse_arc_inner(VariableIR::Struct(structure.clone()))
-                .context("Arc<T> interpretation")),
+            value: weak_error!(
+                self.parse_arc_inner(VariableIR::Struct(structure.clone()))
+                    .context("Arc<T> interpretation")
+            ),
             original: structure,
         }
     }
@@ -1024,9 +1033,10 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_uuid(&self, structure: StructVariable) -> SpecializedVariableIR {
         SpecializedVariableIR::Uuid {
-            value: weak_error!(self
-                .parse_uuid_inner(&structure)
-                .context("Uuid interpretation")),
+            value: weak_error!(
+                self.parse_uuid_inner(&structure)
+                    .context("Uuid interpretation")
+            ),
             original: structure,
         }
     }

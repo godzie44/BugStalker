@@ -1,6 +1,6 @@
 use crate::common::TestHooks;
 use crate::prepare_debugee_process;
-use crate::{assert_no_proc, HW_APP};
+use crate::{HW_APP, assert_no_proc};
 use bugstalker::debugger::DebuggerBuilder;
 use object::SymbolKind;
 use serial_test::serial;

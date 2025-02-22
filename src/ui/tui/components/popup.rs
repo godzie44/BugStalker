@@ -12,7 +12,7 @@ use tuirealm::tui::style::{Color, Stylize};
 use tuirealm::tui::widgets;
 use tuirealm::tui::widgets::{Block, BorderType, Clear, Paragraph};
 use tuirealm::{
-    command, AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State,
+    AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State, command,
 };
 
 #[derive(PartialEq)]

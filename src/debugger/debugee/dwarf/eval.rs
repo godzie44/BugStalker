@@ -1,16 +1,16 @@
 use crate::debugger;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
+use crate::debugger::debugee::Debugee;
 use crate::debugger::debugee::dwarf::unit::DieRef;
 use crate::debugger::debugee::dwarf::unit::{DieVariant, Unit};
 use crate::debugger::debugee::dwarf::{ContextualDieRef, DwarfUnwinder, EndianArcSlice};
-use crate::debugger::debugee::Debugee;
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::{
     DieNotFound, EvalOptionRequired, EvalUnsupportedRequire, FunctionNotFound, ImplicitPointer,
     NoDieType, Ptrace, TypeBinaryRepr, UnwindNoContext,
 };
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
-use crate::debugger::{debugee, ExplorationContext};
+use crate::debugger::{ExplorationContext, debugee};
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{
     DebugAddr, Encoding, EndianSlice, EvaluationResult, Expression, Location, Piece, Register,
@@ -20,8 +20,8 @@ use nix::unistd::Pid;
 use object::ReadRef;
 use std::cell::RefCell;
 use std::cmp::min;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::mem;
 
 /// Resolve requirements that the `ExpressionEvaluator` may need. Relevant for the current breakpoint.
@@ -441,7 +441,7 @@ impl CompletedResult<'_> {
                         let (entry, unit) = dwarf
                             .deref_die(self.unit, die_ref)
                             .ok_or_else(|| DieNotFound(die_ref))?;
-                        if let DieVariant::Variable(ref variable) = &entry.die {
+                        if let DieVariant::Variable(variable) = &entry.die {
                             let ctx_die = ContextualDieRef {
                                 debug_info: dwarf,
                                 unit_idx: unit.idx(),

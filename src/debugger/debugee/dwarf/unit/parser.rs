@@ -1,10 +1,10 @@
 use crate::debugger::debugee::dwarf::unit::{
     ArrayDie, ArraySubrangeDie, AtomicDie, BaseTypeDie, ConstTypeDie, DieAttributes, DieRange,
-    DieRef, DieVariant, Entry, EnumTypeDie, EnumeratorDie, FunctionDie, InlineSubroutineDie,
-    LexicalBlockDie, LineRow, Namespace, Node, ParameterDie, PointerType, RestrictDie,
-    StructTypeDie, SubroutineDie, TemplateTypeParameter, TypeDefDie, TypeMemberDie, UnionTypeDie,
-    Unit, UnitLazyPart, UnitProperties, VariableDie, Variant, VariantPart, VolatileDie,
-    END_SEQUENCE, EPILOG_BEGIN, IS_STMT, PROLOG_END,
+    DieRef, DieVariant, END_SEQUENCE, EPILOG_BEGIN, Entry, EnumTypeDie, EnumeratorDie, FunctionDie,
+    IS_STMT, InlineSubroutineDie, LexicalBlockDie, LineRow, Namespace, Node, PROLOG_END,
+    ParameterDie, PointerType, RestrictDie, StructTypeDie, SubroutineDie, TemplateTypeParameter,
+    TypeDefDie, TypeMemberDie, UnionTypeDie, Unit, UnitLazyPart, UnitProperties, VariableDie,
+    Variant, VariantPart, VolatileDie,
 };
 use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
@@ -217,9 +217,11 @@ impl<'a> DwarfUnitParser<'a> {
                         None
                     });
                     if let Some(decl_ref) = specification {
-                        let declaration_idx = weak_error!(fn_declarations
-                            .get(&decl_ref)
-                            .ok_or(Error::InvalidSpecification(decl_ref)));
+                        let declaration_idx = weak_error!(
+                            fn_declarations
+                                .get(&decl_ref)
+                                .ok_or(Error::InvalidSpecification(decl_ref))
+                        );
                         debug_assert!(declaration_idx.is_some(), "reference to unseen declaration");
 
                         if let Some(&idx) = declaration_idx {

@@ -4,7 +4,7 @@ use crate::debugger::Error;
 use crate::ui::command;
 use crate::ui::command::r#break::BreakpointIdentity;
 use crate::ui::command::watch::WatchpointIdentity;
-use crate::ui::command::{r#break, run, watch, CommandError};
+use crate::ui::command::{CommandError, r#break, run, watch};
 use crate::ui::tui::app::port::{
     AsyncResponsesPort, DebuggerEventQueue, DebuggerEventsPort, LoggerPort, OutputPort, UserEvent,
 };
@@ -37,7 +37,7 @@ use tuirealm::tui::layout::Alignment;
 use tuirealm::tui::layout::{Constraint, Direction, Layout};
 use tuirealm::tui::style::Color;
 use tuirealm::{
-    props, Application, AttrValue, Attribute, EventListenerCfg, Sub, SubClause, SubEventClause,
+    Application, AttrValue, Attribute, EventListenerCfg, Sub, SubClause, SubEventClause, props,
 };
 
 use super::{BreakpointsAddType, ConfirmedAction, DebugeeStreamBuffer, Id, Msg};

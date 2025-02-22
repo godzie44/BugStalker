@@ -1,7 +1,7 @@
-use crate::debugger::address::Address;
 use crate::debugger::BreakpointView;
 use crate::debugger::Debugger;
 use crate::debugger::Error;
+use crate::debugger::address::Address;
 
 #[derive(Debug, Clone)]
 pub enum BreakpointIdentity {

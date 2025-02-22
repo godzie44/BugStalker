@@ -1,6 +1,6 @@
 use crate::debugger::address::RelocatedAddress;
-use crate::debugger::variable::render::{RenderRepr, ValueLayout};
 use crate::debugger::variable::VariableIR;
+use crate::debugger::variable::render::{RenderRepr, ValueLayout};
 use crate::ui::syntax;
 use crate::ui::syntax::StylizedLine;
 use syntect::util::as_24_bit_terminal_escaped;

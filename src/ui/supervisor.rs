@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use crate::debugger::process::Child;
 use crate::debugger::DebuggerBuilder;
+use crate::debugger::process::Child;
 use crate::oracle::builtin;
 use crate::ui::console::TerminalApplication;
 use crate::ui::tui::TuiApplication;

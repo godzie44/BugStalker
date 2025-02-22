@@ -1,6 +1,6 @@
 use crate::ui::tui::config::{CommonAction, KeyMap, SpecialAction};
 use anyhow::bail;
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Deref;

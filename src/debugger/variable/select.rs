@@ -1,3 +1,4 @@
+use crate::debugger::Error::TypeNotFound;
 use crate::debugger::debugee::dwarf;
 use crate::debugger::debugee::dwarf::r#type::ComplexType;
 use crate::debugger::debugee::dwarf::unit::{DieRef, Node, VariableDie};
@@ -7,13 +8,12 @@ use crate::debugger::debugee::dwarf::{
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::FunctionNotFound;
 use crate::debugger::variable::{AssumeError, ParsingError, VariableIR, VariableIdentity};
-use crate::debugger::Error::TypeNotFound;
-use crate::debugger::{variable, Debugger};
+use crate::debugger::{Debugger, variable};
 use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::{Attribute, DebugInfoOffset, Range, UnitOffset};
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 /// This die not exists in debug information.
 /// It may be used to represent variables that are

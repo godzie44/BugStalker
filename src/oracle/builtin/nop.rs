@@ -2,9 +2,9 @@ use crate::debugger::{CreateTransparentBreakpointRequest, Debugger};
 use crate::oracle::builtin::nop::tui::NopComponent;
 use crate::oracle::{ConsolePlugin, Oracle, TuiPlugin};
 use crate::ui::console::print::ExternalPrinter;
+use crate::ui::tui::Msg;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::KeyMap;
-use crate::ui::tui::Msg;
 use std::sync::Arc;
 use tuirealm::Component;
 
@@ -46,8 +46,8 @@ impl Oracle for NopOracle {
 }
 
 pub mod tui {
-    use crate::ui::tui::app::port::UserEvent;
     use crate::ui::tui::Msg;
+    use crate::ui::tui::app::port::UserEvent;
     use tui_realm_stdlib::Paragraph;
     use tuirealm::props::TextSpan;
     use tuirealm::{Component, Event, MockComponent};

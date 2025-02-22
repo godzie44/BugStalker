@@ -1,6 +1,7 @@
+use crate::debugger::ExplorationContext;
 use crate::debugger::address::RelocatedAddress;
-use crate::debugger::debugee::dwarf::eval::{AddressKind, ExpressionEvaluator};
 use crate::debugger::debugee::dwarf::EndianArcSlice;
+use crate::debugger::debugee::dwarf::eval::{AddressKind, ExpressionEvaluator};
 use crate::debugger::debugee::{Debugee, Location};
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::{
@@ -8,7 +9,6 @@ use crate::debugger::error::Error::{
 };
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::utils::TryGetOrInsert;
-use crate::debugger::ExplorationContext;
 use crate::{debugger, resolve_unit_call, weak_error};
 use gimli::{EhFrame, FrameDescriptionEntry, RegisterRule, UnwindSection};
 use nix::unistd::Pid;

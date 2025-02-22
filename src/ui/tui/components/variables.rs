@@ -1,7 +1,7 @@
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::render::{RenderRepr, ValueLayout};
-use crate::debugger::variable::select::{Literal, VariableSelector, DQE};
-use crate::debugger::variable::{select, VariableIR};
+use crate::debugger::variable::select::{DQE, Literal, VariableSelector};
+use crate::debugger::variable::{VariableIR, select};
 use crate::ui;
 use crate::ui::syntax::StylizedLine;
 use crate::ui::tui::app::port::UserEvent;
@@ -12,7 +12,7 @@ use crate::ui::tui::{Id, Msg};
 use crate::ui::{command, syntax};
 use nix::sys::signal::Signal;
 use std::sync::Arc;
-use tui_realm_treeview::{Node, Tree, TreeView, TREE_CMD_CLOSE, TREE_CMD_OPEN, TREE_INITIAL_NODE};
+use tui_realm_treeview::{Node, TREE_CMD_CLOSE, TREE_CMD_OPEN, TREE_INITIAL_NODE, Tree, TreeView};
 use tuirealm::command::{Cmd, Direction, Position};
 use tuirealm::props::{BorderType, Borders, TextSpan};
 use tuirealm::tui::layout::Alignment;

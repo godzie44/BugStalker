@@ -29,9 +29,11 @@ impl Location<'_> {
 
         let offset = match self.0.value() {
             AttributeValue::LocationListsRef(offset) => offset,
-            AttributeValue::DebugLocListsIndex(index) => weak_error!(dwarf_ctx
-                .locations()
-                .get_offset(unit.encoding(), unit.loclists_base(), index))?,
+            AttributeValue::DebugLocListsIndex(index) => weak_error!(
+                dwarf_ctx
+                    .locations()
+                    .get_offset(unit.encoding(), unit.loclists_base(), index)
+            )?,
             _ => return None,
         };
 

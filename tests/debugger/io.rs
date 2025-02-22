@@ -1,9 +1,9 @@
+use crate::HW_APP;
 use crate::common::TestHooks;
 use crate::common::TestInfo;
-use crate::HW_APP;
-use crate::{assert_no_proc, prepare_debugee_process, CALC_APP};
-use bugstalker::debugger::variable::render::{RenderRepr, ValueLayout};
+use crate::{CALC_APP, assert_no_proc, prepare_debugee_process};
 use bugstalker::debugger::DebuggerBuilder;
+use bugstalker::debugger::variable::render::{RenderRepr, ValueLayout};
 use serial_test::serial;
 use std::borrow::Cow;
 use std::mem;

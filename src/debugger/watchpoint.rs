@@ -1,3 +1,4 @@
+use crate::debugger::Error::Hook;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry};
 use crate::debugger::debugee::tracee::TraceeCtl;
@@ -7,9 +8,8 @@ use crate::debugger::register::debug::{
     BreakCondition, BreakSize, DebugRegisterNumber, HardwareDebugState,
 };
 use crate::debugger::unwind::FrameID;
-use crate::debugger::variable::select::{DqeResult, SelectExpressionEvaluator, DQE};
+use crate::debugger::variable::select::{DQE, DqeResult, SelectExpressionEvaluator};
 use crate::debugger::variable::{ScalarVariable, SupportedScalar, VariableIR, VariableIdentity};
-use crate::debugger::Error::Hook;
 use crate::debugger::{Debugger, Error, ExplorationContext, Tracee};
 use crate::{debugger, disable_when_not_stared, weak_error};
 use log::error;

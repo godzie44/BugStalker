@@ -11,8 +11,8 @@ use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 use std::cmp::Ordering;
 use std::sync::{Arc, Mutex};
-use tuirealm::listener::{ListenerResult, Poll};
 use tuirealm::Event;
+use tuirealm::listener::{ListenerResult, Poll};
 
 impl PartialOrd for VariableIR {
     fn partial_cmp(&self, _: &Self) -> Option<Ordering> {

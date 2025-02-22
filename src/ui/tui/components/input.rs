@@ -1,7 +1,7 @@
 use crate::ui;
+use crate::ui::tui::Msg;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::CommonAction;
-use crate::ui::tui::Msg;
 use strum_macros::{Display, EnumString};
 use tuirealm::command::{Cmd, CmdResult, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};

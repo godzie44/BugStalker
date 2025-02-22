@@ -1,11 +1,11 @@
+use crate::debugger::PlaceDescriptor;
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::VariableIR;
-use crate::debugger::PlaceDescriptor;
 use crate::debugger::{EventHook, FunctionDie};
 use crate::ui::console::file::FileView;
-use crate::ui::console::print::style::{AddressView, FilePathView, FunctionNameView, KeywordView};
 use crate::ui::console::print::ExternalPrinter;
+use crate::ui::console::print::style::{AddressView, FilePathView, FunctionNameView, KeywordView};
 use crate::ui::console::variable::render_variable;
 use crate::version;
 use log::warn;

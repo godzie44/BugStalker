@@ -1,7 +1,7 @@
 use crate::common::TestHooks;
 use crate::common::TestInfo;
-use crate::{assert_no_proc, FIZZBUZZ_APP, HW_APP, SHARED_LIB_APP, VARS_APP};
-use crate::{prepare_debugee_process, CALC_APP};
+use crate::{CALC_APP, prepare_debugee_process};
+use crate::{FIZZBUZZ_APP, HW_APP, SHARED_LIB_APP, VARS_APP, assert_no_proc};
 use bugstalker::debugger::DebuggerBuilder;
 use serial_test::serial;
 
