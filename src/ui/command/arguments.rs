@@ -1,8 +1,6 @@
+use crate::debugger::Debugger;
 use crate::debugger::variable::dqe::Dqe;
 use crate::debugger::variable::execute::QueryResult;
-use crate::debugger::Debugger;
-use crate::debugger::variable::VariableIR;
-use crate::debugger::variable::select::DQE;
 use crate::ui::command;
 
 pub struct Handler<'a> {

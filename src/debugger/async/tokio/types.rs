@@ -1,6 +1,6 @@
+use crate::debugger::r#async::AsyncError;
 /// Helpers for typed values.
 use crate::debugger::debugee::dwarf::unit::Unit;
-use crate::debugger::r#async::AsyncError;
 use crate::debugger::variable::value::Value;
 use crate::version_switch;
 

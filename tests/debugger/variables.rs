@@ -2,10 +2,10 @@ use crate::VARS_APP;
 use crate::common::TestHooks;
 use crate::common::{TestInfo, rust_version};
 use crate::{assert_no_proc, prepare_debugee_process};
+use bugstalker::debugger::DebuggerBuilder;
 use bugstalker::debugger::variable::dqe::{Dqe, Literal, LiteralOrWildcard, PointerCast, Selector};
 use bugstalker::debugger::variable::render::RenderValue;
 use bugstalker::debugger::variable::value::{Member, SpecializedValue, SupportedScalar, Value};
-use bugstalker::debugger::DebuggerBuilder;
 use bugstalker::version::Version;
 use bugstalker::version_switch;
 use serial_test::serial;
@@ -1675,16 +1675,16 @@ fn test_circular_ref_types() {
                         }),
                         1 => assert_member(cons_member, "__1", |val| {
                             assert_refcell(
-                                    val,
-                            "RefCell<alloc::rc::Rc<vars::circular::List, alloc::alloc::Global>>",
-                            0,
-                            |inner| {
-                                assert_rc(
-                                    inner,
-                                    "Rc<vars::circular::List, alloc::alloc::Global>",
-                                )
-                            },
-                        )
+                                val,
+                                "RefCell<alloc::rc::Rc<vars::circular::List, alloc::alloc::Global>>",
+                                0,
+                                |inner| {
+                                    assert_rc(
+                                        inner,
+                                        "Rc<vars::circular::List, alloc::alloc::Global>",
+                                    )
+                                },
+                            )
                         }),
                         _ => panic!("2 members expected"),
                     });
@@ -1818,32 +1818,29 @@ fn test_btree_map() {
         "BTreeMap<alloc::string::String, alloc::collections::btree::map::BTreeMap<i32, i32, alloc::alloc::Global>, alloc::alloc::Global>",
         |items| {
             assert_eq!(items.len(), 2);
-            assert_string(&items[0].0,  "1");
+            assert_string(&items[0].0, "1");
             assert_btree_map(
                 &items[0].1,
                 "BTreeMap<i32, i32, alloc::alloc::Global>",
                 |items| {
                     assert_eq!(items.len(), 2);
-                    assert_scalar(&items[0].0,  "i32", Some(SupportedScalar::I32(1)));
-                    assert_scalar(&items[0].1,  "i32", Some(SupportedScalar::I32(1)));
-                    assert_scalar(&items[1].0,  "i32", Some(SupportedScalar::I32(2)));
-                    assert_scalar(&items[1].1,  "i32", Some(SupportedScalar::I32(2)));
+                    assert_scalar(&items[0].0, "i32", Some(SupportedScalar::I32(1)));
+                    assert_scalar(&items[0].1, "i32", Some(SupportedScalar::I32(1)));
+                    assert_scalar(&items[1].0, "i32", Some(SupportedScalar::I32(2)));
+                    assert_scalar(&items[1].1, "i32", Some(SupportedScalar::I32(2)));
                 },
             );
 
-            assert_string(
-                &items[1].0,
-                "3",
-            );
+            assert_string(&items[1].0, "3");
             assert_btree_map(
                 &items[1].1,
                 "BTreeMap<i32, i32, alloc::alloc::Global>",
                 |items| {
                     assert_eq!(items.len(), 2);
-                    assert_scalar(&items[0].0,  "i32", Some(SupportedScalar::I32(3)));
-                    assert_scalar(&items[0].1,  "i32", Some(SupportedScalar::I32(3)));
-                    assert_scalar(&items[1].0,  "i32", Some(SupportedScalar::I32(4)));
-                    assert_scalar(&items[1].1,  "i32", Some(SupportedScalar::I32(4)));
+                    assert_scalar(&items[0].0, "i32", Some(SupportedScalar::I32(3)));
+                    assert_scalar(&items[0].1, "i32", Some(SupportedScalar::I32(3)));
+                    assert_scalar(&items[1].0, "i32", Some(SupportedScalar::I32(4)));
+                    assert_scalar(&items[1].1, "i32", Some(SupportedScalar::I32(4)));
                 },
             );
         },
@@ -2037,34 +2034,39 @@ fn test_read_vec_deque() {
         "VecDeque<alloc::collections::vec_deque::VecDeque<i32, alloc::alloc::Global>, alloc::alloc::Global>",
         4,
         |buf| {
-            assert_array(buf, "[VecDeque<i32, alloc::alloc::Global>]", |i, item| match i {
-                0 => assert_vec_deque(item,  "VecDeque<i32, alloc::alloc::Global>", 3, |buf| {
-                    assert_array(buf,  "[i32]", |i, item| match i {
-                        0 => assert_scalar(item,  "i32", Some(SupportedScalar::I32(-2))),
-                        1 => assert_scalar(item, "i32", Some(SupportedScalar::I32(-1))),
-                        2 => assert_scalar(item,  "i32", Some(SupportedScalar::I32(0))),
-                        _ => panic!("3 items expected"),
-                    })
-                }),
-                1 => assert_vec_deque(item,  "VecDeque<i32, alloc::alloc::Global>", 3, |buf| {
-                    assert_array(buf,  "[i32]", |i, item| match i {
-                        0 => assert_scalar(item, "i32", Some(SupportedScalar::I32(1))),
-                        1 => assert_scalar(item,  "i32", Some(SupportedScalar::I32(2))),
-                        2 => assert_scalar(item,  "i32", Some(SupportedScalar::I32(3))),
-                        _ => panic!("3 items expected"),
-                    })
-                }),
-                2 => assert_vec_deque(item,  "VecDeque<i32, alloc::alloc::Global>", 3, |buf| {
-                    assert_array(buf,  "[i32]", |i, item| match i {
-                        0 => assert_scalar(item,  "i32", Some(SupportedScalar::I32(4))),
-                        1 => assert_scalar(item,  "i32", Some(SupportedScalar::I32(5))),
-                        2 => assert_scalar(item,  "i32", Some(SupportedScalar::I32(6))),
-                        _ => panic!("3 items expected"),
-                    })
-                }),
-                _ => panic!("3 items expected"),
-            })
-        });
+            assert_array(
+                buf,
+                "[VecDeque<i32, alloc::alloc::Global>]",
+                |i, item| match i {
+                    0 => assert_vec_deque(item, "VecDeque<i32, alloc::alloc::Global>", 3, |buf| {
+                        assert_array(buf, "[i32]", |i, item| match i {
+                            0 => assert_scalar(item, "i32", Some(SupportedScalar::I32(-2))),
+                            1 => assert_scalar(item, "i32", Some(SupportedScalar::I32(-1))),
+                            2 => assert_scalar(item, "i32", Some(SupportedScalar::I32(0))),
+                            _ => panic!("3 items expected"),
+                        })
+                    }),
+                    1 => assert_vec_deque(item, "VecDeque<i32, alloc::alloc::Global>", 3, |buf| {
+                        assert_array(buf, "[i32]", |i, item| match i {
+                            0 => assert_scalar(item, "i32", Some(SupportedScalar::I32(1))),
+                            1 => assert_scalar(item, "i32", Some(SupportedScalar::I32(2))),
+                            2 => assert_scalar(item, "i32", Some(SupportedScalar::I32(3))),
+                            _ => panic!("3 items expected"),
+                        })
+                    }),
+                    2 => assert_vec_deque(item, "VecDeque<i32, alloc::alloc::Global>", 3, |buf| {
+                        assert_array(buf, "[i32]", |i, item| match i {
+                            0 => assert_scalar(item, "i32", Some(SupportedScalar::I32(4))),
+                            1 => assert_scalar(item, "i32", Some(SupportedScalar::I32(5))),
+                            2 => assert_scalar(item, "i32", Some(SupportedScalar::I32(6))),
+                            _ => panic!("3 items expected"),
+                        })
+                    }),
+                    _ => panic!("3 items expected"),
+                },
+            )
+        },
+    );
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);

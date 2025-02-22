@@ -1,16 +1,16 @@
-use super::{types, AsyncError, Future, TaskBacktrace};
+use super::{AsyncError, Future, TaskBacktrace, types};
 use crate::{
     debugger::{
+        Debugger, Error,
         address::RelocatedAddress,
-        debugee::dwarf::unit::DieVariant,
         r#async::future::{AsyncFnFuture, CustomFuture, TokioJoinHandleFuture, TokioSleepFuture},
+        debugee::dwarf::unit::DieVariant,
         utils::PopIf,
         variable::{
             dqe::{Dqe, PointerCast},
             execute::QueryResult,
             value::{RustEnumValue, Value},
         },
-        Debugger, Error,
     },
     resolve_unit_call, weak_error,
 };
@@ -152,7 +152,7 @@ pub fn task_from_header<'a>(
     debugger: &'a Debugger,
     task_header_ptr: QueryResult<'a>,
 ) -> Result<Task, Error> {
-    let Value::Pointer(ref ptr) = task_header_ptr.value() else {
+    let Value::Pointer(ptr) = task_header_ptr.value() else {
         return Err(Error::Async(AsyncError::IncorrectAssumption(
             "task.__0.raw.ptr.pointer not a pointer",
         )));
@@ -162,7 +162,7 @@ pub fn task_from_header<'a>(
         .clone()
         .modify_value(|ctx, val| val.deref(ctx)?.field("vtable")?.deref(ctx)?.field("poll"))
         .unwrap();
-    let Value::Pointer(ref fn_ptr) = vtab_ptr.value() else {
+    let Value::Pointer(fn_ptr) = vtab_ptr.value() else {
         return Err(Error::Async(AsyncError::IncorrectAssumption(
             "(*(*task.__0.raw.ptr.pointer).vtable).poll should be a pointer",
         )));

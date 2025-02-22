@@ -2,9 +2,9 @@ pub mod expression;
 
 use super::r#break::BreakpointIdentity;
 use super::{
-    frame, memory, r#async, register, source_code, thread, trigger, watch, Command, CommandError,
+    Command, CommandError, r#async, frame, memory, register, source_code, thread, trigger, watch,
 };
-use super::{r#break, CommandResult};
+use super::{CommandResult, r#break};
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::dqe::Dqe;
 use crate::debugger::variable::dqe::Selector;

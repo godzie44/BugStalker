@@ -1,3 +1,4 @@
+use crate::debugger::Error::Hook;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry};
 use crate::debugger::debugee::dwarf::r#type::TypeIdentity;
@@ -11,7 +12,6 @@ use crate::debugger::unwind::FrameID;
 use crate::debugger::variable::dqe::Dqe;
 use crate::debugger::variable::execute::{DqeExecutor, QueryResult};
 use crate::debugger::variable::value::{ScalarValue, SupportedScalar, Value};
-use crate::debugger::Error::Hook;
 use crate::debugger::{Debugger, Error, ExplorationContext, Tracee};
 use crate::{debugger, disable_when_not_stared, weak_error};
 use log::error;

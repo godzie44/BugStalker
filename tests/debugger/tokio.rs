@@ -1,5 +1,5 @@
 use crate::common::TestHooks;
-use crate::{prepare_debugee_process, TOKIO_TICKER_APP};
+use crate::{TOKIO_TICKER_APP, prepare_debugee_process};
 use bugstalker::debugger::DebuggerBuilder;
 use serial_test::serial;
 

@@ -1,9 +1,8 @@
 use crate::CALC_APP;
 use crate::common::TestInfo;
-use crate::common::{rust_version, TestHooks};
-use crate::CALC_APP;
-use crate::{assert_no_proc, prepare_debugee_process, HW_APP, RECURSION_APP, VARS_APP};
-use bugstalker::debugger::variable::{SupportedScalar, VariableIR};
+use crate::common::{TestHooks, rust_version};
+use crate::{HW_APP, RECURSION_APP, VARS_APP, assert_no_proc, prepare_debugee_process};
+use bugstalker::debugger::variable::value::{SupportedScalar, Value};
 use bugstalker::debugger::{Debugger, DebuggerBuilder};
 use bugstalker::ui::command::parser::expression;
 use bugstalker::version_switch;
@@ -108,11 +107,14 @@ fn test_step_out() {
     let rust_version = rust_version(HW_APP).unwrap();
     let step_count = version_switch!(
             rust_version,
-            .. (1 . 81) => {},
-            (1 . 81) .. => {
-                debugger.step_into().unwrap();
-            },
-    );
+            .. (1 . 81) => 4,
+            (1 . 81) .. (1 . 85) => 5,
+            (1 . 85) .. => 1,
+    )
+    .unwrap();
+    for _ in 0..step_count {
+        debugger.step_into().unwrap();
+    }
 
     assert_eq!(info.line.take(), Some(15));
 

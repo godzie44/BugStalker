@@ -9,8 +9,8 @@ pub mod tracer;
 pub use registry::RegionInfo;
 pub use rendezvous::RendezvousError;
 
-use super::r#async::extract_tokio_version_naive;
 use super::r#async::TokioVersion;
+use super::r#async::extract_tokio_version_naive;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BrkptType};
 use crate::debugger::debugee::disasm::Disassembler;
@@ -23,7 +23,9 @@ use crate::debugger::debugee::rendezvous::Rendezvous;
 use crate::debugger::debugee::tracee::{Tracee, TraceeCtl};
 use crate::debugger::debugee::tracer::{StopReason, TraceContext, Tracer};
 use crate::debugger::error::Error;
-use crate::debugger::error::Error::{FunctionNotFound, MappingOffsetNotFound, TraceeNotFound};
+use crate::debugger::error::Error::{
+    FunctionNotFound, FunctionRangeNotFound, MappingOffsetNotFound, TraceeNotFound,
+};
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::register::DwarfRegisterMap;
 use crate::debugger::unwind::FrameSpan;

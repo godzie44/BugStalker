@@ -1,8 +1,8 @@
-use crate::debugger::debugee::dwarf::unit::{DieRef, Node};
-use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, EndianArcSlice};
-use crate::debugger::debugee::Debugee;
 use crate::debugger::Error;
 use crate::debugger::Error::TypeNotFound;
+use crate::debugger::debugee::Debugee;
+use crate::debugger::debugee::dwarf::unit::{DieRef, Node};
+use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, EndianArcSlice};
 use gimli::{Attribute, DebugInfoOffset, UnitOffset};
 
 /// This DIE does not actually exist in debug information.

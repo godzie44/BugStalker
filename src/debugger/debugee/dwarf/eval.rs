@@ -10,7 +10,7 @@ use crate::debugger::error::Error::{
     NoDieType, Ptrace, TypeBinaryRepr, UnwindNoContext,
 };
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
-use crate::debugger::{debugee, ExplorationContext};
+use crate::debugger::{ExplorationContext, debugee};
 use crate::version::RustVersion;
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{
