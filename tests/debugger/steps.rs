@@ -104,18 +104,17 @@ fn test_step_out() {
     debugger.start_debugee().unwrap();
     assert_eq!(info.line.take(), Some(5));
 
-    debugger.step_into().unwrap();
-    debugger.step_into().unwrap();
-    debugger.step_into().unwrap();
-    debugger.step_into().unwrap();
     let rust_version = rust_version(HW_APP).unwrap();
-    version_switch!(
+    let step_count = version_switch!(
             rust_version,
-            (1, 0, 0) ..= (1, 80, u32::MAX) => {},
-            (1, 81, 0) ..= (1, u32::MAX, u32::MAX) => {
-                debugger.step_into().unwrap();
-            },
-    );
+            (1, 0, 0) ..= (1, 80, u32::MAX) => 4,
+            (1, 81, 0) ..= (1, 84, u32::MAX) => 5,
+            (1, 85, 0) ..= (1, u32::MAX, u32::MAX) => 1,
+    )
+    .unwrap();
+    for _ in 0..step_count {
+        debugger.step_into().unwrap();
+    }
 
     assert_eq!(info.line.take(), Some(15));
 

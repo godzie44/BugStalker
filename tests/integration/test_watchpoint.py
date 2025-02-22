@@ -64,11 +64,11 @@ class WatchpointTestCase(unittest.TestCase):
 
     def test_watchpoint_with_stepping(self):
         """Add a new watchpoint, do steps, test it works"""
-        self.debugger.cmd('break calculations.rs:12', 'New breakpoint')
+        self.debugger.cmd('break calculations.rs:22', 'New breakpoint')
         self.debugger.cmd('run', 'Hit breakpoint 1')
-        self.debugger.cmd('watch int8', 'New watchpoint')
+        self.debugger.cmd('watch a', 'New watchpoint')
         self.debugger.cmd('next', 'Hit watchpoint')
-        self.debugger.cmd('next', '13     println!("{int8}");')
+        self.debugger.cmd('next', '24     c -= 2;')
         self.debugger.cmd('next')
         self.debugger.cmd('next')
         self.debugger.cmd('next', 'Watchpoint 1 end of scope')
