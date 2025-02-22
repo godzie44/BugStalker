@@ -1,17 +1,17 @@
+use crate::debugger::CreateTransparentBreakpointRequest;
 use crate::debugger::unwind::{Backtrace, FrameSpan};
 use crate::debugger::variable::dqe::{Dqe, PointerCast, Selector};
 use crate::debugger::variable::value::{
     Member, PointerValue, ScalarValue, StructValue, SupportedScalar, Value,
 };
-use crate::debugger::CreateTransparentBreakpointRequest;
 use crate::debugger::{Debugger, Error};
 use crate::oracle::{ConsolePlugin, Oracle, TuiPlugin};
-use crate::ui::console::print::style::KeywordView;
 use crate::ui::console::print::ExternalPrinter;
+use crate::ui::console::print::style::KeywordView;
 use crate::ui::short::Abbreviator;
+use crate::ui::tui::Msg;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::KeyMap;
-use crate::ui::tui::Msg;
 use chrono::Duration;
 use indexmap::IndexMap;
 use log::warn;
@@ -323,7 +323,7 @@ impl TokioOracle {
                         for member in &header_struct.members {
                             if let Member {
                                 field_name,
-                                value: Value::Struct(ref state_member),
+                                value: Value::Struct(state_member),
                             } = member
                             {
                                 if field_name.as_deref() != Some("state") {
@@ -468,10 +468,10 @@ impl TuiPlugin for TokioOracle {
 pub mod tui {
     use crate::oracle::builtin::tokio::{State, TokioOracle};
     use crate::ui::short::Abbreviator;
+    use crate::ui::tui::Msg;
     use crate::ui::tui::app::port::UserEvent;
     use crate::ui::tui::config::CommonAction;
     use crate::ui::tui::config::KeyMap;
-    use crate::ui::tui::Msg;
     use chrono::{DateTime, Local, Timelike};
     use std::collections::VecDeque;
     use std::sync::Arc;

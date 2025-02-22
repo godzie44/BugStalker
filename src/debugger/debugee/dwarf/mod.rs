@@ -9,13 +9,13 @@ mod utils;
 
 pub use self::unwind::DwarfUnwinder;
 
+use crate::debugger::ExplorationContext;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::dwarf::eval::AddressKind;
 use crate::debugger::debugee::dwarf::eval::EvaluationContext;
 use crate::debugger::debugee::dwarf::location::Location as DwarfLocation;
+use crate::debugger::debugee::dwarf::symbol::SymbolTab;
 use crate::debugger::debugee::dwarf::r#type::ComplexType;
-use crate::debugger::debugee::dwarf::symbol::SymbolTab;
-use crate::debugger::debugee::dwarf::symbol::SymbolTab;
 use crate::debugger::debugee::dwarf::unit::{
     DieRef, DieVariant, DwarfUnitParser, Entry, FunctionDie, Node, ParameterDie,
     PlaceDescriptorOwned, TemplateTypeParameter, Unit, VariableDie,
@@ -28,8 +28,6 @@ use crate::debugger::error::Error::{
 };
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::variable::ObjectBinaryRepr;
-use crate::debugger::ExplorationContext;
-use crate::debugger::ExplorationContext;
 use crate::{muted_error, resolve_unit_call, version_switch, weak_error};
 use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;

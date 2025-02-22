@@ -33,10 +33,6 @@ impl<T> PopIf<T> for Vec<T> {
     where
         F: FnOnce(&Self) -> bool,
     {
-        if pred(self) {
-            self.pop()
-        } else {
-            None
-        }
+        if pred(self) { self.pop() } else { None }
     }
 }

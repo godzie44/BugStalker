@@ -1,3 +1,4 @@
+use crate::debugger::TypeDeclaration;
 use crate::debugger::debugee::dwarf::eval::EvaluationContext;
 use crate::debugger::debugee::dwarf::r#type::{
     ArrayType, ComplexType, ScalarType, StructureMember, TypeId,
@@ -8,13 +9,12 @@ use crate::debugger::variable::value::{
     ScalarValue, SpecializedValue, StructValue, SubroutineValue, SupportedScalar, Value,
 };
 use crate::debugger::variable::{Identity, ObjectBinaryRepr};
-use crate::debugger::TypeDeclaration;
 use crate::version::Version;
 use crate::version_switch;
 use bytes::Bytes;
 use gimli::{
-    DW_ATE_address, DW_ATE_boolean, DW_ATE_float, DW_ATE_signed, DW_ATE_signed_char,
-    DW_ATE_unsigned, DW_ATE_unsigned_char, DW_ATE_ASCII, DW_ATE_UTF,
+    DW_ATE_ASCII, DW_ATE_UTF, DW_ATE_address, DW_ATE_boolean, DW_ATE_float, DW_ATE_signed,
+    DW_ATE_signed_char, DW_ATE_unsigned, DW_ATE_unsigned_char,
 };
 use log::warn;
 use std::collections::HashMap;

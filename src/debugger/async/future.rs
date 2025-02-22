@@ -1,6 +1,6 @@
 use crate::debugger::address::RelocatedAddress;
-use crate::debugger::debugee::dwarf::r#type::TypeIdentity;
 use crate::debugger::r#async::AsyncError;
+use crate::debugger::debugee::dwarf::r#type::TypeIdentity;
 use crate::debugger::variable::value::{RustEnumValue, SpecializedValue, StructValue, Value};
 use std::num::ParseIntError;
 

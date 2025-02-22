@@ -1,18 +1,18 @@
 use crate::debugger::debugee::dwarf::r#type::{TypeId, TypeIdentity};
+use crate::debugger::variable::ObjectBinaryRepr;
 use crate::debugger::variable::render::RenderValue;
-use crate::debugger::variable::value::parser::{ParseContext, ValueParser};
-use crate::debugger::variable::value::specialization::btree::BTreeReflection;
-use crate::debugger::variable::value::specialization::hashbrown::HashmapReflection;
 use crate::debugger::variable::value::AssumeError::{
     TypeParameterNotFound, TypeParameterTypeNotFound, UnexpectedType,
 };
 use crate::debugger::variable::value::ParsingError::Assume;
+use crate::debugger::variable::value::parser::{ParseContext, ValueParser};
+use crate::debugger::variable::value::specialization::btree::BTreeReflection;
+use crate::debugger::variable::value::specialization::hashbrown::HashmapReflection;
 use crate::debugger::variable::value::{
     ArrayItem, ArrayValue, AssumeError, FieldOrIndex, Member, ParsingError, ScalarValue,
     SupportedScalar,
 };
 use crate::debugger::variable::value::{PointerValue, StructValue, Value};
-use crate::debugger::variable::ObjectBinaryRepr;
 use crate::{debugger, version_switch, weak_error};
 use AssumeError::{FieldNotFound, IncompleteInterp, UnknownSize};
 use anyhow::Context;
@@ -131,9 +131,10 @@ impl<'a> VariableParserExtension<'a> {
         ctx: &ParseContext,
         structure: &StructValue,
     ) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_str_inner(ctx, Value::Struct(structure.clone()))
-            .context("&str interpretation"))
+        weak_error!(
+            self.parse_str_inner(ctx, Value::Struct(structure.clone()))
+                .context("&str interpretation")
+        )
         .map(SpecializedValue::Str)
     }
 
@@ -160,9 +161,10 @@ impl<'a> VariableParserExtension<'a> {
         ctx: &ParseContext,
         structure: &StructValue,
     ) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_string_inner(ctx, Value::Struct(structure.clone()))
-            .context("String interpretation"))
+        weak_error!(
+            self.parse_string_inner(ctx, Value::Struct(structure.clone()))
+                .context("String interpretation")
+        )
         .map(SpecializedValue::String)
     }
 
@@ -193,9 +195,10 @@ impl<'a> VariableParserExtension<'a> {
         structure: &StructValue,
         type_params: &HashMap<String, Option<TypeId>>,
     ) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_vector_inner(ctx, Value::Struct(structure.clone()), type_params)
-            .context("Vec<T> interpretation"))
+        weak_error!(
+            self.parse_vector_inner(ctx, Value::Struct(structure.clone()), type_params)
+                .context("Vec<T> interpretation")
+        )
         .map(SpecializedValue::Vector)
     }
 
@@ -448,9 +451,10 @@ impl<'a> VariableParserExtension<'a> {
         ctx: &ParseContext,
         structure: &StructValue,
     ) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_hashmap_inner(ctx, Value::Struct(structure.clone()))
-            .context("HashMap<K, V> interpretation"))
+        weak_error!(
+            self.parse_hashmap_inner(ctx, Value::Struct(structure.clone()))
+                .context("HashMap<K, V> interpretation")
+        )
         .map(SpecializedValue::HashMap)
     }
 
@@ -513,9 +517,10 @@ impl<'a> VariableParserExtension<'a> {
         ctx: &ParseContext,
         structure: &StructValue,
     ) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_hashset_inner(ctx, Value::Struct(structure.clone()))
-            .context("HashSet<T> interpretation"))
+        weak_error!(
+            self.parse_hashset_inner(ctx, Value::Struct(structure.clone()))
+                .context("HashSet<T> interpretation")
+        )
         .map(SpecializedValue::HashSet)
     }
 
@@ -579,9 +584,15 @@ impl<'a> VariableParserExtension<'a> {
         identity: TypeId,
         type_params: &HashMap<String, Option<TypeId>>,
     ) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_btree_map_inner(ctx, Value::Struct(structure.clone()), identity, type_params)
-            .context("BTreeMap<K, V> interpretation"))
+        weak_error!(
+            self.parse_btree_map_inner(
+                ctx,
+                Value::Struct(structure.clone()),
+                identity,
+                type_params
+            )
+            .context("BTreeMap<K, V> interpretation")
+        )
         .map(SpecializedValue::BTreeMap)
     }
 
@@ -635,9 +646,10 @@ impl<'a> VariableParserExtension<'a> {
     }
 
     pub fn parse_btree_set(&self, structure: &StructValue) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_btree_set_inner(Value::Struct(structure.clone()))
-            .context("BTreeSet interpretation"))
+        weak_error!(
+            self.parse_btree_set_inner(Value::Struct(structure.clone()))
+                .context("BTreeSet interpretation")
+        )
         .map(SpecializedValue::BTreeSet)
     }
 
@@ -646,7 +658,7 @@ impl<'a> VariableParserExtension<'a> {
             .bfs_iterator()
             .find_map(|(field_or_idx, child)| {
                 if let Value::Specialized {
-                    value: Some(SpecializedValue::BTreeMap(ref map)),
+                    value: Some(SpecializedValue::BTreeMap(map)),
                     ..
                 } = child
                 {
@@ -670,9 +682,10 @@ impl<'a> VariableParserExtension<'a> {
         structure: &StructValue,
         type_params: &HashMap<String, Option<TypeId>>,
     ) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_vec_dequeue_inner(ctx, Value::Struct(structure.clone()), type_params)
-            .context("VeqDequeue<T> interpretation"))
+        weak_error!(
+            self.parse_vec_dequeue_inner(ctx, Value::Struct(structure.clone()), type_params)
+                .context("VeqDequeue<T> interpretation")
+        )
         .map(SpecializedValue::VecDeque)
     }
 
@@ -778,9 +791,10 @@ impl<'a> VariableParserExtension<'a> {
     }
 
     pub fn parse_cell(&self, structure: &StructValue) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_cell_inner(Value::Struct(structure.clone()))
-            .context("Cell<T> interpretation"))
+        weak_error!(
+            self.parse_cell_inner(Value::Struct(structure.clone()))
+                .context("Cell<T> interpretation")
+        )
         .map(Box::new)
         .map(SpecializedValue::Cell)
     }
@@ -795,9 +809,10 @@ impl<'a> VariableParserExtension<'a> {
     }
 
     pub fn parse_refcell(&self, structure: &StructValue) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_refcell_inner(Value::Struct(structure.clone()))
-            .context("RefCell<T> interpretation"))
+        weak_error!(
+            self.parse_refcell_inner(Value::Struct(structure.clone()))
+                .context("RefCell<T> interpretation")
+        )
         .map(Box::new)
         .map(SpecializedValue::RefCell)
     }
@@ -844,9 +859,10 @@ impl<'a> VariableParserExtension<'a> {
     }
 
     pub fn parse_rc(&self, structure: &StructValue) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_rc_inner(Value::Struct(structure.clone()))
-            .context("Rc<T> interpretation"))
+        weak_error!(
+            self.parse_rc_inner(Value::Struct(structure.clone()))
+                .context("Rc<T> interpretation")
+        )
         .map(SpecializedValue::Rc)
     }
 
@@ -866,9 +882,10 @@ impl<'a> VariableParserExtension<'a> {
     }
 
     pub fn parse_arc(&self, structure: &StructValue) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_arc_inner(Value::Struct(structure.clone()))
-            .context("Arc<T> interpretation"))
+        weak_error!(
+            self.parse_arc_inner(Value::Struct(structure.clone()))
+                .context("Arc<T> interpretation")
+        )
         .map(SpecializedValue::Arc)
     }
 
@@ -888,9 +905,10 @@ impl<'a> VariableParserExtension<'a> {
     }
 
     pub fn parse_uuid(&self, structure: &StructValue) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_uuid_inner(structure)
-            .context("Uuid interpretation"))
+        weak_error!(
+            self.parse_uuid_inner(structure)
+                .context("Uuid interpretation")
+        )
         .map(SpecializedValue::Uuid)
     }
 
@@ -923,22 +941,27 @@ impl<'a> VariableParserExtension<'a> {
     }
 
     fn parse_timespec(&self, timespec: &StructValue) -> Result<(i64, u32), ParsingError> {
-        let &[Member {
-            value: Value::Scalar(secs),
-            ..
-        }, Member {
-            value: Value::Struct(n_secs),
-            ..
-        }] = &timespec.members.as_slice()
+        let &[
+            Member {
+                value: Value::Scalar(secs),
+                ..
+            },
+            Member {
+                value: Value::Struct(n_secs),
+                ..
+            },
+        ] = &timespec.members.as_slice()
         else {
             let err = "`Timespec` should contains secs and n_secs fields";
             return Err(UnexpectedType(err).into());
         };
 
-        let &[Member {
-            value: Value::Scalar(n_secs),
-            ..
-        }] = &n_secs.members.as_slice()
+        let &[
+            Member {
+                value: Value::Scalar(n_secs),
+                ..
+            },
+        ] = &n_secs.members.as_slice()
         else {
             let err = "`Nanoseconds` should contains u32 field";
             return Err(UnexpectedType(err).into());
@@ -955,26 +978,31 @@ impl<'a> VariableParserExtension<'a> {
     }
 
     pub fn parse_sys_time(&self, structure: &StructValue) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_sys_time_inner(structure)
-            .context("SystemTime interpretation"))
+        weak_error!(
+            self.parse_sys_time_inner(structure)
+                .context("SystemTime interpretation")
+        )
         .map(SpecializedValue::SystemTime)
     }
 
     fn parse_sys_time_inner(&self, structure: &StructValue) -> Result<(i64, u32), ParsingError> {
-        let &[Member {
-            value: Value::Struct(time_instant),
-            ..
-        }] = &structure.members.as_slice()
+        let &[
+            Member {
+                value: Value::Struct(time_instant),
+                ..
+            },
+        ] = &structure.members.as_slice()
         else {
             let err = "`std::time::SystemTime` should contains a `time::SystemTime` field";
             return Err(UnexpectedType(err).into());
         };
 
-        let &[Member {
-            value: Value::Struct(timespec),
-            ..
-        }] = &time_instant.members.as_slice()
+        let &[
+            Member {
+                value: Value::Struct(timespec),
+                ..
+            },
+        ] = &time_instant.members.as_slice()
         else {
             let err = "`time::SystemTime` should contains a `Timespec` field";
             return Err(UnexpectedType(err).into());
@@ -984,26 +1012,31 @@ impl<'a> VariableParserExtension<'a> {
     }
 
     pub fn parse_instant(&self, structure: &StructValue) -> Option<SpecializedValue> {
-        weak_error!(self
-            .parse_instant_inner(structure)
-            .context("Instant interpretation"))
+        weak_error!(
+            self.parse_instant_inner(structure)
+                .context("Instant interpretation")
+        )
         .map(SpecializedValue::Instant)
     }
 
     fn parse_instant_inner(&self, structure: &StructValue) -> Result<(i64, u32), ParsingError> {
-        let &[Member {
-            value: Value::Struct(time_instant),
-            ..
-        }] = &structure.members.as_slice()
+        let &[
+            Member {
+                value: Value::Struct(time_instant),
+                ..
+            },
+        ] = &structure.members.as_slice()
         else {
             let err = "`std::time::Instant` should contains a `time::Instant` field";
             return Err(UnexpectedType(err).into());
         };
 
-        let &[Member {
-            value: Value::Struct(timespec),
-            ..
-        }] = &time_instant.members.as_slice()
+        let &[
+            Member {
+                value: Value::Struct(timespec),
+                ..
+            },
+        ] = &time_instant.members.as_slice()
         else {
             let err = "`time::Instant` should contains a `Timespec` field";
             return Err(UnexpectedType(err).into());

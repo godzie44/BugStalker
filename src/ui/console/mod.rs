@@ -3,22 +3,22 @@ use std::process::exit;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{mpsc, Arc, Mutex, Once};
+use std::sync::{Arc, Mutex, Once, mpsc};
 use std::time::Duration;
 use std::{thread, vec};
 
 use crossterm::style::{Color, Stylize};
 use itertools::Itertools;
-use nix::sys::signal::{kill, Signal};
+use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 use print::style::ImportantView;
+use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::MemHistory;
-use rustyline::Editor;
 use timeout_readwrite::TimeoutReader;
 
-use debugger::Error;
 use r#break::Command as BreakpointCommand;
+use debugger::Error;
 use trigger::TriggerRegistry;
 
 use super::command::r#async::AsyncCommandResult;
@@ -31,9 +31,6 @@ use crate::debugger::{Debugger, DebuggerBuilder};
 use crate::ui::DebugeeOutReader;
 use crate::ui::command::arguments::Handler as ArgumentsHandler;
 use crate::ui::command::backtrace::Handler as BacktraceHandler;
-use crate::ui::command::frame::ExecutionResult as FrameResult;
-use crate::ui::command::frame::Handler as FrameHandler;
-use crate::ui::command::memory::Handler as MemoryHandler;
 use crate::ui::command::r#break::ExecutionResult;
 use crate::ui::command::r#break::Handler as BreakpointHandler;
 use crate::ui::command::r#continue::Handler as ContinueHandler;
@@ -53,6 +50,9 @@ use crate::ui::command::{Command, run};
 use crate::ui::command::{
     CommandError, r#break, source_code, step_instruction, step_into, step_out, step_over,
 };
+use crate::ui::console::r#async::print_backtrace;
+use crate::ui::console::r#async::print_backtrace_full;
+use crate::ui::console::r#async::print_task_ex;
 use crate::ui::console::editor::{CommandCompleter, RLHelper, create_editor};
 use crate::ui::console::file::FileView;
 use crate::ui::console::help::*;
@@ -62,10 +62,6 @@ use crate::ui::console::print::style::{
     AddressView, AsmInstructionView, AsmOperandsView, ErrorView, FilePathView, FunctionNameView,
     KeywordView,
 };
-use crate::ui::console::print::ExternalPrinter;
-use crate::ui::console::r#async::print_backtrace;
-use crate::ui::console::r#async::print_backtrace_full;
-use crate::ui::console::r#async::print_task_ex;
 use crate::ui::console::variable::render_variable;
 use crate::ui::{command, supervisor};
 use command::trigger::Command as UserCommandTarget;
