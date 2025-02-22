@@ -26,9 +26,8 @@ pub mod trigger;
 pub mod variables;
 pub mod watch;
 
-use crate::debugger::variable::dqe::Dqe;
 use crate::debugger::Error;
-use crate::debugger::variable::select::DQE;
+use crate::debugger::variable::dqe::Dqe;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {

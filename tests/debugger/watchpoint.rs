@@ -1,15 +1,15 @@
 use crate::common::{TestHooks, TestInfo};
 use crate::variables::assert_scalar;
-use crate::{assert_no_proc, VARS_APP};
-use crate::{prepare_debugee_process, CALCULATIONS_APP};
+use crate::{CALCULATIONS_APP, prepare_debugee_process};
+use crate::{VARS_APP, assert_no_proc};
+use BreakCondition::DataWrites;
+use BreakSize::Bytes8;
 use bugstalker::debugger::address::RelocatedAddress;
 use bugstalker::debugger::register::debug::{BreakCondition, BreakSize};
 use bugstalker::debugger::variable::dqe::{Dqe, Selector};
 use bugstalker::debugger::variable::value::{PointerValue, SupportedScalar, Value};
 use bugstalker::debugger::{Debugger, DebuggerBuilder};
 use serial_test::serial;
-use BreakCondition::DataWrites;
-use BreakSize::Bytes8;
 
 fn assert_old_new_inner(
     info: &TestInfo,

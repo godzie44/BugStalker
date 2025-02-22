@@ -1,4 +1,6 @@
+use crate::debugger::TypeDeclaration;
 use crate::debugger::debugee::dwarf::r#type::{CModifier, TypeId, TypeIdentity};
+use crate::debugger::variable::ObjectBinaryRepr;
 use crate::debugger::variable::dqe::{Literal, LiteralOrWildcard};
 use crate::debugger::variable::render::RenderValue;
 use crate::debugger::variable::value::bfs::BfsIterator;
@@ -7,8 +9,6 @@ use crate::debugger::variable::value::parser::{ParseContext, ValueParser};
 use crate::debugger::variable::value::specialization::{
     HashSetVariable, StrVariable, StringVariable,
 };
-use crate::debugger::variable::ObjectBinaryRepr;
-use crate::debugger::TypeDeclaration;
 use crate::{debugger, weak_error};
 use bytes::Bytes;
 use std::collections::{HashMap, VecDeque};

@@ -1,3 +1,4 @@
+use crate::debugger::Debugger;
 use crate::debugger::debugee::dwarf::eval::{EvaluationContext, ExpressionEvaluator};
 use crate::debugger::debugee::dwarf::r#type::ComplexType;
 use crate::debugger::debugee::dwarf::unit::{ParameterDie, Unit, VariableDie};
@@ -5,11 +6,10 @@ use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, DebugIn
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::FunctionNotFound;
 use crate::debugger::variable::dqe::{Dqe, PointerCast, Selector};
-use crate::debugger::variable::r#virtual::VirtualVariableDie;
-use crate::debugger::variable::value::parser::{ParseContext, ValueModifiers, ValueParser};
 use crate::debugger::variable::value::Value;
+use crate::debugger::variable::value::parser::{ParseContext, ValueModifiers, ValueParser};
+use crate::debugger::variable::r#virtual::VirtualVariableDie;
 use crate::debugger::variable::{Identity, ObjectBinaryRepr};
-use crate::debugger::Debugger;
 use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::Range;

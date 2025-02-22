@@ -9,7 +9,7 @@ use tuirealm::props::{
     Alignment, BorderSides, BorderType, Borders, Color, Layout, PropPayload, PropValue,
 };
 use tuirealm::ratatui::layout::Rect;
-use tuirealm::{props, AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State};
+use tuirealm::{AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State, props};
 
 #[derive(FromRepr, PartialEq, Clone, Copy)]
 #[repr(u8)]

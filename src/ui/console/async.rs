@@ -2,10 +2,10 @@ use crate::debugger::r#async::AsyncBacktrace;
 use crate::debugger::r#async::AsyncFnFutureState;
 use crate::debugger::r#async::Future;
 use crate::debugger::r#async::TaskBacktrace;
+use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::print::style::{
     AsyncTaskView, ErrorView, FutureFunctionView, FutureTypeView,
 };
-use crate::ui::console::print::ExternalPrinter;
 use crossterm::style::Stylize;
 use nix::errno::Errno;
 use nix::libc;

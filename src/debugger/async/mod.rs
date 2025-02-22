@@ -6,11 +6,11 @@ use crate::debugger::address::Address;
 pub use crate::debugger::r#async::future::AsyncFnFutureState;
 pub use crate::debugger::r#async::future::Future;
 use nix::sys::signal::Signal;
+pub use tokio::TokioVersion;
 pub use tokio::extract_tokio_version_naive;
 pub use tokio::park::BlockThread;
 use tokio::task::task_header_state_value_and_ptr;
 pub use tokio::worker::Worker;
-pub use tokio::TokioVersion;
 
 use super::address::GlobalAddress;
 use super::breakpoint::Breakpoint;
@@ -18,12 +18,12 @@ use super::debugee::tracer::WatchpointHitType;
 use super::register::debug::BreakCondition;
 use super::register::debug::BreakSize;
 use crate::debugger::address::RelocatedAddress;
-use crate::debugger::error::Error::NoFunctionRanges;
-use crate::debugger::error::Error::PlaceNotFound;
-use crate::debugger::error::Error::ProcessExit;
 use crate::debugger::r#async::context::TokioAnalyzeContext;
 use crate::debugger::r#async::future::ParseFutureStateError;
 use crate::debugger::r#async::tokio::worker::OwnedList;
+use crate::debugger::error::Error::NoFunctionRanges;
+use crate::debugger::error::Error::PlaceNotFound;
+use crate::debugger::error::Error::ProcessExit;
 use crate::debugger::utils::PopIf;
 use crate::debugger::variable::dqe::{Dqe, Selector};
 use crate::debugger::{Debugger, Error};
@@ -83,7 +83,9 @@ pub enum AsyncError {
     IncorrectAssumption(&'static str),
     #[error("Current task not found")]
     NoCurrentTaskFound,
-    #[error("Async step are impossible cause watchpoint limit is reached (maximum 4 watchpoints), try to remove unused")]
+    #[error(
+        "Async step are impossible cause watchpoint limit is reached (maximum 4 watchpoints), try to remove unused"
+    )]
     NotEnoughWatchpointsForStep,
 }
 

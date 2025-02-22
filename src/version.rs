@@ -133,7 +133,7 @@ pub fn supported_versions_to_string() -> String {
         "[{}]",
         SUPPORTED_RUSTC
             .iter()
-            .map(|(v, _)| format!("{}.{}.x", v.0 .0 .0, v.0 .0 .1))
+            .map(|(v, _)| format!("{}.{}.x", v.0.0.0, v.0.0.1))
             .join(", ")
     )
 }

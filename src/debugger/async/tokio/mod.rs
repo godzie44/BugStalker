@@ -21,7 +21,7 @@ impl Default for TokioVersion {
 
 impl Display for TokioVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("v{}.{}.x", self.0 .0 .0, self.0 .0 .1))
+        f.write_fmt(format_args!("v{}.{}.x", self.0.0.0, self.0.0.1))
     }
 }
 

@@ -20,8 +20,8 @@ jobs:
           toolchain: ${{ matrix.rustc_sup_version }}
           override: true
           components: rustfmt, clippy
-      - name: Build test applications
-        run: make build-examples
+      - name: Build test applications for functional testing
+        run: make build-examples-for-func-test
       - name: Install actual rustc
         uses: actions-rs/toolchain@v1
         with:
