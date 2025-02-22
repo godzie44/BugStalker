@@ -1,16 +1,16 @@
 pub mod expression;
 
 use super::r#break::BreakpointIdentity;
-use super::{frame, memory, register, source_code, thread, watch, Command, CommandError};
-use super::{r#break, CommandResult};
+use super::{Command, CommandError, frame, memory, register, source_code, thread, watch};
+use super::{CommandResult, r#break};
 use crate::debugger::register::debug::BreakCondition;
-use crate::debugger::variable::select::{VariableSelector, DQE};
+use crate::debugger::variable::select::{DQE, VariableSelector};
 use crate::ui::command::watch::WatchpointIdentity;
 use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 use chumsky::error::{Rich, RichPattern, RichReason};
 use chumsky::prelude::{any, choice, end, just, one_of};
-use chumsky::text::{whitespace, Char};
-use chumsky::{extra, text, Boxed, Parser};
+use chumsky::text::{Char, whitespace};
+use chumsky::{Boxed, Parser, extra, text};
 use itertools::Itertools;
 
 pub const VAR_COMMAND: &str = "var";
@@ -206,7 +206,7 @@ impl Command {
                                 ))
                                 .with_color(Color::Red),
                         ),
-                    RichReason::Custom(ref msg) => report.with_message(msg).with_label(
+                    RichReason::Custom(msg) => report.with_message(msg).with_label(
                         Label::new(("<command>", err.span().into_range()))
                             .with_message(format!("{}", msg.fg(Color::Red)))
                             .with_color(Color::Red),

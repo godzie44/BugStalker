@@ -6,7 +6,7 @@ use bugstalker::ui;
 use bugstalker::ui::config::{Theme, UIConfig};
 use bugstalker::ui::supervisor::{DebugeeSource, Interface};
 use clap::error::ErrorKind;
-use clap::{arg, CommandFactory, Parser};
+use clap::{CommandFactory, Parser, arg};
 use std::fmt::Display;
 use std::path::PathBuf;
 use std::process::exit;
@@ -99,7 +99,10 @@ fn main() {
     } else if let Some(pid) = args.pid {
         DebugeeSource::Process { pid }
     } else {
-        print_fatal_and_exit(ErrorKind::ArgumentConflict, "Please provide a debugee name or use a \"-p\" option for attach to already running process");
+        print_fatal_and_exit(
+            ErrorKind::ArgumentConflict,
+            "Please provide a debugee name or use a \"-p\" option for attach to already running process",
+        );
     };
 
     let interface = if args.tui {

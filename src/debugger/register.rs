@@ -3,7 +3,7 @@ use crate::debugger::error::Error::{Ptrace, RegisterNotFound};
 use nix::libc::user_regs_struct;
 use nix::sys;
 use nix::unistd::Pid;
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use strum_macros::Display;
 use strum_macros::EnumString;
 

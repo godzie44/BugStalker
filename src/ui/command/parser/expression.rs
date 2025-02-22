@@ -1,8 +1,8 @@
 //! data query expressions parser.
-use crate::debugger::variable::select::{Literal, LiteralOrWildcard, VariableSelector, DQE};
+use crate::debugger::variable::select::{DQE, Literal, LiteralOrWildcard, VariableSelector};
 use crate::ui::command::parser::{hex, rust_identifier};
-use chumsky::prelude::*;
 use chumsky::Parser;
+use chumsky::prelude::*;
 use std::collections::HashMap;
 
 type Err<'a> = extra::Err<Rich<'a, char>>;

@@ -1,8 +1,8 @@
 use crate::debugger;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::Breakpoint;
-use crate::debugger::debugee::dwarf::{ContextualDieRef, DebugInformation};
 use crate::debugger::debugee::Debugee;
+use crate::debugger::debugee::dwarf::{ContextualDieRef, DebugInformation};
 use crate::debugger::{Error, FunctionDie};
 use capstone::prelude::*;
 use lru::LruCache;

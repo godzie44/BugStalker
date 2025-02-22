@@ -1,6 +1,6 @@
+use crate::oracle::Oracle;
 use crate::oracle::builtin::nop::NopOracle;
 use crate::oracle::builtin::tokio::TokioOracle;
-use crate::oracle::Oracle;
 use std::sync::Arc;
 
 pub mod nop;

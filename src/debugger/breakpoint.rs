@@ -1,10 +1,10 @@
+use crate::debugger::Debugger;
 use crate::debugger::address::{Address, RelocatedAddress};
-use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
-use crate::debugger::debugee::dwarf::DebugInformation;
 use crate::debugger::debugee::Debugee;
+use crate::debugger::debugee::dwarf::DebugInformation;
+use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::{NoDebugInformation, NoSuitablePlace, PlaceNotFound};
-use crate::debugger::Debugger;
 use nix::libc::c_void;
 use nix::sys;
 use nix::unistd::Pid;
@@ -206,7 +206,7 @@ impl Debugger {
     fn addresses_for_breakpoints_at_places(
         &self,
         places: &[(&DebugInformation, Vec<PlaceDescriptorOwned>)],
-    ) -> Result<impl Iterator<Item = Address>, Error> {
+    ) -> Result<impl Iterator<Item = Address> + use<>, Error> {
         let mut init_addresses_to_remove: Vec<Address> = vec![];
         if self.debugee.is_in_progress() {
             for (dwarf, places) in places.iter() {

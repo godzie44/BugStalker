@@ -1,13 +1,13 @@
+use crate::debugger::ExplorationContext;
 use crate::debugger::debugee::dwarf::eval::{AddressKind, ExpressionEvaluator};
 use crate::debugger::debugee::dwarf::unit::{
     ArrayDie, AtomicDie, BaseTypeDie, ConstTypeDie, DieRef, DieVariant, EnumTypeDie, PointerType,
     RestrictDie, StructTypeDie, SubroutineDie, TypeDefDie, TypeMemberDie, UnionTypeDie,
     VolatileDie,
 };
-use crate::debugger::debugee::dwarf::{eval, ContextualDieRef, EndianArcSlice, NamespaceHierarchy};
+use crate::debugger::debugee::dwarf::{ContextualDieRef, EndianArcSlice, NamespaceHierarchy, eval};
 use crate::debugger::error::Error;
 use crate::debugger::variable::select::ObjectBinaryRepr;
-use crate::debugger::ExplorationContext;
 use crate::version::Version;
 use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
@@ -722,7 +722,7 @@ impl TypeParser {
         let mut member_from_ref = |type_ref: DieRef| -> Option<StructureMember> {
             let (entry, unit) = ctx_die.debug_info.deref_die(ctx_die.unit(), type_ref)?;
 
-            if let DieVariant::TypeMember(ref member) = &entry.die {
+            if let DieVariant::TypeMember(member) = &entry.die {
                 return Some(self.parse_member(ContextualDieRef {
                     debug_info: ctx_die.debug_info,
                     unit_idx: unit.idx(),

@@ -1,12 +1,12 @@
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::{BreakpointViewOwned, Debugger, DebuggerBuilder, WatchpointViewOwned};
+use crate::ui::tui::app::Model;
 pub use crate::ui::tui::app::port::TuiHook;
 use crate::ui::tui::app::port::{DebuggerEventQueue, UserEvent};
-use crate::ui::tui::app::Model;
 use crate::ui::tui::components::popup::Popup;
 use crate::ui::tui::output::{OutputLine, OutputStreamProcessor, StreamType};
-use crate::ui::tui::proto::{exchanger, Request};
-use crate::ui::{console, supervisor, DebugeeOutReader};
+use crate::ui::tui::proto::{Request, exchanger};
+use crate::ui::{DebugeeOutReader, console, supervisor};
 use crate::weak_error;
 use anyhow::anyhow;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
@@ -17,7 +17,7 @@ use std::time::Duration;
 use std::{io, thread};
 use strum_macros::{Display, EnumString};
 use timeout_readwrite::TimeoutReader;
-use tuirealm::{props, AttrValue, Attribute, PollStrategy};
+use tuirealm::{AttrValue, Attribute, PollStrategy, props};
 
 pub mod app;
 pub mod components;

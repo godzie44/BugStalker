@@ -1,12 +1,12 @@
 use crate::debugger;
+use crate::debugger::TypeDeclaration;
 use crate::debugger::debugee::dwarf::r#type::{
     ComplexType, EvaluationContext, StructureMember, TypeIdentity,
 };
-use crate::debugger::variable::select::ObjectBinaryRepr;
 use crate::debugger::variable::AssumeError::NoType;
 use crate::debugger::variable::ParsingError::ReadDebugeeMemory;
+use crate::debugger::variable::select::ObjectBinaryRepr;
 use crate::debugger::variable::{AssumeError, ParsingError};
-use crate::debugger::TypeDeclaration;
 use fallible_iterator::FallibleIterator;
 use std::mem;
 use std::ptr::NonNull;

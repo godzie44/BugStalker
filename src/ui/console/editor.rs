@@ -16,7 +16,7 @@ use crate::ui::command::parser::{
 };
 use chumsky::prelude::{any, choice, just};
 use chumsky::text::whitespace;
-use chumsky::{extra, text, Parser};
+use chumsky::{Parser, extra, text};
 use crossterm::style::{Color, Stylize};
 use rustyline::completion::{Completer, Pair};
 use rustyline::highlight::Highlighter;

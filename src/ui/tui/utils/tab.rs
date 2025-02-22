@@ -1,15 +1,15 @@
 use crate::ui;
+use crate::ui::tui::Msg;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::{CommonAction, SpecialAction};
 use crate::ui::tui::utils::flex_radio;
-use crate::ui::tui::Msg;
 use strum_macros::FromRepr;
 use tuirealm::command::{Cmd, CmdResult, Direction};
 use tuirealm::props::{
     Alignment, BorderSides, BorderType, Borders, Color, Layout, PropPayload, PropValue,
 };
 use tuirealm::tui::layout::Rect;
-use tuirealm::{props, AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State};
+use tuirealm::{AttrValue, Attribute, Component, Event, Frame, MockComponent, Props, State, props};
 
 #[derive(FromRepr, PartialEq, Clone, Copy)]
 #[repr(u8)]

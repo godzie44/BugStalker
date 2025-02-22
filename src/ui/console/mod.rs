@@ -1,15 +1,16 @@
 use crate::debugger;
 use crate::debugger::process::{Child, Installed};
-use crate::debugger::variable::select::{VariableSelector, DQE};
+use crate::debugger::variable::select::{DQE, VariableSelector};
 use crate::debugger::{Debugger, DebuggerBuilder};
+use crate::ui::DebugeeOutReader;
 use crate::ui::command::arguments::Handler as ArgumentsHandler;
 use crate::ui::command::backtrace::Handler as BacktraceHandler;
-use crate::ui::command::frame::ExecutionResult as FrameResult;
-use crate::ui::command::frame::Handler as FrameHandler;
-use crate::ui::command::memory::Handler as MemoryHandler;
 use crate::ui::command::r#break::ExecutionResult;
 use crate::ui::command::r#break::Handler as BreakpointHandler;
 use crate::ui::command::r#continue::Handler as ContinueHandler;
+use crate::ui::command::frame::ExecutionResult as FrameResult;
+use crate::ui::command::frame::Handler as FrameHandler;
+use crate::ui::command::memory::Handler as MemoryHandler;
 use crate::ui::command::register::Handler as RegisterHandler;
 use crate::ui::command::run::Handler as RunHandler;
 use crate::ui::command::sharedlib::Handler as SharedlibHandler;
@@ -19,36 +20,35 @@ use crate::ui::command::thread::ExecutionResult as ThreadResult;
 use crate::ui::command::variables::Handler as VariablesHandler;
 use crate::ui::command::watch::ExecutionResult as WatchpointExecutionResult;
 use crate::ui::command::watch::Handler as WatchpointHandler;
+use crate::ui::command::{Command, run};
 use crate::ui::command::{
-    r#break, source_code, step_instruction, step_into, step_out, step_over, CommandError,
+    CommandError, r#break, source_code, step_instruction, step_into, step_out, step_over,
 };
-use crate::ui::command::{run, Command};
-use crate::ui::console::editor::{create_editor, CommandCompleter, RLHelper};
+use crate::ui::console::editor::{CommandCompleter, RLHelper, create_editor};
 use crate::ui::console::file::FileView;
 use crate::ui::console::help::*;
 use crate::ui::console::hook::TerminalHook;
+use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::print::style::{
     AddressView, AsmInstructionView, AsmOperandsView, ErrorView, FilePathView, FunctionNameView,
     KeywordView,
 };
-use crate::ui::console::print::ExternalPrinter;
 use crate::ui::console::variable::render_variable;
-use crate::ui::DebugeeOutReader;
 use crate::ui::{command, supervisor};
+use r#break::Command as BreakpointCommand;
 use crossterm::style::{Color, Stylize};
 use debugger::Error;
-use nix::sys::signal::{kill, Signal};
+use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
-use r#break::Command as BreakpointCommand;
+use rustyline::Editor;
 use rustyline::error::ReadlineError;
 use rustyline::history::MemHistory;
-use rustyline::Editor;
 use std::io::{BufRead, BufReader};
 use std::process::exit;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::{mpsc, Arc, Mutex, Once};
+use std::sync::{Arc, Mutex, Once, mpsc};
 use std::thread;
 use std::time::Duration;
 use timeout_readwrite::TimeoutReader;

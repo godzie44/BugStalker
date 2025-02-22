@@ -1,8 +1,8 @@
-use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::Error;
+use crate::debugger::register::debug::BreakCondition;
 use crate::ui;
 use crate::ui::command;
-use crate::ui::command::{run, CommandError};
+use crate::ui::command::{CommandError, run};
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::SpecialAction;
 use crate::ui::tui::proto::ClientExchanger;

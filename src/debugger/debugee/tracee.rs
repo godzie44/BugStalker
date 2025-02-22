@@ -9,12 +9,12 @@ use log::{debug, warn};
 use nix::errno::Errno;
 use nix::sys;
 use nix::sys::signal::Signal;
-use nix::sys::wait::{waitpid, WaitStatus};
+use nix::sys::wait::{WaitStatus, waitpid};
 use nix::unistd::Pid;
 use ouroboros::self_referencing;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use thread_db;
 
 #[self_referencing]

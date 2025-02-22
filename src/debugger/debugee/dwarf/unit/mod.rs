@@ -3,10 +3,10 @@ mod parser;
 pub use parser::DwarfUnitParser;
 
 use crate::debugger::address::GlobalAddress;
+use crate::debugger::debugee::Debugee;
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
-use crate::debugger::debugee::Debugee;
 use crate::debugger::error::Error;
 use crate::version::Version;
 use gimli::{
@@ -27,7 +27,7 @@ const END_SEQUENCE: u8 = 1 << 4;
 
 /// A row in the line number program's resulting matrix.
 #[derive(PartialEq, Debug, Clone)]
-#[repr(packed)]
+#[repr(Rust, packed)]
 pub(super) struct LineRow {
     pub(super) address: u64,
     pub(super) file_index: u64,

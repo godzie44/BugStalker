@@ -1,5 +1,5 @@
 use crate::debugger::register::RegisterMap;
-use crate::debugger::{register, Debugger};
+use crate::debugger::{Debugger, register};
 use crate::ui::command;
 use crate::ui::command::CommandError;
 use register::Register as Reg;

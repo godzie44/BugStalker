@@ -1,7 +1,7 @@
-use crate::common::TestInfo;
-use crate::common::{rust_version, TestHooks};
 use crate::CALC_APP;
-use crate::{assert_no_proc, prepare_debugee_process, HW_APP, RECURSION_APP, VARS_APP};
+use crate::common::TestInfo;
+use crate::common::{TestHooks, rust_version};
+use crate::{HW_APP, RECURSION_APP, VARS_APP, assert_no_proc, prepare_debugee_process};
 use bugstalker::debugger::variable::{SupportedScalar, VariableIR};
 use bugstalker::debugger::{Debugger, DebuggerBuilder};
 use bugstalker::ui::command::parser::expression;

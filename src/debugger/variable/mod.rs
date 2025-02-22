@@ -11,8 +11,8 @@ use crate::debugger::variable::specialization::{
 use crate::{debugger, version_switch, weak_error};
 use bytes::Bytes;
 use gimli::{
-    DW_ATE_address, DW_ATE_boolean, DW_ATE_float, DW_ATE_signed, DW_ATE_signed_char,
-    DW_ATE_unsigned, DW_ATE_unsigned_char, DW_ATE_ASCII, DW_ATE_UTF,
+    DW_ATE_ASCII, DW_ATE_UTF, DW_ATE_address, DW_ATE_boolean, DW_ATE_float, DW_ATE_signed,
+    DW_ATE_signed_char, DW_ATE_unsigned, DW_ATE_unsigned_char,
 };
 use log::warn;
 pub use specialization::SpecializedVariableIR;
@@ -754,7 +754,7 @@ impl VariableIR {
         right: Option<usize>,
     ) -> Option<Self> {
         match &mut self {
-            VariableIR::Array(ref mut array) => {
+            VariableIR::Array(array) => {
                 array.slice(left, right);
                 Some(self)
             }

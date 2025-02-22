@@ -1,9 +1,9 @@
 use crate::common::TestHooks;
 use crate::common::TestInfo;
 use crate::prepare_debugee_process;
-use crate::{assert_no_proc, MT_APP};
-use bugstalker::debugger::unwind::Backtrace;
+use crate::{MT_APP, assert_no_proc};
 use bugstalker::debugger::DebuggerBuilder;
+use bugstalker::debugger::unwind::Backtrace;
 use itertools::Itertools;
 use serial_test::serial;
 use std::ffi::OsStr;
