@@ -19,6 +19,16 @@ All notable changes to this project will be documented in this file.
 # [0.2.6] Jan 13 2025
 
 ### Added
+- debugger: added support for rustc 1.85
+
+### Changed
+- use rust edition 2024 
+
+---
+
+# [0.2.6] Jan 13 2025
+
+### Added
 - debugger: added support for rustc 1.84
 
 ### Fixed

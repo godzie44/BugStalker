@@ -164,8 +164,8 @@ class CommandTestCase(unittest.TestCase):
 
         self.debugger.cmd_re(
             'break info',
-            r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9 ',
-            r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/rt\.rs:*\d',
+            r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9',
+            r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:15',
             r'- Breakpoint 3 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:5',
             r'- Breakpoint 4 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:7',
         )
@@ -175,7 +175,7 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.cmd_re(
             'break info',
             r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9 ',
-            r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/rt\.rs:*\d',
+            r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:15',
             r'- Breakpoint 3 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:5',
             r'- Breakpoint 4 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:7',
         )
@@ -185,7 +185,7 @@ class CommandTestCase(unittest.TestCase):
         self.debugger.cmd_re(
             'break info',
             r'- Breakpoint 1 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:9 ',
-            r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/rt\.rs:*\d',
+            r'- Breakpoint 2 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:15',
             r'- Breakpoint 4 at .*0x[0-9A-F]{14,16}.*: .*\/hello_world\.rs.*:7'
         )
 
