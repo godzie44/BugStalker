@@ -172,6 +172,7 @@ impl EvaluationContextBuilder<'_> {
     }
 }
 
+#[macro_export]
 macro_rules! type_from_cache {
     ($variable: expr, $cache: expr) => {
         $variable
@@ -188,8 +189,8 @@ macro_rules! type_from_cache {
                 },
             )
             .ok_or_else(|| {
-                crate::debugger::variable::value::ParsingError::Assume(
-                    crate::debugger::variable::value::AssumeError::NoType("variable"),
+                $crate::debugger::variable::value::ParsingError::Assume(
+                    $crate::debugger::variable::value::AssumeError::NoType("variable"),
                 )
             })
     };

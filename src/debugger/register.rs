@@ -78,7 +78,7 @@ impl From<gimli::Register> for Register {
 }
 
 /// x86_64 register values.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RegisterMap {
     rax: u64,
     rbx: u64,
