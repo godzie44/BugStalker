@@ -25,6 +25,7 @@ sharedlib info                              -- show list of shared libraries
 source asm|fn|<bounds>                      -- show source code or assembly instructions for current (in focus) function
 async backtrace|backtrace all|task          -- commands for async rust
 trigger info|any|<>|b <number>|w <number>   -- define a list of commands that will be executed when a certain event is triggered
+call <function name> <arguments>            -- call a function from debuggee program
 oracle <oracle> <>|<subcommand>             -- execute a specific oracle
 h, help <>|<command>                        -- show help
 tui                                         -- change ui mode to tui
@@ -303,6 +304,23 @@ trigger w <number> - define a list of commands that will be executed when the gi
 trigger info - show the list of triggers
 ";
 
+pub const HELP_CALL: &str = "\
+\x1b[32;1mcall\x1b[0m
+Call a function with given arguments. 
+
+Format:
+call <function_name> <arg1> ... <arg6>
+
+Current limitations:
+- a maximum of six arguments is allowed
+- only integer (i8, u8, ... i64, u64) and boolean argument types are supported
+- the return value will be ignored
+- arguments should be given as literals (see `help dqe literal`).
+
+Examples:
+call sum 1 10 - call function `sum` with two integer arguments
+";
+
 pub const HELP_TUI: &str = "\
 \x1b[32;1mtui\x1b[0m
 Change ui mode to terminal ui.
@@ -357,6 +375,7 @@ impl Helper {
             Some(parser::SOURCE_COMMAND) => HELP_SOURCE,
             Some(parser::ASYNC_COMMAND) => HELP_ASYNC,
             Some(parser::TRIGGER_COMMAND) => HELP_TRIGGER,
+            Some(parser::CALL_COMMAND) => HELP_CALL,
             Some(parser::ORACLE_COMMAND) => self.oracle_help.get_or_insert_with(|| {
                 let mut help = HELP_ORACLE.to_string();
                 let oracles = debugger.all_oracles();

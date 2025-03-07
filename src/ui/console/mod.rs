@@ -864,6 +864,10 @@ impl AppLoop {
                 let commands = self.take_user_command_list(&help)?;
                 self.trigger_reg.add(event, commands);
             }
+            Command::Call(call) => {
+                let mut handler = command::call::Handler::new(&mut self.debugger);
+                handler.handle(call)?;
+            }
             Command::Oracle(name, subcmd) => match self.debugger.get_oracle(&name) {
                 None => self
                     .printer

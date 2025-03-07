@@ -459,6 +459,7 @@ impl DebugInformation {
     }
 
     /// Search all places for functions that relevant to template.
+    /// Note, that result place points to the end of function prolog.
     ///
     /// # Arguments
     ///

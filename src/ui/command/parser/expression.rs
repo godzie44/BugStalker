@@ -40,7 +40,7 @@ fn ptr_cast<'a>() -> impl Parser<'a, &'a str, Dqe, Err<'a>> + Clone {
         .labelled("pointer cast")
 }
 
-fn literal<'a>() -> impl Parser<'a, &'a str, Literal, Err<'a>> + Clone {
+pub fn literal<'a>() -> impl Parser<'a, &'a str, Literal, Err<'a>> + Clone {
     let op = |c| just(c).padded();
 
     let literal = recursive(|literal| {

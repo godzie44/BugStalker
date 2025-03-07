@@ -1,0 +1,10 @@
+[package]
+name = "calls"
+version = "0.0.0"
+edition = "2021"
+workspace = "./.."
+publish = false
+
+[[bin]]
+name = "calls"
+path = "src/calls.rs"
