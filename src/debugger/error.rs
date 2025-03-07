@@ -1,3 +1,4 @@
+use super::call::CallError;
 use crate::debugger::address::GlobalAddress;
 use crate::debugger::r#async::AsyncError;
 use crate::debugger::debugee::RendezvousError;
@@ -171,6 +172,10 @@ pub enum Error {
     // --------------------------------- async exploration errors ----------------------------------
     #[error("{0}. Maybe your async runtime version is unsupported.")]
     Async(#[from] AsyncError),
+
+    // --------------------------------- function call errors -------------------------------------
+    #[error(transparent)]
+    Call(#[from] CallError),
 }
 
 impl Error {
@@ -234,6 +239,7 @@ impl Error {
             Error::UnknownScope => false,
             Error::VarFrameNotFound => false,
             Error::Async(_) => false,
+            Error::Call(_) => false,
 
             // currently fatal errors
             Error::DwarfParsing(_) => true,

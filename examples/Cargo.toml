@@ -16,6 +16,7 @@ members = [
     "shlib/printer_lib",
     "panic",
     "calculations",
+    "calls",
 ]
 
 exclude = [

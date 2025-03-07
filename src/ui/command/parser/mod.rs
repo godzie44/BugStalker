@@ -2,7 +2,8 @@ pub mod expression;
 
 use super::r#break::BreakpointIdentity;
 use super::{
-    Command, CommandError, r#async, frame, memory, register, source_code, thread, trigger, watch,
+    Command, CommandError, r#async, call, frame, memory, register, source_code, thread, trigger,
+    watch,
 };
 use super::{CommandResult, r#break};
 use crate::debugger::register::debug::BreakCondition;
@@ -13,7 +14,7 @@ use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 use chumsky::error::{Rich, RichPattern, RichReason};
 use chumsky::prelude::{any, choice, end, just, one_of};
 use chumsky::text::{Char, whitespace};
-use chumsky::{Boxed, Parser, extra, text};
+use chumsky::{Boxed, IterParser, Parser, extra, text};
 use itertools::Itertools;
 
 pub const VAR_COMMAND: &str = "var";
@@ -83,6 +84,8 @@ pub const TRIGGER_COMMAND_ANY_TRIGGER_SUBCOMMAND: &str = "any";
 pub const TRIGGER_COMMAND_BRKPT_TRIGGER_SUBCOMMAND: &str = "b";
 pub const TRIGGER_COMMAND_WP_TRIGGER_SUBCOMMAND: &str = "w";
 pub const TRIGGER_COMMAND_INFO_SUBCOMMAND: &str = "info";
+pub const CALL_COMMAND: &str = "call";
+
 pub const HELP_COMMAND: &str = "help";
 pub const HELP_COMMAND_SHORT: &str = "h";
 
@@ -291,6 +294,22 @@ impl Command {
         let step_into = op2(STEP_INTO_COMMAND, STEP_INTO_COMMAND_SHORT).to(Command::StepInto);
         let step_out = op2(STEP_OUT_COMMAND, STEP_OUT_COMMAND_SHORT).to(Command::StepOut);
         let step_over = op2(STEP_OVER_COMMAND, STEP_OVER_COMMAND_SHORT).to(Command::StepOver);
+        let call = op_w_arg(CALL_COMMAND)
+            .ignore_then(
+                text::ident().padded().then(
+                    expression::literal()
+                        .padded()
+                        .repeated()
+                        .collect::<Vec<_>>(),
+                ),
+            )
+            .map(|(fn_name, literals)| {
+                Command::Call(call::Command {
+                    fn_name: fn_name.trim().to_string(),
+                    args: literals.into_boxed_slice(),
+                })
+            })
+            .boxed();
 
         let source_code = op_w_arg(SOURCE_COMMAND)
             .ignore_then(choice((
@@ -540,6 +559,7 @@ impl Command {
             command(WATCH_COMMAND, watchpoint),
             command(ASYNC_COMMAND, r#async),
             command(TRIGGER_COMMAND, trigger),
+            command(CALL_COMMAND, call),
         ))
     }
 
@@ -624,6 +644,8 @@ fn test_rust_identifier_parser() {
 
 #[test]
 fn test_parser() {
+    use crate::debugger::variable::dqe::Literal;
+
     struct TestCase {
         inputs: Vec<&'static str>,
         command_matcher: fn(result: Result<Command, CommandError>),
@@ -1168,6 +1190,24 @@ fn test_parser() {
                     Command::Trigger(trigger::Command::AttachToDefined(
                         trigger::TriggerEvent::Watchpoint(num)
                     )) if num == 2
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["call some_fn 1", " call   some_fn  1  "],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Call(cmd) if cmd.fn_name == "some_fn" && cmd.args[0] == Literal::Int(1)
+                ));
+            },
+        },
+        TestCase {
+            inputs: vec!["call some_fn 1 2 3 4 5 6"],
+            command_matcher: |result| {
+                assert!(matches!(
+                    result.unwrap(),
+                    Command::Call(cmd) if cmd.fn_name == "some_fn" && cmd.args[0] == Literal::Int(1) && cmd.args[1] == Literal::Int(2)  && cmd.args[5] == Literal::Int(6) && cmd.args.len() == 6
                 ));
             },
         },
