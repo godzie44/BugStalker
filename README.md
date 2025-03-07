@@ -23,6 +23,7 @@
     * [Examining the stack](#examining-the-stack)
     * [Examining source files](#examining-source-files)
     * [Examining data](#examining-data)
+    * [Function call](#function-call)
     * [Async rust](#async-rust)
         * [Async backtrace](#async-backtrace)
         * [Async steps](#async-steps)
@@ -431,6 +432,15 @@ Some examples:
   index 2 in
   element at index 1 at field `field2` in dereferenced value of field `field1`
   at variable var1 🤡
+
+## Function call
+
+[demo](https://github.com/godzie44/BugStalker/blob/master/doc/demo_call.gif)
+
+You can call a function in your program using the call command. 
+This command has an early implementation, so check `help call` to be familiar with some limitations.
+
+- `call sum 1 2` - calls the function `sum` with two integer arguments
 
 ## Async rust
 

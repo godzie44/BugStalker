@@ -8,6 +8,7 @@ pub mod arguments;
 pub mod r#async;
 pub mod backtrace;
 pub mod r#break;
+pub mod call;
 pub mod r#continue;
 pub mod frame;
 pub mod memory;
@@ -66,6 +67,7 @@ pub enum Command {
     Oracle(String, Option<String>),
     Async(r#async::Command),
     Trigger(trigger::Command),
+    Call(call::Command),
     Help {
         command: Option<String>,
         reason: Option<String>,
