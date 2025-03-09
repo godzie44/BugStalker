@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::debugger::DebuggerBuilder;
-use crate::debugger::process::Child;
+use crate::debugger::process::{Child, Installed};
 use crate::oracle::builtin;
 use crate::ui::console::TerminalApplication;
 use crate::ui::tui::TuiApplication;
@@ -10,18 +10,49 @@ use anyhow::Context;
 use log::{info, warn};
 use nix::unistd::Pid;
 
+use super::dap::DapApplication;
+
 /// Interface type.
-pub enum Interface {
-    TUI,
-    Default,
+pub enum Interface<'a> {
+    TUI { source: DebugeeSource<'a> },
+    Default { source: DebugeeSource<'a> },
+    DAP,
 }
 
 /// Source from which debugee is created or attached.
 pub enum DebugeeSource<'a> {
     /// Create debugee from executable file with arguments.
-    File { path: &'a str, args: &'a [String] },
+    File {
+        path: &'a str,
+        args: &'a [String],
+        cwd: Option<&'a Path>,
+    },
     /// Create debugee from an already running process by its pid.
     Process { pid: i32 },
+}
+
+impl DebugeeSource<'_> {
+    pub fn create_child(
+        self,
+        stdout_writer: os_pipe::PipeWriter,
+        stderr_writer: os_pipe::PipeWriter,
+    ) -> anyhow::Result<Child<Installed>> {
+        match self {
+            DebugeeSource::File { path, args, cwd } => {
+                let path = if !Path::new(path).exists() {
+                    which::which(path)?.to_string_lossy().to_string()
+                } else {
+                    path.to_string()
+                };
+                let proc_tpl = Child::new(path, args, cwd, stdout_writer, stderr_writer);
+                proc_tpl.install().context("Initial process instantiation")
+            }
+            DebugeeSource::Process { pid } => {
+                Child::from_external(Pid::from_raw(pid), stdout_writer, stderr_writer)
+                    .context("Attach external process")
+            }
+        }
+    }
 }
 
 /// Possible applications.
@@ -29,6 +60,7 @@ pub enum DebugeeSource<'a> {
 pub enum Application {
     TUI(TuiApplication),
     Terminal(TerminalApplication),
+    DAP(DapApplication),
 }
 
 impl Application {
@@ -36,6 +68,7 @@ impl Application {
         match self {
             Application::TUI(tui_app) => tui_app.run(),
             Application::Terminal(term_app) => term_app.run(),
+            Application::DAP(dap_app) => dap_app.run(),
         }
     }
 }
@@ -60,27 +93,11 @@ impl Supervisor {
     /// * `src`: debugee source
     /// * `ui`: determines what application will be created
     /// * `oracles`: list of oracle names
-    pub fn run(src: DebugeeSource, ui: Interface, oracles: &[String]) -> anyhow::Result<()> {
-        let (stdout_reader, stdout_writer) = os_pipe::pipe().unwrap();
-        let (stderr_reader, stderr_writer) = os_pipe::pipe().unwrap();
+    pub fn run(ui: Interface, oracles: &[String]) -> anyhow::Result<()> {
+        let (stdout_reader, stdout_writer) = os_pipe::pipe()?;
+        let (stderr_reader, stderr_writer) = os_pipe::pipe()?;
 
-        let process = match src {
-            DebugeeSource::File { path, args } => {
-                let path = if !Path::new(path).exists() {
-                    which::which(path)?.to_string_lossy().to_string()
-                } else {
-                    path.to_string()
-                };
-                let proc_tpl = Child::new(path, args, stdout_writer, stderr_writer);
-                proc_tpl
-                    .install()
-                    .context("Initial process instantiation")?
-            }
-            DebugeeSource::Process { pid } => {
-                Child::from_external(Pid::from_raw(pid), stdout_writer, stderr_writer)
-                    .context("Attach external process")?
-            }
-        };
+        let process = |src: DebugeeSource| src.create_child(stdout_writer, stderr_writer);
 
         let oracles = oracles
             .iter()
@@ -96,21 +113,30 @@ impl Supervisor {
             .collect();
 
         let mut app = match ui {
-            Interface::TUI => {
+            Interface::TUI { source } => {
                 let app_builder = tui::AppBuilder::new(stdout_reader.into(), stderr_reader.into());
                 let app = app_builder
-                    .build(DebuggerBuilder::new().with_oracles(oracles), process)
+                    .build(
+                        DebuggerBuilder::new().with_oracles(oracles),
+                        process(source)?,
+                    )
                     .context("Build debugger")?;
                 Application::TUI(app)
             }
-            Interface::Default => {
+            Interface::Default { source } => {
                 let app_builder =
                     console::AppBuilder::new(stdout_reader.into(), stderr_reader.into());
                 let app = app_builder
-                    .build(DebuggerBuilder::new().with_oracles(oracles), process)
+                    .build(
+                        DebuggerBuilder::new().with_oracles(oracles),
+                        process(source)?,
+                    )
                     .context("Build debugger")?;
                 Application::Terminal(app)
             }
+            Interface::DAP => Application::DAP(DapApplication::new(move || {
+                DebuggerBuilder::new().with_oracles(oracles.clone())
+            })?),
         };
 
         loop {
