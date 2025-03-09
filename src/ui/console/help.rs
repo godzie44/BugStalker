@@ -313,12 +313,13 @@ call <function_name> <arg1> ... <arg6>
 
 Current limitations:
 - a maximum of six arguments is allowed
-- only integer (i8, u8, ... i64, u64) and boolean argument types are supported
+- only integer (i8, u8, ... i64, u64), boolean and pointer argument types are supported
 - the return value will be ignored
 - arguments should be given as literals (see `help dqe literal`).
 
 Examples:
 call sum 1 10 - call function `sum` with two integer arguments
+call print_ptr 0x007FFFFFFFD560 - call function `print_ptr` with pointer argument
 ";
 
 pub const HELP_TUI: &str = "\

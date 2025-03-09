@@ -20,9 +20,27 @@ fn print_bool(b: bool) {
     println!("bool is {}", b);
 }
 
+#[derive(Debug)]
+struct Foo {
+    bar: u64,
+    baz: String,
+}
+
+fn print_deref(a: &u64, b: &u8, c: &Foo) {
+    println!("deref is {} {} {:?}", *a, *b, c);
+}
+
 fn main() {
     sum2(1, 2);
     sum6i(1, 2, 3, 4, 5, 6);
     sum6u(1, 2, 3, 4, 5, 6);
     print_bool(true);
+
+    let arg1 = 100;
+    let arg2 = 101;
+    let arg3 = Foo {
+        bar: 102,
+        baz: "103".to_string(),
+    };
+    print_deref(&arg1, &arg2, &arg3);
 }
