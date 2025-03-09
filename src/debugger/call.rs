@@ -139,7 +139,13 @@ fn liter_to_arg_bin_repr(
             (u64::from_le_bytes(bytes), RegType::General)
         }
         Literal::Float(_) => return Err(CallError::UnsupportedLiteral("float")),
-        Literal::Address(_) => return Err(CallError::UnsupportedLiteral("pointer")),
+        Literal::Address(addr) => {
+            let TypeDeclaration::Pointer { .. } = r#type else {
+                lit_cast_bail!(no, to_type, root_type_id)
+            };
+
+            (*addr as u64, RegType::General)
+        }
         Literal::Bool(val) => {
             let TypeDeclaration::Scalar(scalar_type) = r#type else {
                 lit_cast_bail!(no, to_type, root_type_id)

@@ -1,4 +1,6 @@
 import unittest
+import re
+import time
 from helper import Debugger
 
 
@@ -39,3 +41,17 @@ class FunctionCallTestCase(unittest.TestCase):
         self.debugger.cmd('run')
         self.debugger.cmd('call print_bool false', 'bool is false')
         self.debugger.cmd('call print_bool true', 'bool is true')
+        
+    def test_pointer_arg(self):
+        """Call function with pointer arguments"""
+        self.debugger.cmd('break calls.rs:45', 'New breakpoint 1')
+        self.debugger.cmd('run', 'Hit breakpoint 1')
+        
+        self.debugger.cmd('var &arg1')
+        addr1 = self.debugger.search_in_output(r'arg1.*\[(.*)\]')
+        self.debugger.cmd('var &arg2')
+        addr2 = self.debugger.search_in_output(r'arg2.*\[(.*)\]')
+        self.debugger.cmd('var &arg3')
+        addr3 = self.debugger.search_in_output(r'arg3.*\[(.*)\]')
+
+        self.debugger.cmd('call print_deref ' + addr1 + ' ' + addr2 + ' ' + addr3, 'deref is 100 101 Foo { bar: 102, baz: "103" }')
