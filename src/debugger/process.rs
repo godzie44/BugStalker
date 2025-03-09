@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use std::iter;
 use std::marker::PhantomData;
 use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
 use std::process::Command;
 use sysinfo::{RefreshKind, System};
 
@@ -40,6 +41,7 @@ pub struct Child<S: State> {
     stdout: PipeWriter,
     stderr: PipeWriter,
     args: Vec<String>,
+    cwd: Option<PathBuf>,
     pid: Option<Pid>,
     external_info: Option<ExternalInfo>,
     _p: PhantomData<S>,
@@ -57,6 +59,7 @@ impl Child<Template> {
     pub fn new<ARGS: IntoIterator<Item = I>, I: Into<String>>(
         program: impl Into<String>,
         args: ARGS,
+        cwd: Option<impl Into<PathBuf>>,
         stdout: PipeWriter,
         stderr: PipeWriter,
     ) -> Child<Template> {
@@ -65,6 +68,7 @@ impl Child<Template> {
             stderr,
             program: program.into(),
             args: args.into_iter().map(Into::into).collect(),
+            cwd: cwd.map(Into::into),
             pid: None,
             external_info: None,
             _p: PhantomData,
@@ -97,6 +101,8 @@ impl Child<Installed> {
             .ok_or(Error::AttachedProcessNotFound(pid))?
             .to_string_lossy()
             .to_string();
+
+        let cwd = external_process.cwd().map(ToOwned::to_owned);
 
         let mut interrupted_threads = HashSet::new();
         // two interrupt rounds, like in [`Tracer`]
@@ -144,6 +150,7 @@ impl Child<Installed> {
             stderr,
             program: program_name,
             args: external_process.cmd()[1..].to_vec(),
+            cwd,
             pid: Some(pid),
             external_info: Some(ExternalInfo {
                 threads: interrupted_threads.into_iter().collect(),
@@ -178,6 +185,10 @@ impl<S: State> Child<S> {
             .stdout(self.stdout.try_clone()?)
             .stderr(self.stderr.try_clone()?);
 
+        if let Some(cwd) = self.cwd.as_deref() {
+            debugee_cmd.current_dir(cwd);
+        }
+
         unsafe {
             debugee_cmd.pre_exec(move || {
                 sys::personality::set(Persona::ADDR_NO_RANDOMIZE)?;
@@ -201,6 +212,7 @@ impl<S: State> Child<S> {
                     stderr: self.stderr.try_clone()?,
                     program: self.program.clone(),
                     args: self.args.clone(),
+                    cwd: self.cwd.clone(),
                     pid: Some(pid),
                     external_info: None,
                     _p: PhantomData,

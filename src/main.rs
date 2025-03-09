@@ -20,9 +20,16 @@ pub struct Args {
     #[arg(default_value_t = false)]
     tui: bool,
 
+    #[clap(long)]
+    #[arg(default_value_t = false)]
+    dap: bool,
+
     /// Attach to running process PID
     #[clap(long, short)]
     pid: Option<i32>,
+
+    #[clap(long)]
+    cwd: Option<PathBuf>,
 
     /// Executable file (debugee)
     debugee: Option<String>,
@@ -97,26 +104,35 @@ fn main() {
 
     rust::Environment::init(args.std_lib_path.map(PathBuf::from));
 
-    let debugee_src = if let Some(ref debugee) = args.debugee {
-        DebugeeSource::File {
-            path: debugee,
-            args: &args.args,
+    let debugee_src = || {
+        if let Some(ref debugee) = args.debugee {
+            DebugeeSource::File {
+                path: debugee,
+                args: &args.args,
+                cwd: args.cwd.as_deref(),
+            }
+        } else if let Some(pid) = args.pid {
+            DebugeeSource::Process { pid }
+        } else {
+            print_fatal_and_exit(
+                ErrorKind::ArgumentConflict,
+                "Please provide a debugee name or use a \"-p\" option for attach to already running process",
+            );
         }
-    } else if let Some(pid) = args.pid {
-        DebugeeSource::Process { pid }
-    } else {
-        print_fatal_and_exit(
-            ErrorKind::ArgumentConflict,
-            "Please provide a debugee name or use a \"-p\" option for attach to already running process",
-        );
     };
 
     let interface = if args.tui {
-        Interface::TUI
+        Interface::TUI {
+            source: debugee_src(),
+        }
+    } else if args.dap {
+        Interface::DAP
     } else {
-        Interface::Default
+        Interface::Default {
+            source: debugee_src(),
+        }
     };
 
-    ui::supervisor::Supervisor::run(debugee_src, interface, &args.oracle)
+    ui::supervisor::Supervisor::run(interface, &args.oracle)
         .unwrap_or_exit(ErrorKind::InvalidSubcommand, "Application error")
 }
