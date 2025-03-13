@@ -261,8 +261,13 @@ impl Variables {
     fn update(&mut self) {
         let Ok(vars_node) = self.exchanger.request_sync(|dbg| {
             let expr = Dqe::Variable(Selector::Any);
-            let handler = command::variables::Handler::new(dbg);
-            let vars = handler.handle(expr).unwrap_or_default();
+            let handler = command::print::Handler::new(dbg);
+            let vars = handler
+                .handle(command::print::Command::Variable {
+                    mode: command::print::RenderMode::Builtin,
+                    dqe: expr,
+                })
+                .unwrap_or_default();
 
             let mut vars_node =
                 Node::new("variables".to_string(), vec![TextSpan::new("variables")]);
@@ -286,8 +291,13 @@ impl Variables {
 
         let Ok(args_node) = self.exchanger.request_sync(|dbg| {
             let expr = Dqe::Variable(Selector::Any);
-            let handler = command::arguments::Handler::new(dbg);
-            let args = handler.handle(expr).unwrap_or_default();
+            let handler = command::print::Handler::new(dbg);
+            let args = handler
+                .handle(command::print::Command::Argument {
+                    mode: command::print::RenderMode::Builtin,
+                    dqe: expr,
+                })
+                .unwrap_or_default();
 
             let mut args_node =
                 Node::new("arguments".to_string(), vec![TextSpan::new("arguments")]);
