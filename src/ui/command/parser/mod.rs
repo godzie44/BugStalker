@@ -2,8 +2,8 @@ pub mod expression;
 
 use super::r#break::BreakpointIdentity;
 use super::{
-    Command, CommandError, r#async, call, frame, memory, register, source_code, thread, trigger,
-    watch,
+    Command, CommandError, r#async, call, frame, memory, print, register, source_code, thread,
+    trigger, watch,
 };
 use super::{CommandResult, r#break};
 use crate::debugger::register::debug::BreakCondition;
@@ -265,21 +265,37 @@ impl Command {
         let sub_op = |sym| just(sym).then(ws_req_or_end);
         let sub_op_w_arg = |sym| just(sym).then(ws_req);
 
-        let print_local_vars = op_w_arg(VAR_COMMAND)
-            .then(sub_op(VAR_LOCAL_KEY))
-            .map(|_| Command::PrintVariables(Dqe::Variable(Selector::Any)));
+        let print_local_vars = op_w_arg(VAR_COMMAND).then(sub_op(VAR_LOCAL_KEY)).map(|_| {
+            Command::Print(print::Command::Variable {
+                mode: print::RenderMode::Builtin,
+                dqe: Dqe::Variable(Selector::Any),
+            })
+        });
         let print_var = op_w_arg(VAR_COMMAND)
             .ignore_then(expression::parser())
-            .map(Command::PrintVariables);
+            .map(|dqe| {
+                Command::Print(print::Command::Variable {
+                    mode: print::RenderMode::Builtin,
+                    dqe,
+                })
+            });
 
         let print_variables = choice((print_local_vars, print_var)).boxed();
 
-        let print_all_args = op_w_arg(ARG_COMMAND)
-            .then(sub_op(ARG_ALL_KEY))
-            .map(|_| Command::PrintArguments(Dqe::Variable(Selector::Any)));
+        let print_all_args = op_w_arg(ARG_COMMAND).then(sub_op(ARG_ALL_KEY)).map(|_| {
+            Command::Print(print::Command::Argument {
+                mode: print::RenderMode::Builtin,
+                dqe: Dqe::Variable(Selector::Any),
+            })
+        });
         let print_arg = op_w_arg(ARG_COMMAND)
             .ignore_then(expression::parser())
-            .map(Command::PrintArguments);
+            .map(|dqe| {
+                Command::Print(print::Command::Argument {
+                    mode: print::RenderMode::Builtin,
+                    dqe,
+                })
+            });
 
         let print_arguments = choice((print_all_args, print_arg)).boxed();
 
@@ -656,7 +672,10 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintVariables(Dqe::Variable(Selector::Any))
+                    Command::Print(print::Command::Variable {
+                        dqe: Dqe::Variable(Selector::Any),
+                        ..
+                    })
                 ));
             },
         },
@@ -665,7 +684,10 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintVariables(Dqe::Deref(_))
+                    Command::Print(print::Command::Variable {
+                        dqe: Dqe::Deref(_),
+                        ..
+                    })
                 ));
             },
         },
@@ -674,7 +696,10 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintVariables(Dqe::Variable(Selector::Name { var_name, .. })) if var_name == "locals_var"
+                    Command::Print(print::Command::Variable {
+                        dqe: Dqe::Variable(Selector::Name { var_name, .. }),
+                        ..
+                    }) if var_name == "locals_var"
                 ));
             },
         },
@@ -703,7 +728,10 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintArguments(Dqe::Variable(Selector::Any))
+                    Command::Print(print::Command::Argument {
+                        dqe: Dqe::Variable(Selector::Any),
+                        ..
+                    })
                 ));
             },
         },
@@ -712,7 +740,10 @@ fn test_parser() {
             command_matcher: |result| {
                 assert!(matches!(
                     result.unwrap(),
-                    Command::PrintArguments(Dqe::Variable(Selector::Name { var_name, .. })) if var_name == "all_arg"
+                    Command::Print(print::Command::Argument {
+                        dqe: Dqe::Variable(Selector::Name { var_name, .. }),
+                        ..
+                    }) if var_name == "all_arg"
                 ));
             },
         },
