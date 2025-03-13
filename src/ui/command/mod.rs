@@ -4,7 +4,6 @@
 //! Contains commands and corresponding command handlers. Command is a some sort of request to
 //! debugger that defines an action and a list of input arguments.
 
-pub mod arguments;
 pub mod r#async;
 pub mod backtrace;
 pub mod r#break;
@@ -13,6 +12,7 @@ pub mod r#continue;
 pub mod frame;
 pub mod memory;
 pub mod parser;
+pub mod print;
 pub mod register;
 pub mod run;
 pub mod sharedlib;
@@ -24,11 +24,9 @@ pub mod step_over;
 pub mod symbol;
 pub mod thread;
 pub mod trigger;
-pub mod variables;
 pub mod watch;
 
 use crate::debugger::Error;
-use crate::debugger::variable::dqe::Dqe;
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {
@@ -45,8 +43,7 @@ pub type CommandResult<T> = Result<T, CommandError>;
 /// External commands that can be processed by the debugger.
 #[derive(Debug, Clone)]
 pub enum Command {
-    PrintVariables(Dqe),
-    PrintArguments(Dqe),
+    Print(print::Command),
     PrintBacktrace(backtrace::Command),
     Continue,
     Frame(frame::Command),

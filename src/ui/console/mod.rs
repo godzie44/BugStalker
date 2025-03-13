@@ -29,7 +29,6 @@ use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::dqe::{Dqe, Selector};
 use crate::debugger::{Debugger, DebuggerBuilder};
 use crate::ui::DebugeeOutReader;
-use crate::ui::command::arguments::Handler as ArgumentsHandler;
 use crate::ui::command::backtrace::Handler as BacktraceHandler;
 use crate::ui::command::r#break::ExecutionResult;
 use crate::ui::command::r#break::Handler as BreakpointHandler;
@@ -37,13 +36,13 @@ use crate::ui::command::r#continue::Handler as ContinueHandler;
 use crate::ui::command::frame::ExecutionResult as FrameResult;
 use crate::ui::command::frame::Handler as FrameHandler;
 use crate::ui::command::memory::Handler as MemoryHandler;
+use crate::ui::command::print::Handler as PrintHandler;
 use crate::ui::command::register::Handler as RegisterHandler;
 use crate::ui::command::run::Handler as RunHandler;
 use crate::ui::command::sharedlib::Handler as SharedlibHandler;
 use crate::ui::command::source_code::{DisAsmHandler, FunctionLineRangeHandler};
 use crate::ui::command::symbol::Handler as SymbolHandler;
 use crate::ui::command::thread::ExecutionResult as ThreadResult;
-use crate::ui::command::variables::Handler as VariablesHandler;
 use crate::ui::command::watch::ExecutionResult as WatchpointExecutionResult;
 use crate::ui::command::watch::Handler as WatchpointHandler;
 use crate::ui::command::{Command, run};
@@ -400,8 +399,7 @@ impl AppLoop {
 
                     let cmd = Command::parse(&input)?;
                     match cmd {
-                        Command::PrintVariables(_)
-                        | Command::PrintArguments(_)
+                        Command::Print(_)
                         | Command::PrintBacktrace(_)
                         | Command::Frame(_)
                         | Command::PrintSymbol(_)
@@ -460,21 +458,12 @@ impl AppLoop {
 
     fn handle_command(&mut self, cmd: Command) -> Result<(), CommandError> {
         match cmd {
-            Command::PrintVariables(print_var_command) => VariablesHandler::new(&self.debugger)
+            Command::Print(print_var_command) => PrintHandler::new(&self.debugger)
                 .handle(print_var_command)?
                 .into_iter()
                 .for_each(|var| {
                     self.printer.println(
                         render_variable(&var)
-                            .unwrap_or(print::style::UNKNOWN_PLACEHOLDER.to_string()),
-                    );
-                }),
-            Command::PrintArguments(print_arg_command) => ArgumentsHandler::new(&self.debugger)
-                .handle(print_arg_command)?
-                .into_iter()
-                .for_each(|arg| {
-                    self.printer.println(
-                        render_variable(&arg)
                             .unwrap_or(print::style::UNKNOWN_PLACEHOLDER.to_string()),
                     );
                 }),
