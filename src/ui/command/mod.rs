@@ -41,7 +41,7 @@ pub enum CommandError {
 pub type CommandResult<T> = Result<T, CommandError>;
 
 /// External commands that can be processed by the debugger.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Print(print::Command),
     PrintBacktrace(backtrace::Command),

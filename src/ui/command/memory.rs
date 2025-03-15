@@ -3,7 +3,7 @@ use crate::ui::command;
 use nix::libc::uintptr_t;
 use std::mem;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Read(usize),
     Write(usize, uintptr_t),

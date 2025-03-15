@@ -1,7 +1,7 @@
 use crate::debugger::{Debugger, FrameInfo};
 use crate::ui::command;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Info,
     Switch(u32),
