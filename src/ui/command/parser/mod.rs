@@ -662,215 +662,152 @@ fn test_rust_identifier_parser() {
 fn test_parser() {
     use crate::debugger::variable::dqe::Literal;
 
+    enum Expect {
+        Ok(Command),
+        Err,
+    }
+
     struct TestCase {
         inputs: Vec<&'static str>,
-        command_matcher: fn(result: Result<Command, CommandError>),
+        expected: Expect,
     }
     let cases = vec![
         TestCase {
             inputs: vec!["var locals"],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Print(print::Command::Variable {
-                        dqe: Dqe::Variable(Selector::Any),
-                        ..
-                    })
-                ));
-            },
+            expected: Expect::Ok(Command::Print(print::Command::Variable {
+                dqe: Dqe::Variable(Selector::Any),
+                mode: print::RenderMode::Builtin,
+            })),
         },
         TestCase {
             inputs: vec!["var **var1"],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Print(print::Command::Variable {
-                        dqe: Dqe::Deref(_),
-                        ..
-                    })
-                ));
-            },
+            expected: Expect::Ok(Command::Print(print::Command::Variable {
+                dqe: Dqe::Deref(
+                    Dqe::Deref(Dqe::Variable(Selector::by_name("var1", false)).boxed()).boxed(),
+                ),
+                mode: print::RenderMode::Builtin,
+            })),
         },
         TestCase {
             inputs: vec!["var locals_var"],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Print(print::Command::Variable {
-                        dqe: Dqe::Variable(Selector::Name { var_name, .. }),
-                        ..
-                    }) if var_name == "locals_var"
-                ));
-            },
+            expected: Expect::Ok(Command::Print(print::Command::Variable {
+                dqe: Dqe::Variable(Selector::by_name("locals_var", false)),
+                mode: print::RenderMode::Builtin,
+            })),
         },
         TestCase {
             inputs: vec!["var ("],
-            command_matcher: |result| assert!(result.is_err()),
+            expected: Expect::Err,
         },
         TestCase {
             inputs: vec!["das"],
-            command_matcher: |result| assert!(result.is_err()),
+            expected: Expect::Err,
         },
         TestCase {
             inputs: vec!["voo"],
-            command_matcher: |result| assert!(result.is_err()),
+            expected: Expect::Err,
         },
         TestCase {
             inputs: vec!["arg 11"],
-            command_matcher: |result| assert!(result.is_err()),
+            expected: Expect::Err,
         },
         TestCase {
             inputs: vec!["br", "arglocals"],
-            command_matcher: |result| assert!(result.is_err()),
+            expected: Expect::Err,
         },
         TestCase {
             inputs: vec!["arg all"],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Print(print::Command::Argument {
-                        dqe: Dqe::Variable(Selector::Any),
-                        ..
-                    })
-                ));
-            },
+            expected: Expect::Ok(Command::Print(print::Command::Argument {
+                dqe: Dqe::Variable(Selector::Any),
+                mode: print::RenderMode::Builtin,
+            })),
         },
         TestCase {
             inputs: vec!["arg all_arg"],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Print(print::Command::Argument {
-                        dqe: Dqe::Variable(Selector::Name { var_name, .. }),
-                        ..
-                    }) if var_name == "all_arg"
-                ));
-            },
+            expected: Expect::Ok(Command::Print(print::Command::Argument {
+                dqe: Dqe::Variable(Selector::by_name("all_arg", false)),
+                mode: print::RenderMode::Builtin,
+            })),
         },
         TestCase {
             inputs: vec!["bt", "backtrace"],
-            command_matcher: |result| {
-                let cmd = result.unwrap();
-                assert!(matches!(
-                    cmd,
-                    Command::PrintBacktrace(super::backtrace::Command::CurrentThread)
-                ));
-            },
+            expected: Expect::Ok(Command::PrintBacktrace(
+                super::backtrace::Command::CurrentThread,
+            )),
         },
         TestCase {
             inputs: vec!["bt all", "backtrace  all  "],
-            command_matcher: |result| {
-                let cmd = result.unwrap();
-                assert!(matches!(
-                    cmd,
-                    Command::PrintBacktrace(super::backtrace::Command::All)
-                ));
-            },
+            expected: Expect::Ok(Command::PrintBacktrace(super::backtrace::Command::All)),
         },
         TestCase {
             inputs: vec!["c", "continue"],
-            command_matcher: |result| {
-                assert!(matches!(result.unwrap(), Command::Continue));
-            },
+            expected: Expect::Ok(Command::Continue),
         },
         TestCase {
             inputs: vec!["frame info ", "  frame  info"],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Frame(frame::Command::Info)
-                ));
-            },
+            expected: Expect::Ok(Command::Frame(frame::Command::Info)),
         },
         TestCase {
             inputs: vec!["f info ", "  f  info"],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Frame(frame::Command::Info)
-                ));
-            },
+            expected: Expect::Ok(Command::Frame(frame::Command::Info)),
         },
         TestCase {
             inputs: vec!["frame switch 1", "  frame  switch   1 "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Frame(frame::Command::Switch(1))
-                ));
-            },
+            expected: Expect::Ok(Command::Frame(frame::Command::Switch(1))),
         },
         TestCase {
             inputs: vec!["r", "run"],
-            command_matcher: |result| {
-                assert!(matches!(result.unwrap(), Command::Run));
-            },
+            expected: Expect::Ok(Command::Run),
         },
         TestCase {
             inputs: vec!["symbol main", " symbol  main "],
-            command_matcher: |result| {
-                assert!(matches!(result.unwrap(), Command::PrintSymbol(s) if s == "main"));
-            },
+            expected: Expect::Ok(Command::PrintSymbol("main".into())),
         },
         TestCase {
             inputs: vec!["  stepi"],
-            command_matcher: |result| {
-                assert!(matches!(result.unwrap(), Command::StepInstruction));
-            },
+            expected: Expect::Ok(Command::StepInstruction),
         },
         TestCase {
             inputs: vec!["step", "stepinto"],
-            command_matcher: |result| {
-                assert!(matches!(result.unwrap(), Command::StepInto));
-            },
+            expected: Expect::Ok(Command::StepInto),
         },
         TestCase {
             inputs: vec!["finish", "stepout"],
-            command_matcher: |result| {
-                assert!(matches!(result.unwrap(), Command::StepOut));
-            },
+            expected: Expect::Ok(Command::StepOut),
         },
         TestCase {
             inputs: vec!["next", "stepover"],
-            command_matcher: |result| {
-                assert!(matches!(result.unwrap(), Command::StepOver));
-            },
+            expected: Expect::Ok(Command::StepOver),
         },
         TestCase {
             inputs: vec!["b some_func", "break some_func", "   break some_func   "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Function(f))) if f == "some_func"
-                ));
-            },
+            expected: Expect::Ok(Command::Breakpoint(r#break::Command::Add(
+                BreakpointIdentity::Function("some_func".into()),
+            ))),
         },
         TestCase {
-            inputs: vec!["b rust_fn", "b info_rust"],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Function(f))) if f == "rust_fn" || f == "info_rust"
-                ));
-            },
+            inputs: vec!["b rust_fn"],
+            expected: Expect::Ok(Command::Breakpoint(r#break::Command::Add(
+                BreakpointIdentity::Function("rust_fn".into()),
+            ))),
+        },
+        TestCase {
+            inputs: vec!["b info_rust"],
+            expected: Expect::Ok(Command::Breakpoint(r#break::Command::Add(
+                BreakpointIdentity::Function("info_rust".into()),
+            ))),
         },
         TestCase {
             inputs: vec!["b file:123", "break file:123", "   break file:123   "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Line(f, n))) if f == "file" && n == 123
-                ));
-            },
+            expected: Expect::Ok(Command::Breakpoint(r#break::Command::Add(
+                BreakpointIdentity::Line("file".into(), 123),
+            ))),
         },
         TestCase {
             inputs: vec!["b 0x123", "break 0x123", "   break 0x0123   "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Breakpoint(r#break::Command::Add(BreakpointIdentity::Address(a))) if a == 0x123
-                ));
-            },
+            expected: Expect::Ok(Command::Breakpoint(r#break::Command::Add(
+                BreakpointIdentity::Address(0x123),
+            ))),
         },
         TestCase {
             inputs: vec![
@@ -878,12 +815,9 @@ fn test_parser() {
                 "break r some_func",
                 "   break r  some_func   ",
             ],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Breakpoint(r#break::Command::Remove(BreakpointIdentity::Function(f))) if f == "some_func"
-                ));
-            },
+            expected: Expect::Ok(Command::Breakpoint(r#break::Command::Remove(
+                BreakpointIdentity::Function("some_func".into()),
+            ))),
         },
         TestCase {
             inputs: vec![
@@ -891,12 +825,9 @@ fn test_parser() {
                 "break r ns1::some_func",
                 "   break r  ns1::some_func   ",
             ],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Breakpoint(r#break::Command::Remove(BreakpointIdentity::Function(f))) if f == "ns1::some_func"
-                ));
-            },
+            expected: Expect::Ok(Command::Breakpoint(r#break::Command::Remove(
+                BreakpointIdentity::Function("ns1::some_func".into()),
+            ))),
         },
         TestCase {
             inputs: vec![
@@ -904,52 +835,39 @@ fn test_parser() {
                 "break r file:123",
                 "   break  remove file:123   ",
             ],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Breakpoint(r#break::Command::Remove(BreakpointIdentity::Line(f, n))) if f == "file" && n == 123
-                ));
-            },
+            expected: Expect::Ok(Command::Breakpoint(r#break::Command::Remove(
+                BreakpointIdentity::Line("file".into(), 123),
+            ))),
         },
         TestCase {
             inputs: vec!["b remove 0x123", "break r 0x123", "   break r 0x123   "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Breakpoint(r#break::Command::Remove(BreakpointIdentity::Address(a))) if a == 0x123
-                ));
-            },
+            expected: Expect::Ok(Command::Breakpoint(r#break::Command::Remove(
+                BreakpointIdentity::Address(0x123),
+            ))),
         },
         TestCase {
             inputs: vec!["b info", "break info ", "   break   info   "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Breakpoint(r#break::Command::Info)
-                ));
-            },
+            expected: Expect::Ok(Command::Breakpoint(r#break::Command::Info)),
         },
         TestCase {
             inputs: vec!["watch var1", "watch var1 ", "   w   var1   "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Watchpoint(watch::Command::Add(
-                        WatchpointIdentity::DQE(source, Dqe::Variable(Selector::Name {var_name, ..})), BreakCondition::DataWrites
-                    )) if var_name == "var1" && source == "var1"
-                ));
-            },
+            expected: Expect::Ok(Command::Watchpoint(watch::Command::Add(
+                WatchpointIdentity::DQE(
+                    "var1".into(),
+                    Dqe::Variable(Selector::by_name("var1", false)),
+                ),
+                BreakCondition::DataWrites,
+            ))),
         },
         TestCase {
             inputs: vec!["watch +rw var1", "watch +rw  var1 ", "   w  +rw  var1   "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Watchpoint(watch::Command::Add(
-                        WatchpointIdentity::DQE(source, Dqe::Variable(Selector::Name {var_name, ..})), BreakCondition::DataReadsWrites
-                    )) if var_name == "var1" && source == "var1"
-                ));
-            },
+            expected: Expect::Ok(Command::Watchpoint(watch::Command::Add(
+                WatchpointIdentity::DQE(
+                    "var1".into(),
+                    Dqe::Variable(Selector::by_name("var1", false)),
+                ),
+                BreakCondition::DataReadsWrites,
+            ))),
         },
         TestCase {
             inputs: vec![
@@ -957,50 +875,39 @@ fn test_parser() {
                 "watch ns1::ns2::var1 ",
                 "   w   ns1::ns2::var1   ",
             ],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Watchpoint(watch::Command::Add(
-                        WatchpointIdentity::DQE(source, Dqe::Variable(Selector::Name {var_name, ..})), BreakCondition::DataWrites
-                    )) if var_name == "ns1::ns2::var1" && source == "ns1::ns2::var1"
-                ));
-            },
+            expected: Expect::Ok(Command::Watchpoint(watch::Command::Add(
+                WatchpointIdentity::DQE(
+                    "ns1::ns2::var1".into(),
+                    Dqe::Variable(Selector::by_name("ns1::ns2::var1", false)),
+                ),
+                BreakCondition::DataWrites,
+            ))),
         },
         TestCase {
             inputs: vec!["watch 0x123:4", "watch 0x123:4 ", "   w   0x123:4   "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Watchpoint(watch::Command::Add(WatchpointIdentity::Address(addr, size), BreakCondition::DataWrites)) if addr == 0x123 && size == 4
-                ));
-            },
+            expected: Expect::Ok(Command::Watchpoint(watch::Command::Add(
+                WatchpointIdentity::Address(0x123, 4),
+                BreakCondition::DataWrites,
+            ))),
         },
         TestCase {
             inputs: vec!["watch info", "watch info ", "   w   info   "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Watchpoint(watch::Command::Info)
-                ));
-            },
+            expected: Expect::Ok(Command::Watchpoint(watch::Command::Info)),
         },
         TestCase {
             inputs: vec!["watch r var1", "watch remove var1 ", "   w   r var1   "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Watchpoint(watch::Command::Remove(WatchpointIdentity::DQE(source, Dqe::Variable(Selector::Name {var_name, ..})))) if var_name == "var1" && source == "var1"
-                ));
-            },
+            expected: Expect::Ok(Command::Watchpoint(watch::Command::Remove(
+                WatchpointIdentity::DQE(
+                    "var1".into(),
+                    Dqe::Variable(Selector::by_name("var1", false)),
+                ),
+            ))),
         },
         TestCase {
             inputs: vec!["watch r 2", "watch remove 2 ", "   w   r 2   "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Watchpoint(watch::Command::Remove(WatchpointIdentity::Number(n))) if n == 2
-                ));
-            },
+            expected: Expect::Ok(Command::Watchpoint(watch::Command::Remove(
+                WatchpointIdentity::Number(2),
+            ))),
         },
         TestCase {
             inputs: vec![
@@ -1008,12 +915,7 @@ fn test_parser() {
                 "memory read 0x123",
                 "   mem read   0x123   ",
             ],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Memory(memory::Command::Read(a)) if a == 0x123
-                ));
-            },
+            expected: Expect::Ok(Command::Memory(memory::Command::Read(0x123))),
         },
         TestCase {
             inputs: vec![
@@ -1021,30 +923,15 @@ fn test_parser() {
                 "memory write 0x123 0x321",
                 "   mem write   0x123  0x321 ",
             ],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Memory(memory::Command::Write(a, v)) if a == 0x123 && v == 0x321
-                ));
-            },
+            expected: Expect::Ok(Command::Memory(memory::Command::Write(0x123, 0x321))),
         },
         TestCase {
             inputs: vec!["reg info", "register info", "   reg  info "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Register(register::Command::Info)
-                ));
-            },
+            expected: Expect::Ok(Command::Register(register::Command::Info)),
         },
         TestCase {
             inputs: vec!["reg read rip", "register read rip", "   reg  read   rip "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Register(register::Command::Read(r)) if r == "rip"
-                ));
-            },
+            expected: Expect::Ok(Command::Register(register::Command::Read("rip".into()))),
         },
         TestCase {
             inputs: vec![
@@ -1052,220 +939,135 @@ fn test_parser() {
                 "register write rip 0x123",
                 "   reg  write  rip  0x123 ",
             ],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Register(register::Command::Write(r, v)) if r == "rip" && v == 0x123
-                ));
-            },
+            expected: Expect::Ok(Command::Register(register::Command::Write(
+                "rip".into(),
+                0x123,
+            ))),
         },
         TestCase {
             inputs: vec!["thread info", "thread    info  "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Thread(thread::Command::Info)
-                ));
-            },
+            expected: Expect::Ok(Command::Thread(thread::Command::Info)),
         },
         TestCase {
             inputs: vec!["thread current", "thread    current  "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Thread(thread::Command::Current)
-                ));
-            },
+            expected: Expect::Ok(Command::Thread(thread::Command::Current)),
         },
         TestCase {
             inputs: vec!["thread switch 1", " thread  switch 1  "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Thread(thread::Command::Switch(1))
-                ));
-            },
+            expected: Expect::Ok(Command::Thread(thread::Command::Switch(1))),
         },
         TestCase {
             inputs: vec!["sharedlib info", " sharedlib     info  "],
-            command_matcher: |result| {
-                assert!(matches!(result.unwrap(), Command::SharedLib));
-            },
+            expected: Expect::Ok(Command::SharedLib),
         },
         TestCase {
             inputs: vec!["source asm", " source   asm  "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::SourceCode(source_code::Command::Asm)
-                ));
-            },
+            expected: Expect::Ok(Command::SourceCode(source_code::Command::Asm)),
         },
         TestCase {
             inputs: vec!["source fn", " source   fn  "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::SourceCode(source_code::Command::Function)
-                ));
-            },
+            expected: Expect::Ok(Command::SourceCode(source_code::Command::Function)),
         },
         TestCase {
             inputs: vec!["source 12", " source   12  "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::SourceCode(source_code::Command::Range(r)) if r == 12
-                ));
-            },
+            expected: Expect::Ok(Command::SourceCode(source_code::Command::Range(12))),
         },
         TestCase {
             inputs: vec!["async backtrace", " async   bt  "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Async(r#async::Command::ShortBacktrace)
-                ));
-            },
+            expected: Expect::Ok(Command::Async(r#async::Command::ShortBacktrace)),
         },
         TestCase {
             inputs: vec!["async backtrace all", " async   bt  all "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Async(r#async::Command::FullBacktrace)
-                ));
-            },
+            expected: Expect::Ok(Command::Async(r#async::Command::FullBacktrace)),
         },
         TestCase {
             inputs: vec!["async task", " async   task "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Async(r#async::Command::CurrentTask(None))
-                ));
-            },
+            expected: Expect::Ok(Command::Async(r#async::Command::CurrentTask(None))),
         },
         TestCase {
             inputs: vec!["async stepover", " async   next "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Async(r#async::Command::StepOver)
-                ));
-            },
+            expected: Expect::Ok(Command::Async(r#async::Command::StepOver)),
         },
         TestCase {
             inputs: vec!["async stepout", " async   finish "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Async(r#async::Command::StepOut)
-                ));
-            },
+            expected: Expect::Ok(Command::Async(r#async::Command::StepOut)),
         },
         TestCase {
             inputs: vec!["async task abc.*", " async   task abc.*  "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Async(r#async::Command::CurrentTask(Some(s))) if s == "abc.*"
-                ));
-            },
+            expected: Expect::Ok(Command::Async(r#async::Command::CurrentTask(Some(
+                "abc.*".into(),
+            )))),
         },
         TestCase {
             inputs: vec!["trigger", " trigger  "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Trigger(trigger::Command::AttachToPreviouslyCreated)
-                ));
-            },
+            expected: Expect::Ok(Command::Trigger(
+                trigger::Command::AttachToPreviouslyCreated,
+            )),
         },
         TestCase {
             inputs: vec!["trigger any", " trigger any  "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Trigger(trigger::Command::AttachToDefined(
-                        trigger::TriggerEvent::Any
-                    ))
-                ));
-            },
+            expected: Expect::Ok(Command::Trigger(trigger::Command::AttachToDefined(
+                trigger::TriggerEvent::Any,
+            ))),
         },
         TestCase {
             inputs: vec!["trigger info", " trigger info  "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Trigger(trigger::Command::Info)
-                ));
-            },
+            expected: Expect::Ok(Command::Trigger(trigger::Command::Info)),
         },
         TestCase {
             inputs: vec!["trigger b 1", " trigger  b 1 "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Trigger(trigger::Command::AttachToDefined(
-                        trigger::TriggerEvent::Breakpoint(num)
-                    )) if num == 1
-                ));
-            },
+            expected: Expect::Ok(Command::Trigger(trigger::Command::AttachToDefined(
+                trigger::TriggerEvent::Breakpoint(1),
+            ))),
         },
         TestCase {
             inputs: vec!["trigger w 2", " trigger  w 2 "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Trigger(trigger::Command::AttachToDefined(
-                        trigger::TriggerEvent::Watchpoint(num)
-                    )) if num == 2
-                ));
-            },
+            expected: Expect::Ok(Command::Trigger(trigger::Command::AttachToDefined(
+                trigger::TriggerEvent::Watchpoint(2),
+            ))),
         },
         TestCase {
             inputs: vec!["call some_fn 1", " call   some_fn  1  "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Call(cmd) if cmd.fn_name == "some_fn" && cmd.args[0] == Literal::Int(1)
-                ));
-            },
+            expected: Expect::Ok(Command::Call(call::Command {
+                fn_name: "some_fn".into(),
+                args: [Literal::Int(1)].into(),
+            })),
         },
         TestCase {
             inputs: vec!["call some_fn 1 2 3 4 5 6"],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Call(cmd) if cmd.fn_name == "some_fn" && cmd.args[0] == Literal::Int(1) && cmd.args[1] == Literal::Int(2)  && cmd.args[5] == Literal::Int(6) && cmd.args.len() == 6
-                ));
-            },
+            expected: Expect::Ok(Command::Call(call::Command {
+                fn_name: "some_fn".into(),
+                args: [
+                    Literal::Int(1),
+                    Literal::Int(2),
+                    Literal::Int(3),
+                    Literal::Int(4),
+                    Literal::Int(5),
+                    Literal::Int(6),
+                ]
+                .into(),
+            })),
         },
         TestCase {
             inputs: vec!["oracle tokio", " oracle  tokio   "],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Oracle(name, None) if name == "tokio"
-                ));
-            },
+            expected: Expect::Ok(Command::Oracle("tokio".into(), None)),
         },
         TestCase {
             inputs: vec!["oracle tokio all ", " oracle  tokio   all"],
-            command_matcher: |result| {
-                assert!(matches!(
-                    result.unwrap(),
-                    Command::Oracle(name, Some(subcmd)) if name == "tokio" && subcmd == "all"
-                ));
-            },
+            expected: Expect::Ok(Command::Oracle("tokio".into(), Some("all".into()))),
         },
     ];
 
     for case in cases {
         for input in case.inputs {
             let result = Command::parse(input);
-            (case.command_matcher)(result);
+            match case.expected {
+                Expect::Ok(ref expected_cmd) => {
+                    assert!(result.is_ok());
+                    assert_eq!(&result.unwrap(), expected_cmd);
+                }
+                Expect::Err => assert!(result.is_err()),
+            }
         }
     }
 }
