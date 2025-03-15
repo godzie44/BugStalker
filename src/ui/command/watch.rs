@@ -5,14 +5,14 @@ use crate::debugger::address::RelocatedAddress;
 use crate::debugger::register::debug::{BreakCondition, BreakSize};
 use crate::debugger::variable::dqe::Dqe;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum WatchpointIdentity {
     DQE(String, Dqe),
     Address(usize, u8),
     Number(u32),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Add(WatchpointIdentity, BreakCondition),
     Remove(WatchpointIdentity),

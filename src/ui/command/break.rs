@@ -3,7 +3,7 @@ use crate::debugger::Debugger;
 use crate::debugger::Error;
 use crate::debugger::address::Address;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BreakpointIdentity {
     Address(usize),
     Line(String, u64),
@@ -11,7 +11,7 @@ pub enum BreakpointIdentity {
     Number(u32),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Add(BreakpointIdentity),
     Remove(BreakpointIdentity),

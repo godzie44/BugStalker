@@ -2,7 +2,7 @@ use crate::debugger::Debugger;
 use crate::debugger::variable::dqe::Literal;
 use crate::ui::command;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Command {
     pub fn_name: String,
     pub args: Box<[Literal]>,

@@ -1,7 +1,7 @@
 use crate::debugger::r#async::AsyncBacktrace;
 use crate::debugger::{Debugger, Error};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     ShortBacktrace,
     FullBacktrace,
