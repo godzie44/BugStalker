@@ -11,6 +11,7 @@ use crate::debugger::variable::value::specialization::{
 };
 use crate::{debugger, weak_error};
 use bytes::Bytes;
+use indexmap::IndexMap;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Debug, Display, Formatter};
 use std::string::FromUtf8Error;
@@ -169,7 +170,7 @@ pub struct StructValue {
     /// Structure members.
     pub members: Vec<Member>,
     /// Map of type parameters of a structure type.
-    pub type_params: HashMap<String, Option<TypeId>>,
+    pub type_params: IndexMap<String, Option<TypeId>>,
     pub raw_address: Option<usize>,
 }
 
@@ -1060,7 +1061,7 @@ mod test {
                         }),
                     },
                 ],
-                type_params: HashMap::default(),
+                type_params: IndexMap::default(),
                 raw_address: None,
             },
         }
