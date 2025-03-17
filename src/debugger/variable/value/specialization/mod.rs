@@ -18,7 +18,7 @@ use AssumeError::{FieldNotFound, IncompleteInterp, UnknownSize};
 use anyhow::Context;
 use bytes::Bytes;
 use fallible_iterator::FallibleIterator;
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 mod btree;
 mod hashbrown;
@@ -193,7 +193,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         ctx: &ParseContext,
         structure: &StructValue,
-        type_params: &HashMap<String, Option<TypeId>>,
+        type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Option<SpecializedValue> {
         weak_error!(
             self.parse_vector_inner(ctx, Value::Struct(structure.clone()), type_params)
@@ -206,7 +206,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         ctx: &ParseContext,
         val: Value,
-        type_params: &HashMap<String, Option<TypeId>>,
+        type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Result<VecValue, ParsingError> {
         let inner_type = type_params
             .get("T")
@@ -294,7 +294,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         ctx: &ParseContext,
         structure: &StructValue,
-        type_params: &HashMap<String, Option<TypeId>>,
+        type_params: &IndexMap<String, Option<TypeId>>,
         is_const_initialized: bool,
     ) -> Option<SpecializedValue> {
         let tls_var = if is_const_initialized {
@@ -310,7 +310,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         ctx: &ParseContext,
         inner: Value,
-        type_params: &HashMap<String, Option<TypeId>>,
+        type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Result<TlsVariable, ParsingError> {
         let value_type = type_params
             .get("T")
@@ -327,7 +327,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         ctx: &ParseContext,
         inner_val: Value,
-        type_params: &HashMap<String, Option<TypeId>>,
+        type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Result<TlsVariable, ParsingError> {
         let inner_type = type_params
             .get("T")
@@ -375,7 +375,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         ctx: &ParseContext,
         structure: &StructValue,
-        type_params: &HashMap<String, Option<TypeId>>,
+        type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Result<Option<TlsVariable>, ParsingError> {
         if structure.type_ident.namespace().contains(&["eager"]) {
             // constant tls
@@ -389,7 +389,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         ctx: &ParseContext,
         inner_val: Value,
-        type_params: &HashMap<String, Option<TypeId>>,
+        type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Result<Option<TlsVariable>, ParsingError> {
         if type_params.is_empty() {
             return Ok(None);
@@ -427,7 +427,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         ctx: &ParseContext,
         inner_val: Value,
-        type_params: &HashMap<String, Option<TypeId>>,
+        type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Result<Option<TlsVariable>, ParsingError> {
         let inner_type = type_params
             .get("T")
@@ -582,7 +582,7 @@ impl<'a> VariableParserExtension<'a> {
         ctx: &ParseContext,
         structure: &StructValue,
         identity: TypeId,
-        type_params: &HashMap<String, Option<TypeId>>,
+        type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Option<SpecializedValue> {
         weak_error!(
             self.parse_btree_map_inner(
@@ -601,7 +601,7 @@ impl<'a> VariableParserExtension<'a> {
         ctx: &ParseContext,
         val: Value,
         identity: TypeId,
-        type_params: &HashMap<String, Option<TypeId>>,
+        type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Result<HashMapVariable, ParsingError> {
         let height = val.assume_field_as_scalar_number("height")?;
         let ptr = val.assume_field_as_pointer("pointer")?;
@@ -680,7 +680,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         ctx: &ParseContext,
         structure: &StructValue,
-        type_params: &HashMap<String, Option<TypeId>>,
+        type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Option<SpecializedValue> {
         weak_error!(
             self.parse_vec_dequeue_inner(ctx, Value::Struct(structure.clone()), type_params)
@@ -693,7 +693,7 @@ impl<'a> VariableParserExtension<'a> {
         &self,
         ctx: &ParseContext,
         val: Value,
-        type_params: &HashMap<String, Option<TypeId>>,
+        type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Result<VecValue, ParsingError> {
         let inner_type = type_params
             .get("T")

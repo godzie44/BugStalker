@@ -10,6 +10,7 @@ use crate::debugger::variable::ObjectBinaryRepr;
 use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::{AttributeValue, DwAte, Expression};
+use indexmap::IndexMap;
 use log::warn;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -328,7 +329,7 @@ pub enum TypeDeclaration {
         name: Option<String>,
         byte_size: Option<u64>,
         members: Vec<StructureMember>,
-        type_params: HashMap<String, Option<TypeId>>,
+        type_params: IndexMap<String, Option<TypeId>>,
     },
     Union {
         namespaces: NamespaceHierarchy,
@@ -820,7 +821,7 @@ impl TypeParser {
                 }
                 None
             })
-            .collect::<HashMap<_, _>>();
+            .collect::<IndexMap<_, _>>();
 
         TypeDeclaration::Structure {
             namespaces: ctx_die.namespaces(),
