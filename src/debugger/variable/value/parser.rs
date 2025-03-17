@@ -16,6 +16,7 @@ use gimli::{
     DW_ATE_ASCII, DW_ATE_UTF, DW_ATE_address, DW_ATE_boolean, DW_ATE_float, DW_ATE_signed,
     DW_ATE_signed_char, DW_ATE_unsigned, DW_ATE_unsigned_char,
 };
+use indexmap::IndexMap;
 use log::warn;
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -181,7 +182,7 @@ impl ValueParser {
         ctx: &ParseContext,
         data: Option<ObjectBinaryRepr>,
         type_id: TypeId,
-        type_params: HashMap<String, Option<TypeId>>,
+        type_params: IndexMap<String, Option<TypeId>>,
         members: &[StructureMember],
     ) -> StructValue {
         let children = members
@@ -619,7 +620,7 @@ impl ValueParser {
             )),
             TypeDeclaration::Union { members, .. } => {
                 let struct_var =
-                    self.parse_struct_variable(ctx, data, type_id, HashMap::new(), members);
+                    self.parse_struct_variable(ctx, data, type_id, IndexMap::new(), members);
                 Some(Value::Struct(struct_var))
             }
             TypeDeclaration::Subroutine { return_type, .. } => {
