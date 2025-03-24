@@ -28,6 +28,11 @@ class HintsTestCase(unittest.TestCase):
 
         self.debugger.print('var \t\t', 'int8', 'int16', '\x1b[4mlocals\x1b[0m')
         self.debugger.print(' int1\t', 'int16')
+        
+        self.debugger.print('\n')
+
+        self.debugger.print('vard \t\t', 'int8', 'int16', '\x1b[4mlocals\x1b[0m')
+        self.debugger.print(' int1\t', 'int16')
 
     def test_arg_command_hints(self):
         """Test argument autocompletion for `args` command"""
@@ -35,6 +40,8 @@ class HintsTestCase(unittest.TestCase):
         self.debugger.cmd('run', 'println!("{by_val}");')
 
         self.debugger.print('arg \t\t', 'by_val', 'by_ref', 'vec', 'box_arr')
+        self.debugger.print('\n')
+        self.debugger.print('argd \t\t', 'by_val', 'by_ref', 'vec', 'box_arr')
 
     def test_sub_command_hints(self):
         """Test subcommands autocompletion"""

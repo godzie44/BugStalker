@@ -1,7 +1,7 @@
 pub mod address;
 pub mod r#async;
 mod breakpoint;
-mod call;
+pub mod call;
 mod code;
 mod debugee;
 mod error;

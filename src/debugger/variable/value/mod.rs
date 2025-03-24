@@ -405,6 +405,13 @@ impl Value {
         }
     }
 
+    pub fn as_array(&self) -> Option<&ArrayValue> {
+        match self {
+            Value::Array(arr) => Some(arr),
+            _ => None,
+        }
+    }
+
     pub fn into_raw_ptr(self) -> Option<PointerValue> {
         match self {
             Value::Pointer(p) => Some(p),
