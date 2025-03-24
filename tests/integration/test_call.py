@@ -55,3 +55,42 @@ class FunctionCallTestCase(unittest.TestCase):
         addr3 = self.debugger.search_in_output(r'arg3.*\[(.*)\]')
 
         self.debugger.cmd('call print_deref ' + addr1 + ' ' + addr2 + ' ' + addr3, 'deref is 100 101 Foo { bar: 102, baz: "103" }')
+                
+    def test_fmt_vars(self):
+        """"""
+        self.debugger = Debugger(path='./examples/target/debug/vars')
+
+        self.debugger.cmd('break vars.rs:641')
+        self.debugger.cmd('run', 'Hit breakpoint 1')
+        
+        self.debugger.cmd(
+            'vard locals', 
+            '[]', 
+            '[]', 
+            '[1, 23, 3]', 
+            'Struct0 { a: 1 }', 
+            'Struct1 { field1: 1, field2: 3 }', 
+            'Struct1 { field1: 1, field2: "44" }',
+            'Struct2 { field1: "66", field2: 55 }',
+            'Struct3 { field1: 11, field2: 12 }',
+            '["abc", "ef", "g"]',
+            'A',
+            'S1(Struct1 { field1: 100, field2: "100" })',
+            'S2(Struct2 { field1: 1, field2: 2 })',
+            'Some(1)',
+            '"some str"',
+            '"some string"',
+        )
+        
+    def test_fmt_args(self):
+        """"""
+        self.debugger = Debugger(path='./examples/target/debug/vars')
+
+        self.debugger.cmd('break vars.rs:645')
+        self.debugger.cmd('run', 'Hit breakpoint 1')
+        
+        self.debugger.cmd(
+            'argd all', 
+            '"one"', 
+            '["two", "three"]', 
+        )

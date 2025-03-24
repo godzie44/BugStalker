@@ -1,3 +1,5 @@
+pub mod fmt;
+
 use super::{
     Debugger, Error, FunctionDie, TypeDeclaration,
     address::RelocatedAddress,
@@ -216,7 +218,7 @@ impl CallArgs {
 
 /// Program state before a call.
 struct CallContext<'a> {
-    dbg: &'a mut Debugger,
+    dbg: &'a Debugger,
     pid: nix::unistd::Pid,
     pc: RelocatedAddress,
     regs: RegisterMap,
@@ -224,7 +226,7 @@ struct CallContext<'a> {
 }
 
 impl<'a> CallContext<'a> {
-    fn new(dbg: &'a mut Debugger) -> Result<Self, Error> {
+    fn new(dbg: &'a Debugger) -> Result<Self, Error> {
         let pid = dbg.exploration_ctx().pid_on_focus();
         let pc = dbg.exploration_ctx().location().pc;
         let text = read_memory_by_pid(pid, pc.into(), size_of::<u64>()).map_err(Error::Ptrace)?;
@@ -246,7 +248,10 @@ impl<'a> CallContext<'a> {
         Ok(())
     }
 
-    fn with_ctx(mut self, f: impl FnOnce(&mut Self) -> Result<(), Error>) -> Result<(), Error> {
+    fn with_ctx<F, T>(mut self, f: F) -> Result<T, Error>
+    where
+        F: FnOnce(&mut Self) -> Result<T, Error>,
+    {
         let result = f(&mut self);
 
         debug!(target: "debugger", "retrieve original registers and instructions");
@@ -385,16 +390,18 @@ impl CallHelper {
 impl Debugger {
     fn search_fn_to_call(
         &self,
-        tpl: &str,
-        name_attr: Option<&str>,
+        linkage_name_tpl: &str,
+        name: Option<&str>,
     ) -> Result<(&DebugInformation, ContextualDieRef<'_, '_, FunctionDie>), CallError> {
         let dwarfs = self.debugee.debug_info_all();
 
         let mut candidates = dwarfs
             .iter()
-            .filter(|dwarf| dwarf.has_debug_info() && dwarf.tpl_in_pub_names(tpl) != Some(false))
+            .filter(|dwarf| {
+                dwarf.has_debug_info() && dwarf.tpl_in_pub_names(linkage_name_tpl) != Some(false)
+            })
             .filter_map(|&dwarf| {
-                let funcs = weak_error!(dwarf.search_functions(tpl))?;
+                let funcs = weak_error!(dwarf.search_functions(linkage_name_tpl))?;
                 if funcs.is_empty() {
                     return None;
                 }
@@ -405,8 +412,8 @@ impl Debugger {
         candidates
             .pop_if_cond(|c| c.len() == 1)
             .and_then(|(dwarf, mut funcs)| {
-                if name_attr.is_some() {
-                    funcs.retain(|f| f.die.base_attributes.name.as_deref() == name_attr);
+                if name.is_some() {
+                    funcs.retain(|f| f.die.base_attributes.name.as_deref() == name);
                 }
 
                 funcs.retain(|f| {
@@ -419,17 +426,16 @@ impl Debugger {
 
                 Some((
                     dwarf,
-                    funcs.pop_if_cond(|f: &Vec<ContextualDieRef<'_, '_, FunctionDie>>| {
-                        f.len() == 1
-                    })?,
+                    // TODO take first suitable, is this a good approach?
+                    funcs.pop()?,
                 ))
             })
             .ok_or(CallError::FunctionNotFoundOrTooMany)
     }
 
-    fn with_disabled_brkpts<F>(&mut self, f: F) -> Result<(), Error>
+    fn with_disabled_brkpts<F>(&self, f: F) -> Result<(), Error>
     where
-        F: FnOnce(&mut Self) -> Result<(), Error>,
+        F: FnOnce(&Self) -> Result<(), Error>,
     {
         debug!(target: "debugger", "disable all active breakpoints");
         for brkpt in self.breakpoints.active_breakpoints() {
@@ -448,11 +454,11 @@ impl Debugger {
         cb_result
     }
 
-    fn call_fn_raw(&mut self, fn_addr: RelocatedAddress, args: CallArgs) -> Result<(), Error> {
+    fn call_fn_raw(&self, fn_addr: RelocatedAddress, args: CallArgs) -> Result<(), Error> {
         let call_context = CallContext::new(self)?;
 
         call_context.with_ctx(|ctx| {
-            debug!(target: "debugger", "allocate space for a new instructions and data using mmap");
+            debug!(target: "debugger", "alloc temporary memory area");
             let alloc_ptr = CallHelper::mmap(ctx)?;
 
             debug!(target: "debugger", "jump into mmap'ed region");
@@ -464,14 +470,14 @@ impl Debugger {
             debug!(target: "debugger", "going to original rip");
             ctx.regs.clone().persist(ctx.pid)?;
 
-            debug!(target: "debugger", "return allocated space using munmap");
+            debug!(target: "debugger", "dealloc temporary memory area");
             CallHelper::munmap(ctx, alloc_ptr)?;
 
             Ok(())
         })
     }
 
-    fn call_fn(&mut self, fn_name: &str, arguments: &[Literal]) -> Result<(), Error> {
+    fn call_fn(&self, fn_name: &str, arguments: &[Literal]) -> Result<(), Error> {
         debug!(target: "debugger", "find function address and prepare arguments");
 
         let (dwarf, func) = self.search_fn_to_call(fn_name, None)?;

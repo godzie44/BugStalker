@@ -18,8 +18,10 @@ use chumsky::{Boxed, IterParser, Parser, extra, text};
 use itertools::Itertools;
 
 pub const VAR_COMMAND: &str = "var";
+pub const VAR_DEBUG_COMMAND: &str = "vard";
 pub const VAR_LOCAL_KEY: &str = "locals";
 pub const ARG_COMMAND: &str = "arg";
+pub const ARG_DEBUG_COMMAND: &str = "argd";
 pub const ARG_ALL_KEY: &str = "all";
 pub const BACKTRACE_COMMAND: &str = "backtrace";
 pub const BACKTRACE_COMMAND_SHORT: &str = "bt";
@@ -265,37 +267,43 @@ impl Command {
         let sub_op = |sym| just(sym).then(ws_req_or_end);
         let sub_op_w_arg = |sym| just(sym).then(ws_req);
 
-        let print_local_vars = op_w_arg(VAR_COMMAND).then(sub_op(VAR_LOCAL_KEY)).map(|_| {
+        let print_local_vars = choice((
+            op_w_arg(VAR_COMMAND).to(print::RenderMode::Builtin),
+            op_w_arg(VAR_DEBUG_COMMAND).to(print::RenderMode::Debug),
+        ))
+        .then(sub_op(VAR_LOCAL_KEY))
+        .map(|(mode, _)| {
             Command::Print(print::Command::Variable {
-                mode: print::RenderMode::Builtin,
+                mode,
                 dqe: Dqe::Variable(Selector::Any),
             })
         });
-        let print_var = op_w_arg(VAR_COMMAND)
-            .ignore_then(expression::parser())
-            .map(|dqe| {
-                Command::Print(print::Command::Variable {
-                    mode: print::RenderMode::Builtin,
-                    dqe,
-                })
-            });
+        let print_var = choice((
+            op_w_arg(VAR_COMMAND).to(print::RenderMode::Builtin),
+            op_w_arg(VAR_DEBUG_COMMAND).to(print::RenderMode::Debug),
+        ))
+        .then(expression::parser())
+        .map(|(mode, dqe)| Command::Print(print::Command::Variable { mode, dqe }));
 
         let print_variables = choice((print_local_vars, print_var)).boxed();
 
-        let print_all_args = op_w_arg(ARG_COMMAND).then(sub_op(ARG_ALL_KEY)).map(|_| {
+        let print_all_args = choice((
+            op_w_arg(ARG_COMMAND).to(print::RenderMode::Builtin),
+            op_w_arg(ARG_DEBUG_COMMAND).to(print::RenderMode::Debug),
+        ))
+        .then(sub_op(ARG_ALL_KEY))
+        .map(|(mode, _)| {
             Command::Print(print::Command::Argument {
-                mode: print::RenderMode::Builtin,
+                mode,
                 dqe: Dqe::Variable(Selector::Any),
             })
         });
-        let print_arg = op_w_arg(ARG_COMMAND)
-            .ignore_then(expression::parser())
-            .map(|dqe| {
-                Command::Print(print::Command::Argument {
-                    mode: print::RenderMode::Builtin,
-                    dqe,
-                })
-            });
+        let print_arg = choice((
+            op_w_arg(ARG_COMMAND).to(print::RenderMode::Builtin),
+            op_w_arg(ARG_DEBUG_COMMAND).to(print::RenderMode::Debug),
+        ))
+        .then(expression::parser())
+        .map(|(mode, dqe)| Command::Print(print::Command::Argument { mode, dqe }));
 
         let print_arguments = choice((print_all_args, print_arg)).boxed();
 
@@ -680,6 +688,13 @@ fn test_parser() {
             })),
         },
         TestCase {
+            inputs: vec!["vard locals"],
+            expected: Expect::Ok(Command::Print(print::Command::Variable {
+                dqe: Dqe::Variable(Selector::Any),
+                mode: print::RenderMode::Debug,
+            })),
+        },
+        TestCase {
             inputs: vec!["var **var1"],
             expected: Expect::Ok(Command::Print(print::Command::Variable {
                 dqe: Dqe::Deref(
@@ -693,6 +708,13 @@ fn test_parser() {
             expected: Expect::Ok(Command::Print(print::Command::Variable {
                 dqe: Dqe::Variable(Selector::by_name("locals_var", false)),
                 mode: print::RenderMode::Builtin,
+            })),
+        },
+        TestCase {
+            inputs: vec!["vard locals_var"],
+            expected: Expect::Ok(Command::Print(print::Command::Variable {
+                dqe: Dqe::Variable(Selector::by_name("locals_var", false)),
+                mode: print::RenderMode::Debug,
             })),
         },
         TestCase {
@@ -723,10 +745,24 @@ fn test_parser() {
             })),
         },
         TestCase {
+            inputs: vec!["argd all"],
+            expected: Expect::Ok(Command::Print(print::Command::Argument {
+                dqe: Dqe::Variable(Selector::Any),
+                mode: print::RenderMode::Debug,
+            })),
+        },
+        TestCase {
             inputs: vec!["arg all_arg"],
             expected: Expect::Ok(Command::Print(print::Command::Argument {
                 dqe: Dqe::Variable(Selector::by_name("all_arg", false)),
                 mode: print::RenderMode::Builtin,
+            })),
+        },
+        TestCase {
+            inputs: vec!["argd all_arg"],
+            expected: Expect::Ok(Command::Print(print::Command::Argument {
+                dqe: Dqe::Variable(Selector::by_name("all_arg", false)),
+                mode: print::RenderMode::Debug,
             })),
         },
         TestCase {

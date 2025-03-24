@@ -98,6 +98,11 @@ impl TypeIdentity {
 
 impl Display for TypeIdentity {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // TODO this may be a bad idea
+        if self.namespace.is_empty() {
+            return f.write_str(self.name_fmt());
+        }
+
         f.write_fmt(format_args!(
             "{}::{}",
             self.namespace.join("::"),
@@ -218,7 +223,7 @@ pub enum UpperBound {
 pub struct ArrayType {
     pub namespaces: NamespaceHierarchy,
     byte_size: Option<u64>,
-    pub element_type: Option<TypeId>,
+    element_type: Option<TypeId>,
     lower_bound: ArrayBoundValue,
     upper_bound: Option<UpperBound>,
     byte_size_memo: Cell<Option<u64>>,
@@ -242,6 +247,11 @@ impl ArrayType {
             byte_size_memo: Cell::new(None),
             bounds_memo: Cell::new(None),
         }
+    }
+
+    #[inline(always)]
+    pub fn element_type(&self) -> Option<TypeId> {
+        self.element_type
     }
 
     fn lower_bound(&self, eval_ctx: &EvaluationContext) -> i64 {

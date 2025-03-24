@@ -1,5 +1,5 @@
 use crate::ui::command::parser::{
-    ARG_ALL_KEY, ARG_COMMAND, ASYNC_COMMAND, ASYNC_COMMAND_BACKTRACE_SUBCOMMAND,
+    ARG_ALL_KEY, ARG_COMMAND, ARG_DEBUG_COMMAND, ASYNC_COMMAND, ASYNC_COMMAND_BACKTRACE_SUBCOMMAND,
     ASYNC_COMMAND_BACKTRACE_SUBCOMMAND_SHORT, ASYNC_COMMAND_STEP_OUT_SUBCOMMAND,
     ASYNC_COMMAND_STEP_OUT_SUBCOMMAND_SHORT, ASYNC_COMMAND_STEP_OVER_SUBCOMMAND,
     ASYNC_COMMAND_STEP_OVER_SUBCOMMAND_SHORT, ASYNC_COMMAND_TASK_SUBCOMMAND,
@@ -17,7 +17,7 @@ use crate::ui::command::parser::{
     THREAD_COMMAND_INFO_SUBCOMMAND, THREAD_COMMAND_SWITCH_SUBCOMMAND, TRIGGER_COMMAND,
     TRIGGER_COMMAND_ANY_TRIGGER_SUBCOMMAND, TRIGGER_COMMAND_BRKPT_TRIGGER_SUBCOMMAND,
     TRIGGER_COMMAND_INFO_SUBCOMMAND, TRIGGER_COMMAND_WP_TRIGGER_SUBCOMMAND, VAR_COMMAND,
-    VAR_LOCAL_KEY, WATCH_COMMAND, WATCH_COMMAND_SHORT, WATCH_INFO_SUBCOMMAND,
+    VAR_DEBUG_COMMAND, VAR_LOCAL_KEY, WATCH_COMMAND, WATCH_COMMAND_SHORT, WATCH_INFO_SUBCOMMAND,
     WATCH_REMOVE_SUBCOMMAND, WATCH_REMOVE_SUBCOMMAND_SHORT,
 };
 use chumsky::prelude::{any, choice, just};
@@ -175,12 +175,14 @@ impl<'a> CompletableCommand<'a> {
             .ignore_then(any().repeated().to_slice())
             .map(CompletableCommand::Breakpoint);
 
-        let var = op(VAR_COMMAND)
+        let var = op(VAR_DEBUG_COMMAND)
+            .or(op(VAR_COMMAND))
             .then(whitespace().at_least(1))
             .ignore_then(any().repeated().to_slice())
             .map(CompletableCommand::PrintVariables);
 
-        let arg = op(ARG_COMMAND)
+        let arg = op(ARG_DEBUG_COMMAND)
+            .or(op(ARG_COMMAND))
             .then(whitespace().at_least(1))
             .ignore_then(any().repeated().to_slice())
             .map(CompletableCommand::PrintArguments);
@@ -349,6 +351,8 @@ pub fn create_editor(
     let commands = [
         VAR_COMMAND.into(),
         ARG_COMMAND.into(),
+        VAR_DEBUG_COMMAND.into(),
+        ARG_DEBUG_COMMAND.into(),
         (CONTINUE_COMMAND_SHORT, CONTINUE_COMMAND).into(),
         CommandHint {
             short: None,
