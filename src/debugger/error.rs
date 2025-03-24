@@ -1,4 +1,5 @@
 use super::call::CallError;
+use super::call::fmt::FmtCallError;
 use crate::debugger::address::GlobalAddress;
 use crate::debugger::r#async::AsyncError;
 use crate::debugger::debugee::RendezvousError;
@@ -176,6 +177,8 @@ pub enum Error {
     // --------------------------------- function call errors -------------------------------------
     #[error(transparent)]
     Call(#[from] CallError),
+    #[error(transparent)]
+    FmtCall(#[from] FmtCallError),
 }
 
 impl Error {
@@ -240,6 +243,7 @@ impl Error {
             Error::VarFrameNotFound => false,
             Error::Async(_) => false,
             Error::Call(_) => false,
+            Error::FmtCall(_) => false,
 
             // currently fatal errors
             Error::DwarfParsing(_) => true,

@@ -3,6 +3,7 @@ use crate::common::TestHooks;
 use crate::common::{TestInfo, rust_version};
 use crate::{assert_no_proc, prepare_debugee_process};
 use bugstalker::debugger::DebuggerBuilder;
+use bugstalker::debugger::call::fmt::call_debug_fmt;
 use bugstalker::debugger::variable::dqe::{Dqe, Literal, LiteralOrWildcard, PointerCast, Selector};
 use bugstalker::debugger::variable::render::RenderValue;
 use bugstalker::debugger::variable::value::{Member, SpecializedValue, SupportedScalar, Value};
@@ -2557,7 +2558,7 @@ fn test_read_static_in_fn_variable() {
     // brkpt in function where static is declared
     debugger.set_breakpoint_at_line("vars.rs", 504).unwrap();
     // brkpt outside function where static is declared
-    debugger.set_breakpoint_at_line("vars.rs", 577).unwrap();
+    debugger.set_breakpoint_at_line("vars.rs", 678).unwrap();
 
     debugger.start_debugee().unwrap();
     assert_eq!(info.line.take(), Some(504));
@@ -2567,7 +2568,7 @@ fn test_read_static_in_fn_variable() {
     assert_scalar(inner_static.value(), "u32", Some(SupportedScalar::U32(1)));
 
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(577));
+    assert_eq!(info.line.take(), Some(678));
 
     read_var_dqe!(debugger, Dqe::Variable(Selector::by_name("INNER_STATIC", false)) => inner_static);
     assert_idents!(inner_static => "vars::inner_static::INNER_STATIC");
@@ -2839,6 +2840,79 @@ fn test_read_time() {
     assert_idents!(system_time => "system_time", instant => "instant");
     assert_system_time(system_time.value(), (0, 0));
     assert_instant(instant.value());
+
+    debugger.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_debug_trait_repr_vars() {
+    let process = prepare_debugee_process(VARS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = TestInfo::default();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
+
+    debugger.set_breakpoint_at_line("vars.rs", 641).unwrap();
+
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(641));
+
+    read_locals!(debugger => v1, v2, v3, s0, s1, s2, s3, s4, str_array, c_enum, r_enum1, r_enum2, opt, my_str, my_string);
+    let fmt_string = call_debug_fmt(&debugger, &v1).unwrap();
+    assert_eq!(fmt_string, "[]");
+    let fmt_string = call_debug_fmt(&debugger, &v2).unwrap();
+    assert_eq!(fmt_string, "[]");
+    let fmt_string = call_debug_fmt(&debugger, &v3).unwrap();
+    assert_eq!(fmt_string, "[1, 23, 3]");
+    let fmt_string = call_debug_fmt(&debugger, &s0).unwrap();
+    assert_eq!(fmt_string, "Struct0 { a: 1 }");
+    let fmt_string = call_debug_fmt(&debugger, &s1).unwrap();
+    assert_eq!(fmt_string, "Struct1 { field1: 1, field2: 3 }");
+    let fmt_string = call_debug_fmt(&debugger, &s2).unwrap();
+    assert_eq!(fmt_string, "Struct1 { field1: 1, field2: \"44\" }");
+    let fmt_string = call_debug_fmt(&debugger, &s3).unwrap();
+    assert_eq!(fmt_string, "Struct2 { field1: \"66\", field2: 55 }");
+    let fmt_string = call_debug_fmt(&debugger, &s4).unwrap();
+    assert_eq!(fmt_string, "Struct3 { field1: 11, field2: 12 }");
+    let fmt_string = call_debug_fmt(&debugger, &str_array).unwrap();
+    assert_eq!(fmt_string, "[\"abc\", \"ef\", \"g\"]");
+    let fmt_string = call_debug_fmt(&debugger, &c_enum).unwrap();
+    assert_eq!(fmt_string, "A");
+    let fmt_string = call_debug_fmt(&debugger, &r_enum1).unwrap();
+    assert_eq!(fmt_string, "S1(Struct1 { field1: 100, field2: \"100\" })");
+    let fmt_string = call_debug_fmt(&debugger, &r_enum2).unwrap();
+    assert_eq!(fmt_string, "S2(Struct2 { field1: 1, field2: 2 })");
+    let fmt_string = call_debug_fmt(&debugger, &opt).unwrap();
+    assert_eq!(fmt_string, "Some(1)");
+    let fmt_string = call_debug_fmt(&debugger, &my_str).unwrap();
+    assert_eq!(fmt_string, "\"some str\"");
+    let fmt_string = call_debug_fmt(&debugger, &my_string).unwrap();
+    assert_eq!(fmt_string, "\"some string\"");
+
+    debugger.continue_debugee().unwrap();
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_debug_trait_repr_args() {
+    let process = prepare_debugee_process(VARS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = TestInfo::default();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
+
+    debugger.set_breakpoint_at_fn("debug_fmt_args").unwrap();
+
+    debugger.start_debugee().unwrap();
+
+    read_arg_dqe!(debugger, Dqe::Variable(Selector::Any) => arg1, arg2);
+    let fmt_string = call_debug_fmt(&debugger, &arg1).unwrap();
+    assert_eq!(fmt_string, "\"one\"");
+    let fmt_string = call_debug_fmt(&debugger, &arg2).unwrap();
+    assert_eq!(fmt_string, "[\"two\", \"three\"]");
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);

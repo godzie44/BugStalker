@@ -237,7 +237,7 @@ impl ValueParser {
                 let el_size = (array_decl.size_in_bytes(ctx.evaluation_context, ctx.type_graph)?
                     / len as u64) as usize;
                 let bytes = &data.raw_data;
-                let el_type_id = array_decl.element_type?;
+                let el_type_id = array_decl.element_type()?;
 
                 let (mut bytes_chunks, mut empty_chunks);
                 let raw_items_iter: &mut dyn Iterator<Item = (usize, &[u8])> = if el_size != 0 {

@@ -544,6 +544,107 @@ fn boxed_array() {
 
     let nop: Option<u8> = None;
 }
+// TODO supports boxed arrays
+
+fn debug_fmt_vars() {
+    use core::fmt::Debug;
+
+    let v1: Vec<u32> = vec![];
+    let v2 = Vec::<u64>::new();
+    let v3: Vec<i32> = vec![1, 23, 3];
+
+    #[derive(Debug)]
+    struct Struct0 {
+        a: u64,
+    }
+
+    #[derive(Debug)]
+    struct Struct1<T: Debug> {
+        field1: i32,
+        field2: T,
+    }
+
+    #[derive(Debug)]
+    struct Struct2<A: Debug, B: Debug> {
+        field1: A,
+        field2: B,
+    }
+
+    #[derive(Debug)]
+    struct Struct3 {
+        field1: i32,
+        field2: u64,
+    }
+
+    let s0: Struct0 = Struct0 { a: 1 };
+    let s1: Struct1<u64> = Struct1::<u64> {
+        field1: 1,
+        field2: 3,
+    };
+    let s2: Struct1<String> = Struct1::<String> {
+        field1: 1,
+        field2: "44".to_string(),
+    };
+    let s3: Struct2<String, u64> = Struct2::<String, u64> {
+        field1: "66".to_string(),
+        field2: 55,
+    };
+    let s4 = Struct3 {
+        field1: 11,
+        field2: 12,
+    };
+
+    let str_array = ["abc", "ef", "g"];
+
+    #[derive(Debug)]
+    enum Enum1 {
+        A,
+        B,
+    }
+    let c_enum = Enum1::A;
+
+    #[derive(Debug)]
+    enum Enum2<T1: Debug, T2: Debug> {
+        S1(Struct1<T1>),
+        S2(Struct2<T1, T2>),
+    }
+    let r_enum1: Enum2<&str, ()> = Enum2::S1::<&str, ()>(Struct1 {
+        field1: 100,
+        field2: "100",
+    });
+    let r_enum2: Enum2<u64, u32> = Enum2::S2(Struct2 {
+        field1: 1,
+        field2: 2,
+    });
+
+    let opt = Some(1);
+
+    let my_str = "some str";
+    let my_string = "some string".to_string();
+
+    _ = format!("{:?}", s0);
+    _ = format!("{:?}", v1);
+    _ = format!("{:?}", v2);
+    _ = format!("{:?}", v3);
+    _ = format!("{:?}", s1);
+    _ = format!("{:?}", s2);
+    _ = format!("{:?}", s3);
+    _ = format!("{:?}", s4);
+    _ = format!("{:?}", str_array);
+    _ = format!("{:?}", c_enum);
+    _ = format!("{:?}", r_enum1);
+    _ = format!("{:?}", r_enum2);
+    _ = format!("{:?}", opt);
+    _ = format!("{:?}", my_str);
+    _ = format!("{:?}", my_string);
+
+    let nop: Option<u8> = None;
+}
+
+fn debug_fmt_args(arg1: String, arg2: Vec<String>) {
+    _ = format!("{:?}", arg1);
+    _ = format!("{:?}", arg2);
+}
 
 pub fn main() {
     scalar_types();
@@ -579,4 +680,9 @@ pub fn main() {
     datetime();
     thread_local_const_init();
     boxed_array();
+    debug_fmt_vars();
+    debug_fmt_args(
+        "one".to_string(),
+        vec!["two".to_string(), "three".to_string()],
+    );
 }

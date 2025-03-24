@@ -462,10 +462,14 @@ impl AppLoop {
                 .handle(print_var_command)?
                 .into_iter()
                 .for_each(|var| {
-                    self.printer.println(
-                        render_variable(&var)
-                            .unwrap_or(print::style::UNKNOWN_PLACEHOLDER.to_string()),
-                    );
+                    let string_to_render = match var {
+                        command::print::ReadVariableResult::PreRender(qr, val) => {
+                            render_variable(&qr, Some(&val))
+                        }
+                        command::print::ReadVariableResult::Raw(qr) => render_variable(&qr, None),
+                    }
+                    .unwrap_or(print::style::UNKNOWN_PLACEHOLDER.to_string());
+                    self.printer.println(string_to_render)
                 }),
             Command::PrintBacktrace(cmd) => {
                 let bt = BacktraceHandler::new(&self.debugger).handle(cmd)?;

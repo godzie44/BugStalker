@@ -7,6 +7,8 @@ Available debugger commands:
 
 var <name or expression>|locals             -- show local and global variables
 arg <name or expression>|all                -- show arguments of current stack frame
+vard <name or expression>|locals            -- show local and global variables, using `Debug` trait for render
+argd <name or expression>|all               -- show arguments of current stack frame, using `Debug` trait for render
 bt, backtrace <>|all                        -- print backtrace of all stack frames in current thread or from all threads
 f, frame info|switch <number>               -- print current stack frame information or change frame
 c, continue                                 -- continue program being debugged, after signal or breakpoint
@@ -110,9 +112,41 @@ var *some_array[0] - print dereferenced value of some_array[0]
 var (*some_array)[0] - print first element of *some_array
 ";
 
+pub const HELP_VAR_DEBUG: &str = "\
+\x1b[32;1mvard\x1b[0m
+Show local and global variables using `Debug` trait, supports data queries expressions over variables (see `help dqe`).
+
+Available subcommands:
+var locals - print current stack frame local variables
+var <name or expression> - print local and global variables with selected name
+
+Examples of usage:
+var locals - print current stack frame local variables
+var some_variable - print all variables with given name, variables can be in local or global scope 
+var *some_variable - dereference and print value if `some_variable` is a pointer or RC/ARC
+var some_array[0] - print first element if `some_array` is a vector, array, vecdeque or enum
+var some_array[2..5] - print 3 elements, starts from index 2
+var *some_array[0] - print dereferenced value of some_array[0]
+var (*some_array)[0] - print first element of *some_array
+";
+
 pub const HELP_ARG: &str = "\
 \x1b[32;1marg\x1b[0m
 Show current stack frame arguments, supports data queries expressions over arguments (see `help dqe`).
+
+Available subcommands:
+arg all - print all arguments
+arg <name or expression> - print argument with selected name
+
+Examples of usage:
+arg all - print current stack frame local variables
+arg some_arg - print argument with name equals to `some_arg`
+arg *some_arg - dereference and print value if `some_arg` is a pointer or RC/ARC
+";
+
+pub const HELP_ARG_DEBUG: &str = "\
+\x1b[32;1margd\x1b[0m
+Show current stack frame arguments using `Debug` trait, supports data queries expressions over arguments (see `help dqe`).
 
 Available subcommands:
 arg all - print all arguments
@@ -352,6 +386,8 @@ impl Helper {
             Some("dqe literal") => DQE_LITERAL_DESCRIPTION,
             Some(parser::VAR_COMMAND) => HELP_VAR,
             Some(parser::ARG_COMMAND) => HELP_ARG,
+            Some(parser::VAR_DEBUG_COMMAND) => HELP_VAR_DEBUG,
+            Some(parser::ARG_DEBUG_COMMAND) => HELP_ARG_DEBUG,
             Some(parser::BACKTRACE_COMMAND) | Some(parser::BACKTRACE_COMMAND_SHORT) => {
                 HELP_BACKTRACE
             }
