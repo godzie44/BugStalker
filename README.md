@@ -65,6 +65,8 @@
 * builtin [tokio oracle](#oracles) -
   like [tokio_console](https://github.com/tokio-rs/console) but there is no need
   to make changes to the source codes
+* async rust support
+* render variables using the `core::fmt::Debug` trait
 * and much more!
 
 ---
@@ -391,6 +393,8 @@ Of course, you need a way to examine data of your program.
 
 - `var {expression}|locals` command for print local and global variables
 - `arg {expression}|all` command for print a function arguments
+- `vard {expression}|locals` is the same as the `var` command, but it uses the `Debug` trait for rendering
+- `argd {expression}|all` is the same as the `arg` command, but it uses the `Debug` trait for rendering
 
 These commands accept expressions as input or have a special mode
 (`var locals` print all local variables, `args all` print all arguments).

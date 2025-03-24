@@ -8,7 +8,7 @@ use syntect::util::as_24_bit_terminal_escaped;
 
 const TAB: &str = "    ";
 
-pub fn render_variable(var: &QueryResult) -> anyhow::Result<String> {
+pub fn render_variable(var: &QueryResult, prerender: Option<&str>) -> anyhow::Result<String> {
     let syntax_renderer = syntax::rust_syntax_renderer();
     let mut line_renderer = syntax_renderer.line_renderer();
     let prefix = if var.kind() == QueryResultKind::Root && var.identity().name.is_some() {
@@ -17,7 +17,11 @@ pub fn render_variable(var: &QueryResult) -> anyhow::Result<String> {
         String::default()
     };
 
-    let var_as_string = format!("{prefix}{}", render_value(var.value()));
+    let var_as_string = if let Some(value) = prerender {
+        format!("{prefix}{value}")
+    } else {
+        format!("{prefix}{}", render_value(var.value()))
+    };
     Ok(var_as_string
         .lines()
         .map(|l| -> anyhow::Result<String> {

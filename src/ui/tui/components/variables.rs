@@ -3,6 +3,7 @@ use crate::debugger::variable::dqe::{Dqe, Selector};
 use crate::debugger::variable::execute::{QueryResult, QueryResultKind};
 use crate::debugger::variable::render::{RenderValue, ValueLayout};
 use crate::ui;
+use crate::ui::command::print::ReadVariableResult;
 use crate::ui::syntax::StylizedLine;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::CommonAction;
@@ -267,12 +268,19 @@ impl Variables {
                     mode: command::print::RenderMode::Builtin,
                     dqe: expr,
                 })
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .into_iter()
+                .map(|rr| {
+                    let ReadVariableResult::Raw(qr) = rr else {
+                        panic!("infallible: builtin mode always return `ReadVariableResult::Raw`");
+                    };
+                    qr
+                });
 
             let mut vars_node =
                 Node::new("variables".to_string(), vec![TextSpan::new("variables")]);
 
-            for (i, var) in vars.into_iter().enumerate() {
+            for (i, var) in vars.enumerate() {
                 let node_name = format!("var_{i}");
                 let name = if var.kind() == QueryResultKind::Root && var.identity().name.is_some() {
                     Some(var.identity().to_string())
@@ -297,11 +305,18 @@ impl Variables {
                     mode: command::print::RenderMode::Builtin,
                     dqe: expr,
                 })
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .into_iter()
+                .map(|rr| {
+                    let ReadVariableResult::Raw(qr) = rr else {
+                        panic!("infallible: builtin mode always return `ReadVariableResult::Raw`");
+                    };
+                    qr
+                });
 
             let mut args_node =
                 Node::new("arguments".to_string(), vec![TextSpan::new("arguments")]);
-            for (i, arg) in args.into_iter().enumerate() {
+            for (i, arg) in args.enumerate() {
                 let node_name = format!("arg_{i}");
                 let name = if arg.kind() == QueryResultKind::Root && arg.identity().name.is_some() {
                     Some(arg.identity().to_string())
