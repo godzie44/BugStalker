@@ -57,7 +57,7 @@ class FunctionCallTestCase(unittest.TestCase):
         self.debugger.cmd('call print_deref ' + addr1 + ' ' + addr2 + ' ' + addr3, 'deref is 100 101 Foo { bar: 102, baz: "103" }')
                 
     def test_fmt_vars(self):
-        """"""
+        """Test vard command"""
         self.debugger = Debugger(path='./examples/target/debug/vars')
 
         self.debugger.cmd('break vars.rs:641')
@@ -83,7 +83,7 @@ class FunctionCallTestCase(unittest.TestCase):
         )
         
     def test_fmt_args(self):
-        """"""
+        """Test argd command"""
         self.debugger = Debugger(path='./examples/target/debug/vars')
 
         self.debugger.cmd('break vars.rs:645')

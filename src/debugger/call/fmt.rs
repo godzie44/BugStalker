@@ -53,18 +53,12 @@ impl WriteStringVTable {
         const STRING_ALIGN: usize = std::mem::align_of::<String>();
 
         let find_fn_for_vtable = |tpl, name_attr| -> Result<RelocatedAddress, FmtCallError> {
-            let (dwarf, vtable_fn) = dbg
-                .search_fn_to_call(tpl, name_attr)
+            let fn_info = dbg
+                .call_cache()
+                .get_or_insert(dbg, tpl, name_attr)
                 .map_err(|_| FmtCallError::VTable(tpl.to_string()))?;
 
-            let vtable_fn_addr = vtable_fn
-                .prolog_start_place()
-                .map_err(|_| FmtCallError::VTable(tpl.to_string()))?
-                .address
-                .relocate_to_segment(&dbg.debugee, dwarf)
-                .map_err(|_| FmtCallError::VTable(tpl.to_string()))?;
-
-            Ok(vtable_fn_addr)
+            Ok(fn_info.fn_addr())
         };
 
         let drop_in_place_fn_addr =
@@ -118,7 +112,6 @@ impl DebugFormattable for Value {
     }
 }
 
-// TODO need to cache calling plans for types
 struct FmtCallingPlan {
     fmt_fn_addr: RelocatedAddress,
     need_indirection: bool,
@@ -134,15 +127,12 @@ fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCalli
 
     // fast path, try to find fmt function using "<{type_name} as core::fmt::Debug>::fmt" pattern
     let naive_linkage_name = format!("<{type_name} as core::fmt::Debug>::fmt");
-    let search_result = dbg.search_fn_to_call(&naive_linkage_name, None);
-    if let Ok((dwarf, fmt_fn)) = search_result {
-        let fn_addr = fmt_fn
-            .prolog_start_place()?
-            .address
-            .relocate_to_segment(&dbg.debugee, dwarf)?;
-
+    let fn_info_result = dbg
+        .call_cache()
+        .get_or_insert(dbg, &naive_linkage_name, None);
+    if let Ok(fn_info) = fn_info_result {
         return Ok(FmtCallingPlan {
-            fmt_fn_addr: fn_addr,
+            fmt_fn_addr: fn_info.fn_addr(),
             need_indirection: false,
         });
     }
@@ -169,14 +159,12 @@ fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCalli
 
         let fmt_fn_name = format!("fmt<{concrete_types}>");
 
-        let fmt_fn = dbg.search_fn_to_call(&linkage_name, Some(&fmt_fn_name));
-        if let Ok((dwarf, fmt_fn)) = fmt_fn {
-            let fn_addr = fmt_fn
-                .prolog_start_place()?
-                .address
-                .relocate_to_segment(&dbg.debugee, dwarf)?;
+        let fmt_fn_info_result = dbg
+        .call_cache()
+        .get_or_insert(dbg, &linkage_name, Some(&fmt_fn_name));
 
-            return Ok(Some(fn_addr));
+        if let Ok(fmt_fn) = fmt_fn_info_result {
+            return Ok(Some(fmt_fn.fn_addr()));
         }
         Ok(None)
     };
@@ -204,17 +192,15 @@ fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCalli
 
             let fmt_fn_name = format!("fmt<{}, {}>", el_type_name, size);
 
-            let search_result =
-                dbg.search_fn_to_call(ARRAY_DEBUG_FMT_LINKAGE_NAME, Some(&fmt_fn_name));
+            let fmt_fn_info_result = dbg.call_cache().get_or_insert(
+                dbg,
+                ARRAY_DEBUG_FMT_LINKAGE_NAME,
+                Some(&fmt_fn_name),
+            );
 
-            if let Ok((dwarf, fmt_fn)) = search_result {
-                let fn_addr = fmt_fn
-                    .prolog_start_place()?
-                    .address
-                    .relocate_to_segment(&dbg.debugee, dwarf)?;
-
+            if let Ok(fmt_fn) = fmt_fn_info_result {
                 return Ok(FmtCallingPlan {
-                    fmt_fn_addr: fn_addr,
+                    fmt_fn_addr: fmt_fn.fn_addr(),
                     need_indirection: false,
                 });
             }
@@ -271,15 +257,13 @@ fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCalli
     // Currently this used in just one case - for &str type,
     // but perhaps the use will expand in the future
     let fmt_fn_name = format!("fmt<{type_name}>");
-    let search_result = dbg.search_fn_to_call("<&T as core::fmt::Debug>::fmt", Some(&fmt_fn_name));
+    let fmt_fn_info_result =
+        dbg.call_cache()
+            .get_or_insert(dbg, "<&T as core::fmt::Debug>::fmt", Some(&fmt_fn_name));
 
-    if let Ok((dwarf, fmt_fn)) = search_result {
-        let fn_addr = fmt_fn
-            .prolog_start_place()?
-            .address
-            .relocate_to_segment(&dbg.debugee, dwarf)?;
+    if let Ok(fmt_fn) = fmt_fn_info_result {
         return Ok(FmtCallingPlan {
-            fmt_fn_addr: fn_addr,
+            fmt_fn_addr: fmt_fn.fn_addr(),
             need_indirection: true,
         });
     }
