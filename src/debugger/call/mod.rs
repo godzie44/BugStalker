@@ -1,20 +1,22 @@
+mod cache;
 pub mod fmt;
+pub use cache::CallCache;
 
 use super::{
     Debugger, Error, FunctionDie, TypeDeclaration,
     address::RelocatedAddress,
-    debugee::dwarf::{AsAllocatedData, ContextualDieRef, DebugInformation, r#type::ComplexType},
+    debugee::dwarf::{ContextualDieRef, DebugInformation, r#type::ComplexType},
     register::{Register, RegisterMap},
     utils::PopIf,
     variable::dqe::Literal,
 };
 use crate::{
     debugger::{read_memory_by_pid, utils},
-    disable_when_not_stared, type_from_cache, weak_error,
+    disable_when_not_stared, weak_error,
 };
 use log::debug;
 use nix::sys::{self, wait::WaitStatus};
-use std::{collections::hash_map::Entry, rc::Rc};
+use std::rc::Rc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CallError {
@@ -477,26 +479,13 @@ impl Debugger {
         })
     }
 
-    fn call_fn(&self, fn_name: &str, arguments: &[Literal]) -> Result<(), Error> {
+    fn call_fn(&self, linkage_name: &str, arguments: &[Literal]) -> Result<(), Error> {
         debug!(target: "debugger", "find function address and prepare arguments");
 
-        let (dwarf, func) = self.search_fn_to_call(fn_name, None)?;
+        let fn_info = self.call_cache().get_or_insert(self, linkage_name, None)?;
 
-        let fn_addr = func
-            .prolog_start_place()?
-            .address
-            .relocate_to_segment(&self.debugee, dwarf)?;
-
-        let params = {
-            let mut type_cache = self.type_cache.borrow_mut();
-            func.parameters()
-                .into_iter()
-                .map(|die| type_from_cache!(die, type_cache))
-                .collect::<Result<Vec<_>, _>>()?
-        };
-
-        let args = CallArgs::new(arguments, params.as_slice())?;
-        self.call_fn_raw(fn_addr, args)
+        let args = CallArgs::new(arguments, fn_info.fn_param_types())?;
+        self.call_fn_raw(fn_info.fn_addr(), args)
     }
 
     /// Do a function call.
