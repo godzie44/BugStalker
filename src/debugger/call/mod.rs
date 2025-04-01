@@ -15,7 +15,7 @@ use crate::{
     disable_when_not_stared, weak_error,
 };
 use log::debug;
-use nix::sys::{self, wait::WaitStatus};
+use nix::sys::{self, signal::Signal, wait::WaitStatus};
 use std::rc::Rc;
 
 #[derive(Debug, thiserror::Error)]
@@ -267,25 +267,26 @@ impl<'a> CallContext<'a> {
 struct CallHelper;
 
 impl CallHelper {
-    fn call_fn(ctx: &CallContext, mem_ptr: u64, fn_addr: u64, args: CallArgs) -> Result<(), Error> {
+    fn call_fn(ctx: &CallContext, rip: u64, fn_addr: u64, args: CallArgs) -> Result<(), Error> {
         // new text:
         // FF D0 - CALL %rax
         // CC - break
         const CALL_FN: usize = 0xFFusize | (0xD0usize << 0x8) | (0xCCusize << 0x10);
 
         debug!(target: "debugger", "add call instructions");
-        ctx.dbg.write_memory(mem_ptr as usize, CALL_FN)?;
+        ctx.dbg.write_memory(rip as usize, CALL_FN)?;
 
         debug!(target: "debugger", "prepare function arguments");
         let mut regs: RegisterMap = ctx.regs.clone();
         args.prepare_registers(&mut regs);
         regs.update(Register::Rax, fn_addr);
+        regs.update(Register::Rip, rip);
         regs.persist(ctx.pid)?;
 
         debug!(target: "debugger", "call a function, wait until breakpoint are hit");
         sys::ptrace::cont(ctx.pid, None).map_err(Error::Ptrace)?;
         let res = nix::sys::wait::waitpid(ctx.pid, None).map_err(Error::Waitpid)?;
-        debug_assert!(matches!(res, WaitStatus::Stopped(_, _)));
+        debug_assert!(res == WaitStatus::Stopped(ctx.pid, Signal::SIGTRAP));
 
         Ok(())
     }
