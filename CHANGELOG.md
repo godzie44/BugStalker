@@ -16,6 +16,17 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+# [0.2.8] Apr 7 2025
+
+### Added
+- debugger: added support for rustc 1.86
+
+### Fixed
+- fix broken nix flake
+- fix CI libunwind installation script
+
+---
+
 # [0.2.7] Feb 23 2025
 
 ### Added
