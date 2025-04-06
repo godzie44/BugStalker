@@ -78,7 +78,9 @@ jobs:
           override: true
           components: rustfmt, clippy
       - name: Install libunwind
-        run: sudo apt-get install libunwind-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install libunwind-dev
       - name: Build debugger and test programs
         run: make build-all
       - name: Run cargo fmt
