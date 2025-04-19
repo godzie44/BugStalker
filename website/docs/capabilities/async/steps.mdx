@@ -1,0 +1,63 @@
+---
+sidebar_position: 2
+description: async stepover and stepout commands overview
+---
+
+# Async steps
+
+Asynchronous step commands function similarly to regular debugging steps (stepover, stepout), but operate within the context 
+of the current task. These commands ensure your program execution stops either:
+- at the next step within the current task, or
+- when the current task transitions to a completed state
+
+Available commands:
+- `async stepover` (alias: `async next`) - Steps through the program while:
+    - stepping over function/subroutine calls
+    - stopping if the task completes
+    - remaining within the current task's context
+- `async stepout` (alias: `async finish`) - continues execution until:
+    - the current task completes
+    - control returns from the current async function
+
+## Usage example
+
+Consider this async Rust program:
+
+```rust
+#[tokio::main(worker_threads = 3)]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let t2 = tokio::task::spawn(f2());
+    t2.await.unwrap();
+
+    Ok(())
+}
+
+async fn f2() {
+    let mut vector: Vec<i32> = vec![1, 2, 3, 4, 5, 6, 7];
+    let _a = 123;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _b = inner_1(&mut vector, 2).await;
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _c = inner_1(&mut vector, 2).await;
+}
+
+async fn inner_1(v: &mut Vec<i32>, val: i32) -> i32 {
+    v.push(val);
+    let b = val;
+    return b;
+}
+```
+
+To demonstrate these commands:
+- set a breakpoint at `f2()` function line: `let _a = 123`;
+- use async stepout to execute until the task completes
+- restart the program
+- use async stepover to step through the task while remaining in its context
+
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import AsciinemaPlayer from '@site/src/components/AsciinemaPlayer';
+
+<BrowserOnly>
+  {() => <AsciinemaPlayer src="/BugStalker/casts/async_bt.cast" />}
+</BrowserOnly>

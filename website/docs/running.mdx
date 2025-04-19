@@ -1,0 +1,71 @@
+---
+sidebar_position: 4
+---
+
+# Running the debugger
+
+## Starting a debugger session
+
+To debug a program from a binary file, use:
+
+```shell
+bs my_cool_program
+```
+
+To pass arguments to your program:
+
+```shell
+bs my_cool_program -- --arg1 val1 --arg2 val2
+```
+
+To attach to a running process by its PID:
+
+```shell
+bs -p 123
+```
+
+## Getting Help
+
+Print `help` to view all available commands.
+
+## Starting and restarting programs
+
+- `run` (alias: `r`) - start or restart the program 
+
+## Controlling program execution
+
+The debugger stops your program when:
+- breakpoints are hit
+- watchpoints are triggered
+- step commands complete
+- OS signals are received
+
+BugStalker always stops the entire program, pausing all threads. 
+The thread that caused the stop becomes the currently selected thread.
+
+### Continue execution
+
+- `continue` (alias: `c`)- resume execution of a stopped program
+
+## Quit
+
+- `quit` (alias: `q`) - exit BugStalker
+
+## Usage example
+
+Consider this Rust program:
+
+```rust
+fn main() {
+    println!("hello world");
+}
+```
+
+Now you can run, restart, and continue execution (after [breakpoint](/capabilities/control_execution/breakpoint.mdx) are hit) of this program:
+
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import AsciinemaPlayer from '@site/src/components/AsciinemaPlayer';
+
+<BrowserOnly>
+  {() => <AsciinemaPlayer src="/BugStalker/casts/start.cast" />}
+</BrowserOnly>

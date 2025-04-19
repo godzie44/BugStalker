@@ -1,0 +1,47 @@
+---
+sidebar_position: 13
+---
+
+# Symbol Search
+
+<details>
+<summary>What is a debug symbol?</summary>
+
+A debug symbol is a special marker or label programmers add to their 
+software programs to help them understand and troubleshoot the code. 
+Debug symbols are not human-readable, but programmers use debugging 
+tools to interpret them and get meaningful insights.
+</details>
+
+
+The symbol command allows you to search and display debug symbols:
+- `symbol <regexp>` - searches for and displays symbols matching the given regular expression pattern
+
+## Usage example
+
+Consider this Rust program:
+
+```rust
+fn print_val(val: u32) {
+    println!("val is {val}");
+}
+
+fn main() {
+    let mut some_val = 3;
+    some_val += 1;
+
+    print_val(1337);
+}
+```
+
+Let's examine the symbols:
+
+
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import AsciinemaPlayer from '@site/src/components/AsciinemaPlayer';
+
+<BrowserOnly>
+  {() => <AsciinemaPlayer src="/BugStalker/casts/symbol.cast" />}
+</BrowserOnly>
+
+
