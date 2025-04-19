@@ -1,0 +1,18 @@
+position: 10
+label: 'Async'
+collapsible: true
+collapsed: false
+className: red
+link:
+  type: generated-index
+  title: Async overview
+  description: >
+    BugStalker supports several commands for interacting with async runtimes (currently, only the `tokio` multithread runtime is supported).
+    There is also an `oracle tokio` command, but it introduces some overhead and provides less detailed information compared to the commands described below.
+
+customProps:
+  description: Commands for interacting with async runtimes
+
+
+
+

@@ -1,0 +1,40 @@
+---
+sidebar_position: 3
+---
+
+# Working with registers
+
+The `register` command is used to read, write, or inspect the registers of a debugged program (with x86_64 register support).
+
+Available Commands:
+- `register read <reg_name>` - displays the value of a register (use lowercase x86_64 register names)
+- `register write <reg_name> <value>` - modifies a register's value
+- `register info` - lists all registers and their current values
+
+## Usage example
+
+Consider this Rust program:
+
+```rust
+fn print_val(val: u32) {
+    println!("val is {val}");
+}
+
+fn main() {
+    let mut some_val = 3;
+    some_val += 1;
+
+    print_val(some_val);
+}
+```
+
+Goal: Instead of printing 4, we'll manipulate a register to force the output 6.
+
+Let’s do it:
+
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import AsciinemaPlayer from '@site/src/components/AsciinemaPlayer';
+
+<BrowserOnly>
+  {() => <AsciinemaPlayer src="/BugStalker/casts/register.cast" />}
+</BrowserOnly>
