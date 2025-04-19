@@ -1,0 +1,29 @@
+---
+sidebar_position: 4
+---
+
+# Catch the signal
+
+`BugStalker` catches signals sent from the OS to the debugged program and stops execution.
+
+## Usage example
+
+Consider this Rust code:
+
+```rust
+pub fn main() {
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        println!("tick");
+    }
+}
+```
+
+For example, let's try to send SIGINT (Ctrl+C) to the debugged program:
+
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import AsciinemaPlayer from '@site/src/components/AsciinemaPlayer';
+
+<BrowserOnly>
+  {() => <AsciinemaPlayer src="/BugStalker/casts/signal.cast" />}
+</BrowserOnly>

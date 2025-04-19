@@ -1,0 +1,14 @@
+position: 2
+label: 'Examine state'
+collapsible: true
+collapsed: false
+className: red
+link:
+  type: generated-index
+  title: Examine execution state
+  description: >
+    Overview of commands that allow examining the execution state of a debugged program.
+
+
+
+

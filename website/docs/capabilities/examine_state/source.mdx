@@ -1,0 +1,41 @@
+---
+sidebar_position: 2
+---
+
+# Examining source files
+
+BugStalker can display parts of your program's source code. When your program stops at a breakpoint, 
+the debugger automatically shows the current line where execution paused.
+Use the `source` command to display additional code.
+
+## The `source` command
+
+- `source fn` - shows the currently selected function
+- `source <num>` - displays a range of lines: [current_line-num; current_line+num]
+- `source asm` - shows the assembly representation of the current function
+
+## Usage example
+
+Consider this Rust program:
+
+```rust
+fn print_hello(print_num: u32) {
+    for _ in 0..print_num {
+        println!("Hello, world!");
+    }
+}
+
+fn main() {
+    let print_num = 3;
+    print_hello(print_num);
+}
+```
+
+Let's examine the source code by viewing a function, the full file source, and the assembly representation:
+
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import AsciinemaPlayer from '@site/src/components/AsciinemaPlayer';
+
+<BrowserOnly>
+  {() => <AsciinemaPlayer src="/BugStalker/casts/source.cast" />}
+</BrowserOnly>

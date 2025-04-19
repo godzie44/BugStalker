@@ -11,7 +11,7 @@ repository = "https://github.com/godzie44/BugStalker"
 keywords = ["debugger", "debug", "gdb"]
 categories = ["command-line-utilities", "development-tools::debugging"]
 build = "build.rs"
-exclude = ["/.github", "/doc"]
+exclude = ["/.github", "/doc", "/website"]
 
 [[bin]]
 bench = false
