@@ -273,9 +273,8 @@ impl TerminalApplication {
         CTRLC_ONCE.call_once(|| {
             // this handler called only if debugee running, otherwise
             // ctrl+c will handle by `readline`
-            ctrlc::set_handler(move || {
-                let pid = Pid::from_raw(DEBUGEE_PID.load(Ordering::Acquire));
-                _ = kill(pid, Signal::SIGINT);
+            ctrlc::set_handler(|| {
+                // rewrite default handler is good enough
             })
             .expect("error setting Ctrl-C handler")
         });
