@@ -1,0 +1,87 @@
+---
+sidebar_position: 1
+description: async backtrace command overview
+---
+
+# Async backtrace
+
+When debugging an asynchronous application, you often need to inspect and control its state. 
+In a regular synchronous application, you could simply use the backtrace command. 
+However, this command provides limited utility for applications running on an asynchronous runtime.
+
+To address this, BugStalker introduces a suite of "asynchronous backtrace" commands. 
+These commands give you visibility into your asynchronous runtime's state, including:
+- the status of asynchronous workers and blocking threads
+- Detailed information about each task in the system
+- each task's current state and its own backtrace - represented as a stack of futures from the root
+
+Available commands:
+- `async backtrace` (alias: `async bt`) - Displays information about Tokio async workers and blocking threads, including:
+  - worker/blocking thread IDs
+  - worker local task queue information
+  - currently executing tasks for each worker
+
+- `async backtrace all` (alias: `async bt all`) - similar to the above, but includes information about all tasks in the system. 
+Each task is represented with:
+  - a unique ID
+  - a futures stack showing the chain of dependencies (where one future awaits another)
+
+- `async task <regex>` - prints all tasks with root async functions whose names match the given regular expression. 
+If no regex is provided, displays active tasks
+
+## Usage example
+
+Consider this Rust program implementing a TCP echo server using `tokio`:
+
+```rust
+#[tokio::main(worker_threads = 3)]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let addr = env::args()
+        .nth(1)
+        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
+
+    let listener = TcpListener::bind(&addr).await?;
+    println!("Listening on: {}", addr);
+
+    loop {
+        let (mut socket, _) = listener.accept().await?;
+
+        tokio::spawn(async move {
+            let mut buf = vec![0; 1024];
+
+            loop {
+                let n = socket
+                    .read(&mut buf)
+                    .await
+                    .expect("failed to read data from socket");
+                if n == 0 {
+                    return;
+                }
+
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(20)).await;
+                    tx.send(1).unwrap();
+                });
+
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                _ = rx.await;
+
+                socket
+                    .write_all(&buf[0..n])
+                    .await
+                    .expect("failed to write data to socket");
+            }
+        });
+    }
+}
+```
+
+To examine the state of asynchronous execution, lets set a breakpoint at the line `tokio::time::sleep(Duration::from_secs(5)).await;`:
+
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import AsciinemaPlayer from '@site/src/components/AsciinemaPlayer';
+
+<BrowserOnly>
+  {() => <AsciinemaPlayer src="/BugStalker/casts/async_bt.cast" />}
+</BrowserOnly>

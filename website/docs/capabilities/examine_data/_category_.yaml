@@ -1,0 +1,14 @@
+position: 3
+label: 'Examine data'
+collapsible: true
+collapsed: false
+className: red
+link:
+  type: generated-index
+  title: Examine data
+  description: >
+    Overview of commands for examining and modifying data in a debugged program.
+
+
+
+

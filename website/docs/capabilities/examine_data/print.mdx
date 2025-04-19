@@ -1,0 +1,84 @@
+---
+sidebar_position: 1
+---
+
+# Print variables and arguments
+
+Now, let’s see how you can observe data in a debugged program.
+
+## `var` and `vard` commands
+
+To observe local and global variables, use these commands:
+
+- `var ( <DQE> | locals )` - prints local and global variables.
+- `vard ( <DQE> | locals )` - same as the `var` command, but uses the `Debug` trait for rendering
+
+## `arg` and `argd` commands
+
+- `arg ( <DQE> | all )` - prints a function's arguments
+- `argd ( <DQE> | all )` - same as the `arg` command, but uses the `Debug` trait for rendering
+
+## DQE
+
+BugStalker has a special syntax for exploring program data, called Data Query Expression (DQE).
+You can dereference references, access structure fields, slice arrays, or get elements from vectors by their index (and much more!).
+
+Operators available in expression:
+
+- select a variable by its name (e.g., `var a`)
+- dereference pointers, references, or smart pointers (e.g., `var *ref_to_a`)
+- access a structure field (e.g., `var some_struct.some_field`)
+- access an element by index or key from arrays, slices, vectors, or hashmaps (e.g., `var arr[1]` or even `var hm[{a: 1, b: 2}]`)
+- slice arrays, vectors, or slices (e.g., `var some_vector[1..3]` or `var some_vector[1..]`)
+- cast a constant address to a pointer of a specific type (e.g., `var (*mut SomeType)0x123AABCD`)
+- take an address (e.g.,  `var &some_struct.some_field`)
+- show a canonical representation (e.g., display a vector header instead of vector data: `var ~myvec`)
+- use parentheses to control operator execution order
+
+Writing expressions is simple, and you can do it right now! Here are some examples:
+
+- `var *some_variable` - dereference and print value of `some_variable`
+- `var hm[{a: 1, b: *}]` - print the value from a hashmap corresponding to the key. The literal `{a: 1, b: *}` matches any structure where field a equals 1 and field b can be any value
+- `var some_array[0][2..5]` - print three elements, starting from index 2 of the first element in `some_array`
+- `var *some_array[0]` - print dereferenced value of `some_array[0]`
+- `var &some_array[0]` - print address of `some_array[0]`
+- `var (~some_vec).len` - print len field from the vector header
+- `var (*some_array)[0]` - print the first element of `*some_array`
+- `var *(*(var1.field1)).field2[1][2]` - print the dereferenced value of element at index 2 in
+  element at index 1 of field `field2` in dereferenced value of field `field1` in variable `var1` :)
+
+## Usage example
+
+Consider this Rust function:
+
+```rust
+fn my_func(arg1: &str, arg2: i32) {
+    let a = arg2;
+    let ref_a = &arg2;
+    let ref_ref_a = &arg2;
+
+    #[derive(Hash, PartialEq, Eq, Debug)]
+    struct Foo<'a> {
+        bar: &'a str,
+        baz: Vec<i32>,
+    }
+    let foo = Foo {
+        bar: arg1,
+        baz: vec![1, 2],
+    };
+
+    let hm1 = HashMap::from([(foo, 1)]);
+
+    let nop = Option::<u8>::None;
+}
+```
+
+Let’s observe the variables and arguments:
+
+
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import AsciinemaPlayer from '@site/src/components/AsciinemaPlayer';
+
+<BrowserOnly>
+  {() => <AsciinemaPlayer src="/BugStalker/casts/print.cast" />}
+</BrowserOnly>

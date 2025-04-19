@@ -1,0 +1,14 @@
+position: 1
+label: 'Control execution'
+collapsible: true
+collapsed: false
+className: red
+link:
+  type: generated-index
+  title: Commands for execution control
+  description: >
+    Overview of commands that allow control the execution of a debugged program.
+
+
+
+

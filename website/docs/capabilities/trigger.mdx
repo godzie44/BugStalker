@@ -1,0 +1,45 @@
+---
+sidebar_position: 12
+---
+
+# Triggers
+
+Write a small program that executes when a debugger event occurs.
+
+## The `trigger` command
+
+The `trigger` command defines a list of commands that execute when a specific event is triggered (e.g., hitting a breakpoint or watchpoint).
+
+Available subcommands:
+`trigger any` - defines a list of commands that execute when any breakpoint or watchpoint is hit
+`trigger` - defines a list of commands that execute when a previously set breakpoint or watchpoint is hit
+`trigger b <number>` - defines a list of commands that execute when the specified breakpoint (by number) is hit
+`trigger w <number>` - defines a list of commands that execute when the specified watchpoint (by number) is hit
+`trigger info` - displays the list of active triggers
+
+## Usage example
+
+Consider the following Rust program:
+
+```rust
+fn print_val(val: u32) {
+    println!("val is {val}");
+}
+
+fn main() {
+    let mut some_val = 3;
+    some_val += 1;
+
+    print_val(1337);
+}
+```
+
+Now, let’s configure the debugger to show a backtrace when a breakpoint or watchpoint is hit:
+
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import AsciinemaPlayer from '@site/src/components/AsciinemaPlayer';
+
+<BrowserOnly>
+  {() => <AsciinemaPlayer src="/BugStalker/casts/trigger.cast" />}
+</BrowserOnly>
+

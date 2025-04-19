@@ -1,0 +1,28 @@
+---
+sidebar_position: 16
+---
+
+# Examining shared libraries
+
+- `sharedlib info` - displays a list of shared libraries and their memory mappings
+
+**Note**: memory mappings are unknown until the debugged program starts execution.
+
+## Usage example
+
+Consider this Rust program:
+
+```rust
+fn main() {
+    println!("hello world");
+}
+```
+
+Display information about the loaded shared libraries:
+
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import AsciinemaPlayer from '@site/src/components/AsciinemaPlayer';
+
+<BrowserOnly>
+  {() => <AsciinemaPlayer src="/BugStalker/casts/sharedlib.cast" />}
+</BrowserOnly>

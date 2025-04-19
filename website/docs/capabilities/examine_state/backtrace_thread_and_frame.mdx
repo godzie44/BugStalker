@@ -1,0 +1,74 @@
+---
+sidebar_position: 1
+---
+
+# Examining stack and threads
+
+Overview of the `backtrace`, `thread` and `frame` commands.
+
+## Examining the execution state using `backtrace`, `thread` and `frame` commands
+
+When your program stops, the first thing you need to know is where it stopped and how it got there. These commands can help you investigate:
+
+- `frame info` - displays information about the currently selected frame
+- `thread info` - lists information about all threads
+- `thread current` - shows the currently selected thread
+- `backtrace` (bt) - shows the backtrace of the current thread, including:
+    - Thread number and PID
+    - Instruction address where execution stopped
+    - All frames from the current execution frame (frame 0) up through the call stack
+- `backtrace all` (bt all) - shows backtraces for all active threads
+
+## Change current frame and thread
+
+<details>
+<summary>What is stack frame?</summary>
+
+The call stack is divided into contiguous pieces called stack frames. Each frame contains the data associated with one function call, including:
+* the function's arguments
+* its local variables
+* the return address
+
+All stack frames are allocated in a memory region called the call stack.
+</details>
+
+When a program stops, the frame and thread where execution halted become the current frame and current thread. 
+Most of commands operate on these current elements. 
+For example, `var locals` prints all local variables in the current frame. If you switch to a different frame, 
+`var locals` will display the variables from that function's context.
+
+You can change the current thread or frame by specifying its number (check it using `frame info` or `thread info` commands):
+- `frame switch <number>` - changes the current frame
+- `thread switch <number>` - changes the current thread
+
+## Usage example
+
+Consider this Rust code:
+
+```rust
+pub fn main() {
+    for i in 1..3 {
+        std::thread::spawn(move || {
+            infinite_inc(i);
+        });
+    }
+    
+    std::thread::sleep(std::time::Duration::from_secs(10));
+}
+
+fn infinite_inc(step: u32) {
+     let mut cntr = 0;
+     loop {
+        cntr += step;
+     }
+}
+```
+
+Lets try to stop this program, view current frame and thread, inspect the backtrace, change current thread and frame and observe local variables.
+
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import AsciinemaPlayer from '@site/src/components/AsciinemaPlayer';
+
+<BrowserOnly>
+  {() => <AsciinemaPlayer src="/BugStalker/casts/thread_frame_bt.cast" />}
+</BrowserOnly>

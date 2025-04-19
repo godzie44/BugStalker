@@ -1,0 +1,62 @@
+---
+sidebar_position: 11
+---
+
+# Terminal User Interface (TUI)
+
+BugStalker offers a dual-interface experience, allowing you to seamlessly switch between:
+- a classic terminal interface
+- a modern, interactive TUI
+
+This transition can be made at any point during your debugging session.
+
+Use a `tui` command in console interface to switch (or press `ESC` if you already in TUI).
+
+## Configuration
+
+### Keybindings Setup
+
+TUI keybindings are configured through a keymap.toml file.
+
+### Default Configuration
+
+Available at:
+https://github.com/godzie44/BugStalker/tree/master/src/ui/tui/config/preset/keymap.toml
+
+### Custom Configuration
+
+- create a local copy of the configuration file at: `~/.config/bs/keymap.toml`
+- modify the keybindings as needed
+
+#### Alternative Configuration Path
+Set the KEYMAP_FILE environment variable to specify a custom keybindings file location.
+
+## Usage example
+
+Consider this Rust program:
+
+```rust
+fn main() {
+    let s: i64 = sum3(
+        1,
+        2,
+        3,
+    );
+    println!("{s}")
+}
+
+fn sum2(a: i64, b: i64) -> i64 {
+    a + b
+}
+
+fn sum3(a: i64, b: i64, c: i64) -> i64 {
+    let ab = sum2(a, b);
+    println!("a+b = {ab}");
+    sum2(ab, c)
+}
+```
+
+Lets try a TUI:
+
+![TUI](/gif/tui.gif)
+

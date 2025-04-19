@@ -1,0 +1,43 @@
+---
+sidebar_position: 5
+---
+
+# Call a function
+
+Overview of the `call` command.
+
+## `call` command
+
+You can call a function in a debugged program using the `call` command:
+
+- `call <function_name> [arg 1] ... [arg N]` - calls the specified function with the given arguments
+
+**Note**: this command is in early implementation, so please check `help call` to understand its current limitations.
+
+## Usage example
+
+Consider this Rust program:
+
+```rust
+fn sum2(a: u64, b: u64) {
+    println!("my sum is {}", a + b);
+}
+
+fn print_bool(b: bool) {
+    println!("bool is {}", b);
+}
+
+fn main() {
+    sum2(1, 2);
+    print_bool(true);
+}
+```
+
+Let's call `sum2` and `print_bool` functions:
+
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import AsciinemaPlayer from '@site/src/components/AsciinemaPlayer';
+
+<BrowserOnly>
+  {() => <AsciinemaPlayer src="/BugStalker/casts/call.cast" />}
+</BrowserOnly>

@@ -1,0 +1,8 @@
+{
+  "label": "Capabilities",
+  "position": 5,
+  "link": {
+    "type": "generated-index",
+    "description": "Lets look at the debugger capabilities:"
+  }
+}

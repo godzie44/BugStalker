@@ -1,0 +1,40 @@
+---
+sidebar_position: 2
+---
+
+# Working with raw memory
+
+The `memory` command allows reading or writing raw memory in a debugged program.
+
+Available commands:
+`memory read <address>` - reads an 8-byte block at the specified address in the debuggee’s memory
+`memory write <address> <value>` - writes an 8-byte value to the specified address.
+Note: values are written in little-endian byte order (the last byte of value is stored at the first byte of address).
+
+## Usage example
+
+Consider this Rust program:
+
+```rust
+fn print_val(val: u32) {
+    println!("val is {val}");
+}
+
+fn main() {
+    let mut some_val = 3;
+    some_val += 1;
+
+    print_val(some_val);
+}
+```
+
+Goal: Instead of printing 4, we'll manipulate a raw memory to force the output 5.
+
+Let’s do it:
+
+import BrowserOnly from '@docusaurus/BrowserOnly';
+import AsciinemaPlayer from '@site/src/components/AsciinemaPlayer';
+
+<BrowserOnly>
+  {() => <AsciinemaPlayer src="/BugStalker/casts/memory.cast" />}
+</BrowserOnly>
