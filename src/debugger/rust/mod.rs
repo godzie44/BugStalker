@@ -56,7 +56,7 @@ pub fn default_toolchain() -> Result<Toolchain, Error> {
     let toolchains = String::from_utf8(rustup_out.stdout)?;
     let toolchain = toolchains
         .lines()
-        .find(|line| line.contains("(default)"))
+        .find(|line| line.contains("default"))
         .ok_or(DefaultToolchainNotFound)?;
 
     let toolchain_verbose_parts = toolchain.split_whitespace().collect::<Vec<_>>();
