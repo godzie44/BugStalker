@@ -16,6 +16,46 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+# [0.3.0] Apr 26 2025
+
+### Added
+
+- debugger: support for `SystemTime` and `Instant` std types
+- debugger: support for constant initialized TLS variables
+- debugger: new `async backtrace` command (#27)
+- debugger: new `async backtrace all` command (#27)
+- debugger: new `async task` command (#27)
+- debugger: new `async stepover` command
+- debugger: new `async stepout` command
+- debugger: new `trigger` command (#39)
+- debugger: new `call` command
+- debugger: new `vard` and `argd` commands (#47)
+- docs: introduce website and update README
+
+### Changed
+
+- debugger: refactor `select` module
+- debugger: rename watch_point -> spy_point
+- debugger: refactor `TypeIdentity`
+- debugger: refactor variables specialized representation
+- debugger: `variable` module refactoring
+- debugger: improve rustc versions resolving
+- ui: refactor command parser tests
+- debugger: use IndexMap instead of HashMap for storing type parameters
+
+
+### Fixed
+
+- debugger: `stepover` command can no longer step out from the current source file
+- debugger: now `restart` command doesn't affect a breakpoint numbers
+- console: reduce redundant output for collections (arrays, maps, etc.) (fix #52)
+- console: in variables output use spaces instead of tabs
+- console: better memory command output
+- debugger: fix rustup toolchain command parsing
+- console: don't send duplicate SIGINT signal
+
+---
+
 # [0.2.8] Apr 7 2025
 
 ### Added
