@@ -3,7 +3,7 @@ name: Deploy Docusaurus site to GitHub Pages
 on:
   push:
     branches:
-      - godzie44/website
+      - master
 
 jobs:
   build:
