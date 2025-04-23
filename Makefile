@@ -15,10 +15,12 @@ build-examples: build-examples-for-func-test
 	cargo build --manifest-path tokio_tcp/tokio_1_41/Cargo.toml; \
 	cargo build --manifest-path tokio_tcp/tokio_1_42/Cargo.toml; \
 	cargo build --manifest-path tokio_tcp/tokio_1_43/Cargo.toml; \
+	cargo build --manifest-path tokio_tcp/tokio_1_44/Cargo.toml; \
 	cargo build --manifest-path tokio_vars/tokio_1_40/Cargo.toml; \
 	cargo build --manifest-path tokio_vars/tokio_1_41/Cargo.toml; \
 	cargo build --manifest-path tokio_vars/tokio_1_42/Cargo.toml; \
 	cargo build --manifest-path tokio_vars/tokio_1_43/Cargo.toml; \
+	cargo build --manifest-path tokio_vars/tokio_1_44/Cargo.toml; \
 
 build-all: build build-examples
 
