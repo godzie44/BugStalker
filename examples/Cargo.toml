@@ -24,10 +24,12 @@ exclude = [
     "tokio_tcp/tokio_1_41",
     "tokio_tcp/tokio_1_42",
     "tokio_tcp/tokio_1_43",
+    "tokio_tcp/tokio_1_44",
     "tokio_vars/tokio_1_40",
     "tokio_vars/tokio_1_41",
     "tokio_vars/tokio_1_42",
     "tokio_vars/tokio_1_43",
+    "tokio_vars/tokio_1_44",
 ]
 
 resolver = "2"
