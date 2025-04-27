@@ -18,6 +18,10 @@ bench = false
 path = "src/main.rs"
 name = "bs"
 
+[profile.release]
+codegen-units = 1
+lto = true
+
 [dependencies]
 nix = { version = "0.27.1", features = [
     "process",
