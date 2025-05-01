@@ -88,4 +88,5 @@ serial_test = "3.0.0"
 [features]
 default = ["libunwind"]
 libunwind = ["unwind"]
-int_test = []
+nightly = []
+int_test = ["nightly"]
