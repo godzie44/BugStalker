@@ -1,53 +1,45 @@
 # Contributing to BugStalker
 
-You likely come here from the issues or pull requests page. There are some
-suggestions on how to make your contribution most useful.
+You likely arrived here from the Issues or Pull Requests page. 
+Below are some suggestions to help make your contribution as effective as possible.
 
-## File an issue
+## Filing an issue
 
-Consider using a bug report/feature request template. Feel free to adapt it for
-your needs. You can opt out and start from a blank issue, but be mindful of the
-completeness of the information.
+Consider using a bug report or feature request template. You're welcome to adapt it to your needs. 
+While you can opt for a blank issue instead, please ensure you provide complete and clear information.
 
-There are feature requests of different kinds:
+Feature requests generally fall into two categories:
 
-* A complement to existing functionality or another ready-to-implement request.
-* A new idea or something else that requires a discussion.
+* **Enhancements to existing functionality** or other straightforward, ready-to-implement requests.
+* **New ideas or proposals** requiring discussion.
 
 The former is completely okay to be asked via an issue.
 
-## Open a pull request
+## Opening a pull request
 
-![flow.png](doc/flow.png)
+`BugStalker` development model prioritizes two key objectives:
 
-The main purpose of the BugStalker development model is to provide two things:
+* Rapid updates to support new rustc versions as soon as possible.
+* Feature development that doesn't interfere with compiler version support.
 
-1) All updates related to the release of new `rustc` versions must
-   be released as quickly as possible.
-2) Implementing of new features shouldn't interfere with the first point.
+To achieve this, we maintain two release types:
 
-That is why BugStalker using a developing model similar to GitFlow.
-There is a stable `master` branch and a `develop` branch with development
-changes for the next release.
-All changes into this project may be grouped into two big groups — features and
-improvements.
+* **Minor releases** (frequent):
+Include fixes, small features, and new compiler version support.
 
-If you want to add a new feature:
+* **Major releases** (less frequent):
+Introduce significant features with longer development cycles.
 
-* create your own branch from `develop`
-* implement feature
-* create pull request into `develop` branch
+We follow semantic versioning (X.Y.Z):
+* X or Y increments indicate major releases
+* Z increments indicate minor releases
 
-If you want to send an improvement (a bugfix, readme fix,
-or add support for one of `rustc` versions):
+### Feature Development Guidelines
 
-* create your own branch from `master`
-* implement improvement
-* create pull requests into `master` and `develop` branch
-
-## Useful links
-
-* [GitFlow] -- https://nvie.com/posts/a-successful-git-branching-model/
+For major features:
+* Hide behind the `nightly` feature flag until the major release
+* Use the `ui::console::cfg::nightly` macro to conceal console UI elements
+* Ensure your implementation follows this pattern if contributing substantial changes
 
 ## Adding support for new compiler version, checklist
 
@@ -55,6 +47,10 @@ or add support for one of `rustc` versions):
 - [ ] update `.github/workflows/ci.yml` by adding a new version for integration and functional tests
 - [ ] make sure the tests are not broken (in github ci too), correct test or sources if necessary
 - [ ] fix `cargo fmt` and `cargo clippy` if needed
-- [ ] add information about new version into `README.md` and `CHANGELOG.md`
-- [ ] merge branch into master, rebase develop branch too
+- [ ] add information about new version into website and `CHANGELOG.md`
+- [ ] create and submit a pool request
 - [ ] create a new release from master branch
+
+### Note on Deprecated Development Model
+
+The previous GitFlow-like model (see doc/flow.png) has been discontinued. Refer to #64 for details on this decision.
