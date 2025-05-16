@@ -25,6 +25,7 @@ pub enum DebugeeSource<'a> {
 }
 
 /// Possible applications.
+#[allow(clippy::large_enum_variant)]
 pub enum Application {
     TUI(TuiApplication),
     Terminal(TerminalApplication),
@@ -41,6 +42,7 @@ impl Application {
 
 /// Result of application execution. Application may request exit at the end of execution, or may
 /// request a switch to another application.
+#[allow(clippy::large_enum_variant)]
 pub enum ControlFlow {
     Exit,
     Switch(Application),

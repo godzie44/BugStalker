@@ -21,6 +21,8 @@ impl PartialOrd for Value {
 }
 
 #[derive(Clone, PartialOrd)]
+// TODO box variants instead of mute clippy
+#[allow(clippy::large_enum_variant)]
 pub enum UserEvent {
     GotOutput(Vec<OutputLine>, usize),
     Breakpoint {

@@ -6,6 +6,7 @@ use crate::{
         debugee::dwarf::unit::DieRef,
         variable::{execute::QueryResult, render::RenderValue, value::Value},
     },
+    version::RustVersion,
     version_switch,
 };
 use indexmap::IndexMap;
@@ -41,12 +42,18 @@ struct WriteStringVTable {
 }
 
 impl WriteStringVTable {
-    pub fn new(dbg: &Debugger) -> Result<Self, FmtCallError> {
+    pub fn new(dbg: &Debugger, ver: RustVersion) -> Result<Self, FmtCallError> {
         const STRING_DROP_IN_PLACE: &str = "core::ptr::drop_in_place<alloc::string::String>";
         const STRING_DROP_IN_PLACE_NAME: &str = "drop_in_place<alloc::string::String>";
         const STRING_WRITE_FMT: &str = "core::fmt::Write::write_fmt";
-        const STRING_WRITE_FMT_NAME: &str =
-            "write_fmt<std::io::Write::write_fmt::Adapter<std::io::stdio::StdoutLock>>";
+
+        let string_write_fmt_name = version_switch!(
+            ver,
+                (1 . 81) .. (1 . 87) =>  "write_fmt<std::io::Write::write_fmt::Adapter<std::io::stdio::StdoutLock>>",
+                (1 . 87) .. => "write_fmt<std::io::default_write_fmt::Adapter<std::io::stdio::StdoutLock>>",
+            )
+            .ok_or(FmtCallError::UnsupportedRustC)?;
+
         const STRING_WRITE_CHAR: &str = "<alloc::string::String as core::fmt::Write>::write_char";
         const STRING_WRITE_STR: &str = "<alloc::string::String as core::fmt::Write>::write_str";
         const STRING_SIZE: usize = std::mem::size_of::<String>();
@@ -63,7 +70,7 @@ impl WriteStringVTable {
 
         let drop_in_place_fn_addr =
             find_fn_for_vtable(STRING_DROP_IN_PLACE, Some(STRING_DROP_IN_PLACE_NAME))?;
-        let write_fmt_addr = find_fn_for_vtable(STRING_WRITE_FMT, Some(STRING_WRITE_FMT_NAME))?;
+        let write_fmt_addr = find_fn_for_vtable(STRING_WRITE_FMT, Some(string_write_fmt_name))?;
         let write_char_addr = find_fn_for_vtable(STRING_WRITE_CHAR, None)?;
         let write_str_addr = find_fn_for_vtable(STRING_WRITE_STR, None)?;
 
@@ -281,7 +288,42 @@ fn formatter_to_bytes<const N: usize, F>(formatter: &F) -> [u8; N] {
     formatter_bytes
 }
 
-fn make_formatter_bytes_rust_1_85_plus(string_header_ptr: usize, vtable_ptr: usize) -> Vec<u8> {
+fn make_formatter_bytes_rust_1_87_plus(string_header_ptr: usize, vtable_ptr: usize) -> Vec<u8> {
+    // Layout of this structures should be equals to std::fmt::Formatter and std::fmt::FormattingOptions
+
+    #[allow(unused)]
+    #[derive(PartialEq)]
+    struct FormattingOptions {
+        flags: u32,
+        width: u16,
+        precision: u16,
+    }
+    #[allow(unused)]
+    #[derive(PartialEq)]
+    pub struct Formatter {
+        buf_string_ptr: usize,
+        buf_vtable_ptr: usize,
+        options: FormattingOptions,
+    }
+    const FORMATTER_SZ: usize = std::mem::size_of::<Formatter>();
+
+    const ALIGN_UNKNOWN: u32 = 3 << 29;
+    const ALWAYS_SET: u32 = 1 << 31;
+
+    let formatter = Formatter {
+        options: FormattingOptions {
+            flags: ' ' as u32 | ALIGN_UNKNOWN | ALWAYS_SET,
+            width: 0,
+            precision: 0,
+        },
+        buf_string_ptr: string_header_ptr,
+        buf_vtable_ptr: vtable_ptr,
+    };
+
+    formatter_to_bytes::<FORMATTER_SZ, _>(&formatter).to_vec()
+}
+
+fn make_formatter_bytes_rust_1_85_1_87(string_header_ptr: usize, vtable_ptr: usize) -> Vec<u8> {
     // Layout of this structures should be equals to std::fmt::Formatter and std::fmt::FormattingOptions
 
     #[allow(unused)]
@@ -361,11 +403,16 @@ pub fn call_debug_fmt(dbg: &Debugger, var: &QueryResult) -> Result<String, Error
     }
     assert!(std::mem::size_of::<Vec::<u8>>() == 24);
 
+    let rust_version = var
+        .unit()
+        .rustc_version()
+        .ok_or(FmtCallError::UnsupportedRustC)?;
+
     debug!("prepare calling plan for core::fmt::Debug::fmt");
     let calling_plan = create_fmt_calling_plan(dbg, var)?;
 
     debug!("prepare vtable for String as core::fmt::Write");
-    let write_string_vtable = WriteStringVTable::new(dbg)?;
+    let write_string_vtable = WriteStringVTable::new(dbg, rust_version)?;
 
     debug!("allocate memory for String header and std::fmt::Formatter");
     let ctx = CallContext::new(dbg)?;
@@ -394,17 +441,13 @@ pub fn call_debug_fmt(dbg: &Debugger, var: &QueryResult) -> Result<String, Error
                 .write_memory(vtable_ptr + i * size_of::<usize>(), value)?;
         }
 
-        let rust_version = var
-            .unit()
-            .rustc_version()
-            .ok_or(FmtCallError::UnsupportedRustC)?;
-
         let formatter_bytes = version_switch!(
-        rust_version,
-            (1 . 81) .. (1 . 85) =>  make_formatter_bytes_1_81_1_85(string_header_ptr, vtable_ptr),
-            (1 . 85) .. => make_formatter_bytes_rust_1_85_plus(string_header_ptr, vtable_ptr),
-        )
-        .ok_or(FmtCallError::UnsupportedRustC)?;
+            rust_version,
+                (1 . 81) .. (1 . 85) =>  make_formatter_bytes_1_81_1_85(string_header_ptr, vtable_ptr),
+                (1 . 85) .. (1 . 87) => make_formatter_bytes_rust_1_85_1_87(string_header_ptr, vtable_ptr),
+                (1 . 87) .. => make_formatter_bytes_rust_1_87_plus(string_header_ptr, vtable_ptr),
+            )
+            .ok_or(FmtCallError::UnsupportedRustC)?;
 
         let formatter_size = formatter_bytes.len();
 

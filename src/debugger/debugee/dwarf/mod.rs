@@ -478,8 +478,7 @@ impl DebugInformation {
     }
 
     pub fn find_symbols(&self, regex: &Regex) -> Vec<&Symbol> {
-        let symbols = self
-            .symbol_table
+        self.symbol_table
             .as_ref()
             .map(|table| {
                 let keys = table
@@ -487,8 +486,7 @@ impl DebugInformation {
                     .filter(|key| regex.find(key.as_str()).is_some());
                 keys.map(|k| &table[k]).collect()
             })
-            .unwrap_or_default();
-        symbols
+            .unwrap_or_default()
     }
 
     pub fn deref_die<'this>(

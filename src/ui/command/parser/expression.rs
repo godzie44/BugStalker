@@ -43,7 +43,7 @@ fn ptr_cast<'a>() -> impl Parser<'a, &'a str, Dqe, Err<'a>> + Clone {
 pub fn literal<'a>() -> impl Parser<'a, &'a str, Literal, Err<'a>> + Clone {
     let op = |c| just(c).padded();
 
-    let literal = recursive(|literal| {
+    recursive(|literal| {
         let int = just("-")
             .or_not()
             .then(text::int(10).from_str::<u64>().unwrapped())
@@ -121,9 +121,7 @@ pub fn literal<'a>() -> impl Parser<'a, &'a str, Literal, Err<'a>> + Clone {
             .or(string2)
             .or(array)
             .or(assoc_array)
-    });
-
-    literal
+    })
 }
 
 pub fn parser<'a>() -> impl Parser<'a, &'a str, Dqe, Err<'a>> {
