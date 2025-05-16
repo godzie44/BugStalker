@@ -729,16 +729,15 @@ impl TypeParser {
         let lower_bound = subrange
             .map(|sr| {
                 let lower_bound = sr.lower_bound.as_ref().map(|lb| lb.value());
-                let in_struct_location =
-                    if let Some(bound) = lower_bound.as_ref().and_then(|l| l.sdata_value()) {
-                        ArrayBoundValue::Const(bound)
-                    } else if let Some(AttributeValue::Exprloc(ref expr)) = lower_bound {
-                        ArrayBoundValue::Expr(ArrayBoundValueExpression { expr: expr.clone() })
-                    } else {
-                        // rust default lower bound
-                        ArrayBoundValue::Const(0)
-                    };
-                in_struct_location
+
+                if let Some(bound) = lower_bound.as_ref().and_then(|l| l.sdata_value()) {
+                    ArrayBoundValue::Const(bound)
+                } else if let Some(AttributeValue::Exprloc(ref expr)) = lower_bound {
+                    ArrayBoundValue::Expr(ArrayBoundValueExpression { expr: expr.clone() })
+                } else {
+                    // rust default lower bound
+                    ArrayBoundValue::Const(0)
+                }
             })
             .unwrap_or(ArrayBoundValue::Const(0));
 

@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - debugger: enable LTO and codegen-units = 1 for release build
+- debugger: added support for rustc 1.87
 
 ### Fixed
 
