@@ -8,14 +8,21 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- debugger: enable LTO and codegen-units = 1 for release build
-- debugger: added support for rustc 1.87
-
 ### Fixed
 
 ### Deprecated
 
 ### Breaking changes
+
+---
+
+# [0.3.1] May 18 2025
+
+### Added
+- debugger: added support for rustc 1.87
+
+### Fixed
+- debugger: enable LTO and codegen-units = 1 for release build
 
 ---
 
