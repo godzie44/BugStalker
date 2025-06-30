@@ -18,6 +18,14 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+# [0.3.2] Jun 30 2025
+
+### Added
+- debugger: added support for rustc 1.88
+- debugger: new `DataCast` DQE op  
+
+---
+
 # [0.3.1] May 18 2025
 
 ### Added
