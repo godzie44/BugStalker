@@ -197,7 +197,7 @@ fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCalli
                 .map(|items| items.len())
                 .unwrap_or_default();
 
-            let fmt_fn_name = format!("fmt<{}, {}>", el_type_name, size);
+            let fmt_fn_name = format!("fmt<{el_type_name}, {size}>");
 
             let fmt_fn_info_result = dbg.call_cache().get_or_insert(
                 dbg,

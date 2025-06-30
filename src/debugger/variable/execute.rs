@@ -1,4 +1,3 @@
-use crate::debugger::Debugger;
 use crate::debugger::debugee::dwarf::eval::{EvaluationContext, ExpressionEvaluator};
 use crate::debugger::debugee::dwarf::r#type::ComplexType;
 use crate::debugger::debugee::dwarf::unit::{ParameterDie, Unit, VariableDie};
@@ -14,7 +13,6 @@ use crate::debugger::{Debugger, read_memory_by_pid};
 use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::Range;
-use std::collections::hash_map::Entry;
 use std::fmt::Debug;
 use std::rc::Rc;
 
@@ -176,14 +174,14 @@ impl EvaluationContextBuilder<'_> {
 #[macro_export]
 macro_rules! type_from_cache {
     ($variable: expr, $cache: expr) => {
-        $variable
-            .die
-            .type_ref()
+        $crate::debugger::debugee::dwarf::AsAllocatedData::type_ref($variable.die)
             .and_then(
                 |type_ref| match $cache.entry(($variable.unit().id, type_ref)) {
-                    Entry::Occupied(o) => Some(Rc::clone(o.get())),
-                    Entry::Vacant(v) => $variable.r#type().map(|t| {
-                        let t = Rc::new(t);
+                    std::collections::hash_map::Entry::Occupied(o) => {
+                        Some(std::rc::Rc::clone(o.get()))
+                    }
+                    std::collections::hash_map::Entry::Vacant(v) => $variable.r#type().map(|t| {
+                        let t = std::rc::Rc::new(t);
                         v.insert(t.clone());
                         t
                     }),

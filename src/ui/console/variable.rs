@@ -48,7 +48,7 @@ fn render_value_inner(value: &Value, depth: usize, print_type: bool) -> String {
             ValueLayout::PreRendered(rendered_value) => match value {
                 Value::CEnum(_) => format!("{}::{}", value.r#type().name_fmt(), rendered_value),
                 _ if print_type => format!("{}({})", value.r#type().name_fmt(), rendered_value),
-                _ => format!("{}", rendered_value),
+                _ => format!("{rendered_value}"),
             },
             ValueLayout::Referential(addr) => {
                 if print_type {

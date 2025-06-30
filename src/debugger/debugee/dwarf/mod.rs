@@ -596,6 +596,20 @@ impl DebugInformation {
         }
     }
 
+    /// Return all suitable references (unit and die offsets) to type dies by type name.
+    pub fn find_type_die_ref_all(&self, name: &str) -> Vec<(DebugInfoOffset, UnitOffset)> {
+        self.get_units()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|u| {
+                u.offset().and_then(|u_offset| {
+                    let type_ref_in_unit = resolve_unit_call!(&self.inner, u, locate_type, name)?;
+                    Some((u_offset, type_ref_in_unit))
+                })
+            })
+            .collect()
+    }
+
     /// Return unit found at offset.
     #[inline(always)]
     pub fn find_unit(&self, offset: DebugInfoOffset) -> Option<&Unit> {
@@ -663,7 +677,7 @@ impl DebugInformationBuilder {
             let dir = format!("{:02x}", note[0]);
             let file = note[1..]
                 .iter()
-                .map(|&b| format!("{:02x}", b))
+                .map(|&b| format!("{b:02x}"))
                 .collect::<Vec<String>>()
                 .join("")
                 .add(".debug");
