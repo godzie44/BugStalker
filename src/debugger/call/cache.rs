@@ -4,11 +4,7 @@ use std::{
 };
 
 use crate::{
-    debugger::{
-        Debugger,
-        address::RelocatedAddress,
-        debugee::dwarf::{AsAllocatedData, r#type::ComplexType},
-    },
+    debugger::{Debugger, address::RelocatedAddress, debugee::dwarf::r#type::ComplexType},
     type_from_cache,
 };
 

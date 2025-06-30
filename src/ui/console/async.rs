@@ -23,7 +23,7 @@ fn print_future(backtrace: &AsyncBacktrace, num: u32, future: &Future, printer: 
             ));
             match fn_fut.state {
                 AsyncFnFutureState::Suspend(await_num) => {
-                    printer.println(format!("\tsuspended at await point {}", await_num));
+                    printer.println(format!("\tsuspended at await point {await_num}"));
                 }
                 AsyncFnFutureState::Panicked => {
                     printer.println("\tpanicked!");

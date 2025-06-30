@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- debugger: added support for rustc 1.88
+
 ### Changed
 
 ### Fixed

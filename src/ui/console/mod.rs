@@ -662,7 +662,7 @@ impl AppLoop {
             Command::Memory(mem_cmd) => {
                 let read = MemoryHandler::new(&self.debugger).handle(mem_cmd)?;
                 for b in read {
-                    self.printer.print(format!("0x{:X} ", b));
+                    self.printer.print(format!("0x{b:X} "));
                 }
                 self.printer.println("");
             }

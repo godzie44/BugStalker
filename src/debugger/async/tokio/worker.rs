@@ -1,14 +1,21 @@
 use super::types::TaskIdValue;
+use crate::debugger::TypeDeclaration;
 use crate::debugger::r#async::context::TokioAnalyzeContext;
 use crate::debugger::r#async::tokio::task::Task;
 use crate::debugger::r#async::tokio::task::task_from_header;
 use crate::debugger::r#async::{AsyncError, TaskBacktrace};
 use crate::debugger::utils::PopIf;
+use crate::debugger::variable::dqe::DataCast;
 use crate::debugger::variable::dqe::{Dqe, Literal, Selector};
+use crate::debugger::variable::execute::DqeExecutor;
 use crate::debugger::variable::execute::QueryResult;
 use crate::debugger::variable::value::{SupportedScalar, Value};
+use crate::debugger::variable::r#virtual::VirtualVariableDie;
 use crate::debugger::{Debugger, Error, ThreadSnapshot, Tracee, utils};
+use crate::type_from_cache;
 use crate::ui::command::parser::expression;
+use crate::version::RustVersion;
+use crate::weak_error;
 use chumsky::Parser;
 
 /// Async worker tasks local queue representation.
@@ -155,7 +162,7 @@ impl WorkerInternal {
         use utils::PopIf;
 
         // local queue DQE: var (*(*(*CONTEXT.scheduler.inner).0.core.value.0).run_queue.inner).data
-        let local_queue = context.modify_value(|c, v| {
+        let mut core_run_queue_inner = context.modify_value(|c, v: Value| {
             v.field("scheduler")?
                 .field("inner")?
                 .deref(c)?
@@ -165,10 +172,64 @@ impl WorkerInternal {
                 .field("__0")?
                 .deref(c)?
                 .field("run_queue")?
-                .field("inner")?
-                .deref(c)?
-                .field("data")
+                .field("inner")
         })?;
+
+        let rustc_version = core_run_queue_inner
+            .unit()
+            .rustc_version()
+            .unwrap_or_default();
+
+        // WAITFORFIX: https://github.com/rust-lang/rust/issues/143241
+        // It seems that at the moment (after rustc 1.88), when compiling, the dwarf is not generated quite correctly.
+        // The type of field `core_run_queue_inner` in it is not fully described, so BS have to look for the same type
+        // in other compilation units and replace it.
+        if rustc_version >= RustVersion::new(1, 88, 0) {
+            let inner_field = core_run_queue_inner.into_value();
+
+            let raw_addr = match inner_field {
+                Value::Struct(struct_value) => struct_value.raw_address,
+                Value::Specialized { original, .. } => original.raw_address,
+                _ => return None,
+            }?;
+
+            let type_info = debugger
+            .debugee
+            .debug_info_all()
+            .iter()
+            .find_map(|&debug_info| {
+                debug_info
+                    .find_type_die_ref_all("Arc<tokio::runtime::scheduler::multi_thread::queue::Inner<alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle, alloc::alloc::Global>>, alloc::alloc::Global>")
+                    .into_iter()
+                    .find_map(|(offset_of_unit, offset_of_die)| {
+                        let mut var_die = VirtualVariableDie::workpiece();
+                        let var_die_ref = weak_error!(var_die.init_with_known_type(debug_info, offset_of_unit, offset_of_die))?;
+                        let mut type_cache = debugger.type_cache.borrow_mut();
+                        let r#type = weak_error!(type_from_cache!(var_die_ref, type_cache))?;
+                        let root_type = r#type.types.get(&r#type.root())?;
+
+                        let TypeDeclaration::Structure { members, .. } = root_type else {
+                            return None;
+                        };
+
+                        if !members.is_empty() {
+                            Some((debug_info.pathname().to_path_buf(), offset_of_unit, offset_of_die))
+                        } else {
+                            None
+                        }
+                    })
+            })?;
+
+            let executor = DqeExecutor::new(debugger);
+
+            let data_cast = DataCast::new(raw_addr, type_info.0, type_info.1, type_info.2);
+            core_run_queue_inner = executor
+                .query(&Dqe::DataCast(data_cast))
+                .ok()?
+                .pop_if_cond(|results| results.len() == 1)?;
+        }
+
+        let local_queue = core_run_queue_inner.modify_value(|c, v| v.deref(c)?.field("data"))?;
 
         Some(Self {
             state,

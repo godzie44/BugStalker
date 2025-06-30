@@ -258,7 +258,7 @@ impl Poll<UserEvent> for AsyncResponsesPort {
         Ok(self
             .exchanger
             .poll_async_resp()
-            .map(|err| Event::User(UserEvent::AsyncErrorResponse(format!("{:#}", err)))))
+            .map(|err| Event::User(UserEvent::AsyncErrorResponse(format!("{err:#}")))))
     }
 }
 
