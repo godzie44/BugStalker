@@ -1,6 +1,8 @@
+use gimli::{DebugInfoOffset, UnitOffset};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
+use std::path::PathBuf;
 
 /// Literal object.
 /// Using it for a searching element by key in key-value containers.
@@ -139,6 +141,30 @@ impl PointerCast {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct DataCast {
+    pub ptr: usize,
+    pub ty_debug_info: PathBuf,
+    pub ty_unit_off: DebugInfoOffset,
+    pub ty_die_off: UnitOffset,
+}
+
+impl DataCast {
+    pub fn new(
+        ptr: usize,
+        type_debug_info: impl Into<PathBuf>,
+        type_unit_off: DebugInfoOffset,
+        type_die_off: UnitOffset,
+    ) -> Self {
+        Self {
+            ptr,
+            ty_debug_info: type_debug_info.into(),
+            ty_unit_off: type_unit_off,
+            ty_die_off: type_die_off,
+        }
+    }
+}
+
 /// Data query expression.
 /// List of operations for select variables and their properties.
 ///
@@ -164,6 +190,8 @@ pub enum Dqe {
     Address(Box<Dqe>),
     /// Get canonic value (actual for specialized value, typically return underlying structure).
     Canonic(Box<Dqe>),
+    /// Cast data at raw memory address to a typed value.
+    DataCast(DataCast),
 }
 
 impl Dqe {

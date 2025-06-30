@@ -2,7 +2,9 @@ use crate::debugger::Error;
 use crate::debugger::Error::TypeNotFound;
 use crate::debugger::debugee::Debugee;
 use crate::debugger::debugee::dwarf::unit::{DieRef, Node};
-use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, EndianArcSlice};
+use crate::debugger::debugee::dwarf::{
+    AsAllocatedData, ContextualDieRef, DebugInformation, EndianArcSlice,
+};
 use gimli::{Attribute, DebugInfoOffset, UnitOffset};
 
 /// This DIE does not actually exist in debug information.
@@ -25,6 +27,27 @@ impl VirtualVariableDie {
 
     /// Initialize virtual variable with a concrete type.
     /// Return reference to virtual DIE.
+    pub fn init_with_known_type<'this, 'dbg>(
+        &'this mut self,
+        debug_info: &'dbg DebugInformation,
+        unit_offset: DebugInfoOffset,
+        die_offset: UnitOffset,
+    ) -> Result<ContextualDieRef<'this, 'dbg, Self>, Error> {
+        let unit = debug_info
+            .find_unit(DebugInfoOffset(unit_offset.0 + die_offset.0))
+            .ok_or(TypeNotFound)?;
+
+        self.type_ref = DieRef::Unit(die_offset);
+        Ok(ContextualDieRef {
+            debug_info,
+            unit_idx: unit.idx(),
+            node: VirtualVariableDie::ANY_NODE,
+            die: self,
+        })
+    }
+
+    /// Initialize virtual variable with a concrete type.
+    /// Return reference to virtual DIE.
     pub fn init_with_type<'this, 'dbg>(
         &'this mut self,
         debugee: &'dbg Debugee,
@@ -38,17 +61,8 @@ impl VirtualVariableDie {
                 Some((debug_info, offset_of_unit, offset_of_die))
             })
             .ok_or(TypeNotFound)?;
-        let unit = debug_info
-            .find_unit(DebugInfoOffset(offset_of_unit.0 + offset_of_die.0))
-            .ok_or(TypeNotFound)?;
 
-        self.type_ref = DieRef::Unit(offset_of_die);
-        Ok(ContextualDieRef {
-            debug_info,
-            unit_idx: unit.idx(),
-            node: VirtualVariableDie::ANY_NODE,
-            die: self,
-        })
+        self.init_with_known_type(debug_info, offset_of_unit, offset_of_die)
     }
 }
 

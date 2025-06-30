@@ -5,11 +5,12 @@ use crate::debugger::debugee::dwarf::unit::{ParameterDie, Unit, VariableDie};
 use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, DebugInformation};
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::FunctionNotFound;
-use crate::debugger::variable::dqe::{Dqe, PointerCast, Selector};
+use crate::debugger::variable::dqe::{DataCast, Dqe, PointerCast, Selector};
 use crate::debugger::variable::value::Value;
 use crate::debugger::variable::value::parser::{ParseContext, ValueModifiers, ValueParser};
 use crate::debugger::variable::r#virtual::VirtualVariableDie;
 use crate::debugger::variable::{Identity, ObjectBinaryRepr};
+use crate::debugger::{Debugger, read_memory_by_pid};
 use crate::{ctx_resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::Range;
@@ -376,10 +377,68 @@ impl<'dbg> DqeExecutor<'dbg> {
         })
     }
 
+    /// Create virtual DIE from an existing type,
+    /// then return a query result with a value from this DIE and address in debugee memory.
+    fn apply_data_cast(&self, data_cast: &DataCast) -> Result<QueryResult<'dbg>, Error> {
+        let mut var_die = VirtualVariableDie::workpiece();
+        let debug_info = self
+            .debugger
+            .debugee
+            .debug_info_from_file(&data_cast.ty_debug_info)?;
+        let var_die_ref = var_die.init_with_known_type(
+            debug_info,
+            data_cast.ty_unit_off,
+            data_cast.ty_die_off,
+        )?;
+
+        let mut type_cache = self.debugger.type_cache.borrow_mut();
+        let r#type = type_from_cache!(var_die_ref, type_cache)?;
+
+        let context_builder = EvaluationContextBuilder::Virtual {
+            debugger: self.debugger,
+            debug_info: var_die_ref.debug_info,
+            unit_idx: var_die_ref.unit_idx,
+            die: VirtualVariableDie::workpiece(),
+        };
+
+        let value = context_builder.with_eval_ctx(|eval_ctx| {
+            let size = r#type.type_size_in_bytes(eval_ctx, r#type.root())? as usize;
+
+            let raw_data = weak_error!(read_memory_by_pid(
+                eval_ctx.expl_ctx.pid_on_focus(),
+                data_cast.ptr,
+                size
+            ))?;
+
+            let data = ObjectBinaryRepr {
+                raw_data: Bytes::copy_from_slice(&raw_data),
+                address: Some(data_cast.ptr),
+                size,
+            };
+
+            let parser = ValueParser::new();
+            let ctx = &ParseContext {
+                evaluation_context: eval_ctx,
+                type_graph: &r#type,
+            };
+            parser.parse(ctx, Some(data), &ValueModifiers::default())
+        });
+
+        Ok(QueryResult {
+            value,
+            scope: None,
+            kind: QueryResultKind::Expression,
+            base_type: r#type,
+            identity: Identity::default(),
+            eval_ctx_builder: context_builder,
+        })
+    }
+
     fn apply_dqe(&self, dqe: &Dqe, on_args: bool) -> Result<Vec<QueryResult<'dbg>>, Error> {
         match dqe {
             Dqe::Variable(selector) => self.apply_select_die(selector, on_args),
             Dqe::PtrCast(ptr_cast) => self.apply_ptr_cast_op(ptr_cast).map(|q| vec![q]),
+            Dqe::DataCast(data_cast) => self.apply_data_cast(data_cast).map(|q| vec![q]),
             Dqe::Field(next, field) => {
                 let results = self.apply_dqe(next, on_args)?;
                 Ok(results
