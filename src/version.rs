@@ -37,6 +37,12 @@ macro_rules! version_specialized {
                 v.partial_cmp(other)
             }
         }
+
+        impl $name {
+            pub fn new(major: u32, minor: u32, patch: u32) -> $name {
+                $name(Version((major, minor, patch)))
+            }
+        }
     };
 }
 
