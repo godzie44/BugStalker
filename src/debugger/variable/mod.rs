@@ -6,7 +6,7 @@ pub mod dqe;
 pub mod execute;
 pub mod render;
 pub mod value;
-mod r#virtual;
+pub mod r#virtual;
 
 /// Identifier of a query result.
 /// Consists name and namespace of the variable or argument.
