@@ -542,7 +542,7 @@ pub mod tui {
                             .rewind(true)
                             .step(4)
                             .widths(&[5, 5, 5, 15, 15, 5])
-                            .headers(&["Task ID", "State", "Time", "Target", "Caller", "Polls"])
+                            .headers(["Task ID", "State", "Time", "Target", "Caller", "Polls"])
                             .table(
                                 TableBuilder::default()
                                     .add_col(TextSpan::from(""))
@@ -575,7 +575,7 @@ pub mod tui {
                                 Box::new(
                                     Paragraph::default()
                                         .borders(Borders::default().sides(BorderSides::NONE))
-                                        .text(&[TextSpan::new(sparkline_hint)]),
+                                        .text([TextSpan::new(sparkline_hint)]),
                                 ),
                             ]),
                     ),

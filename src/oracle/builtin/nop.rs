@@ -61,7 +61,7 @@ pub mod tui {
         fn default() -> Self {
             Self {
                 component: tui_realm_stdlib::Paragraph::default()
-                    .text(&[TextSpan::new("Nop oracle, for test purposes only")]),
+                    .text([TextSpan::new("Nop oracle, for test purposes only")]),
             }
         }
     }

@@ -188,7 +188,7 @@ impl MockComponent for TabWindow {
         self.choices.attr(Attribute::Focus, AttrValue::Flag(focus));
 
         let title = self.props.get(Attribute::Title).map(|x| x.unwrap_title());
-        let div = tui_realm_stdlib::utils::get_block(borders, title, focus, None);
+        let div = tui_realm_stdlib::utils::get_block(borders, title.as_ref(), focus, None);
         // Render block
         frame.render_widget(div, area);
         // Render children
