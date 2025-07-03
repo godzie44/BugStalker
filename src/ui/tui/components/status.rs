@@ -29,7 +29,7 @@ impl Status {
         };
 
         let app_state = tui_realm_stdlib::Paragraph::default()
-            .text(&[initial_state])
+            .text([initial_state])
             .alignment(Alignment::Center)
             .title("Process", Alignment::Center)
             .borders(
@@ -61,7 +61,7 @@ impl Status {
         );
 
         let help = tui_realm_stdlib::Paragraph::default()
-            .text(&[TextSpan::new(keymap_help).fg(Color::Green).bold()])
+            .text([TextSpan::new(keymap_help).fg(Color::Green).bold()])
             .alignment(Alignment::Left)
             .title("Help", Alignment::Center)
             .borders(

@@ -183,15 +183,13 @@ impl MockComponent for MultiSpanTextarea {
                         .into_iter()
                         .map(|x| x.unwrap_vec())
                         .map(|line| {
-                            let line: Vec<_> = line
+                            let line_owned: Vec<_> = line
                                 .into_iter()
                                 .map(|span| span.unwrap_text_span())
                                 .collect();
-                            tui_realm_stdlib::utils::wrap_spans(
-                                line.as_slice(),
-                                wrap_width,
-                                &self.props,
-                            )
+                            let line = line_owned.iter().collect::<Vec<_>>();
+
+                            tui_realm_stdlib::utils::wrap_spans(&line, wrap_width, &self.props)
                         })
                         .map(ListItem::new)
                         .collect(),
@@ -234,7 +232,7 @@ impl MockComponent for MultiSpanTextarea {
 
             // Make component
             let block =
-                tui_realm_stdlib::utils::get_block(borders, Some(title), focus, inactive_style);
+                tui_realm_stdlib::utils::get_block(borders, Some(&title), focus, inactive_style);
 
             let render_area_h = block.inner(area).height as usize;
             let num_lines_to_show_at_top = render_area_h / 2;

@@ -64,11 +64,11 @@ trie-rs = "0.2.0"
 regex = "1.8.4"
 walkdir = "2.3.3"
 timeout-readwrite = "0.3.3"
-tuirealm = { version = "2" }
-tui-realm-stdlib = { version = "2" }
+tuirealm = { version = "3.0.1" }
+tui-realm-stdlib = { version = "3" }
 syntect = "5.2.0"
 unicode-width = "0.1.11"
-tui-realm-treeview = { version = "2" }
+tui-realm-treeview = { version = "3" }
 capstone = "0.11.0"
 lru = "0.12.1"
 chrono = "0.4.31"

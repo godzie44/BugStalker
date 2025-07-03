@@ -31,7 +31,7 @@ use std::borrow::Cow;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tuirealm::listener::Port;
+use tuirealm::listener::SyncPort;
 use tuirealm::props::{PropPayload, PropValue, TextSpan};
 use tuirealm::ratatui::layout::Alignment;
 use tuirealm::ratatui::layout::{Constraint, Direction, Layout};
@@ -132,22 +132,22 @@ impl Model {
         let mut app: Application<Id, Msg, UserEvent> = Application::init(
             EventListenerCfg::default()
                 .crossterm_input_listener(Duration::from_millis(20), 3)
-                .port(Port::new(
+                .port(SyncPort::new(
                     Box::new(OutputPort::new(output_buf.data.clone())),
                     Duration::from_millis(10),
                     1,
                 ))
-                .port(Port::new(
+                .port(SyncPort::new(
                     Box::new(DebuggerEventsPort::new(event_queue)),
                     Duration::from_millis(10),
                     1,
                 ))
-                .port(Port::new(
+                .port(SyncPort::new(
                     Box::new(AsyncResponsesPort::new(exchanger.clone())),
                     Duration::from_millis(10),
                     1,
                 ))
-                .port(Port::new(
+                .port(SyncPort::new(
                     Box::new(LoggerPort::new(log_buffer)),
                     Duration::from_millis(10),
                     1,

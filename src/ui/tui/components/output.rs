@@ -39,7 +39,7 @@ impl Output {
                 .title("Program output", Alignment::Center)
                 .highlighted_str("▶")
                 .step(4)
-                .text_rows(&rows),
+                .text_rows(rows),
         }
     }
 

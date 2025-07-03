@@ -157,7 +157,8 @@ impl MockComponent for Radio {
                 .props
                 .get(Attribute::FocusStyle)
                 .map(|x| x.unwrap_style());
-            let div = tui_realm_stdlib::utils::get_block(borders, title, focus, inactive_style);
+            let div =
+                tui_realm_stdlib::utils::get_block(borders, title.as_ref(), focus, inactive_style);
 
             let (fg, block_color): (Color, Color) = match focus {
                 true => (foreground, foreground),
