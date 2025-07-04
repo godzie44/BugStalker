@@ -44,7 +44,7 @@ pub fn try_as_park_thread(
 
     let future = debugger
         .read_variable(Dqe::Variable(Selector::by_name("f", true)))?
-        .pop_if_cond(|qr| qr.len() == 1)
+        .pop_if_single_el()
         .ok_or(AsyncError::IncorrectAssumption(
             "it looks like it's a park thread, but variable `f` not found at `block_on` fn",
         ))?;

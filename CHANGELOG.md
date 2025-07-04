@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - update `tui-realm` and `tui-realm-treeview` components
+- add `PopIf::pop_if_single_el`
 
 ### Fixed
 

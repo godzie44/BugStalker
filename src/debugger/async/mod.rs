@@ -174,11 +174,12 @@ impl Debugger {
                     let mut context_initialized_var = analyze_context
                         .debugger()
                         .read_variable(Dqe::Variable(Selector::by_name("CONTEXT", false)))?;
-                    let context_initialized = context_initialized_var
-                        .pop_if_cond(|results| results.len() == 1)
-                        .ok_or(Error::Async(AsyncError::IncorrectAssumption(
-                            "CONTEXT not found",
-                        )))?;
+                    let context_initialized =
+                        context_initialized_var
+                            .pop_if_single_el()
+                            .ok_or(Error::Async(AsyncError::IncorrectAssumption(
+                                "CONTEXT not found",
+                            )))?;
 
                     tasks = Rc::new(
                         OwnedList::try_extract(&analyze_context, context_initialized)?
@@ -246,7 +247,7 @@ impl Debugger {
         // what task we ended up after trying to take a step
         let initial_task_context = self
             .read_variable(Dqe::Variable(Selector::by_name("_task_context", true)))?
-            .pop_if_cond(|results| results.len() == 1)
+            .pop_if_single_el()
             .and_then(|t_ctx| t_ctx.into_value().into_raw_ptr())
             .and_then(|ptr| ptr.value)
             .ok_or(AsyncError::IncorrectAssumption(
@@ -428,7 +429,7 @@ impl Debugger {
             // check that _task_context equals to initial
             let mb_task_context = self
                 .read_variable(Dqe::Variable(Selector::by_name("_task_context", true)))?
-                .pop_if_cond(|results| results.len() == 1)
+                .pop_if_single_el()
                 .and_then(|t_ctx| t_ctx.into_value().into_raw_ptr())
                 .and_then(|ptr| ptr.value)
                 .map(|t_ctx| t_ctx as usize);
