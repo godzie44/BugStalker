@@ -122,7 +122,7 @@ impl WorkerInternal {
         let context = debugger
             .read_variable(Dqe::Variable(Selector::by_name("CONTEXT", false)))
             .ok()?
-            .pop_if_cond(|results| results.len() == 1)?;
+            .pop_if_single_el()?;
 
         let backtrace = thread.bt.as_ref()?;
 
@@ -226,7 +226,7 @@ impl WorkerInternal {
             core_run_queue_inner = executor
                 .query(&Dqe::DataCast(data_cast))
                 .ok()?
-                .pop_if_cond(|results| results.len() == 1)?;
+                .pop_if_single_el()?;
         }
 
         let local_queue = core_run_queue_inner.modify_value(|c, v| v.deref(c)?.field("data"))?;
@@ -302,7 +302,7 @@ pub fn try_as_worker(
             .debugger()
             .read_argument(task_header_ptr_dqe)
             .ok()?
-            .pop_if_cond(|results| results.len() == 1)?;
+            .pop_if_single_el()?;
 
         let task = task_from_header(context.debugger(), task_header_ptr).ok()?;
         task.backtrace().ok()
@@ -312,7 +312,7 @@ pub fn try_as_worker(
     let context_initialized = context
         .debugger()
         .read_variable(Dqe::Variable(Selector::by_name("CONTEXT", false)))?
-        .pop_if_cond(|results| results.len() == 1)
+        .pop_if_single_el()
         .ok_or(Error::Async(AsyncError::IncorrectAssumption(
             "CONTEXT not found",
         )))?;

@@ -112,7 +112,7 @@ pub fn task_header_state_value_and_ptr(
 
     let state = debugger
         .read_variable(dqe)?
-        .pop_if_cond(|v| v.len() == 1)
+        .pop_if_single_el()
         .ok_or(Error::Async(AsyncError::IncorrectAssumption(
             "Header::state field not found in structure",
         )))?;
@@ -279,7 +279,7 @@ pub fn task_from_header<'a>(
 
     let task_id = debugger
         .read_variable(task_id_dqe)?
-        .pop_if_cond(|v| v.len() == 1)
+        .pop_if_single_el()
         .ok_or(Error::Async(AsyncError::IncorrectAssumption(
             "task_id field not found in task structure",
         )))?;

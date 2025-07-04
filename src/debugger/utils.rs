@@ -28,6 +28,8 @@ pub trait PopIf<T> {
     fn pop_if_cond<F>(&mut self, pred: F) -> Option<T>
     where
         F: FnOnce(&Self) -> bool;
+
+    fn pop_if_single_el(&mut self) -> Option<T>;
 }
 
 impl<T> PopIf<T> for Vec<T> {
@@ -36,6 +38,10 @@ impl<T> PopIf<T> for Vec<T> {
         F: FnOnce(&Self) -> bool,
     {
         if pred(self) { self.pop() } else { None }
+    }
+
+    fn pop_if_single_el(&mut self) -> Option<T> {
+        self.pop_if_cond(|v| v.len() == 1)
     }
 }
 
