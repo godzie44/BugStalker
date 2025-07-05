@@ -13,7 +13,7 @@ use crate::ui::command::watch::WatchpointIdentity;
 use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 use chumsky::error::{Rich, RichPattern, RichReason};
 use chumsky::prelude::{any, choice, end, just, one_of};
-use chumsky::text::{Char, whitespace};
+use chumsky::text::whitespace;
 use chumsky::{Boxed, IterParser, Parser, extra, text};
 use itertools::Itertools;
 
@@ -124,7 +124,7 @@ pub fn brkpt_at_addr_parser<'a>() -> impl chumsky::Parser<'a, &'a str, Breakpoin
 pub fn brkpt_at_line_parser<'a>() -> impl chumsky::Parser<'a, &'a str, BreakpointIdentity, Err<'a>>
 {
     any()
-        .filter(|c: &char| c.to_char() != ':')
+        .filter(|c: &char| *c != ':')
         .repeated()
         .to_slice()
         .then_ignore(just(':'))
@@ -213,6 +213,13 @@ impl Command {
                                     .map(|e| match e {
                                         RichPattern::Token(tok) => tok.to_string(),
                                         RichPattern::Label(label) => label.to_string(),
+                                        RichPattern::Identifier(ident) => ident.to_string(),
+                                        RichPattern::Any => {
+                                            "anything other than the end of input".to_string()
+                                        }
+                                        RichPattern::SomethingElse => {
+                                            "something other than the provided input".to_string()
+                                        }
                                         RichPattern::EndOfInput => "end of input".to_string(),
                                     })
                                     .join(", ")
@@ -234,12 +241,6 @@ impl Command {
                             .with_message(format!("{}", msg.fg(Color::Red)))
                             .with_color(Color::Red),
                     ),
-                    RichReason::Many(reasons) => {
-                        for r in reasons {
-                            generate_reports(src, reports, err, r);
-                        }
-                        return;
-                    }
                 };
 
                 let mut buf = vec![];
