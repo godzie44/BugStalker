@@ -74,7 +74,7 @@ lru = "0.12.1"
 chrono = "0.4.31"
 sysinfo = "0.30.0"
 indexmap = "2.1.0"
-chumsky = { version = "1.0.0-alpha.6", features = ["default", "label"] }
+chumsky = { version = "0.10.1", features = ["default"] }
 ariadne = "0.4.0"
 bit_field = "0.10.1"
 serde = { version = "1.0.164", features = ["derive"] }

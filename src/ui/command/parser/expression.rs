@@ -35,7 +35,7 @@ fn ptr_cast<'a>() -> impl Parser<'a, &'a str, Dqe, Err<'a>> + Clone {
         .to_slice();
     let type_p = any.delimited_by(op('('), op(')'));
     type_p
-        .then(hex())
+        .then(hex().labelled("hex address"))
         .map(|(r#type, ptr)| Dqe::PtrCast(PointerCast::new(ptr, r#type.trim())))
         .labelled("pointer cast")
 }
@@ -137,9 +137,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Dqe, Err<'a>> {
             .or(expr.delimited_by(op('('), op(')')))
             .padded();
 
-        let field = text::ascii::ident()
-            .or(text::int(10))
-            .labelled("field name or tuple index");
+        let field = text::ascii::ident().or(text::int(10)).labelled("field");
 
         let field_op = op('.')
             .ignore_then(field)
@@ -678,7 +676,7 @@ mod test {
             },
             TestCase {
                 string: "var1..",
-                err_text: "found '.' expected field name or tuple index",
+                err_text: "found '.' expected field",
             },
             TestCase {
                 string: "var1[]",
@@ -686,19 +684,19 @@ mod test {
             },
             TestCase {
                 string: "(var1.)field1",
-                err_text: "found ')' expected field name or tuple index",
+                err_text: "found end of input expected something else, or field",
             },
             TestCase {
                 string: "((var1)",
-                err_text: "found end of input expected '0', '.', '[', or ')'",
+                err_text: "found end of input expected something else, hex address, '.', '[', or ')'",
             },
             TestCase {
                 string: "(var1))",
-                err_text: "found end of input expected '0', '.', '[', or end of input",
+                err_text: "found ')' expected something else, hex address, '.', '[', or end of input",
             },
             TestCase {
                 string: "*",
-                err_text: "found end of input expected '*', '&', '~', ':', or '('",
+                err_text: "found end of input expected '*', '&', '~', rust identifier, pointer cast, or '('",
             },
         ];
 
