@@ -63,7 +63,7 @@ impl Threads {
             let func_name = thread_snap
                 .bt
                 .as_ref()
-                .and_then(|bt| bt[0].func_name.clone())
+                .and_then(|bt| bt.first()?.func_name.clone())
                 .unwrap_or("unknown".to_string());
             let line = thread_snap
                 .place
