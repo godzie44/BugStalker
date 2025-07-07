@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- tui: fix panic when there is a thread with unknown first frame function in backtrace
+
 ### Deprecated
 
 ### Breaking changes
