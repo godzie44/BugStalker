@@ -1,4 +1,3 @@
-use crate::debugger::ExplorationContext;
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::debugee::dwarf::EndianArcSlice;
 use crate::debugger::debugee::dwarf::eval::{AddressKind, ExpressionEvaluator};
@@ -9,6 +8,7 @@ use crate::debugger::error::Error::{
 };
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::utils::TryGetOrInsert;
+use crate::debugger::{ExplorationContext, PlaceDescriptorOwned};
 use crate::{debugger, resolve_unit_call, weak_error};
 use gimli::{EhFrame, FrameDescriptionEntry, RegisterRule, UnwindSection};
 use nix::unistd::Pid;
@@ -17,15 +17,35 @@ use std::mem;
 /// Unique frame identifier. It is just an address of the first instruction in function.
 pub type FrameID = RelocatedAddress;
 
-/// Represents information about single stack frame in the unwind path.
+/// Represents detailed information about single stack frame in the unwind path.
 #[derive(Debug, Default, Clone)]
 pub struct FrameSpan {
     pub func_name: Option<String>,
     pub fn_start_ip: Option<RelocatedAddress>,
     pub ip: RelocatedAddress,
+    pub place: Option<PlaceDescriptorOwned>,
 }
 
 impl FrameSpan {
+    fn new(
+        debugee: &Debugee,
+        ip: RelocatedAddress,
+        fn_name: Option<String>,
+        fn_start_ip: Option<RelocatedAddress>,
+    ) -> Result<Self, Error> {
+        let debug_information = debugee.debug_info(ip)?;
+        let place = debug_information
+            .find_place_from_pc(ip.into_global(debugee)?)?
+            .map(|p| p.to_owned());
+
+        Ok(FrameSpan {
+            func_name: fn_name,
+            fn_start_ip,
+            ip,
+            place,
+        })
+    }
+
     #[inline(always)]
     pub fn id(&self) -> Option<FrameID> {
         self.fn_start_ip
@@ -40,7 +60,6 @@ pub type Backtrace = Vec<FrameSpan>;
 ///
 /// * `debugee`: debugee instance
 /// * `pid`: thread for unwinding
-#[allow(unused)]
 pub fn unwind(debugee: &Debugee, pid: Pid) -> Result<Backtrace, Error> {
     #[cfg(not(feature = "libunwind"))]
     {
@@ -48,7 +67,7 @@ pub fn unwind(debugee: &Debugee, pid: Pid) -> Result<Backtrace, Error> {
         unwinder.unwind(pid)
     }
     #[cfg(feature = "libunwind")]
-    libunwind::unwind(pid)
+    libunwind::unwind(debugee, pid)
 }
 
 /// Restore registers at chosen frame.
@@ -248,7 +267,7 @@ impl<'a> DwarfUnwinder<'a> {
     /// # Arguments
     ///
     /// * pid: thread for unwinding
-    pub fn unwind(&self, pid: Pid) -> Result<Vec<FrameSpan>, Error> {
+    pub fn unwind(&self, pid: Pid) -> Result<Backtrace, Error> {
         let frame_0_location = self
             .debugee
             .tracee_ctl()
@@ -279,11 +298,12 @@ impl<'a> DwarfUnwinder<'a> {
             })
             .transpose()?;
 
-        let mut bt = vec![FrameSpan {
-            func_name: function.and_then(|func| func.full_name()),
-            fn_start_ip: fn_start_at,
-            ip: ctx.location().pc,
-        }];
+        let mut bt = vec![FrameSpan::new(
+            self.debugee,
+            ctx.location().pc,
+            function.and_then(|func| func.full_name()),
+            fn_start_at,
+        )?];
 
         // start unwind
         while let Some(return_addr) = unwind_ctx.return_address() {
@@ -318,11 +338,12 @@ impl<'a> DwarfUnwinder<'a> {
                 })
                 .transpose()?;
 
-            let span = FrameSpan {
-                func_name: function.and_then(|func| func.full_name()),
-                fn_start_ip: fn_start_at,
-                ip: next_location.pc,
-            };
+            let span = FrameSpan::new(
+                self.debugee,
+                next_location.pc,
+                function.and_then(|func| func.full_name()),
+                fn_start_at,
+            )?;
             bt.push(span);
         }
 
@@ -419,11 +440,11 @@ impl<'a> DwarfUnwinder<'a> {
 
 #[cfg(feature = "libunwind")]
 mod libunwind {
-    use super::FrameSpan;
     use crate::debugger::address::RelocatedAddress;
+    use crate::debugger::debugee::Debugee;
     use crate::debugger::error::Error;
     use crate::debugger::register::DwarfRegisterMap;
-    use crate::debugger::unwind::Backtrace;
+    use crate::debugger::unwind::{Backtrace, FrameSpan};
     use nix::unistd::Pid;
     use unwind::{Accessors, AddressSpace, Byteorder, Cursor, PTraceState, RegNum};
 
@@ -432,7 +453,7 @@ mod libunwind {
     /// # Arguments
     ///
     /// * `pid`: thread for unwinding.
-    pub(super) fn unwind(pid: Pid) -> Result<Backtrace, Error> {
+    pub(super) fn unwind(debugee: &Debugee, pid: Pid) -> Result<Backtrace, Error> {
         let state = PTraceState::new(pid.as_raw() as u32)?;
         let address_space = AddressSpace::new(Accessors::ptrace(), Byteorder::DEFAULT)?;
         let mut cursor = Cursor::remote(&address_space, &state)?;
@@ -444,18 +465,15 @@ mod libunwind {
                 (Ok(ref info), Ok(ref name)) if ip == info.start_ip() + name.offset() => {
                     let fn_name = format!("{:#}", rustc_demangle::demangle(name.name()));
 
-                    backtrace.push(FrameSpan {
-                        func_name: Some(fn_name),
-                        fn_start_ip: Some(info.start_ip().into()),
-                        ip: ip.into(),
-                    });
+                    backtrace.push(FrameSpan::new(
+                        debugee,
+                        ip.into(),
+                        Some(fn_name),
+                        Some(info.start_ip().into()),
+                    )?);
                 }
                 _ => {
-                    backtrace.push(FrameSpan {
-                        func_name: None,
-                        fn_start_ip: None,
-                        ip: ip.into(),
-                    });
+                    backtrace.push(FrameSpan::new(debugee, ip.into(), None, None)?);
                 }
             }
 
