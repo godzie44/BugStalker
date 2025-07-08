@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - update `tui-realm` and `tui-realm-treeview` components
 - add `PopIf::pop_if_single_el`
 - update `chumsky` to a stable version `0.10.1`
+- debugger: now backtrace frames contains a source file and line
 
 ### Fixed
 
