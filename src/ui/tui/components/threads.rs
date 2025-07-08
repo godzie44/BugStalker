@@ -1,6 +1,7 @@
 use crate::debugger::register::debug::BreakCondition;
 use crate::ui;
 use crate::ui::command::thread::ExecutionResult as ThreadResult;
+use crate::ui::short::Abbreviator;
 use crate::ui::syntax::StylizedLine;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::CommonAction;
@@ -82,18 +83,27 @@ impl Threads {
                 render_frame(&value).expect("should be rendered"),
             );
 
+            let abbreviator = Abbreviator::new("/", "/..", 30);
+
             if let Some(ref bt) = thread_snap.bt {
                 for (frame_num, frame) in bt.iter().enumerate() {
-                    let fn_ip_or_zero = frame.fn_start_ip.unwrap_or_default();
+                    let file_and_line = frame
+                        .place
+                        .as_ref()
+                        .map(|p| {
+                            format!(
+                                "at {}:{}",
+                                abbreviator.apply(&p.file.to_string_lossy()),
+                                p.line_number
+                            )
+                        })
+                        .unwrap_or_default();
 
                     let frame_info = format!(
-                        "#{frame_num} {} ({} + {:#X})",
+                        "#{frame_num} {} - {} {}",
+                        frame.ip,
                         frame.func_name.as_deref().unwrap_or("???"),
-                        frame
-                            .fn_start_ip
-                            .map(|addr| addr.to_string())
-                            .unwrap_or("???".to_string()),
-                        frame.ip.as_u64().saturating_sub(fn_ip_or_zero.as_u64()),
+                        file_and_line,
                     );
                     thread_node.add_child(Node::new(
                         format!("thread_{i}_frame_{frame_num}"),
