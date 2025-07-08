@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- ui: new output for `backtrace` command (with source file and line)
+
 ### Changed
 
 - update `tui-realm` and `tui-realm-treeview` components

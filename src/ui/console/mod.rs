@@ -62,6 +62,7 @@ use crate::ui::console::print::style::{
     KeywordView,
 };
 use crate::ui::console::variable::render_variable;
+use crate::ui::short::Abbreviator;
 use crate::ui::{command, supervisor};
 use command::trigger::Command as UserCommandTarget;
 
@@ -485,6 +486,8 @@ impl AppLoop {
                         AddressView::from(ip),
                     ));
 
+                    let abbreviator = Abbreviator::new("/", "/..", 30);
+
                     if let Some(bt) = thread.bt {
                         for (frame_num, frame) in bt.into_iter().enumerate() {
                             let fn_name = frame.func_name.clone().unwrap_or_default();
@@ -493,14 +496,25 @@ impl AppLoop {
                                 //|| fn_name.contains("::main")
                                 || fn_name.contains("::thread_start");
 
-                            let fn_ip_or_zero = frame.fn_start_ip.unwrap_or_default();
+                            let place = frame.place;
+
+                            let file_and_line = place
+                                .map(|p| {
+                                    format!(
+                                        "at {}:{}",
+                                        FilePathView::from(
+                                            abbreviator.apply(&p.file.to_string_lossy())
+                                        ),
+                                        p.line_number
+                                    )
+                                })
+                                .unwrap_or_default();
 
                             let mut frame_info = format!(
-                                "#{frame_num} {} - {} ({} + {:#X})",
+                                "#{frame_num} {} - {} {}",
                                 AddressView::from(frame.ip),
                                 FunctionNameView::from(frame.func_name),
-                                AddressView::from(frame.fn_start_ip),
-                                frame.ip.as_u64().saturating_sub(fn_ip_or_zero.as_u64()),
+                                file_and_line
                             );
                             if thread.focus_frame == Some(frame_num) {
                                 frame_info = frame_info.bold().to_string();
