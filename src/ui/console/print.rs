@@ -1,5 +1,5 @@
-use rustyline::history::History;
-use rustyline::{Editor, ExternalPrinter as RLExternalPrinter, Helper};
+use crate::ui::console::editor::BSEditor;
+use rustyline::ExternalPrinter as RLExternalPrinter;
 use std::cell::RefCell;
 use std::fmt::Display;
 
@@ -15,7 +15,7 @@ unsafe impl Send for ExternalPrinter {}
 
 impl ExternalPrinter {
     #[cfg(not(feature = "int_test"))]
-    pub fn new<H: Helper, I: History>(editor: &mut Editor<H, I>) -> rustyline::Result<Self> {
+    pub fn new(editor: &mut BSEditor) -> rustyline::Result<Self> {
         let external_p = editor.create_external_printer()?;
         Ok(Self {
             printer: Some(RefCell::new(Box::new(external_p))),
@@ -23,7 +23,7 @@ impl ExternalPrinter {
     }
 
     #[cfg(feature = "int_test")]
-    pub fn new<H: Helper, I: History>(_editor: &mut Editor<H, I>) -> rustyline::Result<Self> {
+    pub fn new(_editor: &mut BSEditor) -> rustyline::Result<Self> {
         Ok(Self { printer: None })
     }
 

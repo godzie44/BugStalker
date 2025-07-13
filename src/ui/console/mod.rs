@@ -12,9 +12,7 @@ use itertools::Itertools;
 use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 use print::style::ImportantView;
-use rustyline::Editor;
 use rustyline::error::ReadlineError;
-use rustyline::history::MemHistory;
 use timeout_readwrite::TimeoutReader;
 
 use r#break::Command as BreakpointCommand;
@@ -28,7 +26,6 @@ use crate::debugger;
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::variable::dqe::{Dqe, Selector};
 use crate::debugger::{Debugger, DebuggerBuilder};
-use crate::ui::DebugeeOutReader;
 use crate::ui::command::backtrace::Handler as BacktraceHandler;
 use crate::ui::command::r#break::ExecutionResult;
 use crate::ui::command::r#break::Handler as BreakpointHandler;
@@ -52,7 +49,7 @@ use crate::ui::command::{
 use crate::ui::console::r#async::print_backtrace;
 use crate::ui::console::r#async::print_backtrace_full;
 use crate::ui::console::r#async::print_task_ex;
-use crate::ui::console::editor::{CommandCompleter, RLHelper, create_editor};
+use crate::ui::console::editor::{BSEditor, CommandCompleter};
 use crate::ui::console::file::FileView;
 use crate::ui::console::help::*;
 use crate::ui::console::hook::TerminalHook;
@@ -63,6 +60,7 @@ use crate::ui::console::print::style::{
 };
 use crate::ui::console::variable::render_variable;
 use crate::ui::short::Abbreviator;
+use crate::ui::{DebugeeOutReader, config};
 use crate::ui::{command, supervisor};
 use command::trigger::Command as UserCommandTarget;
 
@@ -81,8 +79,6 @@ BugStalker greets
 const PROMT: &str = "(bs) ";
 const PROMT_YES_NO: &str = "(bs y/n) ";
 const PROMT_USER_PROGRAM: &str = "> ";
-
-type BSEditor = Editor<RLHelper, MemHistory>;
 
 /// Shared debugee process pid, installed by hook or at console ui creation
 static DEBUGEE_PID: AtomicI32 = AtomicI32::new(-1);
@@ -106,7 +102,7 @@ impl AppBuilder {
         debugger_lazy: impl FnOnce(TerminalHook) -> anyhow::Result<Debugger>,
     ) -> anyhow::Result<TerminalApplication> {
         let (user_cmd_tx, user_cmd_rx) = mpsc::sync_channel::<UserAction>(0);
-        let mut editor = create_editor(PROMT, oracles)?;
+        let mut editor = BSEditor::new(PROMT, oracles, config::current().save_history)?;
         let file_view = Rc::new(FileView::new());
         let trigger_reg = Rc::new(TriggerRegistry::default());
         let hook = TerminalHook::new(

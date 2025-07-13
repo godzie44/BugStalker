@@ -44,6 +44,8 @@ pub struct UIConfig {
     pub theme: Theme,
     /// Keymap for TUI.
     pub tui_keymap: KeyMap,
+    /// Save command history in a regular file.
+    pub save_history: bool,
 }
 
 /// Read-only ui configuration (set only once, at debugger start).
