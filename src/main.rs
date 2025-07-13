@@ -49,6 +49,11 @@ pub struct Args {
     /// Path to TUI keymap file [default: ~/.config/bs/keymap.toml]
     #[clap(long, env)]
     keymap_file: Option<String>,
+
+    // Retain command history between sessions.
+    #[clap(long, env)]
+    #[arg(default_value_t = false)]
+    save_history: bool,
 }
 
 fn print_fatal_and_exit(kind: ErrorKind, message: impl Display) -> ! {
@@ -77,6 +82,7 @@ impl From<&Args> for UIConfig {
                 .unwrap_or_exit(ErrorKind::InvalidValue, "Not an available theme"),
             tui_keymap: ui::tui::config::KeyMap::from_file(args.keymap_file.as_deref())
                 .unwrap_or_default(),
+            save_history: args.save_history,
         }
     }
 }

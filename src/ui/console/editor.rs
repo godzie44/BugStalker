@@ -24,12 +24,13 @@ use chumsky::prelude::{any, choice, just};
 use chumsky::text::whitespace;
 use chumsky::{Parser, extra, text};
 use crossterm::style::{Color, Stylize};
+use log::warn;
 use rustyline::completion::{Completer, Pair};
 use rustyline::highlight::Highlighter;
 use rustyline::hint::HistoryHinter;
-use rustyline::history::MemHistory;
+use rustyline::history::{FileHistory, MemHistory};
 use rustyline::line_buffer::LineBuffer;
-use rustyline::{Changeset, CompletionType, Config, Context, Editor};
+use rustyline::{Changeset, CompletionType, Config, Context, Editor, ExternalPrinter};
 use rustyline_derive::{Helper, Hinter, Validator};
 use std::borrow::Cow;
 use std::borrow::Cow::{Borrowed, Owned};
@@ -339,131 +340,190 @@ impl Highlighter for RLHelper {
     }
 }
 
-pub fn create_editor(
-    promt: &str,
-    oracles: &[&str],
-) -> anyhow::Result<Editor<RLHelper, MemHistory>> {
-    let config = Config::builder()
-        .history_ignore_space(true)
-        .completion_type(CompletionType::List)
-        .build();
+pub enum BSEditor {
+    InMem(Editor<RLHelper, MemHistory>),
+    InFile(Editor<RLHelper, FileHistory>),
+}
 
-    let commands = [
-        VAR_COMMAND.into(),
-        ARG_COMMAND.into(),
-        VAR_DEBUG_COMMAND.into(),
-        ARG_DEBUG_COMMAND.into(),
-        (CONTINUE_COMMAND_SHORT, CONTINUE_COMMAND).into(),
-        CommandHint {
-            short: None,
-            long: FRAME_COMMAND.to_string(),
-            subcommands: vec![
-                FRAME_COMMAND_INFO_SUBCOMMAND.to_string(),
-                FRAME_COMMAND_SWITCH_SUBCOMMAND.to_string(),
-            ],
-        },
-        (RUN_COMMAND_SHORT, RUN_COMMAND).into(),
-        STEP_INSTRUCTION_COMMAND.into(),
-        (STEP_INTO_COMMAND_SHORT, STEP_INTO_COMMAND).into(),
-        (STEP_OUT_COMMAND_SHORT, STEP_OUT_COMMAND).into(),
-        (STEP_OVER_COMMAND_SHORT, STEP_OVER_COMMAND).into(),
-        SYMBOL_COMMAND.into(),
-        (BREAK_COMMAND_SHORT, BREAK_COMMAND).into(),
-        CommandHint {
-            short: Some(WATCH_COMMAND_SHORT.to_string()),
-            long: WATCH_COMMAND.to_string(),
-            subcommands: vec![
-                WATCH_REMOVE_SUBCOMMAND.to_string(),
-                WATCH_REMOVE_SUBCOMMAND_SHORT.to_string(),
-                WATCH_INFO_SUBCOMMAND.to_string(),
-            ],
-        },
-        CommandHint {
-            short: Some(BACKTRACE_COMMAND_SHORT.to_string()),
-            long: BACKTRACE_COMMAND.to_string(),
-            subcommands: vec![BACKTRACE_ALL_SUBCOMMAND.to_string()],
-        },
-        CommandHint {
-            short: Some(MEMORY_COMMAND_SHORT.to_string()),
-            long: MEMORY_COMMAND.to_string(),
-            subcommands: vec![
-                MEMORY_COMMAND_READ_SUBCOMMAND.to_string(),
-                MEMORY_COMMAND_WRITE_SUBCOMMAND.to_string(),
-            ],
-        },
-        CommandHint {
-            short: Some(REGISTER_COMMAND_SHORT.to_string()),
-            long: REGISTER_COMMAND.to_string(),
-            subcommands: vec![
-                REGISTER_COMMAND_READ_SUBCOMMAND.to_string(),
-                REGISTER_COMMAND_WRITE_SUBCOMMAND.to_string(),
-                REGISTER_COMMAND_INFO_SUBCOMMAND.to_string(),
-            ],
-        },
-        (HELP_COMMAND_SHORT, HELP_COMMAND).into(),
-        CommandHint {
-            short: None,
-            long: THREAD_COMMAND.to_string(),
-            subcommands: vec![
-                THREAD_COMMAND_INFO_SUBCOMMAND.to_string(),
-                THREAD_COMMAND_SWITCH_SUBCOMMAND.to_string(),
-                THREAD_COMMAND_CURRENT_SUBCOMMAND.to_string(),
-            ],
-        },
-        CommandHint {
-            short: None,
-            long: SHARED_LIB_COMMAND.to_string(),
-            subcommands: vec![SHARED_LIB_COMMAND_INFO_SUBCOMMAND.to_string()],
-        },
-        CommandHint {
-            short: None,
-            long: SOURCE_COMMAND.to_string(),
-            subcommands: vec![
-                SOURCE_COMMAND_DISASM_SUBCOMMAND.to_string(),
-                SOURCE_COMMAND_FUNCTION_SUBCOMMAND.to_string(),
-            ],
-        },
-        CommandHint {
-            short: None,
-            long: TRIGGER_COMMAND.to_string(),
-            subcommands: vec![
-                TRIGGER_COMMAND_INFO_SUBCOMMAND.to_string(),
-                TRIGGER_COMMAND_ANY_TRIGGER_SUBCOMMAND.to_string(),
-                TRIGGER_COMMAND_BRKPT_TRIGGER_SUBCOMMAND.to_string(),
-                TRIGGER_COMMAND_WP_TRIGGER_SUBCOMMAND.to_string(),
-            ],
-        },
-        CommandHint {
-            short: None,
-            long: ASYNC_COMMAND.to_string(),
-            subcommands: vec![
-                ASYNC_COMMAND_BACKTRACE_SUBCOMMAND.to_string(),
-                ASYNC_COMMAND_BACKTRACE_SUBCOMMAND_SHORT.to_string(),
-                ASYNC_COMMAND_TASK_SUBCOMMAND.to_string(),
-                ASYNC_COMMAND_BACKTRACE_SUBCOMMAND.to_string() + " all",
-                ASYNC_COMMAND_BACKTRACE_SUBCOMMAND_SHORT.to_string() + " all",
-                ASYNC_COMMAND_STEP_OVER_SUBCOMMAND.to_string(),
-                ASYNC_COMMAND_STEP_OVER_SUBCOMMAND_SHORT.to_string(),
-                ASYNC_COMMAND_STEP_OUT_SUBCOMMAND.to_string(),
-                ASYNC_COMMAND_STEP_OUT_SUBCOMMAND_SHORT.to_string(),
-            ],
-        },
-        CALL_COMMAND.into(),
-        CommandHint {
-            short: None,
-            long: ORACLE_COMMAND.to_string(),
-            subcommands: oracles.iter().map(ToString::to_string).collect(),
-        },
-        ("q", "quit").into(),
-    ];
-
-    let h = RLHelper {
-        completer: Arc::new(Mutex::new(CommandCompleter::new(commands))),
-        hinter: HistoryHinter {},
-        colored_prompt: format!("{}", promt.with(Color::DarkGreen)),
+macro_rules! call_editor {
+    ($self: expr, $fn_name: tt, $($arg: expr),*) => {
+        match $self {
+            BSEditor::InMem(editor) => editor.$fn_name($($arg),*),
+            BSEditor::InFile(editor) => editor.$fn_name($($arg),*),
+        }
     };
+}
 
-    let mut editor = Editor::with_history(config, MemHistory::new())?;
-    editor.set_helper(Some(h));
-    Ok(editor)
+impl BSEditor {
+    const HISTORY_FILE_NAME: &str = ".config/bs/history";
+
+    fn history_file() -> anyhow::Result<PathBuf> {
+        let path = home::home_dir().ok_or(anyhow::anyhow!("home dir not found"))?;
+        Ok(path.join(Self::HISTORY_FILE_NAME))
+    }
+
+    pub fn helper_mut(&mut self) -> Option<&mut RLHelper> {
+        call_editor!(self, helper_mut,)
+    }
+
+    pub fn readline(&mut self, prompt: &str) -> rustyline::Result<String> {
+        call_editor!(self, readline, prompt)
+    }
+
+    pub fn add_history_entry<S>(&mut self, line: S) -> rustyline::Result<bool>
+    where
+        S: AsRef<str> + Into<String>,
+    {
+        call_editor!(self, add_history_entry, line)
+    }
+
+    pub fn create_external_printer(&mut self) -> rustyline::Result<impl ExternalPrinter + 'static> {
+        call_editor!(self, create_external_printer,)
+    }
+
+    pub fn new(promt: &str, oracles: &[&str], save_history_in_file: bool) -> anyhow::Result<Self> {
+        let config: Config = Config::builder()
+            .history_ignore_space(true)
+            .completion_type(CompletionType::List)
+            .build();
+
+        let commands = [
+            VAR_COMMAND.into(),
+            ARG_COMMAND.into(),
+            VAR_DEBUG_COMMAND.into(),
+            ARG_DEBUG_COMMAND.into(),
+            (CONTINUE_COMMAND_SHORT, CONTINUE_COMMAND).into(),
+            CommandHint {
+                short: None,
+                long: FRAME_COMMAND.to_string(),
+                subcommands: vec![
+                    FRAME_COMMAND_INFO_SUBCOMMAND.to_string(),
+                    FRAME_COMMAND_SWITCH_SUBCOMMAND.to_string(),
+                ],
+            },
+            (RUN_COMMAND_SHORT, RUN_COMMAND).into(),
+            STEP_INSTRUCTION_COMMAND.into(),
+            (STEP_INTO_COMMAND_SHORT, STEP_INTO_COMMAND).into(),
+            (STEP_OUT_COMMAND_SHORT, STEP_OUT_COMMAND).into(),
+            (STEP_OVER_COMMAND_SHORT, STEP_OVER_COMMAND).into(),
+            SYMBOL_COMMAND.into(),
+            (BREAK_COMMAND_SHORT, BREAK_COMMAND).into(),
+            CommandHint {
+                short: Some(WATCH_COMMAND_SHORT.to_string()),
+                long: WATCH_COMMAND.to_string(),
+                subcommands: vec![
+                    WATCH_REMOVE_SUBCOMMAND.to_string(),
+                    WATCH_REMOVE_SUBCOMMAND_SHORT.to_string(),
+                    WATCH_INFO_SUBCOMMAND.to_string(),
+                ],
+            },
+            CommandHint {
+                short: Some(BACKTRACE_COMMAND_SHORT.to_string()),
+                long: BACKTRACE_COMMAND.to_string(),
+                subcommands: vec![BACKTRACE_ALL_SUBCOMMAND.to_string()],
+            },
+            CommandHint {
+                short: Some(MEMORY_COMMAND_SHORT.to_string()),
+                long: MEMORY_COMMAND.to_string(),
+                subcommands: vec![
+                    MEMORY_COMMAND_READ_SUBCOMMAND.to_string(),
+                    MEMORY_COMMAND_WRITE_SUBCOMMAND.to_string(),
+                ],
+            },
+            CommandHint {
+                short: Some(REGISTER_COMMAND_SHORT.to_string()),
+                long: REGISTER_COMMAND.to_string(),
+                subcommands: vec![
+                    REGISTER_COMMAND_READ_SUBCOMMAND.to_string(),
+                    REGISTER_COMMAND_WRITE_SUBCOMMAND.to_string(),
+                    REGISTER_COMMAND_INFO_SUBCOMMAND.to_string(),
+                ],
+            },
+            (HELP_COMMAND_SHORT, HELP_COMMAND).into(),
+            CommandHint {
+                short: None,
+                long: THREAD_COMMAND.to_string(),
+                subcommands: vec![
+                    THREAD_COMMAND_INFO_SUBCOMMAND.to_string(),
+                    THREAD_COMMAND_SWITCH_SUBCOMMAND.to_string(),
+                    THREAD_COMMAND_CURRENT_SUBCOMMAND.to_string(),
+                ],
+            },
+            CommandHint {
+                short: None,
+                long: SHARED_LIB_COMMAND.to_string(),
+                subcommands: vec![SHARED_LIB_COMMAND_INFO_SUBCOMMAND.to_string()],
+            },
+            CommandHint {
+                short: None,
+                long: SOURCE_COMMAND.to_string(),
+                subcommands: vec![
+                    SOURCE_COMMAND_DISASM_SUBCOMMAND.to_string(),
+                    SOURCE_COMMAND_FUNCTION_SUBCOMMAND.to_string(),
+                ],
+            },
+            CommandHint {
+                short: None,
+                long: TRIGGER_COMMAND.to_string(),
+                subcommands: vec![
+                    TRIGGER_COMMAND_INFO_SUBCOMMAND.to_string(),
+                    TRIGGER_COMMAND_ANY_TRIGGER_SUBCOMMAND.to_string(),
+                    TRIGGER_COMMAND_BRKPT_TRIGGER_SUBCOMMAND.to_string(),
+                    TRIGGER_COMMAND_WP_TRIGGER_SUBCOMMAND.to_string(),
+                ],
+            },
+            CommandHint {
+                short: None,
+                long: ASYNC_COMMAND.to_string(),
+                subcommands: vec![
+                    ASYNC_COMMAND_BACKTRACE_SUBCOMMAND.to_string(),
+                    ASYNC_COMMAND_BACKTRACE_SUBCOMMAND_SHORT.to_string(),
+                    ASYNC_COMMAND_TASK_SUBCOMMAND.to_string(),
+                    ASYNC_COMMAND_BACKTRACE_SUBCOMMAND.to_string() + " all",
+                    ASYNC_COMMAND_BACKTRACE_SUBCOMMAND_SHORT.to_string() + " all",
+                    ASYNC_COMMAND_STEP_OVER_SUBCOMMAND.to_string(),
+                    ASYNC_COMMAND_STEP_OVER_SUBCOMMAND_SHORT.to_string(),
+                    ASYNC_COMMAND_STEP_OUT_SUBCOMMAND.to_string(),
+                    ASYNC_COMMAND_STEP_OUT_SUBCOMMAND_SHORT.to_string(),
+                ],
+            },
+            CALL_COMMAND.into(),
+            CommandHint {
+                short: None,
+                long: ORACLE_COMMAND.to_string(),
+                subcommands: oracles.iter().map(ToString::to_string).collect(),
+            },
+            ("q", "quit").into(),
+        ];
+
+        let h = RLHelper {
+            completer: Arc::new(Mutex::new(CommandCompleter::new(commands))),
+            hinter: HistoryHinter {},
+            colored_prompt: format!("{}", promt.with(Color::DarkGreen)),
+        };
+
+        if save_history_in_file {
+            let mut editor = Editor::with_history(config, FileHistory::with_config(config))?;
+            editor.set_helper(Some(h));
+            _ = editor.load_history(&Self::history_file()?);
+
+            Ok(Self::InFile(editor))
+        } else {
+            let mut editor = Editor::with_history(config, MemHistory::new())?;
+            editor.set_helper(Some(h));
+            Ok(Self::InMem(editor))
+        }
+    }
+}
+
+impl Drop for BSEditor {
+    fn drop(&mut self) {
+        if let Self::InFile(editor) = self {
+            if let Err(e) = Self::history_file()
+                .and_then(|file| editor.save_history(&file).map_err(anyhow::Error::from))
+            {
+                warn!("Failed to save command history: {e}");
+            }
+        }
+    }
 }
