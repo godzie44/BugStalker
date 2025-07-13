@@ -5,15 +5,22 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, mpsc};
 
 use anyhow::anyhow;
-use dap::events::{Event, ExitedEventBody, OutputEventBody};
-use dap::requests::{Command, Request};
-use dap::responses::{ResponseBody, SetBreakpointsResponse, ThreadsResponse};
+use dap::events::{Event, ExitedEventBody, OutputEventBody, StoppedEventBody};
+use dap::requests::{Command, LaunchRequestArguments, Request};
+use dap::responses::{
+    ContinueResponse, ResponseBody, ScopesResponse, SetBreakpointsResponse, StackTraceResponse,
+    ThreadsResponse,
+};
 use dap::server::{Server, ServerOutput};
-use dap::types::{Capabilities, OutputEventCategory};
+use dap::types::{
+    Breakpoint, Capabilities, OutputEventCategory, Source, SourceBreakpoint, StackFrame,
+    StackFramePresentationhint, StoppedEventReason, Thread,
+};
+use itertools::Itertools;
 use logger::DapLogger;
 use nix::sys::signal::Signal::SIGKILL;
 
-use crate::debugger::{DebuggerBuilder, EventHook};
+use crate::debugger::{DebuggerBuilder, EventHook, ThreadSnapshot};
 use crate::ui::supervisor::DebugeeSource;
 
 use super::supervisor;
@@ -21,11 +28,27 @@ use super::supervisor;
 pub struct DapApplication {
     debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook> + Send + Sync>,
     server: Server<Stdin, Stdout>,
+    is_config_done: bool,
+    buffered_launch_request: Option<(i64, LaunchRequestArguments)>,
+    breakpoints: Vec<(Source, SourceBreakpoint)>,
     session: Option<Session>,
 }
 
 struct Session {
     pid: nix::unistd::Pid,
+    command_sender: mpsc::SyncSender<DebuggerCommand>,
+}
+
+impl Session {
+    fn request<T>(
+        &self,
+        cmd: impl Fn(mpsc::SyncSender<T>) -> DebuggerCommand,
+    ) -> anyhow::Result<T> {
+        let (sender, receiver) = mpsc::sync_channel(0);
+        self.command_sender.send(cmd(sender))?;
+        let result = receiver.recv()?;
+        Ok(result)
+    }
 }
 
 impl DapApplication {
@@ -40,6 +63,9 @@ impl DapApplication {
         Ok(DapApplication {
             debugger_builder: Arc::new(debugger_builder),
             server,
+            is_config_done: false,
+            buffered_launch_request: None,
+            breakpoints: vec![],
             session: None,
         })
     }
@@ -59,6 +85,16 @@ impl DapApplication {
                 }
             };
 
+            // Vscode sends breakpoint configuration concurrently with the launch request for some reason. To make sure
+            // that we set breakpoints *before* starting the debuggee, defer processing the launch request until we
+            // receive a ConfigurationDone.
+            if !self.is_config_done {
+                if let Command::Launch(args) = req.command {
+                    self.buffered_launch_request = Some((req.seq, args));
+                    continue;
+                }
+            }
+
             log::debug!("{}: {:?}", req.seq, req.command);
 
             match self.handle_request(req) {
@@ -66,6 +102,25 @@ impl DapApplication {
                 Ok(false) => break,
                 Err(e) => {
                     log::error!("{e}")
+                }
+            }
+
+            if self.is_config_done {
+                if let Some((seq, args)) = self.buffered_launch_request.take() {
+                    let req = Request {
+                        seq,
+                        command: Command::Launch(args),
+                    };
+
+                    log::debug!("{}: {:?}", req.seq, req.command);
+
+                    match self.handle_request(req) {
+                        Ok(true) => {}
+                        Ok(false) => break,
+                        Err(e) => {
+                            log::error!("{e}")
+                        }
+                    }
                 }
             }
         }
@@ -78,10 +133,46 @@ impl DapApplication {
             Command::Initialize(_args) => {
                 self.server
                     .respond(req.success(ResponseBody::Initialize(Capabilities {
+                        supports_configuration_done_request: Some(true),
                         ..Default::default()
                     })))?;
 
                 self.server.send_event(Event::Initialized)?;
+            }
+            Command::SetBreakpoints(args) => {
+                if self.session.is_none() {
+                    self.breakpoints.extend(
+                        args.breakpoints
+                            .iter()
+                            .flatten()
+                            .cloned()
+                            .map(|bp| (args.source.clone(), bp)),
+                    );
+
+                    self.server.respond(
+                        req.success(ResponseBody::SetBreakpoints(SetBreakpointsResponse {
+                            breakpoints: self
+                                .breakpoints
+                                .iter()
+                                .map(|(source, bp)| Breakpoint {
+                                    source: Some(source.clone()),
+                                    line: Some(bp.line),
+                                    id: Some(1),
+                                    verified: true,
+                                    ..Default::default()
+                                })
+                                .collect_vec(),
+                        })),
+                    )?;
+                } else {
+                    self.server
+                        .respond(req.error("Can't update breakpoints while program is running"))?;
+                }
+            }
+            Command::ConfigurationDone => {
+                self.is_config_done = true;
+                self.server
+                    .respond(req.success(ResponseBody::ConfigurationDone))?;
             }
             Command::Launch(args) => {
                 let data = args
@@ -95,12 +186,14 @@ impl DapApplication {
                     .and_then(|cwd| cwd.as_str())
                     .map(ToOwned::to_owned);
 
-                let (launched_sender, launched_receiver) = std::sync::mpsc::sync_channel(0);
+                let (command_sender, command_receiver) = mpsc::sync_channel(0);
+                let (launched_sender, launched_receiver) = mpsc::sync_channel(0);
 
                 std::thread::spawn({
                     let debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook> + Send + Sync> =
                         self.debugger_builder.clone();
                     let output = self.server.output.clone();
+                    let breakpoints = std::mem::take(&mut self.breakpoints);
 
                     move || {
                         let result = debugger_thread(
@@ -109,6 +202,8 @@ impl DapApplication {
                             debugger_builder,
                             output,
                             launched_sender,
+                            command_receiver,
+                            breakpoints,
                         );
 
                         if let Err(e) = result {
@@ -119,29 +214,100 @@ impl DapApplication {
 
                 let pid = launched_receiver.recv().unwrap();
 
-                self.session = Some(Session { pid });
+                self.session = Some(Session {
+                    pid,
+                    command_sender,
+                });
 
                 log::info!("launch successful");
 
                 self.server.respond(req.success(ResponseBody::Launch))?;
             }
-            Command::SetBreakpoints(_args) => {
-                self.server
-                    .respond(
-                        req.success(ResponseBody::SetBreakpoints(SetBreakpointsResponse {
-                            breakpoints: vec![],
+            Command::Threads => {
+                if let Some(session) = &self.session {
+                    let threads = session.request(DebuggerCommand::Threads)?;
+                    self.server.respond(
+                        req.success(ResponseBody::Threads(ThreadsResponse {
+                            threads: threads
+                                .iter()
+                                .map(|thread| Thread {
+                                    id: thread.thread.number.into(),
+                                    name: format!("Thread #{}", thread.thread.number),
+                                })
+                                .collect_vec(),
                         })),
                     )?;
+                }
             }
-            Command::Threads => {
+            Command::StackTrace(args) => {
+                if let Some(session) = &self.session {
+                    let threads = session.request(DebuggerCommand::Threads)?;
+                    let thread = threads
+                        .into_iter()
+                        .find(|thread| i64::from(thread.thread.number) == args.thread_id);
+                    if let Some(thread) = thread {
+                        let stack_frames = thread
+                            .bt
+                            .into_iter()
+                            .flatten()
+                            .enumerate()
+                            .map(|(idx, frame)| {
+                                if let Some(place) = frame.place {
+                                    StackFrame {
+                                        id: idx as i64,
+                                        name: frame
+                                            .func_name
+                                            .unwrap_or_else(|| "Unknown".to_owned()),
+                                        source: Some(Source {
+                                            path: Some(place.file.to_string_lossy().into_owned()),
+                                            ..Default::default()
+                                        }),
+                                        line: place.line_number.try_into().unwrap(),
+                                        column: place.column_number.try_into().unwrap(),
+                                        ..Default::default()
+                                    }
+                                } else {
+                                    StackFrame {
+                                        id: idx as i64,
+                                        name: "Unknown".to_owned(),
+                                        presentation_hint: Some(StackFramePresentationhint::Subtle),
+                                        ..Default::default()
+                                    }
+                                }
+                            })
+                            .collect_vec();
+
+                        self.server.respond(req.success(ResponseBody::StackTrace(
+                            StackTraceResponse {
+                                total_frames: Some(stack_frames.len().try_into().unwrap()),
+                                stack_frames,
+                            },
+                        )))?;
+                    } else {
+                        self.server.respond(req.error("Thread not found"))?;
+                    }
+                }
+            }
+            Command::Scopes(_args) => {
                 // TODO
                 self.server.respond(
-                    req.success(ResponseBody::Threads(ThreadsResponse { threads: vec![] })),
+                    req.success(ResponseBody::Scopes(ScopesResponse { scopes: vec![] })),
                 )?;
+            }
+            Command::Continue(_args) => {
+                if let Some(session) = &self.session {
+                    session.command_sender.send(DebuggerCommand::Continue)?;
+                    self.server
+                        .respond(req.success(ResponseBody::Continue(ContinueResponse {
+                            ..Default::default()
+                        })))?;
+                }
             }
             Command::Disconnect(_) => {
                 if let Some(session) = self.session.take() {
-                    nix::sys::signal::kill(session.pid, SIGKILL)?;
+                    let _ = nix::sys::signal::kill(session.pid, SIGKILL)
+                        .inspect_err(|e| log::error!("{e}"));
+                    session.command_sender.send(DebuggerCommand::Exit)?;
                 } else {
                     log::warn!("no active debug session");
                 }
@@ -169,6 +335,20 @@ impl EventHook for DapHook {
         place: Option<crate::debugger::PlaceDescriptor>,
         function: Option<&crate::debugger::FunctionDie>,
     ) -> anyhow::Result<()> {
+        let mut output = self.output.lock().unwrap();
+
+        output
+            .send_event(Event::Stopped(StoppedEventBody {
+                reason: StoppedEventReason::Breakpoint,
+                description: None,
+                thread_id: Some(1),
+                preserve_focus_hint: None,
+                text: None,
+                all_threads_stopped: None,
+                hit_breakpoint_ids: Some(vec![1]),
+            }))
+            .unwrap();
+
         Ok(())
     }
 
@@ -209,16 +389,24 @@ impl EventHook for DapHook {
     fn on_signal(&self, signal: nix::sys::signal::Signal) {}
 
     fn on_exit(&self, code: i32) {
-        self.output
-            .lock()
-            .unwrap()
+        let mut output = self.output.lock().unwrap();
+
+        output
             .send_event(Event::Exited(ExitedEventBody {
                 exit_code: code.into(),
             }))
             .unwrap();
+
+        output.send_event(Event::Terminated(None)).unwrap();
     }
 
     fn on_process_install(&self, pid: thread_db::Pid, object: Option<&object::File>) {}
+}
+
+enum DebuggerCommand {
+    Continue,
+    Exit,
+    Threads(mpsc::SyncSender<Vec<ThreadSnapshot>>),
 }
 
 fn debugger_thread(
@@ -227,6 +415,8 @@ fn debugger_thread(
     debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook>>,
     output: Arc<Mutex<ServerOutput<Stdout>>>,
     launched_sender: mpsc::SyncSender<nix::unistd::Pid>,
+    command_receiver: mpsc::Receiver<DebuggerCommand>,
+    breakpoints: Vec<(Source, SourceBreakpoint)>,
 ) -> anyhow::Result<()> {
     let source = DebugeeSource::File {
         path: &program,
@@ -246,63 +436,63 @@ fn debugger_thread(
         })
         .build(process)?;
 
-    std::thread::spawn({
-        let output = output.clone();
-        move || {
-            let mut stream = BufReader::new(stdout_reader);
-            loop {
-                let mut line = String::new();
-                let Ok(size) = stream.read_line(&mut line) else {
-                    break;
-                };
+    for (reader, category) in [
+        (stdout_reader, OutputEventCategory::Stdout),
+        (stderr_reader, OutputEventCategory::Stderr),
+    ] {
+        std::thread::spawn({
+            let output = output.clone();
+            move || {
+                let mut stream = BufReader::new(reader);
+                loop {
+                    let mut line = String::new();
+                    let Ok(size) = stream.read_line(&mut line) else {
+                        break;
+                    };
 
-                if size == 0 {
-                    break;
+                    if size == 0 {
+                        break;
+                    }
+
+                    output
+                        .lock()
+                        .unwrap()
+                        .send_event(Event::Output(OutputEventBody {
+                            category: Some(category.clone()),
+                            output: line,
+                            ..Default::default()
+                        }))
+                        .unwrap();
                 }
-
-                output
-                    .lock()
-                    .unwrap()
-                    .send_event(Event::Output(OutputEventBody {
-                        category: Some(OutputEventCategory::Stdout),
-                        output: line,
-                        ..Default::default()
-                    }))
-                    .unwrap();
             }
-        }
-    });
-
-    std::thread::spawn({
-        let output = output.clone();
-        move || {
-            let mut stream = BufReader::new(stderr_reader);
-            loop {
-                let mut line = String::new();
-                let Ok(size) = stream.read_line(&mut line) else {
-                    break;
-                };
-
-                if size == 0 {
-                    break;
-                }
-
-                output
-                    .lock()
-                    .unwrap()
-                    .send_event(Event::Output(OutputEventBody {
-                        category: Some(OutputEventCategory::Stderr),
-                        output: line,
-                        ..Default::default()
-                    }))
-                    .unwrap();
-            }
-        }
-    });
+        });
+    }
 
     launched_sender.send(pid)?;
 
+    for (source, bp) in breakpoints {
+        if let Some(path) = source.path {
+            debugger.set_breakpoint_at_line(&path, bp.line.try_into()?)?;
+        }
+    }
+
     debugger.start_debugee()?;
+
+    while let Ok(command) = command_receiver.recv() {
+        match command {
+            DebuggerCommand::Continue => {
+                debugger.continue_debugee()?;
+            }
+            DebuggerCommand::Exit => {
+                break;
+            }
+            DebuggerCommand::Threads(sender) => {
+                sender.send(debugger.thread_state()?)?;
+            }
+        }
+    }
+
+    log::debug!("Debugger thread exiting");
 
     Ok(())
 }
