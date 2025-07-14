@@ -5,52 +5,52 @@ import * as vscode from "vscode";
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
-  // Use the console to output diagnostic information (console.log) and errors (console.error)
-  // This line of code will only be executed once when your extension is activated
-  console.log('Congratulations, your extension "bugstalker" is now active!');
+	// Use the console to output diagnostic information (console.log) and errors (console.error)
+	// This line of code will only be executed once when your extension is activated
+	console.log('Congratulations, your extension "bugstalker" is now active!');
 
-  // The command has been defined in the package.json file
-  // Now provide the implementation of the command with registerCommand
-  // The commandId parameter must match the command field in package.json
-  const disposable = vscode.commands.registerCommand(
-    "bugstalker.helloWorld",
-    () => {
-      // The code you place here will be executed every time your command is executed
-      // Display a message box to the user
-      vscode.window.showInformationMessage("Hello World from BugStalker!");
-    }
-  );
+	// The command has been defined in the package.json file
+	// Now provide the implementation of the command with registerCommand
+	// The commandId parameter must match the command field in package.json
+	const disposable = vscode.commands.registerCommand(
+		"bugstalker.helloWorld",
+		() => {
+			// The code you place here will be executed every time your command is executed
+			// Display a message box to the user
+			vscode.window.showInformationMessage("Hello World from BugStalker!");
+		},
+	);
 
-  context.subscriptions.push(disposable);
+	context.subscriptions.push(disposable);
 
-  context.subscriptions.push(
-    vscode.debug.registerDebugAdapterDescriptorFactory(
-      "bugstalker",
-      new DebugAdapterExecutableFactory()
-    )
-  );
+	context.subscriptions.push(
+		vscode.debug.registerDebugAdapterDescriptorFactory(
+			"bugstalker",
+			new DebugAdapterExecutableFactory(),
+		),
+	);
 }
 
 class DebugAdapterExecutableFactory
-  implements vscode.DebugAdapterDescriptorFactory
+	implements vscode.DebugAdapterDescriptorFactory
 {
-  createDebugAdapterDescriptor(
-    session: vscode.DebugSession,
-    executable: vscode.DebugAdapterExecutable | undefined
-  ): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
-    console.log("Starting debug adapter", executable);
-    return new vscode.DebugAdapterExecutable(
-      "cargo",
-      ["run", "-q", "--", "--dap"],
-      {
-        // TODO: Remove hardcoded path
-        cwd: "/home/hasan/dev/BugStalker",
-        env: {
-          RUST_LOG: "info,bugstalker=debug",
-        },
-      }
-    );
-  }
+	createDebugAdapterDescriptor(
+		session: vscode.DebugSession,
+		executable: vscode.DebugAdapterExecutable | undefined,
+	): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
+		console.log("Starting debug adapter", executable);
+		// TODO: This should run a pre-built binary instead of cargo
+		return new vscode.DebugAdapterExecutable(
+			"cargo",
+			["run", "-q", "--", "--dap"],
+			{
+				cwd: process.env.BUGSTALKER_DIR,
+				env: {
+					RUST_LOG: "info,bugstalker=debug",
+				},
+			},
+		);
+	}
 }
 
 // This method is called when your extension is deactivated
