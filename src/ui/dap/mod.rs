@@ -9,17 +9,19 @@ use dap::events::{Event, ExitedEventBody, OutputEventBody, StoppedEventBody};
 use dap::requests::{Command, LaunchRequestArguments, Request};
 use dap::responses::{
     ContinueResponse, ResponseBody, ScopesResponse, SetBreakpointsResponse, StackTraceResponse,
-    ThreadsResponse,
+    ThreadsResponse, VariablesResponse,
 };
 use dap::server::{Server, ServerOutput};
 use dap::types::{
-    Breakpoint, Capabilities, OutputEventCategory, Source, SourceBreakpoint, StackFrame,
-    StackFramePresentationhint, StoppedEventReason, Thread,
+    Breakpoint, Capabilities, OutputEventCategory, Scope, ScopePresentationhint, Source,
+    SourceBreakpoint, StackFrame, StackFramePresentationhint, StoppedEventReason, Thread, Variable,
 };
 use itertools::Itertools;
 use logger::DapLogger;
 use nix::sys::signal::Signal::SIGKILL;
 
+use crate::debugger::variable::Identity;
+use crate::debugger::variable::value::Value;
 use crate::debugger::{DebuggerBuilder, EventHook, ThreadSnapshot};
 use crate::ui::supervisor::DebugeeSource;
 
@@ -289,10 +291,37 @@ impl DapApplication {
                 }
             }
             Command::Scopes(_args) => {
-                // TODO
-                self.server.respond(
-                    req.success(ResponseBody::Scopes(ScopesResponse { scopes: vec![] })),
-                )?;
+                // TODO: Check which frame was requested
+                self.server
+                    .respond(req.success(ResponseBody::Scopes(ScopesResponse {
+                        scopes: vec![Scope {
+                            name: "Locals".to_owned(),
+                            presentation_hint: Some(ScopePresentationhint::Locals),
+                            variables_reference: 1,
+                            expensive: false,
+                            ..Default::default()
+                        }],
+                    })))?;
+            }
+            Command::Variables(_args) => {
+                // TODO: Check which scope/frame was requested
+                if let Some(session) = &self.session {
+                    let variables = session
+                        .request(DebuggerCommand::Variables)?
+                        .into_iter()
+                        .map(|(identity, value)| Variable {
+                            name: identity.name.unwrap_or_else(|| "Unknown".to_string()),
+                            value: format!("{value:?}"),
+                            ..Default::default()
+                        })
+                        .collect_vec();
+
+                    self.server.respond(
+                        req.success(ResponseBody::Variables(VariablesResponse { variables })),
+                    )?;
+                } else {
+                    self.server.respond(req.error("No active debug session"))?;
+                }
             }
             Command::Continue(_args) => {
                 if let Some(session) = &self.session {
@@ -407,6 +436,7 @@ enum DebuggerCommand {
     Continue,
     Exit,
     Threads(mpsc::SyncSender<Vec<ThreadSnapshot>>),
+    Variables(mpsc::SyncSender<Vec<(Identity, Value)>>),
 }
 
 fn debugger_thread(
@@ -488,6 +518,17 @@ fn debugger_thread(
             }
             DebuggerCommand::Threads(sender) => {
                 sender.send(debugger.thread_state()?)?;
+            }
+            DebuggerCommand::Variables(sender) => {
+                sender
+                    .send(
+                        debugger
+                            .read_local_variables()?
+                            .into_iter()
+                            .map(|v| v.into_identified_value())
+                            .collect_vec(),
+                    )
+                    .map_err(|e| anyhow!("{e}"))?;
             }
         }
     }
