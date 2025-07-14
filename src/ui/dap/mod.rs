@@ -21,6 +21,7 @@ use logger::DapLogger;
 use nix::sys::signal::Signal::SIGKILL;
 
 use crate::debugger::variable::Identity;
+use crate::debugger::variable::dqe::{Dqe, Selector};
 use crate::debugger::variable::value::Value;
 use crate::debugger::{DebuggerBuilder, EventHook, ThreadSnapshot};
 use crate::ui::supervisor::DebugeeSource;
@@ -565,8 +566,9 @@ fn debugger_thread(
                 sender
                     .send(
                         debugger
-                            .read_local_variables()?
+                            .read_argument(Dqe::Variable(Selector::Any))?
                             .into_iter()
+                            .chain(debugger.read_local_variables()?)
                             .map(|v| v.into_identified_value())
                             .collect_vec(),
                     )
