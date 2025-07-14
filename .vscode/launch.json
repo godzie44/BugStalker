@@ -11,7 +11,10 @@
       "request": "launch",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
       "outFiles": ["${workspaceFolder}/extension/out/**/*.js"],
-      "preLaunchTask": "${defaultBuildTask}"
+      "preLaunchTask": "${defaultBuildTask}",
+      "env": {
+        "BUGSTALKER_DIR": "${workspaceFolder}"
+      }
     }
   ]
 }
