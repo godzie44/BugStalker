@@ -319,8 +319,24 @@ impl DapApplication {
                     self.server.respond(
                         req.success(ResponseBody::Variables(VariablesResponse { variables })),
                     )?;
-                } else {
-                    self.server.respond(req.error("No active debug session"))?;
+                }
+            }
+            Command::Next(_args) => {
+                if let Some(session) = &self.session {
+                    session.command_sender.send(DebuggerCommand::StepOver)?;
+                    self.server.respond(req.success(ResponseBody::Next))?;
+                }
+            }
+            Command::StepIn(_args) => {
+                if let Some(session) = &self.session {
+                    session.command_sender.send(DebuggerCommand::StepIn)?;
+                    self.server.respond(req.success(ResponseBody::StepIn))?;
+                }
+            }
+            Command::StepOut(_args) => {
+                if let Some(session) = &self.session {
+                    session.command_sender.send(DebuggerCommand::StepOut)?;
+                    self.server.respond(req.success(ResponseBody::StepOut))?;
                 }
             }
             Command::Continue(_args) => {
@@ -401,6 +417,20 @@ impl EventHook for DapHook {
         place: Option<crate::debugger::PlaceDescriptor>,
         function: Option<&crate::debugger::FunctionDie>,
     ) -> anyhow::Result<()> {
+        let mut output = self.output.lock().unwrap();
+
+        output
+            .send_event(Event::Stopped(StoppedEventBody {
+                reason: StoppedEventReason::Step,
+                description: None,
+                thread_id: Some(1),
+                preserve_focus_hint: None,
+                text: None,
+                all_threads_stopped: None,
+                hit_breakpoint_ids: None,
+            }))
+            .unwrap();
+
         Ok(())
     }
 
@@ -433,6 +463,9 @@ impl EventHook for DapHook {
 }
 
 enum DebuggerCommand {
+    StepOver,
+    StepIn,
+    StepOut,
     Continue,
     Exit,
     Threads(mpsc::SyncSender<Vec<ThreadSnapshot>>),
@@ -510,6 +543,15 @@ fn debugger_thread(
 
     while let Ok(command) = command_receiver.recv() {
         match command {
+            DebuggerCommand::StepOver => {
+                debugger.step_over()?;
+            }
+            DebuggerCommand::StepIn => {
+                debugger.step_into()?;
+            }
+            DebuggerCommand::StepOut => {
+                debugger.step_out()?;
+            }
             DebuggerCommand::Continue => {
                 debugger.continue_debugee()?;
             }
