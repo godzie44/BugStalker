@@ -391,13 +391,13 @@ impl EventHook for DapHook {
     fn on_exit(&self, code: i32) {
         let mut output = self.output.lock().unwrap();
 
+        output.send_event(Event::Terminated(None)).unwrap();
+
         output
             .send_event(Event::Exited(ExitedEventBody {
                 exit_code: code.into(),
             }))
             .unwrap();
-
-        output.send_event(Event::Terminated(None)).unwrap();
     }
 
     fn on_process_install(&self, pid: thread_db::Pid, object: Option<&object::File>) {}
