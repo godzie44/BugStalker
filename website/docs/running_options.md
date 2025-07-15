@@ -14,10 +14,10 @@ bs --help
 
 ## Arguments
 
-- `--tui` - start debugger with terminal UI (see [tui](/capabilities/tui.mdx)
-- `--pid` (`-p`) <process_id> - attach to running process
-- `--std-lib-path` (`-s`) <path> - specify a custom path to Rust standard library (when using non-default location)
-- `--oracle` (`-o`) - discover a specific oracles (see [tui](/capabilities/oracle.mdx)
+- `--tui` - start debugger with terminal UI (see [tui](/capabilities/tui.mdx))
+- `--pid` (`-p`) `<process_id>` - attach to running process
+- `--std-lib-path` (`-s`) `<path>` - specify a custom path to Rust standard library (when using non-default location)
+- `--oracle` (`-o`) - discover a specific oracles (see [oracle](/capabilities/oracle.mdx))
 - `--theme` (`-t`) - set color theme for code visualization. Available themes:
   - none
   - inspired_github
