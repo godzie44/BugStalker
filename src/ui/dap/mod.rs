@@ -1,20 +1,22 @@
+mod hook;
 mod logger;
+mod server;
 
-use std::io::{self, BufRead, BufReader, BufWriter, Stdin, Stdout};
+use std::io::{BufRead, BufReader, Stdout};
 use std::path::Path;
 use std::sync::{Arc, Mutex, mpsc};
 
 use anyhow::anyhow;
-use dap::events::{Event, ExitedEventBody, OutputEventBody, StoppedEventBody};
-use dap::requests::{Command, LaunchRequestArguments, Request};
+use dap::events::{Event, OutputEventBody};
+use dap::requests::{Command, Request};
 use dap::responses::{
     ContinueResponse, ResponseBody, ScopesResponse, SetBreakpointsResponse, StackTraceResponse,
     ThreadsResponse, VariablesResponse,
 };
-use dap::server::{Server, ServerOutput};
+use dap::server::ServerOutput;
 use dap::types::{
     Breakpoint, Capabilities, OutputEventCategory, Scope, ScopePresentationhint, Source,
-    SourceBreakpoint, StackFrame, StackFramePresentationhint, StoppedEventReason, Thread, Variable,
+    SourceBreakpoint, StackFrame, StackFramePresentationhint, Thread, Variable,
 };
 use itertools::Itertools;
 use logger::DapLogger;
@@ -23,16 +25,16 @@ use nix::sys::signal::Signal::SIGKILL;
 use crate::debugger::variable::Identity;
 use crate::debugger::variable::dqe::{Dqe, Selector};
 use crate::debugger::variable::value::Value;
-use crate::debugger::{DebuggerBuilder, EventHook, ThreadSnapshot};
+use crate::debugger::{DebuggerBuilder, ThreadSnapshot};
+use crate::ui::dap::hook::DapHook;
+use crate::ui::dap::server::DapServer;
 use crate::ui::supervisor::DebugeeSource;
 
 use super::supervisor;
 
 pub struct DapApplication {
     debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook> + Send + Sync>,
-    server: Server<Stdin, Stdout>,
-    is_config_done: bool,
-    buffered_launch_request: Option<(i64, LaunchRequestArguments)>,
+    server: DapServer,
     breakpoints: Vec<(Source, SourceBreakpoint)>,
     session: Option<Session>,
 }
@@ -58,72 +60,37 @@ impl DapApplication {
     pub fn new(
         debugger_builder: impl Fn() -> DebuggerBuilder<DapHook> + Send + Sync + 'static,
     ) -> anyhow::Result<DapApplication> {
-        let input = BufReader::new(io::stdin());
-        let output = BufWriter::new(io::stdout());
-
-        let server = Server::new(input, output);
-
         Ok(DapApplication {
             debugger_builder: Arc::new(debugger_builder),
-            server,
-            is_config_done: false,
-            buffered_launch_request: None,
+            server: DapServer::new(),
             breakpoints: vec![],
             session: None,
         })
     }
 
     pub fn run(mut self) -> anyhow::Result<supervisor::ControlFlow> {
-        let logger = DapLogger::new(self.server.output.clone());
+        let logger = DapLogger::new(self.server.output());
         let filter = logger.filter();
         crate::log::LOGGER_SWITCHER.switch(logger, filter);
 
         loop {
             let req = match self.server.poll_request() {
                 Ok(Some(req)) => req,
-                Ok(None) => continue,
+                Ok(None) => {
+                    log::warn!("Unexpected end of input stream");
+                    break;
+                }
                 Err(e) => {
                     log::error!("{e}");
                     continue;
                 }
             };
 
-            // Vscode sends breakpoint configuration concurrently with the launch request for some reason. To make sure
-            // that we set breakpoints *before* starting the debuggee, defer processing the launch request until we
-            // receive a ConfigurationDone.
-            if !self.is_config_done {
-                if let Command::Launch(args) = req.command {
-                    self.buffered_launch_request = Some((req.seq, args));
-                    continue;
-                }
-            }
-
-            log::debug!("{}: {:?}", req.seq, req.command);
-
             match self.handle_request(req) {
-                Ok(true) => {}
+                Ok(true) => { /* Success */ }
                 Ok(false) => break,
                 Err(e) => {
-                    log::error!("{e}")
-                }
-            }
-
-            if self.is_config_done {
-                if let Some((seq, args)) = self.buffered_launch_request.take() {
-                    let req = Request {
-                        seq,
-                        command: Command::Launch(args),
-                    };
-
-                    log::debug!("{}: {:?}", req.seq, req.command);
-
-                    match self.handle_request(req) {
-                        Ok(true) => {}
-                        Ok(false) => break,
-                        Err(e) => {
-                            log::error!("{e}")
-                        }
-                    }
+                    log::error!("{e}");
                 }
             }
         }
@@ -134,11 +101,13 @@ impl DapApplication {
     fn handle_request(&mut self, req: Request) -> anyhow::Result<bool> {
         match &req.command {
             Command::Initialize(_args) => {
-                self.server
-                    .respond(req.success(ResponseBody::Initialize(Capabilities {
+                self.server.respond_success(
+                    req.seq,
+                    ResponseBody::Initialize(Capabilities {
                         supports_configuration_done_request: Some(true),
                         ..Default::default()
-                    })))?;
+                    }),
+                )?;
 
                 self.server.send_event(Event::Initialized)?;
             }
@@ -152,8 +121,9 @@ impl DapApplication {
                             .map(|bp| (args.source.clone(), bp)),
                     );
 
-                    self.server.respond(
-                        req.success(ResponseBody::SetBreakpoints(SetBreakpointsResponse {
+                    self.server.respond_success(
+                        req.seq,
+                        ResponseBody::SetBreakpoints(SetBreakpointsResponse {
                             breakpoints: self
                                 .breakpoints
                                 .iter()
@@ -165,17 +135,18 @@ impl DapApplication {
                                     ..Default::default()
                                 })
                                 .collect_vec(),
-                        })),
+                        }),
                     )?;
                 } else {
-                    self.server
-                        .respond(req.error("Can't update breakpoints while program is running"))?;
+                    self.server.respond_error(
+                        req.seq,
+                        "Can't update breakpoints while program is running",
+                    )?;
                 }
             }
             Command::ConfigurationDone => {
-                self.is_config_done = true;
                 self.server
-                    .respond(req.success(ResponseBody::ConfigurationDone))?;
+                    .respond_success(req.seq, ResponseBody::ConfigurationDone)?;
             }
             Command::Launch(args) => {
                 let data = args
@@ -195,7 +166,7 @@ impl DapApplication {
                 std::thread::spawn({
                     let debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook> + Send + Sync> =
                         self.debugger_builder.clone();
-                    let output = self.server.output.clone();
+                    let output = self.server.output();
                     let breakpoints = std::mem::take(&mut self.breakpoints);
 
                     move || {
@@ -224,13 +195,14 @@ impl DapApplication {
 
                 log::info!("launch successful");
 
-                self.server.respond(req.success(ResponseBody::Launch))?;
+                self.server.respond_success(req.seq, ResponseBody::Launch)?;
             }
             Command::Threads => {
                 if let Some(session) = &self.session {
                     let threads = session.request(DebuggerCommand::Threads)?;
-                    self.server.respond(
-                        req.success(ResponseBody::Threads(ThreadsResponse {
+                    self.server.respond_success(
+                        req.seq,
+                        ResponseBody::Threads(ThreadsResponse {
                             threads: threads
                                 .iter()
                                 .map(|thread| Thread {
@@ -238,7 +210,7 @@ impl DapApplication {
                                     name: format!("Thread #{}", thread.thread.number),
                                 })
                                 .collect_vec(),
-                        })),
+                        }),
                     )?;
                 }
             }
@@ -280,21 +252,23 @@ impl DapApplication {
                             })
                             .collect_vec();
 
-                        self.server.respond(req.success(ResponseBody::StackTrace(
-                            StackTraceResponse {
+                        self.server.respond_success(
+                            req.seq,
+                            ResponseBody::StackTrace(StackTraceResponse {
                                 total_frames: Some(stack_frames.len().try_into().unwrap()),
                                 stack_frames,
-                            },
-                        )))?;
+                            }),
+                        )?;
                     } else {
-                        self.server.respond(req.error("Thread not found"))?;
+                        self.server.respond_error(req.seq, "Thread not found")?;
                     }
                 }
             }
             Command::Scopes(_args) => {
                 // TODO: Check which frame was requested
-                self.server
-                    .respond(req.success(ResponseBody::Scopes(ScopesResponse {
+                self.server.respond_success(
+                    req.seq,
+                    ResponseBody::Scopes(ScopesResponse {
                         scopes: vec![Scope {
                             name: "Locals".to_owned(),
                             presentation_hint: Some(ScopePresentationhint::Locals),
@@ -302,7 +276,8 @@ impl DapApplication {
                             expensive: false,
                             ..Default::default()
                         }],
-                    })))?;
+                    }),
+                )?;
             }
             Command::Variables(_args) => {
                 // TODO: Check which scope/frame was requested
@@ -317,36 +292,40 @@ impl DapApplication {
                         })
                         .collect_vec();
 
-                    self.server.respond(
-                        req.success(ResponseBody::Variables(VariablesResponse { variables })),
+                    self.server.respond_success(
+                        req.seq,
+                        ResponseBody::Variables(VariablesResponse { variables }),
                     )?;
                 }
             }
             Command::Next(_args) => {
                 if let Some(session) = &self.session {
                     session.command_sender.send(DebuggerCommand::StepOver)?;
-                    self.server.respond(req.success(ResponseBody::Next))?;
+                    self.server.respond_success(req.seq, ResponseBody::Next)?;
                 }
             }
             Command::StepIn(_args) => {
                 if let Some(session) = &self.session {
                     session.command_sender.send(DebuggerCommand::StepIn)?;
-                    self.server.respond(req.success(ResponseBody::StepIn))?;
+                    self.server.respond_success(req.seq, ResponseBody::StepIn)?;
                 }
             }
             Command::StepOut(_args) => {
                 if let Some(session) = &self.session {
                     session.command_sender.send(DebuggerCommand::StepOut)?;
-                    self.server.respond(req.success(ResponseBody::StepOut))?;
+                    self.server
+                        .respond_success(req.seq, ResponseBody::StepOut)?;
                 }
             }
             Command::Continue(_args) => {
                 if let Some(session) = &self.session {
                     session.command_sender.send(DebuggerCommand::Continue)?;
-                    self.server
-                        .respond(req.success(ResponseBody::Continue(ContinueResponse {
+                    self.server.respond_success(
+                        req.seq,
+                        ResponseBody::Continue(ContinueResponse {
                             ..Default::default()
-                        })))?;
+                        }),
+                    )?;
                 }
             }
             Command::Disconnect(_) => {
@@ -354,113 +333,23 @@ impl DapApplication {
                     let _ = nix::sys::signal::kill(session.pid, SIGKILL)
                         .inspect_err(|e| log::error!("{e}"));
                     session.command_sender.send(DebuggerCommand::Exit)?;
+                    self.server
+                        .respond_success(req.seq, ResponseBody::Disconnect)?;
                 } else {
-                    log::warn!("no active debug session");
+                    log::warn!("No active debug session");
+                    self.server
+                        .respond_error(req.seq, "No active debug session")?;
                 }
                 return Ok(false);
             }
             _ => {
                 log::warn!("unknown command: {:?}", req.command);
-                self.server.respond(req.cancellation())?;
+                self.server.respond_cancel(req.seq)?;
             }
         }
 
         Ok(true)
     }
-}
-
-pub struct DapHook {
-    output: Arc<Mutex<ServerOutput<Stdout>>>,
-}
-
-impl EventHook for DapHook {
-    fn on_breakpoint(
-        &self,
-        pc: crate::debugger::address::RelocatedAddress,
-        num: u32,
-        place: Option<crate::debugger::PlaceDescriptor>,
-        function: Option<&crate::debugger::FunctionDie>,
-    ) -> anyhow::Result<()> {
-        let mut output = self.output.lock().unwrap();
-
-        output
-            .send_event(Event::Stopped(StoppedEventBody {
-                reason: StoppedEventReason::Breakpoint,
-                description: None,
-                thread_id: Some(1),
-                preserve_focus_hint: None,
-                text: None,
-                all_threads_stopped: None,
-                hit_breakpoint_ids: Some(vec![1]),
-            }))
-            .unwrap();
-
-        Ok(())
-    }
-
-    fn on_watchpoint(
-        &self,
-        pc: crate::debugger::address::RelocatedAddress,
-        num: u32,
-        place: Option<crate::debugger::PlaceDescriptor>,
-        condition: crate::debugger::register::debug::BreakCondition,
-        dqe_string: Option<&str>,
-        old_value: Option<&crate::debugger::variable::value::Value>,
-        new_value: Option<&crate::debugger::variable::value::Value>,
-        end_of_scope: bool,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    fn on_step(
-        &self,
-        pc: crate::debugger::address::RelocatedAddress,
-        place: Option<crate::debugger::PlaceDescriptor>,
-        function: Option<&crate::debugger::FunctionDie>,
-    ) -> anyhow::Result<()> {
-        let mut output = self.output.lock().unwrap();
-
-        output
-            .send_event(Event::Stopped(StoppedEventBody {
-                reason: StoppedEventReason::Step,
-                description: None,
-                thread_id: Some(1),
-                preserve_focus_hint: None,
-                text: None,
-                all_threads_stopped: None,
-                hit_breakpoint_ids: None,
-            }))
-            .unwrap();
-
-        Ok(())
-    }
-
-    fn on_async_step(
-        &self,
-        pc: crate::debugger::address::RelocatedAddress,
-        place: Option<crate::debugger::PlaceDescriptor>,
-        function: Option<&crate::debugger::FunctionDie>,
-        task_id: u64,
-        task_completed: bool,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    fn on_signal(&self, signal: nix::sys::signal::Signal) {}
-
-    fn on_exit(&self, code: i32) {
-        let mut output = self.output.lock().unwrap();
-
-        output.send_event(Event::Terminated(None)).unwrap();
-
-        output
-            .send_event(Event::Exited(ExitedEventBody {
-                exit_code: code.into(),
-            }))
-            .unwrap();
-    }
-
-    fn on_process_install(&self, pid: thread_db::Pid, object: Option<&object::File>) {}
 }
 
 enum DebuggerCommand {
@@ -495,9 +384,7 @@ fn debugger_thread(
     let pid = process.pid();
 
     let mut debugger = (debugger_builder)()
-        .with_hooks(DapHook {
-            output: output.clone(),
-        })
+        .with_hooks(DapHook::new(output.clone()))
         .build(process)?;
 
     for (reader, category) in [
