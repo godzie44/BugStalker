@@ -54,8 +54,7 @@ pub type EndianArcSlice = gimli::EndianArcSlice<gimli::RunTimeEndian>;
 
 pub struct DebugInformation<R: gimli::Reader = EndianArcSlice> {
     file: PathBuf,
-    // TODO tpm pub
-    pub inner: Dwarf<R>,
+    inner: Dwarf<R>,
     eh_frame: EhFrame<R>,
     bases: BaseAddresses,
     units: Option<Vec<Unit>>,
