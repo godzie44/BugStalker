@@ -264,26 +264,43 @@ impl DapApplication {
                     }
                 }
             }
-            Command::Scopes(_args) => {
-                // TODO: Check which frame was requested
+            Command::Scopes(args) => {
                 self.server.respond_success(
                     req.seq,
                     ResponseBody::Scopes(ScopesResponse {
-                        scopes: vec![Scope {
-                            name: "Locals".to_owned(),
-                            presentation_hint: Some(ScopePresentationhint::Locals),
-                            variables_reference: 1,
-                            expensive: false,
-                            ..Default::default()
-                        }],
+                        scopes: vec![
+                            Scope {
+                                name: "Args".to_owned(),
+                                presentation_hint: Some(ScopePresentationhint::Arguments),
+                                variables_reference: args.frame_id * 2 + 1, // Can't use 0 as reference
+                                expensive: false,
+                                ..Default::default()
+                            },
+                            Scope {
+                                name: "Locals".to_owned(),
+                                presentation_hint: Some(ScopePresentationhint::Locals),
+                                variables_reference: args.frame_id * 2 + 2, // Can't use 0 as reference
+                                expensive: false,
+                                ..Default::default()
+                            },
+                        ],
                     }),
                 )?;
             }
-            Command::Variables(_args) => {
-                // TODO: Check which scope/frame was requested
+            Command::Variables(args) => {
                 if let Some(session) = &self.session {
+                    let frame_num = (args.variables_reference - 1) / 2;
+
+                    session
+                        .command_sender
+                        .send(DebuggerCommand::FocusFrame(frame_num.try_into()?))?;
+
                     let variables = session
-                        .request(DebuggerCommand::Variables)?
+                        .request(if args.variables_reference % 2 == 1 {
+                            DebuggerCommand::Args
+                        } else {
+                            DebuggerCommand::Locals
+                        })?
                         .into_iter()
                         .map(|(identity, value)| Variable {
                             name: identity.name.unwrap_or_else(|| "Unknown".to_string()),
@@ -358,8 +375,10 @@ enum DebuggerCommand {
     StepOut,
     Continue,
     Exit,
+    FocusFrame(u32),
     Threads(mpsc::SyncSender<Vec<ThreadSnapshot>>),
-    Variables(mpsc::SyncSender<Vec<(Identity, Value)>>),
+    Args(mpsc::SyncSender<Vec<(Identity, Value)>>),
+    Locals(mpsc::SyncSender<Vec<(Identity, Value)>>),
 }
 
 fn debugger_thread(
@@ -446,16 +465,29 @@ fn debugger_thread(
             DebuggerCommand::Exit => {
                 break;
             }
+            DebuggerCommand::FocusFrame(n) => {
+                let _ = debugger.set_frame_into_focus(n);
+            }
             DebuggerCommand::Threads(sender) => {
                 sender.send(debugger.thread_state()?)?;
             }
-            DebuggerCommand::Variables(sender) => {
+            DebuggerCommand::Args(sender) => {
                 sender
                     .send(
                         debugger
                             .read_argument(Dqe::Variable(Selector::Any))?
                             .into_iter()
-                            .chain(debugger.read_local_variables()?)
+                            .map(|v| v.into_identified_value())
+                            .collect_vec(),
+                    )
+                    .map_err(|e| anyhow!("{e}"))?;
+            }
+            DebuggerCommand::Locals(sender) => {
+                sender
+                    .send(
+                        debugger
+                            .read_variable(Dqe::Variable(Selector::Any))?
+                            .into_iter()
                             .map(|v| v.into_identified_value())
                             .collect_vec(),
                     )
