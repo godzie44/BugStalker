@@ -25,7 +25,7 @@ use nix::sys::signal::Signal::SIGKILL;
 use crate::debugger::variable::Identity;
 use crate::debugger::variable::dqe::{Dqe, Selector};
 use crate::debugger::variable::value::Value;
-use crate::debugger::{DebuggerBuilder, ThreadSnapshot};
+use crate::debugger::{Debugger, DebuggerBuilder, ThreadSnapshot};
 use crate::ui::dap::hook::DapHook;
 use crate::ui::dap::server::DapServer;
 use crate::ui::supervisor::DebugeeSource;
@@ -35,7 +35,6 @@ use super::supervisor;
 pub struct DapApplication {
     debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook> + Send + Sync>,
     server: DapServer,
-    breakpoints: Vec<(Source, SourceBreakpoint)>,
     session: Option<Session>,
 }
 
@@ -63,7 +62,6 @@ impl DapApplication {
         Ok(DapApplication {
             debugger_builder: Arc::new(debugger_builder),
             server: DapServer::new(),
-            breakpoints: vec![],
             session: None,
         })
     }
@@ -108,45 +106,6 @@ impl DapApplication {
                         ..Default::default()
                     }),
                 )?;
-
-                self.server.send_event(Event::Initialized)?;
-            }
-            Command::SetBreakpoints(args) => {
-                if self.session.is_none() {
-                    self.breakpoints.extend(
-                        args.breakpoints
-                            .iter()
-                            .flatten()
-                            .cloned()
-                            .map(|bp| (args.source.clone(), bp)),
-                    );
-
-                    self.server.respond_success(
-                        req.seq,
-                        ResponseBody::SetBreakpoints(SetBreakpointsResponse {
-                            breakpoints: self
-                                .breakpoints
-                                .iter()
-                                .map(|(source, bp)| Breakpoint {
-                                    source: Some(source.clone()),
-                                    line: Some(bp.line),
-                                    id: Some(1),
-                                    verified: true,
-                                    ..Default::default()
-                                })
-                                .collect_vec(),
-                        }),
-                    )?;
-                } else {
-                    self.server.respond_error(
-                        req.seq,
-                        "Can't update breakpoints while program is running",
-                    )?;
-                }
-            }
-            Command::ConfigurationDone => {
-                self.server
-                    .respond_success(req.seq, ResponseBody::ConfigurationDone)?;
             }
             Command::Launch(args) => {
                 let data = args
@@ -167,7 +126,6 @@ impl DapApplication {
                     let debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook> + Send + Sync> =
                         self.debugger_builder.clone();
                     let output = self.server.output();
-                    let breakpoints = std::mem::take(&mut self.breakpoints);
 
                     move || {
                         let result = debugger_thread(
@@ -177,7 +135,6 @@ impl DapApplication {
                             output,
                             launched_sender,
                             command_receiver,
-                            breakpoints,
                         );
 
                         if let Err(e) = result {
@@ -196,6 +153,60 @@ impl DapApplication {
                 log::info!("launch successful");
 
                 self.server.respond_success(req.seq, ResponseBody::Launch)?;
+
+                self.server.send_event(Event::Initialized)?;
+            }
+            Command::SetBreakpoints(args) => {
+                let Some(session) = &self.session else {
+                    self.server.respond_error(req.seq, "No running session")?;
+                    anyhow::bail!("No running session");
+                };
+
+                let breakpoints = args
+                    .breakpoints
+                    .iter()
+                    .flatten()
+                    .cloned()
+                    .map(|bp| (args.source.clone(), bp))
+                    .collect_vec();
+
+                let (sender, receiver) = mpsc::sync_channel(0);
+
+                session
+                    .command_sender
+                    .send(DebuggerCommand::SetBreakpoints(breakpoints, sender))?;
+
+                let breakpoint_ids = receiver.recv()?;
+
+                self.server.respond_success(
+                    req.seq,
+                    ResponseBody::SetBreakpoints(SetBreakpointsResponse {
+                        breakpoints: args
+                            .breakpoints
+                            .iter()
+                            .flatten()
+                            .zip(breakpoint_ids)
+                            .map(|(bp, id)| Breakpoint {
+                                id,
+                                source: Some(args.source.clone()),
+                                line: Some(bp.line),
+                                verified: id.is_some(),
+                                ..Default::default()
+                            })
+                            .collect_vec(),
+                    }),
+                )?;
+            }
+            Command::ConfigurationDone => {
+                let Some(session) = &self.session else {
+                    self.server.respond_error(req.seq, "No running session")?;
+                    anyhow::bail!("No running session");
+                };
+
+                session.command_sender.send(DebuggerCommand::Start)?;
+
+                self.server
+                    .respond_success(req.seq, ResponseBody::ConfigurationDone)?;
             }
             Command::Threads => {
                 if let Some(session) = &self.session {
@@ -370,12 +381,17 @@ impl DapApplication {
 }
 
 enum DebuggerCommand {
+    Start,
     StepOver,
     StepIn,
     StepOut,
     Continue,
     Exit,
     FocusFrame(u32),
+    SetBreakpoints(
+        Vec<(Source, SourceBreakpoint)>,
+        mpsc::SyncSender<Vec<Option<i64>>>,
+    ),
     Threads(mpsc::SyncSender<Vec<ThreadSnapshot>>),
     Args(mpsc::SyncSender<Vec<(Identity, Value)>>),
     Locals(mpsc::SyncSender<Vec<(Identity, Value)>>),
@@ -388,7 +404,6 @@ fn debugger_thread(
     output: Arc<Mutex<ServerOutput<Stdout>>>,
     launched_sender: mpsc::SyncSender<nix::unistd::Pid>,
     command_receiver: mpsc::Receiver<DebuggerCommand>,
-    breakpoints: Vec<(Source, SourceBreakpoint)>,
 ) -> anyhow::Result<()> {
     let source = DebugeeSource::File {
         path: &program,
@@ -440,58 +455,15 @@ fn debugger_thread(
 
     launched_sender.send(pid)?;
 
-    for (source, bp) in breakpoints {
-        if let Some(path) = source.path {
-            debugger.set_breakpoint_at_line(&path, bp.line.try_into()?)?;
-        }
-    }
-
-    debugger.start_debugee()?;
-
     while let Ok(command) = command_receiver.recv() {
-        match command {
-            DebuggerCommand::StepOver => {
-                debugger.step_over()?;
+        match handle_debugger_command(&mut debugger, command) {
+            Ok(should_continue) => {
+                if !should_continue {
+                    break;
+                }
             }
-            DebuggerCommand::StepIn => {
-                debugger.step_into()?;
-            }
-            DebuggerCommand::StepOut => {
-                debugger.step_out()?;
-            }
-            DebuggerCommand::Continue => {
-                debugger.continue_debugee()?;
-            }
-            DebuggerCommand::Exit => {
-                break;
-            }
-            DebuggerCommand::FocusFrame(n) => {
-                let _ = debugger.set_frame_into_focus(n);
-            }
-            DebuggerCommand::Threads(sender) => {
-                sender.send(debugger.thread_state()?)?;
-            }
-            DebuggerCommand::Args(sender) => {
-                sender
-                    .send(
-                        debugger
-                            .read_argument(Dqe::Variable(Selector::Any))?
-                            .into_iter()
-                            .map(|v| v.into_identified_value())
-                            .collect_vec(),
-                    )
-                    .map_err(|e| anyhow!("{e}"))?;
-            }
-            DebuggerCommand::Locals(sender) => {
-                sender
-                    .send(
-                        debugger
-                            .read_variable(Dqe::Variable(Selector::Any))?
-                            .into_iter()
-                            .map(|v| v.into_identified_value())
-                            .collect_vec(),
-                    )
-                    .map_err(|e| anyhow!("{e}"))?;
+            Err(e) => {
+                log::error!("{e}");
             }
         }
     }
@@ -499,4 +471,78 @@ fn debugger_thread(
     log::debug!("Debugger thread exiting");
 
     Ok(())
+}
+
+fn handle_debugger_command(
+    debugger: &mut Debugger,
+    command: DebuggerCommand,
+) -> anyhow::Result<bool> {
+    match command {
+        DebuggerCommand::Start => {
+            log::debug!("Starting execution");
+            debugger.start_debugee()?;
+        }
+        DebuggerCommand::StepOver => {
+            debugger.step_over()?;
+        }
+        DebuggerCommand::StepIn => {
+            debugger.step_into()?;
+        }
+        DebuggerCommand::StepOut => {
+            debugger.step_out()?;
+        }
+        DebuggerCommand::Continue => {
+            debugger.continue_debugee()?;
+        }
+        DebuggerCommand::Exit => {
+            return Ok(false);
+        }
+        DebuggerCommand::FocusFrame(n) => {
+            let _ = debugger.set_frame_into_focus(n);
+        }
+        DebuggerCommand::Threads(sender) => {
+            sender.send(debugger.thread_state()?)?;
+        }
+        DebuggerCommand::Args(sender) => {
+            sender
+                .send(
+                    debugger
+                        .read_argument(Dqe::Variable(Selector::Any))?
+                        .into_iter()
+                        .map(|v| v.into_identified_value())
+                        .collect_vec(),
+                )
+                .map_err(|e| anyhow!("{e}"))?;
+        }
+        DebuggerCommand::Locals(sender) => {
+            sender
+                .send(
+                    debugger
+                        .read_variable(Dqe::Variable(Selector::Any))?
+                        .into_iter()
+                        .map(|v| v.into_identified_value())
+                        .collect_vec(),
+                )
+                .map_err(|e| anyhow!("{e}"))?;
+        }
+        DebuggerCommand::SetBreakpoints(breakpoints, sender) => {
+            let mut breakpoint_ids = Vec::new();
+
+            for (source, bp) in breakpoints {
+                if let Some(path) = source.path {
+                    let breakpoint = debugger
+                        .set_breakpoint_at_line(&path, bp.line.try_into()?)?
+                        .into_iter()
+                        .next();
+                    breakpoint_ids.push(breakpoint.map(|breakpoint| breakpoint.number as i64));
+                } else {
+                    breakpoint_ids.push(None);
+                }
+            }
+
+            sender.send(breakpoint_ids)?;
+        }
+    }
+
+    Ok(true)
 }
