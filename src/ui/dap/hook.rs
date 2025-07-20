@@ -21,7 +21,7 @@ impl EventHook for DapHook {
     fn on_breakpoint(
         &self,
         _pc: crate::debugger::address::RelocatedAddress,
-        _num: u32,
+        num: u32,
         _place: Option<crate::debugger::PlaceDescriptor>,
         _function: Option<&crate::debugger::FunctionDie>,
     ) -> anyhow::Result<()> {
@@ -34,7 +34,7 @@ impl EventHook for DapHook {
             preserve_focus_hint: None,
             text: None,
             all_threads_stopped: None,
-            hit_breakpoint_ids: Some(vec![1]),
+            hit_breakpoint_ids: Some(vec![num.into()]),
         }))?;
 
         Ok(())
