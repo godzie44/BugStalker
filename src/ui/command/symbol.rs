@@ -11,9 +11,9 @@ impl<'a> Handler<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn handle(self, regex: &str) -> command::CommandResult<Vec<&'a debugger::Symbol>> {
+    pub fn handle(self, regex: &str) -> command::CommandResult<Vec<debugger::Symbol<'a>>> {
         let mut symbols = self.dbg.get_symbols(regex)?;
-        symbols.sort_by(|s1, s2| s1.name.cmp(&s2.name));
+        symbols.sort_by(|s1, s2| s1.name.cmp(s2.name));
         Ok(symbols)
     }
 }

@@ -740,7 +740,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `regex`: regular expression
-    pub fn get_symbols(&self, regex: &str) -> Result<Vec<&Symbol>, Error> {
+    pub fn get_symbols(&self, regex: &str) -> Result<Vec<Symbol>, Error> {
         let regex = Regex::new(regex)?;
 
         Ok(self
