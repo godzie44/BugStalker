@@ -480,15 +480,10 @@ impl DebugInformation {
             .collect())
     }
 
-    pub fn find_symbols(&self, regex: &Regex) -> Vec<&Symbol> {
+    pub fn find_symbols(&self, regex: &Regex) -> Vec<Symbol> {
         self.symbol_table
             .as_ref()
-            .map(|table| {
-                let keys = table
-                    .keys()
-                    .filter(|key| regex.find(key.as_str()).is_some());
-                keys.map(|k| &table[k]).collect()
-            })
+            .map(|table| table.find(regex))
             .unwrap_or_default()
     }
 

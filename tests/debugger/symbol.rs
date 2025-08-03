@@ -13,7 +13,8 @@ fn test_symbol() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::default());
     let mut debugger = builder.build(process).unwrap();
 
-    let main_sym = debugger.get_symbols("^main$").unwrap()[0];
+    let symbols = debugger.get_symbols("^main$").unwrap();
+    let main_sym = symbols.first().unwrap();
     assert_eq!(SymbolKind::Text, main_sym.kind);
     assert_ne!(usize::from(main_sym.addr), 0);
 
