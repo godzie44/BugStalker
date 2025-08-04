@@ -3,6 +3,7 @@ pub mod r#async;
 mod breakpoint;
 pub mod call;
 mod code;
+mod context;
 mod debugee;
 mod error;
 pub mod process;
@@ -16,7 +17,6 @@ mod watchpoint;
 pub use breakpoint::BreakpointView;
 pub use breakpoint::BreakpointViewOwned;
 pub use breakpoint::CreateTransparentBreakpointRequest;
-use call::CallCache;
 pub use debugee::FrameInfo;
 pub use debugee::FunctionAssembly;
 pub use debugee::FunctionRange;
@@ -36,8 +36,8 @@ pub use watchpoint::WatchpointViewOwned;
 use crate::debugger::Error::Syscall;
 use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};
+use crate::debugger::context::GlobalContext;
 use crate::debugger::debugee::dwarf::DwarfUnwinder;
-use crate::debugger::debugee::dwarf::r#type::TypeCache;
 use crate::debugger::debugee::dwarf::unwind::Backtrace;
 use crate::debugger::debugee::tracer::{StopReason, TraceContext};
 use crate::debugger::debugee::{Debugee, ExecutionStatus, Location};
@@ -64,8 +64,6 @@ use nix::sys::wait::{WaitStatus, waitpid};
 use nix::unistd::Pid;
 use object::Object;
 use regex::Regex;
-use std::cell::RefCell;
-use std::cell::RefMut;
 use std::ffi::c_long;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -349,16 +347,14 @@ pub struct Debugger {
     breakpoints: BreakpointRegistry,
     /// Watchpoints lists.
     watchpoints: WatchpointRegistry,
-    /// Type declaration cache.
-    type_cache: RefCell<TypeCache>,
     /// Debugger interrupt with UI by EventHook trait.
     hooks: Box<dyn EventHook>,
     /// Current exploration context.
     expl_context: ExplorationContext,
     /// Map of name -> (oracle, installed flag) pairs.
     oracles: IndexMap<&'static str, (Arc<dyn Oracle>, bool)>,
-    /// Cache for called functions.
-    call_cache: RefCell<CallCache>,
+
+    gcx: GlobalContext,
 }
 
 impl Debugger {
@@ -396,8 +392,7 @@ impl Debugger {
             breakpoints,
             watchpoints: WatchpointRegistry::default(),
             hooks: Box::new(hooks),
-            type_cache: RefCell::default(),
-            call_cache: RefCell::default(),
+            gcx: GlobalContext::default(),
             expl_context: ExplorationContext::new_non_running(process_id),
             oracles: oracles
                 .into_iter()
@@ -1079,9 +1074,8 @@ impl Debugger {
         self.debugee.function_range(self.exploration_ctx())
     }
 
-    /// Return cache for called functions.
-    fn call_cache(&self) -> RefMut<'_, CallCache> {
-        self.call_cache.borrow_mut()
+    pub fn gcx(&self) -> &GlobalContext {
+        &self.gcx
     }
 }
 

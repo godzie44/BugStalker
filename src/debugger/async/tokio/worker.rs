@@ -204,8 +204,7 @@ impl WorkerInternal {
                     .find_map(|(offset_of_unit, offset_of_die)| {
                         let mut var_die = VirtualVariableDie::workpiece();
                         let var_die_ref = weak_error!(var_die.init_with_known_type(debug_info, offset_of_unit, offset_of_die))?;
-                        let mut type_cache = debugger.type_cache.borrow_mut();
-                        let r#type = weak_error!(type_from_cache!(var_die_ref, type_cache))?;
+                        let r#type = debugger.gcx().with_type_cache(|tc| weak_error!(type_from_cache!(var_die_ref, tc)))? ;
                         let root_type = r#type.types.get(&r#type.root())?;
 
                         let TypeDeclaration::Structure { members, .. } = root_type else {

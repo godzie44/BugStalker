@@ -277,8 +277,9 @@ impl<'dbg> DqeExecutor<'dbg> {
             die: &ContextualDieRef<'_, 'dbg, T>,
             ranges: Option<Box<[Range]>>,
         ) -> Option<QueryResult<'dbg>> {
-            let mut type_cache = debugger.type_cache.borrow_mut();
-            let r#type = weak_error!(type_from_cache!(die, type_cache))?;
+            let r#type = debugger
+                .gcx()
+                .with_type_cache(|tc| weak_error!(type_from_cache!(die, tc)))?;
 
             let evaluator = ctx_resolve_unit_call!(die, evaluator, &debugger.debugee);
             let context_builder = EvaluationContextBuilder::Ready(debugger, evaluator);
@@ -340,8 +341,10 @@ impl<'dbg> DqeExecutor<'dbg> {
         let mut var_die = VirtualVariableDie::workpiece();
         let var_die_ref = var_die.init_with_type(&self.debugger.debugee, &ptr_cast.ty)?;
 
-        let mut type_cache = self.debugger.type_cache.borrow_mut();
-        let r#type = type_from_cache!(var_die_ref, type_cache)?;
+        let r#type = self
+            .debugger
+            .gcx()
+            .with_type_cache(|tc| type_from_cache!(var_die_ref, tc))?;
 
         let context_builder = EvaluationContextBuilder::Virtual {
             debugger: self.debugger,
@@ -389,8 +392,10 @@ impl<'dbg> DqeExecutor<'dbg> {
             data_cast.ty_die_off,
         )?;
 
-        let mut type_cache = self.debugger.type_cache.borrow_mut();
-        let r#type = type_from_cache!(var_die_ref, type_cache)?;
+        let r#type = self
+            .debugger
+            .gcx()
+            .with_type_cache(|tc| type_from_cache!(var_die_ref, tc))?;
 
         let context_builder = EvaluationContextBuilder::Virtual {
             debugger: self.debugger,
