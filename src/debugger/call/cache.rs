@@ -80,10 +80,9 @@ impl CallCache {
                     .relocate_to_segment(&dbg.debugee, dwarf)?;
 
                 let params = {
-                    let mut type_cache = dbg.type_cache.borrow_mut();
                     func.parameters()
                         .into_iter()
-                        .map(|die| type_from_cache!(die, type_cache))
+                        .map(|die| dbg.gcx().with_type_cache(|tc| type_from_cache!(die, tc)))
                         .collect::<Result<Box<[_]>, _>>()?
                 };
                 e.insert(Value::new(fn_addr, params))
