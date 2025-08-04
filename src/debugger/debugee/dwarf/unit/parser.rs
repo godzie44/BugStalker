@@ -462,6 +462,13 @@ impl<'a> DwarfUnitParser<'a> {
         }
         die_ranges.sort_unstable_by_key(|dr| dr.range.begin);
 
+        entries.shrink_to_fit();
+        die_ranges.shrink_to_fit();
+        variable_index.shrink_to_fit();
+        type_index.shrink_to_fit();
+        die_offsets_index.shrink_to_fit();
+        function_index.shrink_to_fit();
+
         Ok(UnitLazyPart {
             entries,
             die_ranges,

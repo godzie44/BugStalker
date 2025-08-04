@@ -817,6 +817,7 @@ impl DebugInformationBuilder {
             });
         }
 
+        let headers_len = headers.len();
         let mut units = headers
             .into_par_iter()
             .map(|header| -> gimli::Result<Unit> {
@@ -824,6 +825,7 @@ impl DebugInformationBuilder {
                 Ok(unit)
             })
             .collect::<gimli::Result<Vec<_>>>()?;
+        debug_assert!(units.capacity() == headers_len);
 
         units.sort_unstable_by_key(|u| u.offset());
         units.iter_mut().enumerate().for_each(|(i, u)| u.set_idx(i));
@@ -835,6 +837,7 @@ impl DebugInformationBuilder {
                     files_index.insert(file_path, (unit.idx(), lines));
                 });
         });
+        files_index.shrink_to_fit();
 
         Ok(DebugInformation {
             file: obj_path.to_path_buf(),

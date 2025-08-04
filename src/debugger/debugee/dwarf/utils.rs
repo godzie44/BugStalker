@@ -137,6 +137,12 @@ impl<T> PathSearchIndex<T> {
             .filter_map(|tail_idx| self.index.data.get(&(*head_nonce, *tail_idx)))
             .collect()
     }
+
+    pub fn shrink_to_fit(&mut self) {
+        self.index.data.shrink_to_fit();
+        self.index.heads.shrink_to_fit();
+        self.index.tails.shrink_to_fit();
+    }
 }
 
 #[cfg(test)]
