@@ -107,23 +107,24 @@ pub fn load_par(file: &File, endian: RunTimeEndian) -> Result<Dwarf<EndianArcSli
         .take()
         .expect("unexpected: sections must exists");
 
+    const SECT_MUST_EXISTS: &str = "section must exists";
     Ok(Dwarf {
-        debug_abbrev: sections.debug_abbrev.expect("section must exists"),
-        debug_addr: sections.debug_addr.expect("section must exists"),
-        debug_aranges: sections.debug_aranges.expect("section must exists"),
-        debug_info: sections.debug_info.expect("section must exists"),
-        debug_line: sections.debug_line.expect("section must exists"),
-        debug_line_str: sections.debug_line_str.expect("section must exists"),
-        debug_str: sections.debug_str.expect("section must exists"),
-        debug_str_offsets: sections.debug_str_offsets.expect("section must exists"),
-        debug_types: sections.debug_types.expect("section must exists"),
+        debug_abbrev: sections.debug_abbrev.expect(SECT_MUST_EXISTS),
+        debug_addr: sections.debug_addr.expect(SECT_MUST_EXISTS),
+        debug_aranges: sections.debug_aranges.expect(SECT_MUST_EXISTS),
+        debug_info: sections.debug_info.expect(SECT_MUST_EXISTS),
+        debug_line: sections.debug_line.expect(SECT_MUST_EXISTS),
+        debug_line_str: sections.debug_line_str.expect(SECT_MUST_EXISTS),
+        debug_str: sections.debug_str.expect(SECT_MUST_EXISTS),
+        debug_str_offsets: sections.debug_str_offsets.expect(SECT_MUST_EXISTS),
+        debug_types: sections.debug_types.expect(SECT_MUST_EXISTS),
         locations: LocationLists::new(
-            sections.debug_loc.expect("section must exists"),
-            sections.debug_loclists.expect("section must exists"),
+            sections.debug_loc.expect(SECT_MUST_EXISTS),
+            sections.debug_loclists.expect(SECT_MUST_EXISTS),
         ),
         ranges: RangeLists::new(
-            sections.debug_ranges.expect("section must exists"),
-            sections.debug_rnglists.expect("section must exists"),
+            sections.debug_ranges.expect(SECT_MUST_EXISTS),
+            sections.debug_rnglists.expect(SECT_MUST_EXISTS),
         ),
         file_type: DwarfFileType::Main,
         sup: None,
