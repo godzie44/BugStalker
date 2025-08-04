@@ -54,3 +54,6 @@ int-test-rel: build-test-rel
 test: build-all cargo-test int-test
 
 test-rel: build-all-rel cargo-test int-test-rel
+
+install:
+	cargo install --path .
