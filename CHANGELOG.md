@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - tui: fix panic when there is a thread with unknown first frame function in backtrace
+- debugger: fix panic when when parse zero-length arrays
 
 ### Deprecated
 

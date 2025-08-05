@@ -233,6 +233,17 @@ impl ValueParser {
             .bounds(ctx.evaluation_context)
             .and_then(|bounds| {
                 let len = bounds.1 - bounds.0;
+                if len == 0 {
+                    return Some(vec![]);
+                }
+                if len < 0 {
+                    warn!(
+                        "array `len` less than 0 for type: {}",
+                        ctx.type_graph.identity(type_id)
+                    );
+                    return None;
+                };
+
                 let data = data.as_ref()?;
                 let el_size = (array_decl.size_in_bytes(ctx.evaluation_context, ctx.type_graph)?
                     / len as u64) as usize;
