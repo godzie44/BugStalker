@@ -259,7 +259,7 @@ impl<'dbg> DqeExecutor<'dbg> {
         let params = match selector {
             Selector::Name { var_name, .. } => params
                 .into_iter()
-                .filter(|param| param.die.base_attributes.name.as_ref() == Some(var_name))
+                .filter(|param| param.die.name.as_ref() == Some(var_name))
                 .collect::<Vec<_>>(),
             Selector::Any => params,
         };
