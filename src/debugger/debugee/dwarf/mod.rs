@@ -446,8 +446,8 @@ impl DebugInformation {
                     // only one place for a single unique subprogram is allowed
                     // to apply this rule as a filter for all places
                     if let Some(func) = self.find_function_by_pc(suitable_place.address)? {
-                        if !unique_subprograms.contains(&func.die.base_attributes) {
-                            unique_subprograms.insert(&func.die.base_attributes);
+                        if !unique_subprograms.contains(&(func.die.base)) {
+                            unique_subprograms.insert(&func.die.base);
                             result.push(suitable_place);
                         }
                     } else {
@@ -873,7 +873,7 @@ pub trait AsAllocatedData {
 
 impl AsAllocatedData for VariableDie {
     fn name(&self) -> Option<&str> {
-        self.base_attributes.name.as_deref()
+        self.name.as_deref()
     }
 
     fn type_ref(&self) -> Option<DieRef> {
@@ -887,7 +887,7 @@ impl AsAllocatedData for VariableDie {
 
 impl AsAllocatedData for ParameterDie {
     fn name(&self) -> Option<&str> {
-        self.base_attributes.name.as_deref()
+        self.name.as_deref()
     }
 
     fn type_ref(&self) -> Option<DieRef> {
@@ -927,7 +927,7 @@ impl NamespaceHierarchy {
             Some(parent)
         };
         while let Some(DieVariant::Namespace(ns)) = next_parent().map(|e| &e.die) {
-            ns_chain.push(ns.base_attributes.name.clone().unwrap_or_default());
+            ns_chain.push(ns.name.clone().unwrap_or_default());
         }
         ns_chain.reverse();
 
@@ -995,7 +995,7 @@ impl<'dbg, T> ContextualDieRef<'_, 'dbg, T> {
 impl<'ctx> ContextualDieRef<'ctx, 'ctx, FunctionDie> {
     pub fn full_name(&self) -> Option<String> {
         self.die
-            .base_attributes
+            .base
             .name
             .as_ref()
             .map(|name| format!("{}::{}", self.die.namespace.0.join("::"), name))
@@ -1137,7 +1137,7 @@ impl<'ctx> ContextualDieRef<'ctx, 'ctx, FunctionDie> {
     }
 
     pub fn ranges(&self) -> &[Range] {
-        &self.die.base_attributes.ranges
+        &self.die.base.ranges
     }
 
     pub fn inline_ranges(&self) -> Vec<Range> {
@@ -1146,7 +1146,7 @@ impl<'ctx> ContextualDieRef<'ctx, 'ctx, FunctionDie> {
         while let Some(idx) = queue.pop_front() {
             let entry = ctx_resolve_unit_call!(self, entry, idx);
             if let DieVariant::InlineSubroutine(inline_subroutine) = &entry.die {
-                ranges.extend(inline_subroutine.base_attributes.ranges.iter());
+                ranges.extend(inline_subroutine.ranges.iter());
             }
             entry.node.children.iter().for_each(|i| queue.push_back(*i));
         }
@@ -1161,10 +1161,10 @@ impl<'ctx> ContextualDieRef<'ctx, 'ctx, FunctionDie> {
     pub fn get_template_parameter(&self, name: &str) -> Option<&TemplateTypeParameter> {
         self.node.children.iter().find_map(|&idx| {
             let entry = ctx_resolve_unit_call!(self, entry, idx);
-            if let DieVariant::TemplateType(ref tpl) = entry.die
-                && tpl.base_attributes.name.as_deref() == Some(name)
-            {
-                return Some(tpl);
+            if let DieVariant::TemplateType(ref tpl) = entry.die {
+                if tpl.name.as_deref() == Some(name) {
+                    return Some(tpl);
+                }
             }
             None
         })
@@ -1176,11 +1176,11 @@ impl<'ctx> ContextualDieRef<'ctx, 'ctx, VariableDie> {
         if let Some(lb_idx) = self.die.lexical_block_idx {
             let entry = ctx_resolve_unit_call!(self, entry, lb_idx);
             let lb = entry.die.unwrap_lexical_block();
-            Some(lb.base_attributes.ranges.as_ref())
+            Some(lb.ranges.as_ref())
         } else if let Some(fn_idx) = self.die.fn_block_idx {
             let entry = ctx_resolve_unit_call!(self, entry, fn_idx);
             let func = entry.die.unwrap_function();
-            Some(func.base_attributes.ranges.as_ref())
+            Some(func.base.ranges.as_ref())
         } else {
             None
         }
@@ -1220,7 +1220,7 @@ impl<'ctx> ContextualDieRef<'ctx, 'ctx, ParameterDie> {
         self.die.fn_block_idx.and_then(|fn_idx| {
             let entry = ctx_resolve_unit_call!(self, entry, fn_idx);
             let func = entry.die.unwrap_function();
-            let ranges = func.base_attributes.ranges.as_ref();
+            let ranges = func.base.ranges.as_ref();
 
             if let Some(max_range) = ranges.iter().max_by_key(|r| r.end) {
                 let eb = self.unit().find_eb(GlobalAddress::from(max_range.end));

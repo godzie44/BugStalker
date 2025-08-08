@@ -219,9 +219,10 @@ pub fn task_from_header<'a>(
                         }
                     });
 
-                if s_tpl_found & t_tpl_found {
-                    cell_type_die = Some(struct_type.clone());
-                    break;
+                    if s_tpl_found & t_tpl_found {
+                        cell_type_die = Some(struct_type.clone());
+                        break;
+                    }
                 }
             }
         }
@@ -235,7 +236,7 @@ pub fn task_from_header<'a>(
     let ptr = RelocatedAddress::from(ptr.value.unwrap() as usize);
     let typ = format!(
         "NonNull<tokio::runtime::task::core::{}>",
-        cell_type_die.base_attributes.name.unwrap()
+        cell_type_die.name.unwrap()
     );
 
     let dqe = Dqe::Deref(

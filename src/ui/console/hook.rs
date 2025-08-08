@@ -148,7 +148,7 @@ impl EventHook for TerminalHook {
                     f.namespace
                         .join("::")
                         .add("::")
-                        .add(f.base_attributes.name.as_deref().unwrap_or_default())
+                        .add(f.base.name.as_deref().unwrap_or_default())
                 });
 
                 self.printer.println(format!(
@@ -189,7 +189,7 @@ impl EventHook for TerminalHook {
                     f.namespace
                         .join("::")
                         .add("::")
-                        .add(f.base_attributes.name.as_deref().unwrap_or_default())
+                        .add(f.base.name.as_deref().unwrap_or_default())
                 });
 
                 self.printer.println(format!(

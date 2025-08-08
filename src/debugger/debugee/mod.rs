@@ -583,7 +583,7 @@ impl Debugee {
 
         let fn_places: Vec<_> = function
             .die
-            .base_attributes
+            .base
             .ranges
             .iter()
             .flat_map(|range| function.unit().find_lines_for_range(range))

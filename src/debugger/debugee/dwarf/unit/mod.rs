@@ -164,7 +164,7 @@ impl PartialEq for PlaceDescriptor<'_> {
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Hash)]
-pub struct DieAttributes {
+pub struct FnBase {
     pub name: Option<String>,
     pub ranges: Box<[Range]>,
 }
@@ -174,7 +174,7 @@ pub struct FunctionDie {
     pub namespace: NamespaceHierarchy,
     pub linkage_name: Option<String>,
     pub decl_file_line: Option<(u64, u64)>,
-    pub base_attributes: DieAttributes,
+    pub base: FnBase,
     pub fb_addr: Option<Attribute<EndianArcSlice>>,
 }
 
@@ -189,10 +189,8 @@ impl FunctionDie {
             self.linkage_name.clone_from(&declaration.linkage_name);
         }
 
-        if self.base_attributes.name.is_none() {
-            self.base_attributes
-                .name
-                .clone_from(&declaration.base_attributes.name);
+        if self.base.name.is_none() {
+            self.base.name.clone_from(&declaration.base.name);
         }
 
         if self.decl_file_line.is_none() {
@@ -203,12 +201,12 @@ impl FunctionDie {
 
 #[derive(Debug, Clone)]
 pub struct LexicalBlockDie {
-    pub base_attributes: DieAttributes,
+    pub ranges: Box<[Range]>,
 }
 
 #[derive(Debug, Clone)]
 pub struct VariableDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub type_ref: Option<DieRef>,
     pub location: Option<Attribute<EndianArcSlice>>,
     pub lexical_block_idx: Option<usize>,
@@ -217,21 +215,19 @@ pub struct VariableDie {
 
 #[derive(Debug, Clone)]
 pub struct BaseTypeDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub encoding: Option<DwAte>,
     pub byte_size: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ArrayDie {
-    pub base_attributes: DieAttributes,
     pub type_ref: Option<DieRef>,
     pub byte_size: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ArraySubrangeDie {
-    pub base_attributes: DieAttributes,
     pub lower_bound: Option<Attribute<EndianArcSlice>>,
     pub upper_bound: Option<Attribute<EndianArcSlice>>,
     pub count: Option<Attribute<EndianArcSlice>>,
@@ -239,13 +235,13 @@ pub struct ArraySubrangeDie {
 
 #[derive(Debug, Clone)]
 pub struct StructTypeDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub byte_size: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
 pub struct TypeMemberDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     #[allow(unused)]
     pub byte_size: Option<u64>,
     pub location: Option<Attribute<EndianArcSlice>>,
@@ -254,33 +250,31 @@ pub struct TypeMemberDie {
 
 #[derive(Debug, Clone)]
 pub struct EnumTypeDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub type_ref: Option<DieRef>,
     pub byte_size: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
 pub struct EnumeratorDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub const_value: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
 pub struct VariantPart {
-    pub base_attributes: DieAttributes,
     pub discr_ref: Option<DieRef>,
     pub type_ref: Option<DieRef>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Variant {
-    pub base_attributes: DieAttributes,
     pub discr_value: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
 pub struct PointerType {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub type_ref: Option<DieRef>,
     #[allow(unused)]
     pub address_class: Option<u8>,
@@ -288,18 +282,18 @@ pub struct PointerType {
 
 #[derive(Debug, Clone)]
 pub struct TemplateTypeParameter {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub type_ref: Option<DieRef>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Namespace {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ParameterDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub type_ref: Option<DieRef>,
     pub location: Option<Attribute<EndianArcSlice>>,
     pub fn_block_idx: Option<usize>,
@@ -307,19 +301,19 @@ pub struct ParameterDie {
 
 #[derive(Debug, Clone)]
 pub struct UnionTypeDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub byte_size: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SubroutineDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub return_type_ref: Option<DieRef>,
 }
 
 #[derive(Debug, Clone)]
 pub struct InlineSubroutineDie {
-    pub base_attributes: DieAttributes,
+    pub ranges: Box<[Range]>,
     pub call_file: Option<u64>,
     pub call_line: Option<u64>,
     pub call_column: Option<u64>,
@@ -327,31 +321,31 @@ pub struct InlineSubroutineDie {
 
 #[derive(Debug, Clone)]
 pub struct TypeDefDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub type_ref: Option<DieRef>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ConstTypeDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub type_ref: Option<DieRef>,
 }
 
 #[derive(Debug, Clone)]
 pub struct AtomicDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub type_ref: Option<DieRef>,
 }
 
 #[derive(Debug, Clone)]
 pub struct VolatileDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub type_ref: Option<DieRef>,
 }
 
 #[derive(Debug, Clone)]
 pub struct RestrictDie {
-    pub base_attributes: DieAttributes,
+    pub name: Option<String>,
     pub type_ref: Option<DieRef>,
 }
 
@@ -366,7 +360,7 @@ pub enum DieVariant {
     UnionTypeDie(UnionTypeDie),
     ArrayType(ArrayDie),
     ArraySubrange(ArraySubrangeDie),
-    Default(DieAttributes),
+    Default,
     EnumType(EnumTypeDie),
     Enumerator(EnumeratorDie),
     VariantPart(VariantPart),

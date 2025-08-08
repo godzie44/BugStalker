@@ -139,7 +139,7 @@ impl EventHook for TuiHook {
                 num,
                 file: place.as_ref().map(|p| p.file.to_string_lossy().to_string()),
                 line: place.as_ref().map(|p| p.line_number),
-                function: function.and_then(|f| f.base_attributes.name.clone()),
+                function: function.and_then(|f| f.base.name.clone()),
             });
         Ok(())
     }
@@ -181,7 +181,7 @@ impl EventHook for TuiHook {
             pc,
             file: place.as_ref().map(|p| p.file.to_string_lossy().to_string()),
             line: place.as_ref().map(|p| p.line_number),
-            function: function.and_then(|f| f.base_attributes.name.clone()),
+            function: function.and_then(|f| f.base.name.clone()),
         });
         Ok(())
     }
