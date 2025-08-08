@@ -416,7 +416,7 @@ impl Debugger {
             .pop_if_cond(|c| c.len() == 1)
             .and_then(|(dwarf, mut funcs)| {
                 if name.is_some() {
-                    funcs.retain(|f| f.die.base_attributes.name.as_deref() == name);
+                    funcs.retain(|f| f.die.base.name.as_deref() == name);
                 }
 
                 funcs.retain(|f| {

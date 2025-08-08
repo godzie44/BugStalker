@@ -699,7 +699,7 @@ impl TypeParser {
         &mut self,
         ctx_die: ContextualDieRef<'_, '_, BaseTypeDie>,
     ) -> TypeDeclaration {
-        let name = ctx_die.die.base_attributes.name.clone();
+        let name = ctx_die.die.name.clone();
         TypeDeclaration::Scalar(ScalarType {
             namespaces: ctx_die.namespaces(),
             name,
@@ -798,7 +798,7 @@ impl TypeParser {
         &mut self,
         ctx_die: ContextualDieRef<'_, '_, StructTypeDie>,
     ) -> TypeDeclaration {
-        let name = ctx_die.die.base_attributes.name.clone();
+        let name = ctx_die.die.name.clone();
         let members = ctx_die
             .node
             .children
@@ -824,7 +824,7 @@ impl TypeParser {
             .filter_map(|child_idx| {
                 let entry = ctx_resolve_unit_call!(ctx_die, entry, *child_idx);
                 if let DieVariant::TemplateType(param) = &entry.die {
-                    let name = param.base_attributes.name.clone()?;
+                    let name = param.name.clone()?;
                     self.parse_inner(ctx_die, param.type_ref?);
                     return Some((name, param.type_ref));
                 }
@@ -863,7 +863,7 @@ impl TypeParser {
 
         StructureMember {
             in_struct_location,
-            name: ctx_die.die.base_attributes.name.clone(),
+            name: ctx_die.die.name.clone(),
             type_ref: mb_type_ref,
         }
     }
@@ -872,7 +872,7 @@ impl TypeParser {
         &mut self,
         ctx_die: ContextualDieRef<'_, '_, StructTypeDie>,
     ) -> TypeDeclaration {
-        let name = ctx_die.die.base_attributes.name.clone();
+        let name = ctx_die.die.name.clone();
 
         let variant_part = ctx_die.node.children.iter().find_map(|c_idx| {
             let entry = ctx_resolve_unit_call!(ctx_die, entry, *c_idx);
@@ -952,7 +952,7 @@ impl TypeParser {
         &mut self,
         ctx_die: ContextualDieRef<'dbg, 'dbg, EnumTypeDie>,
     ) -> TypeDeclaration {
-        let name = ctx_die.die.base_attributes.name.clone();
+        let name = ctx_die.die.name.clone();
 
         let mb_discr_type = ctx_die.die.type_ref;
         if let Some(reference) = mb_discr_type {
@@ -968,7 +968,7 @@ impl TypeParser {
                 if let DieVariant::Enumerator(ref enumerator) = entry.die {
                     Some((
                         enumerator.const_value?,
-                        enumerator.base_attributes.name.as_ref()?.to_string(),
+                        enumerator.name.as_ref()?.to_string(),
                     ))
                 } else {
                     None
@@ -986,7 +986,7 @@ impl TypeParser {
     }
 
     fn parse_union(&mut self, ctx_die: ContextualDieRef<'_, '_, UnionTypeDie>) -> TypeDeclaration {
-        let name = ctx_die.die.base_attributes.name.clone();
+        let name = ctx_die.die.name.clone();
         let members = ctx_die
             .node
             .children
@@ -1017,7 +1017,7 @@ impl TypeParser {
         &mut self,
         ctx_die: ContextualDieRef<'dbg, 'dbg, PointerType>,
     ) -> TypeDeclaration {
-        let name = ctx_die.die.base_attributes.name.clone();
+        let name = ctx_die.die.name.clone();
 
         let mb_type_ref = ctx_die.die.type_ref;
         if let Some(reference) = mb_type_ref {
@@ -1035,7 +1035,7 @@ impl TypeParser {
         &mut self,
         ctx_die: ContextualDieRef<'dbg, 'dbg, SubroutineDie>,
     ) -> TypeDeclaration {
-        let name = ctx_die.die.base_attributes.name.clone();
+        let name = ctx_die.die.name.clone();
         let mb_ret_type_ref = ctx_die.die.return_type_ref;
         if let Some(reference) = mb_ret_type_ref {
             self.parse_inner(ctx_die, reference);
@@ -1055,7 +1055,7 @@ macro_rules! parse_modifier_fn {
             &mut self,
             ctx_die: ContextualDieRef<'dbg, 'dbg, $die>,
         ) -> TypeDeclaration {
-            let name = ctx_die.die.base_attributes.name.clone();
+            let name = ctx_die.die.name.clone();
             let mb_type_ref = ctx_die.die.type_ref;
             if let Some(inner_type) = mb_type_ref {
                 self.parse_inner(ctx_die, inner_type);
