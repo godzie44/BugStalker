@@ -13,6 +13,7 @@ use crate::debugger::variable::value::{
     SupportedScalar,
 };
 use crate::debugger::variable::value::{PointerValue, StructValue, Value};
+use crate::version::RustVersion;
 use crate::{debugger, version_switch, weak_error};
 use AssumeError::{FieldNotFound, IncompleteInterp, UnknownSize};
 use anyhow::Context;
@@ -376,12 +377,13 @@ impl<'a> VariableParserExtension<'a> {
         ctx: &ParseContext,
         structure: &StructValue,
         type_params: &IndexMap<String, Option<TypeId>>,
+        rv: RustVersion,
     ) -> Result<Option<TlsVariable>, ParsingError> {
         if structure.type_ident.namespace().contains(&["eager"]) {
             // constant tls
             self.parse_const_tls_inner(ctx, Value::Struct(structure.clone()), type_params)
         } else {
-            self.parse_tls_inner(ctx, Value::Struct(structure.clone()), type_params)
+            self.parse_tls_inner(ctx, Value::Struct(structure.clone()), type_params, rv)
         }
     }
 
@@ -390,6 +392,7 @@ impl<'a> VariableParserExtension<'a> {
         ctx: &ParseContext,
         inner_val: Value,
         type_params: &IndexMap<String, Option<TypeId>>,
+        rv: RustVersion,
     ) -> Result<Option<TlsVariable>, ParsingError> {
         if type_params.is_empty() {
             return Ok(None);
@@ -410,7 +413,24 @@ impl<'a> VariableParserExtension<'a> {
         let state = state.assume_field_as_rust_enum("value")?;
         if let Some(member) = state.value {
             let tls_val = if member.field_name.as_deref() == Some("Alive") {
-                member.value.field("__0").map(Box::new)
+                version_switch!(
+                    rv,
+                    .. (1 . 89) => member.value.field("__0").map(Box::new),
+                    (1 . 89) .. => {
+                        let get_val_from_storage = || {
+                            let Value::Struct(storage) = inner_val else {
+                                return None;
+                            };
+
+                            storage.field("value")?.field("value")?
+                                    .field("value")?
+                                    .field("value").map(Box::new)
+                        };
+
+                        get_val_from_storage()
+                    }
+                )
+                .expect("all rust versions are covered")
             } else {
                 return Ok(None);
             };
