@@ -132,7 +132,7 @@ fn test_watchpoint_global_var() {
     dbg.set_breakpoint_at_fn("main").unwrap();
 
     dbg.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(108));
+    assert_eq!(info.line.take(), Some(109));
     let wp_dqe = Dqe::Variable(Selector::by_name("GLOBAL_1", false));
     dbg.set_watchpoint_on_expr("GLOBAL_1", wp_dqe, DataWrites)
         .unwrap();
@@ -247,7 +247,7 @@ fn test_watchpoint_global_var_multithread() {
         .unwrap();
 
     dbg.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(56));
+    assert_eq!(info.line.take(), Some(57));
 
     let wp_dqe = Dqe::Field(
         Dqe::Field(
@@ -287,10 +287,10 @@ fn test_watchpoint_local_var_multithread() {
     let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut dbg = builder.build(process).unwrap();
-    dbg.set_breakpoint_at_line("calculations.rs", 67).unwrap();
+    dbg.set_breakpoint_at_line("calculations.rs", 68).unwrap();
 
     dbg.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(67));
+    assert_eq!(info.line.take(), Some(68));
 
     let wp_dqe = Dqe::Variable(Selector::by_name("a", false));
     dbg.set_watchpoint_on_expr("a", wp_dqe, DataWrites).unwrap();
@@ -380,7 +380,7 @@ fn test_watchpoint_argument() {
     dbg.set_breakpoint_at_fn("calculate_from_arg").unwrap();
 
     dbg.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(101));
+    assert_eq!(info.line.take(), Some(102));
 
     let wp_dqe = Dqe::Variable(Selector::by_name("arg", false));
     dbg.set_watchpoint_on_expr("arg", wp_dqe, DataWrites)

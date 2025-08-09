@@ -24,8 +24,8 @@ class WatchpointTestCase(unittest.TestCase):
 
     def test_watchpoint_at_field(self):
         """Add a new watchpoint for structure field or value in vector and check it works"""
-        self.debugger.cmd('break calculations.rs:80', 'New breakpoint')
-        self.debugger.cmd('break calculations.rs:88', 'New breakpoint')
+        self.debugger.cmd('break calculations.rs:81', 'New breakpoint')
+        self.debugger.cmd('break calculations.rs:89', 'New breakpoint')
         self.debugger.cmd('run', 'Hit breakpoint 1')
         self.debugger.cmd('watch vector[2]', 'New watchpoint')
         self.debugger.cmd(
@@ -156,7 +156,7 @@ class WatchpointTestCase(unittest.TestCase):
 
     def test_watchpoint_at_complex_data_types(self):
         """Add watchpoints for vector attribute"""
-        self.debugger.cmd('break calculations.rs:91', 'New breakpoint')
+        self.debugger.cmd('break calculations.rs:92', 'New breakpoint')
         self.debugger.cmd('run', 'Hit breakpoint 1')
         self.debugger.cmd('watch (~vector2).len', 'New watchpoint')
         self.debugger.cmd(
@@ -179,7 +179,7 @@ class WatchpointTestCase(unittest.TestCase):
 
     def test_watchpoint_at_complex_data_types2(self):
         """Add watchpoints for string attribute"""
-        self.debugger.cmd('break calculations.rs:95', 'New breakpoint')
+        self.debugger.cmd('break calculations.rs:96', 'New breakpoint')
         self.debugger.cmd('run', 'Hit breakpoint 1')
         self.debugger.cmd('watch (~(~string).vec).len', 'New watchpoint')
         self.debugger.cmd(
