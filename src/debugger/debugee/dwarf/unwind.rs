@@ -429,7 +429,10 @@ impl<'a> DwarfUnwinder<'a> {
     /// # Arguments
     ///
     /// * `location`: some debugee thread position.
-    pub fn context_for(&self, ctx: &ExplorationContext) -> Result<Option<UnwindContext>, Error> {
+    pub fn context_for(
+        &self,
+        ctx: &ExplorationContext,
+    ) -> Result<Option<UnwindContext<'_>>, Error> {
         UnwindContext::new(
             self.debugee,
             DwarfRegisterMap::from(RegisterMap::current(ctx.pid_on_focus())?),

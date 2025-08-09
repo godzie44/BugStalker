@@ -543,7 +543,7 @@ impl Value {
     }
 
     /// Visit variable children in BFS order.
-    fn bfs_iterator(&self) -> BfsIterator {
+    fn bfs_iterator(&self) -> BfsIterator<'_> {
         BfsIterator {
             queue: VecDeque::from([(FieldOrIndex::Root, self)]),
         }
@@ -569,10 +569,10 @@ impl Value {
     fn assume_field_as_pointer(&self, field_name: &'static str) -> Result<*const (), AssumeError> {
         self.bfs_iterator()
             .find_map(|(field_or_idx, child)| {
-                if let Value::Pointer(pointer) = child {
-                    if field_or_idx == FieldOrIndex::Field(Some(field_name)) {
-                        return pointer.value;
-                    }
+                if let Value::Pointer(pointer) = child
+                    && field_or_idx == FieldOrIndex::Field(Some(field_name))
+                {
+                    return pointer.value;
                 }
                 None
             })
@@ -586,10 +586,10 @@ impl Value {
     ) -> Result<RustEnumValue, AssumeError> {
         self.bfs_iterator()
             .find_map(|(field_or_idx, child)| {
-                if let Value::RustEnum(r_enum) = child {
-                    if field_or_idx == FieldOrIndex::Field(Some(field_name)) {
-                        return Some(r_enum.clone());
-                    }
+                if let Value::RustEnum(r_enum) = child
+                    && field_or_idx == FieldOrIndex::Field(Some(field_name))
+                {
+                    return Some(r_enum.clone());
                 }
                 None
             })
@@ -600,10 +600,10 @@ impl Value {
     fn assume_field_as_struct(&self, field_name: &'static str) -> Result<StructValue, AssumeError> {
         self.bfs_iterator()
             .find_map(|(field_or_idx, child)| {
-                if let Value::Struct(structure) = child {
-                    if field_or_idx == FieldOrIndex::Field(Some(field_name)) {
-                        return Some(structure.clone());
-                    }
+                if let Value::Struct(structure) = child
+                    && field_or_idx == FieldOrIndex::Field(Some(field_name))
+                {
+                    return Some(structure.clone());
                 }
                 None
             })

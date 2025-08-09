@@ -487,7 +487,7 @@ impl ComplexType {
     }
 
     /// Visit type children in bfs order, `start_at` - identity of root type.
-    pub fn bfs_iterator(&self, start_at: TypeId) -> BfsIterator {
+    pub fn bfs_iterator(&self, start_at: TypeId) -> BfsIterator<'_> {
         BfsIterator {
             complex_type: self,
             queue: VecDeque::from([start_at]),

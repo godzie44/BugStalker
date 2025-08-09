@@ -30,7 +30,7 @@ impl<'a> FunctionLineRangeHandler<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&self) -> Result<FunctionRange, Error> {
+    pub fn handle(&self) -> Result<FunctionRange<'_>, Error> {
         self.dbg.current_function_range()
     }
 }

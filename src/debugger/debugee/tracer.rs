@@ -143,10 +143,10 @@ impl Tracer {
             if let Some(stop) = self.apply_new_status(ctx, status)? {
                 // if stop fired by quiet signal - go to next iteration, this will inject signal at
                 // a tracee process and resume it
-                if let StopReason::SignalStop(_, signal) = stop {
-                    if QUIET_SIGNALS.contains(&signal) {
-                        continue;
-                    }
+                if let StopReason::SignalStop(_, signal) = stop
+                    && QUIET_SIGNALS.contains(&signal)
+                {
+                    continue;
                 }
 
                 debug!(target: "tracer", "debugee stopped, reason: {stop:?}");
@@ -274,10 +274,10 @@ impl Tracer {
                     wait = tracee.wait_one()?;
                 }
 
-                if let Some(t) = self.tracee_ctl.tracee_mut(tracee.pid) {
-                    if !t.is_stopped() {
-                        t.set_stop(StopType::Interrupt);
-                    }
+                if let Some(t) = self.tracee_ctl.tracee_mut(tracee.pid)
+                    && !t.is_stopped()
+                {
+                    t.set_stop(StopType::Interrupt);
                 }
             }
         }

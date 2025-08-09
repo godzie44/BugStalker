@@ -935,7 +935,7 @@ impl Debugger {
     }
 
     /// Reads all local variables from current function in current thread.
-    pub fn read_local_variables(&self) -> Result<Vec<QueryResult>, Error> {
+    pub fn read_local_variables(&self) -> Result<Vec<QueryResult<'_>>, Error> {
         disable_when_not_stared!(self);
 
         let executor = variable::execute::DqeExecutor::new(self);
@@ -949,7 +949,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_variable(&self, select_expr: Dqe) -> Result<Vec<QueryResult>, Error> {
+    pub fn read_variable(&self, select_expr: Dqe) -> Result<Vec<QueryResult<'_>>, Error> {
         disable_when_not_stared!(self);
         let executor = variable::execute::DqeExecutor::new(self);
         let eval_result = executor.query(&select_expr)?;
@@ -974,7 +974,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `select_expr`: data query expression
-    pub fn read_argument(&self, select_expr: Dqe) -> Result<Vec<QueryResult>, Error> {
+    pub fn read_argument(&self, select_expr: Dqe) -> Result<Vec<QueryResult<'_>>, Error> {
         disable_when_not_stared!(self);
         let executor = variable::execute::DqeExecutor::new(self);
         let eval_result = executor.query_arguments(&select_expr)?;
@@ -1074,7 +1074,7 @@ impl Debugger {
     }
 
     /// Return two place descriptors, at the start and at the end of the current function.
-    pub fn current_function_range(&self) -> Result<FunctionRange, Error> {
+    pub fn current_function_range(&self) -> Result<FunctionRange<'_>, Error> {
         disable_when_not_stared!(self);
         self.debugee.function_range(self.exploration_ctx())
     }

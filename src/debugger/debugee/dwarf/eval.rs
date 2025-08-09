@@ -218,7 +218,7 @@ impl<'a> ExpressionEvaluator<'a> {
         &self,
         ctx: &'a ExplorationContext,
         expr: Expression<EndianArcSlice>,
-    ) -> Result<CompletedResult, Error> {
+    ) -> Result<CompletedResult<'_>, Error> {
         self.evaluate_with_resolver(ExternalRequirementsResolver::default(), ctx, expr)
     }
 
@@ -227,7 +227,7 @@ impl<'a> ExpressionEvaluator<'a> {
         mut resolver: ExternalRequirementsResolver,
         ctx: &'a ExplorationContext,
         expr: Expression<EndianArcSlice>,
-    ) -> Result<CompletedResult, Error> {
+    ) -> Result<CompletedResult<'_>, Error> {
         let mut eval = expr.evaluation(self.encoding);
 
         let mut result = eval.evaluate()?;

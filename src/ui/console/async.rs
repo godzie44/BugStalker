@@ -180,10 +180,10 @@ pub fn print_task_ex(backtrace: &AsyncBacktrace, printer: &ExternalPrinter, rege
 
         let tasks = &backtrace.tasks;
         for task in tasks.iter() {
-            if let Some(Future::AsyncFn(f)) = task.futures.first() {
-                if re.find(&f.async_fn).is_some() {
-                    print_task(backtrace, task, printer);
-                }
+            if let Some(Future::AsyncFn(f)) = task.futures.first()
+                && re.find(&f.async_fn).is_some()
+            {
+                print_task(backtrace, task, printer);
             }
         }
     } else {

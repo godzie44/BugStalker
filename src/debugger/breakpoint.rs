@@ -73,7 +73,7 @@ impl Debugger {
     pub fn set_breakpoint_at_addr(
         &mut self,
         addr: RelocatedAddress,
-    ) -> Result<BreakpointView, Error> {
+    ) -> Result<BreakpointView<'_>, Error> {
         if self.debugee.is_in_progress() {
             let dwarf = self
                 .debugee
@@ -107,7 +107,10 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `addr`: breakpoint address
-    pub fn remove_breakpoint(&mut self, addr: Address) -> Result<Option<BreakpointView>, Error> {
+    pub fn remove_breakpoint(
+        &mut self,
+        addr: Address,
+    ) -> Result<Option<BreakpointView<'_>>, Error> {
         self.breakpoints.remove_by_addr(addr)
     }
 
@@ -119,7 +122,7 @@ impl Debugger {
     pub fn remove_breakpoint_by_number(
         &mut self,
         number: u32,
-    ) -> Result<Option<BreakpointView>, Error> {
+    ) -> Result<Option<BreakpointView<'_>>, Error> {
         self.breakpoints.remove_by_num(number)
     }
 
@@ -161,7 +164,7 @@ impl Debugger {
     fn add_breakpoints(
         &mut self,
         brkpts_to_add: BrkptsToAddRequest,
-    ) -> Result<Vec<BreakpointView>, Error> {
+    ) -> Result<Vec<BreakpointView<'_>>, Error> {
         let result: Vec<_> = match brkpts_to_add {
             BrkptsToAddRequest::Init(init_brkpts) => {
                 let mut result_addrs = Vec::with_capacity(init_brkpts.len());
@@ -235,7 +238,7 @@ impl Debugger {
     pub fn remove_breakpoints_at_addresses(
         &mut self,
         addresses: impl Iterator<Item = Address>,
-    ) -> Result<Vec<BreakpointView>, Error> {
+    ) -> Result<Vec<BreakpointView<'_>>, Error> {
         let mut result = vec![];
         for to_rem in addresses {
             if let Some(view) = self.breakpoints.remove_by_addr(to_rem)? {
@@ -271,7 +274,10 @@ impl Debugger {
     ///
     /// Return [`SetupError::PlaceNotFound`] if function not found,
     /// return [`BreakpointError::DebugInformation`] if errors occur while fetching debug information.
-    pub fn set_breakpoint_at_fn(&mut self, template: &str) -> Result<Vec<BreakpointView>, Error> {
+    pub fn set_breakpoint_at_fn(
+        &mut self,
+        template: &str,
+    ) -> Result<Vec<BreakpointView<'_>>, Error> {
         let places = self.search_functions(template)?;
         if places.iter().all(|(_, places)| places.is_empty()) {
             return Err(NoSuitablePlace);
@@ -289,7 +295,7 @@ impl Debugger {
     pub fn remove_breakpoint_at_fn(
         &mut self,
         template: &str,
-    ) -> Result<Vec<BreakpointView>, Error> {
+    ) -> Result<Vec<BreakpointView<'_>>, Error> {
         let places = self.search_functions(template)?;
         let addresses = self.addresses_for_breakpoints_at_places(&places)?;
         self.remove_breakpoints_at_addresses(addresses)
@@ -337,7 +343,7 @@ impl Debugger {
         &mut self,
         fine_path_tpl: &str,
         line: u64,
-    ) -> Result<Vec<BreakpointView>, Error> {
+    ) -> Result<Vec<BreakpointView<'_>>, Error> {
         let places = self.search_lines(fine_path_tpl, line)?;
         if places.iter().all(|(_, places)| places.is_empty()) {
             return Err(NoSuitablePlace);
@@ -357,7 +363,7 @@ impl Debugger {
         &mut self,
         fine_name_tpl: &str,
         line: u64,
-    ) -> Result<Vec<BreakpointView>, Error> {
+    ) -> Result<Vec<BreakpointView<'_>>, Error> {
         let places = self.search_lines(fine_name_tpl, line)?;
         let addresses = self.addresses_for_breakpoints_at_places(&places)?;
         self.remove_breakpoints_at_addresses(addresses)
@@ -417,7 +423,7 @@ impl Debugger {
     }
 
     /// Return list of breakpoints.
-    pub fn breakpoints_snapshot(&self) -> Vec<BreakpointView> {
+    pub fn breakpoints_snapshot(&self) -> Vec<BreakpointView<'_>> {
         self.breakpoints.snapshot()
     }
 
@@ -1006,7 +1012,7 @@ pub struct BreakpointRegistry {
 
 impl BreakpointRegistry {
     /// Add a new breakpoint to registry and enable it.
-    pub fn add_and_enable(&mut self, brkpt: Breakpoint) -> Result<BreakpointView, Error> {
+    pub fn add_and_enable(&mut self, brkpt: Breakpoint) -> Result<BreakpointView<'_>, Error> {
         if let Some(existed) = self.breakpoints.get(&brkpt.addr) {
             existed.disable()?;
         }
@@ -1026,7 +1032,7 @@ impl BreakpointRegistry {
     }
 
     /// Add uninit breakpoint, this means that breakpoint will be created later.
-    pub fn add_uninit(&mut self, brkpt: UninitBreakpoint) -> BreakpointView {
+    pub fn add_uninit(&mut self, brkpt: UninitBreakpoint) -> BreakpointView<'_> {
         let addr = brkpt.addr;
         self.disabled_breakpoints.insert(addr, brkpt);
         (&self.disabled_breakpoints[&addr]).into()
@@ -1079,13 +1085,13 @@ impl BreakpointRegistry {
         if let Some(brkpt) = self.disabled_breakpoints.remove(&addr) {
             return Ok(Some(brkpt.into()));
         }
-        if let Address::Relocated(addr) = addr {
-            if let Some(brkpt) = self.breakpoints.remove(&addr) {
-                if brkpt.is_enabled() {
-                    brkpt.disable()?;
-                }
-                return Ok(Some(brkpt.into()));
+        if let Address::Relocated(addr) = addr
+            && let Some(brkpt) = self.breakpoints.remove(&addr)
+        {
+            if brkpt.is_enabled() {
+                brkpt.disable()?;
             }
+            return Ok(Some(brkpt.into()));
         }
         Ok(None)
     }
@@ -1198,7 +1204,7 @@ impl BreakpointRegistry {
     }
 
     /// Return view for all user-defined breakpoints.
-    pub fn snapshot(&self) -> Vec<BreakpointView> {
+    pub fn snapshot(&self) -> Vec<BreakpointView<'_>> {
         let active_bps = self
             .breakpoints
             .values()

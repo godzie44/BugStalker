@@ -50,18 +50,17 @@ impl LeafNodeMarkup {
                 type_params,
                 ..
             } = type_decl
+                && name.as_ref()?.starts_with("LeafNode")
             {
-                if name.as_ref()?.starts_with("LeafNode") {
-                    let v_found = type_params
-                        .iter()
-                        .any(|(_, &type_id)| type_id == Some(value_type_id));
-                    let k_found = type_params
-                        .iter()
-                        .any(|(_, &type_id)| type_id == Some(key_type_id));
+                let v_found = type_params
+                    .iter()
+                    .any(|(_, &type_id)| type_id == Some(value_type_id));
+                let k_found = type_params
+                    .iter()
+                    .any(|(_, &type_id)| type_id == Some(key_type_id));
 
-                    if v_found & k_found {
-                        return Some((members, byte_size));
-                    }
+                if v_found & k_found {
+                    return Some((members, byte_size));
                 }
             }
             None
@@ -113,18 +112,17 @@ impl InternalNodeMarkup {
                 type_params,
                 ..
             } = type_decl
+                && name.as_ref()?.starts_with("InternalNode")
             {
-                if name.as_ref()?.starts_with("InternalNode") {
-                    let v_found = type_params
-                        .iter()
-                        .any(|(_, &type_id)| type_id == Some(value_type_id));
-                    let k_found = type_params
-                        .iter()
-                        .any(|(_, &type_id)| type_id == Some(key_type_id));
+                let v_found = type_params
+                    .iter()
+                    .any(|(_, &type_id)| type_id == Some(value_type_id));
+                let k_found = type_params
+                    .iter()
+                    .any(|(_, &type_id)| type_id == Some(key_type_id));
 
-                    if v_found & k_found {
-                        return Some((members, byte_size));
-                    }
+                if v_found & k_found {
+                    return Some((members, byte_size));
                 }
             }
             None

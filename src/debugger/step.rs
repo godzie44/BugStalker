@@ -218,17 +218,17 @@ impl Debugger {
             .get_tracee_ensure(self.exploration_ctx().pid_on_focus());
         let mb_brkpt = self.breakpoints.get_enabled(tracee.pc()?);
         let tracee_pid = tracee.pid;
-        if let Some(brkpt) = mb_brkpt {
-            if brkpt.is_enabled() {
-                brkpt.disable()?;
-                let maybe_reason = self.debugee.tracer_mut().single_step(
-                    TraceContext::new(&self.breakpoints.active_breakpoints(), &self.watchpoints),
-                    tracee_pid,
-                )?;
-                brkpt.enable()?;
-                self.expl_ctx_update_location()?;
-                return Ok(maybe_reason);
-            }
+        if let Some(brkpt) = mb_brkpt
+            && brkpt.is_enabled()
+        {
+            brkpt.disable()?;
+            let maybe_reason = self.debugee.tracer_mut().single_step(
+                TraceContext::new(&self.breakpoints.active_breakpoints(), &self.watchpoints),
+                tracee_pid,
+            )?;
+            brkpt.enable()?;
+            self.expl_ctx_update_location()?;
+            return Ok(maybe_reason);
         }
         Ok(None)
     }
@@ -365,15 +365,15 @@ impl Debugger {
             })?;
 
         let return_addr = self.debugee.return_addr(current_location.pid)?;
-        if let Some(ret_addr) = return_addr {
-            if self.breakpoints.get_enabled(ret_addr).is_none() {
-                self.breakpoints.add_and_enable(Breakpoint::new_temporary(
-                    dwarf.pathname(),
-                    ret_addr,
-                    current_location.pid,
-                ))?;
-                to_delete.push(ret_addr);
-            }
+        if let Some(ret_addr) = return_addr
+            && self.breakpoints.get_enabled(ret_addr).is_none()
+        {
+            self.breakpoints.add_and_enable(Breakpoint::new_temporary(
+                dwarf.pathname(),
+                ret_addr,
+                current_location.pid,
+            ))?;
+            to_delete.push(ret_addr);
         }
 
         let stop_reason = self.continue_execution()?;

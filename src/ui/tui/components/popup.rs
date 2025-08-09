@@ -88,10 +88,10 @@ impl MockComponent for Popup {
             .borders(widgets::Borders::TOP | widgets::Borders::RIGHT | widgets::Borders::LEFT)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::LightGreen));
-        if let Some(title) = self.query(Attribute::Title) {
-            if self.mode == OpMode::Ok {
-                block = block.title(title.unwrap_string());
-            }
+        if let Some(title) = self.query(Attribute::Title)
+            && self.mode == OpMode::Ok
+        {
+            block = block.title(title.unwrap_string());
         }
 
         let alert_layout = Layout::default()

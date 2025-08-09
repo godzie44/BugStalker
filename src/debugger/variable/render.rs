@@ -60,7 +60,7 @@ pub trait RenderValue {
     fn r#type(&self) -> &TypeIdentity;
 
     /// Return value layout for rendering.
-    fn value_layout(&self) -> Option<ValueLayout>;
+    fn value_layout(&self) -> Option<ValueLayout<'_>>;
 }
 
 impl RenderValue for Value {
@@ -105,7 +105,7 @@ impl RenderValue for Value {
         }
     }
 
-    fn value_layout(&self) -> Option<ValueLayout> {
+    fn value_layout(&self) -> Option<ValueLayout<'_>> {
         let value_repr = match self {
             Value::Scalar(scalar) => {
                 ValueLayout::PreRendered(Cow::Owned(scalar.value.as_ref()?.to_string()))

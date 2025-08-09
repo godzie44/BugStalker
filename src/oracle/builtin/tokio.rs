@@ -285,16 +285,13 @@ impl ConsolePlugin for TokioOracle {
 impl TokioOracle {
     /// Return underline value of loom `AtomicUsize` structure.
     fn extract_value_from_atomic_usize(&self, val: &StructValue) -> Option<usize> {
-        if let Value::Struct(ref inner) = val.members.first()?.value {
-            if let Value::Struct(ref value) = inner.members.first()?.value {
-                if let Value::Struct(ref v) = value.members.first()?.value {
-                    if let Value::Scalar(ref value) = v.members.first()?.value {
-                        if let Some(SupportedScalar::Usize(usize)) = value.value {
-                            return Some(usize);
-                        }
-                    }
-                }
-            }
+        if let Value::Struct(ref inner) = val.members.first()?.value
+            && let Value::Struct(ref value) = inner.members.first()?.value
+            && let Value::Struct(ref v) = value.members.first()?.value
+            && let Value::Scalar(ref value) = v.members.first()?.value
+            && let Some(SupportedScalar::Usize(usize)) = value.value
+        {
+            return Some(usize);
         }
 
         None
@@ -336,10 +333,9 @@ impl TokioOracle {
                                     value: Value::Struct(val),
                                     ..
                                 }) = val
+                                    && let Some(state) = self.extract_value_from_atomic_usize(val)
                                 {
-                                    if let Some(state) = self.extract_value_from_atomic_usize(val) {
-                                        task.update_state(state)
-                                    }
+                                    task.update_state(state)
                                 }
                             }
                         }
@@ -424,17 +420,17 @@ impl TokioOracle {
             "__0".to_string(),
         ))?;
 
-        if let Value::Scalar(scalar) = id_args[0].value() {
-            if let Some(SupportedScalar::U64(id_value)) = scalar.value {
-                let bt = debugger
-                    .backtrace(debugger.exploration_ctx().pid_on_focus())
-                    .ok();
+        if let Value::Scalar(scalar) = id_args[0].value()
+            && let Some(SupportedScalar::U64(id_value)) = scalar.value
+        {
+            let bt = debugger
+                .backtrace(debugger.exploration_ctx().pid_on_focus())
+                .ok();
 
-                self.tasks
-                    .lock()
-                    .unwrap()
-                    .insert(id_value, Task::new(id_value, bt.as_ref()));
-            }
+            self.tasks
+                .lock()
+                .unwrap()
+                .insert(id_value, Task::new(id_value, bt.as_ref()));
         }
 
         self.refresh_tasks(debugger);

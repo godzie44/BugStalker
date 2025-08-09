@@ -229,7 +229,7 @@ impl Watchpoint {
         self.temporary
     }
 
-    fn execute_dqe(debugger: &Debugger, dqe: Dqe) -> Result<QueryResult, Error> {
+    fn execute_dqe(debugger: &Debugger, dqe: Dqe) -> Result<QueryResult<'_>, Error> {
         let executor = DqeExecutor::new(debugger);
 
         // trying to evaluate at variables first,
@@ -330,24 +330,24 @@ impl Watchpoint {
                         }
                     };
 
-                    if suitable_place.is_none() {
-                        if let Some(mut place) = range_end_place.prev() {
-                            suitable_place = loop {
-                                if place.address <= GlobalAddress::from(range.begin) {
-                                    break None;
-                                }
-                                if place.is_stmt {
-                                    break Some(place);
-                                }
-                                if place.prolog_end || place.end_sequence {
-                                    break None;
-                                }
-                                match place.prev() {
-                                    None => break None,
-                                    Some(p) => place = p,
-                                }
-                            };
-                        }
+                    if suitable_place.is_none()
+                        && let Some(mut place) = range_end_place.prev()
+                    {
+                        suitable_place = loop {
+                            if place.address <= GlobalAddress::from(range.begin) {
+                                break None;
+                            }
+                            if place.is_stmt {
+                                break Some(place);
+                            }
+                            if place.prolog_end || place.end_sequence {
+                                break None;
+                            }
+                            match place.prev() {
+                                None => break None,
+                                Some(p) => place = p,
+                            }
+                        };
                     }
 
                     if let Some(suitable_place) = suitable_place {
@@ -576,7 +576,7 @@ pub struct WatchpointRegistry {
 }
 
 impl WatchpointRegistry {
-    fn add(&mut self, state: HardwareDebugState, wp: Watchpoint) -> WatchpointView {
+    fn add(&mut self, state: HardwareDebugState, wp: Watchpoint) -> WatchpointView<'_> {
         self.last_seen_state = Some(state);
         self.watchpoints.push(wp);
 
@@ -606,7 +606,7 @@ impl WatchpointRegistry {
         tracee_ctl: &TraceeCtl,
         brkpts: &mut BreakpointRegistry,
         idx: usize,
-    ) -> Result<Option<WatchpointView>, Error> {
+    ) -> Result<Option<WatchpointView<'_>>, Error> {
         let mut wp = self.watchpoints.remove(idx);
         let state = wp.disable(tracee_ctl, brkpts)?;
         self.last_seen_state = Some(state);
@@ -619,7 +619,7 @@ impl WatchpointRegistry {
         tracee_ctl: &TraceeCtl,
         breakpoints: &mut BreakpointRegistry,
         num: u32,
-    ) -> Result<Option<WatchpointView>, Error> {
+    ) -> Result<Option<WatchpointView<'_>>, Error> {
         let Some(to_remove) = self.watchpoints.iter().position(|wp| wp.number == num) else {
             return Ok(None);
         };
@@ -632,7 +632,7 @@ impl WatchpointRegistry {
         tracee_ctl: &TraceeCtl,
         breakpoints: &mut BreakpointRegistry,
         addr: RelocatedAddress,
-    ) -> Result<Option<WatchpointView>, Error> {
+    ) -> Result<Option<WatchpointView<'_>>, Error> {
         let Some(to_remove) = self.watchpoints.iter().position(|wp| wp.hw.address == addr) else {
             return Ok(None);
         };
@@ -645,7 +645,7 @@ impl WatchpointRegistry {
         tracee_ctl: &TraceeCtl,
         breakpoints: &mut BreakpointRegistry,
         dqe: Dqe,
-    ) -> Result<Option<WatchpointView>, Error> {
+    ) -> Result<Option<WatchpointView<'_>>, Error> {
         let needle = Dqe::Address(dqe.boxed());
         let Some(to_remove) = self.watchpoints.iter().position(|wp| {
             if let Subject::Expression(ExpressionTarget { dqe: wp_dqe, .. }) = &wp.subject {
@@ -697,10 +697,10 @@ impl WatchpointRegistry {
 
     /// Distribute all existed watchpoints to a new tracee (thread).
     pub fn distribute_to_tracee(&self, tracee: &Tracee) -> Result<(), Error> {
-        if let Some(ref state) = self.last_seen_state {
-            if let Err(e) = state.sync(tracee.pid) {
-                error!("set hardware breakpoint for thread {}: {e}", tracee.pid)
-            }
+        if let Some(ref state) = self.last_seen_state
+            && let Err(e) = state.sync(tracee.pid)
+        {
+            error!("set hardware breakpoint for thread {}: {e}", tracee.pid)
         }
         Ok(())
     }
@@ -737,7 +737,7 @@ impl Debugger {
         expr_source: &str,
         dqe: Dqe,
         condition: BreakCondition,
-    ) -> Result<WatchpointView, Error> {
+    ) -> Result<WatchpointView<'_>, Error> {
         disable_when_not_stared!(self);
         let (hw_state, wp) = Watchpoint::from_dqe(self, expr_source, dqe, condition)?;
         Ok(self.watchpoints.add(hw_state, wp))
@@ -756,7 +756,7 @@ impl Debugger {
         size: BreakSize,
         condition: BreakCondition,
         temporary: bool,
-    ) -> Result<WatchpointView, Error> {
+    ) -> Result<WatchpointView<'_>, Error> {
         disable_when_not_stared!(self);
         let (hw_state, wp) =
             Watchpoint::from_raw_addr(self.debugee.tracee_ctl(), addr, size, condition, temporary)?;
@@ -771,7 +771,7 @@ impl Debugger {
     pub fn remove_watchpoint_by_number(
         &mut self,
         num: u32,
-    ) -> Result<Option<WatchpointView>, Error> {
+    ) -> Result<Option<WatchpointView<'_>>, Error> {
         let breakpoints = &mut self.breakpoints;
         self.watchpoints
             .remove_by_num(self.debugee.tracee_ctl(), breakpoints, num)
@@ -785,7 +785,7 @@ impl Debugger {
     pub fn remove_watchpoint_by_addr(
         &mut self,
         addr: RelocatedAddress,
-    ) -> Result<Option<WatchpointView>, Error> {
+    ) -> Result<Option<WatchpointView<'_>>, Error> {
         let breakpoints = &mut self.breakpoints;
         self.watchpoints
             .remove_by_addr(self.debugee.tracee_ctl(), breakpoints, addr)
@@ -796,14 +796,17 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `dqe`: DQE
-    pub fn remove_watchpoint_by_expr(&mut self, dqe: Dqe) -> Result<Option<WatchpointView>, Error> {
+    pub fn remove_watchpoint_by_expr(
+        &mut self,
+        dqe: Dqe,
+    ) -> Result<Option<WatchpointView<'_>>, Error> {
         let breakpoints = &mut self.breakpoints;
         self.watchpoints
             .remove_by_dqe(self.debugee.tracee_ctl(), breakpoints, dqe)
     }
 
     /// Return a list of all watchpoints.
-    pub fn watchpoint_list(&self) -> Vec<WatchpointView> {
+    pub fn watchpoint_list(&self) -> Vec<WatchpointView<'_>> {
         self.watchpoints.all().iter().map(|wp| wp.into()).collect()
     }
 
