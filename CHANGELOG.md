@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 # [?.?.?] Unreleased
 
 ### Added
+### Changed
+### Fixed
+### Deprecated
+### Breaking changes
+
+# [0.3.3] Aug 9 2025
+
+### Added
 
 - ui: new output for `backtrace` command (with source file and line)
 - debugger: add `--save-history` option
@@ -21,10 +29,6 @@ All notable changes to this project will be documented in this file.
 
 - tui: fix panic when there is a thread with unknown first frame function in backtrace
 - debugger: fix panic when when parse zero-length arrays
-
-### Deprecated
-
-### Breaking changes
 
 ---
 
