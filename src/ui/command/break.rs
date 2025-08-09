@@ -47,7 +47,7 @@ impl<'a> Handler<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&mut self, cmd: &Command) -> Result<ExecutionResult, Error> {
+    pub fn handle(&mut self, cmd: &Command) -> Result<ExecutionResult<'_>, Error> {
         let result = match cmd {
             Command::Add(brkpt) => {
                 let res = match brkpt {

@@ -27,10 +27,10 @@ pub(super) struct LocalQueue {
 
 fn extract_u32_from_atomic_u64(val: Value) -> Option<u32> {
     let value = val.field("v")?.field("value")?;
-    if let Value::Scalar(value) = value {
-        if let Some(SupportedScalar::U64(u)) = value.value {
-            return Some((u & u32::MAX as u64) as u32);
-        }
+    if let Value::Scalar(value) = value
+        && let Some(SupportedScalar::U64(u)) = value.value
+    {
+        return Some((u & u32::MAX as u64) as u32);
     }
     None
 }
@@ -41,10 +41,10 @@ fn extract_u32_from_atomic_32(val: Value) -> Option<u32> {
         .field("value")?
         .field("v")?
         .field("value")?;
-    if let Value::Scalar(value) = value {
-        if let Some(SupportedScalar::U32(u)) = value.value {
-            return Some(u);
-        }
+    if let Value::Scalar(value) = value
+        && let Some(SupportedScalar::U32(u)) = value.value
+    {
+        return Some(u);
     }
 
     None

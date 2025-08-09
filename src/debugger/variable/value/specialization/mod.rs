@@ -494,12 +494,12 @@ impl<'a> VariableParserExtension<'a> {
 
                 let tuple = self.parser.parse_inner(ctx, data, kv_type);
 
-                if let Some(Value::Struct(mut tuple)) = tuple {
-                    if tuple.members.len() == 2 {
-                        let v = tuple.members.pop();
-                        let k = tuple.members.pop();
-                        return Ok(Some((k.unwrap().value, v.unwrap().value)));
-                    }
+                if let Some(Value::Struct(mut tuple)) = tuple
+                    && tuple.members.len() == 2
+                {
+                    let v = tuple.members.pop();
+                    let k = tuple.members.pop();
+                    return Ok(Some((k.unwrap().value, v.unwrap().value)));
                 }
 
                 Err(Assume(UnexpectedType("hashmap bucket")))
@@ -559,12 +559,12 @@ impl<'a> VariableParserExtension<'a> {
 
                 let tuple = self.parser.parse_inner(ctx, data, kv_type);
 
-                if let Some(Value::Struct(mut tuple)) = tuple {
-                    if tuple.members.len() == 2 {
-                        let _ = tuple.members.pop();
-                        let k = tuple.members.pop().unwrap();
-                        return Ok(Some(k.value));
-                    }
+                if let Some(Value::Struct(mut tuple)) = tuple
+                    && tuple.members.len() == 2
+                {
+                    let _ = tuple.members.pop();
+                    let k = tuple.members.pop().unwrap();
+                    return Ok(Some(k.value));
                 }
 
                 Err(Assume(UnexpectedType("hashset bucket")))
@@ -661,10 +661,9 @@ impl<'a> VariableParserExtension<'a> {
                     value: Some(SpecializedValue::BTreeMap(map)),
                     ..
                 } = child
+                    && field_or_idx == FieldOrIndex::Field(Some("map"))
                 {
-                    if field_or_idx == FieldOrIndex::Field(Some("map")) {
-                        return Some(map.clone());
-                    }
+                    return Some(map.clone());
                 }
                 None
             })
@@ -870,11 +869,11 @@ impl<'a> VariableParserExtension<'a> {
         Ok(val
             .bfs_iterator()
             .find_map(|(field_or_idx, child)| {
-                if let Value::Pointer(pointer) = child {
-                    if field_or_idx == FieldOrIndex::Field(Some("pointer")) {
-                        let new_pointer = pointer.clone();
-                        return Some(new_pointer);
-                    }
+                if let Value::Pointer(pointer) = child
+                    && field_or_idx == FieldOrIndex::Field(Some("pointer"))
+                {
+                    let new_pointer = pointer.clone();
+                    return Some(new_pointer);
                 }
                 None
             })
@@ -893,11 +892,11 @@ impl<'a> VariableParserExtension<'a> {
         Ok(val
             .bfs_iterator()
             .find_map(|(field_or_idx, child)| {
-                if let Value::Pointer(pointer) = child {
-                    if field_or_idx == FieldOrIndex::Field(Some("pointer")) {
-                        let new_pointer = pointer.clone();
-                        return Some(new_pointer);
-                    }
+                if let Value::Pointer(pointer) = child
+                    && field_or_idx == FieldOrIndex::Field(Some("pointer"))
+                {
+                    let new_pointer = pointer.clone();
+                    return Some(new_pointer);
                 }
                 None
             })

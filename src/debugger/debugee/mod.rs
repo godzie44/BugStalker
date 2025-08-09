@@ -567,7 +567,7 @@ impl Debugee {
     }
 
     /// Return two place descriptors, at the start and at the end of the current function.
-    pub fn function_range(&self, ctx: &ExplorationContext) -> Result<FunctionRange, Error> {
+    pub fn function_range(&self, ctx: &ExplorationContext) -> Result<FunctionRange<'_>, Error> {
         let debug_information = self.debug_info(ctx.location().pc)?;
         let function = debug_information
             .find_function_by_pc(ctx.location().global_pc)?

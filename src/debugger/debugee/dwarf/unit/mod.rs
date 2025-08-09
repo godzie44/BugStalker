@@ -590,10 +590,10 @@ impl Unit {
     /// Return rust SEMVER value. If rust is not unit language or
     /// if version determine fail return `None`.
     pub fn rustc_version(&self) -> Option<RustVersion> {
-        if self.language == Some(DW_LANG_Rust) {
-            if let Some(producer) = self.producer.as_ref() {
-                return RustVersion::parse(producer);
-            }
+        if self.language == Some(DW_LANG_Rust)
+            && let Some(producer) = self.producer.as_ref()
+        {
+            return RustVersion::parse(producer);
         }
         None
     }
@@ -635,13 +635,13 @@ impl Unit {
     }
 
     /// Return [`PlaceDescriptor`] by index for line vector in unit.
-    pub(super) fn find_place_by_idx(&self, line_pos: usize) -> Option<PlaceDescriptor> {
+    pub(super) fn find_place_by_idx(&self, line_pos: usize) -> Option<PlaceDescriptor<'_>> {
         let line = self.lines.get(line_pos)?;
         Some((self, line_pos, line).into())
     }
 
     /// Return first [`PlaceDescriptor`] matching the file index and line number.
-    pub fn find_place_by_line(&self, file_idx: u64, line: u64) -> Option<PlaceDescriptor> {
+    pub fn find_place_by_line(&self, file_idx: u64, line: u64) -> Option<PlaceDescriptor<'_>> {
         let (line_pos, line) = self
             .lines
             .iter()
@@ -659,7 +659,7 @@ impl Unit {
     /// # Arguments
     ///
     /// * `pc`: program counter represented by global address.
-    pub fn find_place_by_pc(&self, pc: GlobalAddress) -> Option<PlaceDescriptor> {
+    pub fn find_place_by_pc(&self, pc: GlobalAddress) -> Option<PlaceDescriptor<'_>> {
         let pc = u64::from(pc);
         let pos = self
             .lines
@@ -675,7 +675,7 @@ impl Unit {
     /// # Arguments
     ///
     /// * `pc`: program counter represented by global address.
-    pub fn find_eb(&self, pc: GlobalAddress) -> Option<PlaceDescriptor> {
+    pub fn find_eb(&self, pc: GlobalAddress) -> Option<PlaceDescriptor<'_>> {
         let pc = u64::from(pc);
 
         let mut pos = self
@@ -697,7 +697,7 @@ impl Unit {
     /// # Arguments
     ///
     /// * `pc`: program counter represented by global address.
-    pub fn find_exact_place_by_pc(&self, pc: GlobalAddress) -> Option<PlaceDescriptor> {
+    pub fn find_exact_place_by_pc(&self, pc: GlobalAddress) -> Option<PlaceDescriptor<'_>> {
         let pc = u64::from(pc);
         match self.lines.binary_search_by_key(&pc, |line| line.address) {
             Ok(p) => self.find_place_by_idx(p),
@@ -710,7 +710,7 @@ impl Unit {
     /// # Arguments
     ///
     /// * `range`: address range
-    pub fn find_lines_for_range(&self, range: &Range) -> Vec<PlaceDescriptor> {
+    pub fn find_lines_for_range(&self, range: &Range) -> Vec<PlaceDescriptor<'_>> {
         let Some(start_place) = self.find_place_by_pc(GlobalAddress::from(range.begin)) else {
             return vec![];
         };

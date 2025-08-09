@@ -287,11 +287,11 @@ impl<'a> DwarfUnitParser<'a> {
 
                     let mut mb_parent_idx = parent_idx;
                     while let Some(parent_idx) = mb_parent_idx {
-                        if let DieVariant::LexicalBlock(_) = entries[parent_idx].die {
-                            if lexical_block_idx.is_none() {
-                                // save the closest lexical block and ignore others
-                                lexical_block_idx = Some(parent_idx);
-                            }
+                        if let DieVariant::LexicalBlock(_) = entries[parent_idx].die
+                            && lexical_block_idx.is_none()
+                        {
+                            // save the closest lexical block and ignore others
+                            lexical_block_idx = Some(parent_idx);
                         }
                         if let DieVariant::Function(_) = entries[parent_idx].die {
                             fn_block_idx = Some(parent_idx);
@@ -554,15 +554,15 @@ fn render_file_path<R: Reader>(
         PathBuf::new()
     };
 
-    if file.directory_index() != 0 {
-        if let Some(directory) = file.directory(header) {
-            path.push(
-                sections
-                    .attr_string(dw_unit, directory)?
-                    .to_string_lossy()?
-                    .as_ref(),
-            );
-        }
+    if file.directory_index() != 0
+        && let Some(directory) = file.directory(header)
+    {
+        path.push(
+            sections
+                .attr_string(dw_unit, directory)?
+                .to_string_lossy()?
+                .as_ref(),
+        );
     }
 
     if path.starts_with("/rustc/") {

@@ -202,27 +202,27 @@ pub fn task_from_header<'a>(
     for (typ, offset) in iter {
         if typ.starts_with("Cell") {
             let typ_entry = resolve_unit_call!(debug_info.inner, unit, find_entry, *offset);
-            if let Some(typ_entry) = typ_entry {
-                if let DieVariant::StructType(ref struct_type) = typ_entry.die {
-                    let mut s_tpl_found = false;
-                    let mut t_tpl_found = false;
+            if let Some(typ_entry) = typ_entry
+                && let DieVariant::StructType(ref struct_type) = typ_entry.die
+            {
+                let mut s_tpl_found = false;
+                let mut t_tpl_found = false;
 
-                    typ_entry.node.children.iter().for_each(|&idx| {
-                        let entry = resolve_unit_call!(debug_info.inner, unit, entry, idx);
-                        if let DieVariant::TemplateType(ref tpl) = entry.die {
-                            if tpl.type_ref == t_tpl_die.type_ref {
-                                t_tpl_found = true;
-                            }
-                            if tpl.type_ref == s_tpl_die.type_ref {
-                                s_tpl_found = true;
-                            }
+                typ_entry.node.children.iter().for_each(|&idx| {
+                    let entry = resolve_unit_call!(debug_info.inner, unit, entry, idx);
+                    if let DieVariant::TemplateType(ref tpl) = entry.die {
+                        if tpl.type_ref == t_tpl_die.type_ref {
+                            t_tpl_found = true;
                         }
-                    });
-
-                    if s_tpl_found & t_tpl_found {
-                        cell_type_die = Some(struct_type.clone());
-                        break;
+                        if tpl.type_ref == s_tpl_die.type_ref {
+                            s_tpl_found = true;
+                        }
                     }
+                });
+
+                if s_tpl_found & t_tpl_found {
+                    cell_type_die = Some(struct_type.clone());
+                    break;
                 }
             }
         }

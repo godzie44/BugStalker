@@ -46,7 +46,7 @@ impl Default for RustCodeRenderer {
 impl RustCodeRenderer {
     const RUST_EXT: &'static str = "rs";
 
-    pub fn line_renderer(&self) -> RustCodeLineRenderer {
+    pub fn line_renderer(&self) -> RustCodeLineRenderer<'_> {
         let theme = match config::current().theme.to_syntect_name() {
             None => {
                 return RustCodeLineRenderer {

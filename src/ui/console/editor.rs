@@ -518,12 +518,11 @@ impl BSEditor {
 
 impl Drop for BSEditor {
     fn drop(&mut self) {
-        if let Self::InFile(editor) = self {
-            if let Err(e) = Self::history_file()
+        if let Self::InFile(editor) = self
+            && let Err(e) = Self::history_file()
                 .and_then(|file| editor.save_history(&file).map_err(anyhow::Error::from))
-            {
-                warn!("Failed to save command history: {e}");
-            }
+        {
+            warn!("Failed to save command history: {e}");
         }
     }
 }

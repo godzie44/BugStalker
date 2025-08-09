@@ -251,7 +251,10 @@ impl DebugInformation {
     }
 
     /// Returns best matched place by program counter global address.
-    pub fn find_place_from_pc(&self, pc: GlobalAddress) -> Result<Option<PlaceDescriptor>, Error> {
+    pub fn find_place_from_pc(
+        &self,
+        pc: GlobalAddress,
+    ) -> Result<Option<PlaceDescriptor<'_>>, Error> {
         let mb_unit = self.find_unit_by_pc(pc)?;
         Ok(mb_unit.and_then(|u| u.find_place_by_pc(pc)))
     }
@@ -260,7 +263,7 @@ impl DebugInformation {
     pub fn find_exact_place_from_pc(
         &self,
         pc: GlobalAddress,
-    ) -> Result<Option<PlaceDescriptor>, Error> {
+    ) -> Result<Option<PlaceDescriptor<'_>>, Error> {
         let mb_unit = self.find_unit_by_pc(pc)?;
         Ok(mb_unit.and_then(|u| u.find_exact_place_by_pc(pc)))
     }
@@ -273,7 +276,7 @@ impl DebugInformation {
     pub fn find_function_by_pc(
         &self,
         pc: GlobalAddress,
-    ) -> Result<Option<ContextualDieRef<FunctionDie>>, Error> {
+    ) -> Result<Option<ContextualDieRef<'_, '_, FunctionDie>>, Error> {
         let mb_unit = self.find_unit_by_pc(pc)?;
         Ok(mb_unit.and_then(|unit| {
             let pc = u64::from(pc);
@@ -291,15 +294,16 @@ impl DebugInformation {
 
             die_ranges[..find_pos].iter().rev().find_map(|dr| {
                 let entry = resolve_unit_call!(&self.inner, unit, entry, dr.die_idx);
-                if let DieVariant::Function(ref func) = entry.die {
-                    if dr.range.begin <= pc && pc < dr.range.end {
-                        return Some(ContextualDieRef {
-                            debug_info: self,
-                            node: &entry.node,
-                            unit_idx: unit.idx(),
-                            die: func,
-                        });
-                    }
+                if let DieVariant::Function(ref func) = entry.die
+                    && dr.range.begin <= pc
+                    && pc < dr.range.end
+                {
+                    return Some(ContextualDieRef {
+                        debug_info: self,
+                        node: &entry.node,
+                        unit_idx: unit.idx(),
+                        die: func,
+                    });
                 };
                 None
             })
@@ -314,7 +318,7 @@ impl DebugInformation {
     pub fn search_functions(
         &self,
         template: &str,
-    ) -> Result<Vec<ContextualDieRef<FunctionDie>>, Error> {
+    ) -> Result<Vec<ContextualDieRef<'_, '_, FunctionDie>>, Error> {
         let units = self.get_units()?;
         let result: Vec<_> = units
             .par_iter()
@@ -1107,14 +1111,14 @@ impl<'ctx> ContextualDieRef<'ctx, 'ctx, FunctionDie> {
             .into())
     }
 
-    pub fn prolog_start_place(&self) -> Result<PlaceDescriptor, Error> {
+    pub fn prolog_start_place(&self) -> Result<PlaceDescriptor<'_>, Error> {
         let low_pc = self.start_instruction()?;
 
         debug_info_exists!(self.debug_info.find_place_from_pc(low_pc))
             .ok_or(FunctionNotFound(low_pc))
     }
 
-    pub fn prolog_end_place(&self) -> Result<PlaceDescriptor, Error> {
+    pub fn prolog_end_place(&self) -> Result<PlaceDescriptor<'_>, Error> {
         let mut place = self.prolog_start_place()?;
         while !place.prolog_end {
             match place.next() {
@@ -1160,10 +1164,10 @@ impl<'ctx> ContextualDieRef<'ctx, 'ctx, FunctionDie> {
     pub fn get_template_parameter(&self, name: &str) -> Option<&TemplateTypeParameter> {
         self.node.children.iter().find_map(|&idx| {
             let entry = ctx_resolve_unit_call!(self, entry, idx);
-            if let DieVariant::TemplateType(ref tpl) = entry.die {
-                if tpl.base_attributes.name.as_deref() == Some(name) {
-                    return Some(tpl);
-                }
+            if let DieVariant::TemplateType(ref tpl) = entry.die
+                && tpl.base_attributes.name.as_deref() == Some(name)
+            {
+                return Some(tpl);
             }
             None
         })

@@ -34,7 +34,7 @@ impl<'a> Handler<'a> {
         Self { dbg: debugger }
     }
 
-    pub fn handle(&mut self, cmd: Command) -> Result<ExecutionResult, Error> {
+    pub fn handle(&mut self, cmd: Command) -> Result<ExecutionResult<'_>, Error> {
         match cmd {
             Command::Add(ident, cond) => {
                 let new = match ident {

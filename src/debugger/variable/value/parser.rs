@@ -363,10 +363,10 @@ impl ValueParser {
             .map(|v| scalar_from_bytes::<*const ()>(&v.raw_data));
 
         let mut type_ident = ctx.type_graph.identity(type_id);
-        if type_ident.is_unknown() {
-            if let Some(target_type) = target_type {
-                type_ident = ctx.type_graph.identity(target_type).as_deref_type();
-            }
+        if type_ident.is_unknown()
+            && let Some(target_type) = target_type
+        {
+            type_ident = ctx.type_graph.identity(target_type).as_deref_type();
         }
 
         PointerValue {
