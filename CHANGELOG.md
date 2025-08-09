@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - ui: new output for `backtrace` command (with source file and line)
 - debugger: add `--save-history` option
+- debugger: added support for rustc 1.89
 
 ### Changed
 

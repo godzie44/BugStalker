@@ -444,12 +444,13 @@ impl ValueParser {
                     rust_version,
                     .. (1 . 77) => type_ns_h.contains(&["std", "sys", "common", "thread_local", "fast_local"]),
                     (1 . 77) .. (1 . 78) => type_ns_h.contains(&["std", "sys", "pal", "common", "thread_local", "fast_local"]),
-                    (1 . 78) .. => type_ns_h.contains(&["std", "sys", "thread_local", "fast_local"]),
+                    (1 . 78) .. (1 . 89) => type_ns_h.contains(&["std", "sys", "thread_local", "fast_local"]),
+                    (1 . 89) .. => type_ns_h.contains(&["std", "sys", "thread_local", "native"]),
                 ).unwrap_or_default();
 
                 if type_is_tls || modifiers.tls {
                     return if rust_version >= Version((1, 80, 0)) {
-                        match parser_ext.parse_tls(ctx, &struct_var, type_params) {
+                        match parser_ext.parse_tls(ctx, &struct_var, type_params, rust_version) {
                             Ok(Some(value)) => Some(Value::Specialized {
                                 value: Some(SpecializedValue::Tls(value)),
                                 original: struct_var,
