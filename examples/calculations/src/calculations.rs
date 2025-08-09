@@ -29,6 +29,7 @@ fn calculation_four_value() {
 
 static mut GLOBAL_1: i64 = 1;
 
+#[allow(static_mut_refs)]
 fn calculation_global_value() {
     unsafe {
         GLOBAL_1 -= 1;

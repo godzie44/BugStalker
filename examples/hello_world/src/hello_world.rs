@@ -9,7 +9,7 @@ fn main() {
     myprint("bye!")
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[inline(never)]
 fn myprint(s: &str) {
     println!("{}", s)

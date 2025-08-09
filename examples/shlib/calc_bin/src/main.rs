@@ -1,4 +1,4 @@
-extern "C" {
+unsafe extern "C" {
     pub fn calc_add(a: u32, b: u32) -> u32;
     pub fn calc_sub(a: u32, b: u32) -> u32;
 }
