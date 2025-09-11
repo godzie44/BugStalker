@@ -20,6 +20,8 @@ jobs:
           toolchain: ${{ matrix.rustc_sup_version }}
           override: true
           components: rustfmt, clippy
+      - name: Verify msrv
+        run: "grep '^rust-version = .1.90.0.' Cargo.toml"
       - name: Build test applications for functional testing
         run: make build-examples-for-func-test
       - name: Install actual rustc
