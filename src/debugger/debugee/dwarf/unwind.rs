@@ -442,6 +442,10 @@ impl<'a> DwarfUnwinder<'a> {
 }
 
 #[cfg(feature = "libunwind")]
+#[deprecated(
+    since = "0.3.4",
+    note = "libunwind deprecated, use new unwinder `DwarfUnwinder`"
+)]
 mod libunwind {
     use crate::debugger::address::RelocatedAddress;
     use crate::debugger::debugee::Debugee;

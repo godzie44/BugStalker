@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 ### Changed
 ### Fixed
 ### Deprecated
+
+- debugger: deprecate libunwind support
+
+
 ### Breaking changes
 
 # [0.3.3] Aug 9 2025

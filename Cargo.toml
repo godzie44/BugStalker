@@ -86,7 +86,8 @@ which = "6.0.1"
 serial_test = "3.0.0"
 
 [features]
-default = ["libunwind"]
+default = []
+# libunwind future deprecated for now, builtin unwinder used instead
 libunwind = ["unwind"]
 nightly = []
 int_test = ["nightly"]
