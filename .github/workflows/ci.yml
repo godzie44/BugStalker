@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Install libunwind and debug symbols
+      - name: Install debug symbols
         run: |
           sudo apt-get update
-          sudo apt-get install libunwind-dev libc6-dbg
+          sudo apt-get install libc6-dbg
       - name: Install rustc for test applications
         uses: actions-rs/toolchain@v1
         with:
@@ -28,8 +28,6 @@ jobs:
           toolchain: 1.89.0
           override: true
           components: rustfmt, clippy
-      - name: Run functional tests on own stack unwind implementation
-        run: make cargo-test-no-libunwind
       - name: Run functional tests
         uses: actions-rs/cargo@v1
         with:
@@ -58,12 +56,12 @@ jobs:
         run: |
           python --version
           pip --version
-      - name: Install libunwind and debug symbols
+      - name: Install debug symbols
         run: |
           sudo apt-get update
-          sudo apt-get install libunwind-dev libc6-dbg
+          sudo apt-get install libc6-dbg
       - name: Build debugger and test programs
-        run: make build-all
+        run: make build-all-rel
       - name: Run integration tests
         run: make int-test
 
@@ -77,10 +75,6 @@ jobs:
           toolchain: 1.89
           override: true
           components: rustfmt, clippy
-      - name: Install libunwind
-        run: |
-          sudo apt-get update
-          sudo apt-get install libunwind-dev
       - name: Build debugger and test programs
         run: make build-all
       - name: Run cargo fmt

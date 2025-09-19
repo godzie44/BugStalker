@@ -7,7 +7,7 @@ import psutil
 class Debugger:
     def __init__(self, path=None, process=None, oracles=None):
         self._external_debugee_process = None
-        base = './target/debug/bs -t none'
+        base = './target/release/bs -t none'
         if oracles is None:
             oracles = []
         for oracle in oracles:

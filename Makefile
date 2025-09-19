@@ -1,6 +1,9 @@
 build:
 	cargo build
 
+build-rel:
+	cargo build --release
+
 build-test:
 	cargo build --features "int_test"
 
@@ -24,6 +27,8 @@ build-examples: build-examples-for-func-test
 
 build-all: build build-examples
 
+build-all-rel: build-rel build-examples
+
 cargo-test:
 	cargo test --features "int_test"
 
@@ -41,3 +46,5 @@ int-test: build-test
 
 # for local usage, note that test_external.py requires a root privileges
 test: build-all cargo-test int-test
+
+test-rel: build-all-rel cargo-test int-test
