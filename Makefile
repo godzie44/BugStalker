@@ -7,6 +7,9 @@ build-rel:
 build-test:
 	cargo build --features "int_test"
 
+build-test-rel:
+	cargo build --release --features "int_test"
+
 build-examples-for-func-test:
 	cd examples; \
 	cargo build -p calc_lib; \
@@ -44,7 +47,10 @@ int-test-async: build-test
 int-test: build-test
 	sudo python3 -m unittest discover ./tests/integration/ -v
 
+int-test-rel: build-test-rel
+	sudo python3 -m unittest discover ./tests/integration/ -v
+
 # for local usage, note that test_external.py requires a root privileges
 test: build-all cargo-test int-test
 
-test-rel: build-all-rel cargo-test int-test
+test-rel: build-all-rel cargo-test int-test-rel

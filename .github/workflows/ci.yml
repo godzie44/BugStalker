@@ -6,7 +6,7 @@ jobs:
   test:
     strategy:
       matrix:
-        rustc_sup_version: [ 1.85.1, 1.86.0, 1.87.0, 1.88.0, 1.89.0 ]
+        rustc_sup_version: [ 1.86.0, 1.87.0, 1.88.0, 1.89.0, 1.90.0 ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -25,7 +25,7 @@ jobs:
       - name: Install actual rustc
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.89.0
+          toolchain: 1.90.0
           override: true
           components: rustfmt, clippy
       - name: Run functional tests
@@ -40,7 +40,7 @@ jobs:
       - name: Install rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.89.0
+          toolchain: 1.90.0
           override: true
           components: rustfmt, clippy
       - name: Set up Python
@@ -63,7 +63,7 @@ jobs:
       - name: Build debugger and test programs
         run: make build-all-rel
       - name: Run integration tests
-        run: make int-test
+        run: make int-test-rel
 
   lint:
     runs-on: ubuntu-latest
@@ -72,7 +72,7 @@ jobs:
       - name: Install rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.89
+          toolchain: 1.90.0
           override: true
           components: rustfmt, clippy
       - name: Build debugger and test programs

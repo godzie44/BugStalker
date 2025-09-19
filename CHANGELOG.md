@@ -8,11 +8,25 @@ All notable changes to this project will be documented in this file.
 ### Changed
 ### Fixed
 ### Deprecated
-
-- debugger: deprecate libunwind support
-
-
 ### Breaking changes
+
+---
+
+# [0.3.4] Sep 19 2025
+
+### Added
+
+- debugger: added support for rustc 1.90
+
+### Fixed
+
+- build: fail early at compile rather than runtime
+
+### Deprecated
+
+- debugger: deprecate `libunwind` support
+
+---
 
 # [0.3.3] Aug 9 2025
 
