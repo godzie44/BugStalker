@@ -729,11 +729,11 @@ impl<'a> VariableParserExtension<'a> {
         let cap = if el_type_size == 0 {
             usize::MAX
         } else {
-            extract_capacity(ctx, &val)?
+            guard_cap(extract_capacity(ctx, &val)? as i64) as usize
         };
         let head = val.assume_field_as_scalar_number("head")? as usize;
 
-        let wrapped_start = if head >= cap { head - cap } else { head };
+        let wrapped_start = head % cap;
         let head_len = cap - wrapped_start;
 
         let slice_ranges = if head_len >= len {
