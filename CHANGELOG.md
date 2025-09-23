@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 ### Changed
 ### Fixed
+
+- debugger: panic when vecdeque have infinite capacity (bug in debug info) 
+
 ### Deprecated
 ### Breaking changes
 
