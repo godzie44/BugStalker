@@ -1,7 +1,7 @@
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::value::Value;
-use crate::debugger::{EventHook, FunctionDie, PlaceDescriptor};
+use crate::debugger::{EventHook, FunctionInfo, PlaceDescriptor};
 use crate::ui::tui::output::OutputLine;
 use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::logger::TuiLogLine;
@@ -129,7 +129,7 @@ impl EventHook for TuiHook {
         pc: RelocatedAddress,
         num: u32,
         place: Option<PlaceDescriptor>,
-        function: Option<&FunctionDie>,
+        function: Option<&FunctionInfo>,
     ) -> anyhow::Result<()> {
         self.event_queue
             .lock()
@@ -139,7 +139,7 @@ impl EventHook for TuiHook {
                 num,
                 file: place.as_ref().map(|p| p.file.to_string_lossy().to_string()),
                 line: place.as_ref().map(|p| p.line_number),
-                function: function.and_then(|f| f.base.name.clone()),
+                function: function.and_then(|f| f.name.clone()),
             });
         Ok(())
     }
@@ -175,13 +175,13 @@ impl EventHook for TuiHook {
         &self,
         pc: RelocatedAddress,
         place: Option<PlaceDescriptor>,
-        function: Option<&FunctionDie>,
+        function: Option<&FunctionInfo>,
     ) -> anyhow::Result<()> {
         self.event_queue.lock().unwrap().push(UserEvent::Step {
             pc,
             file: place.as_ref().map(|p| p.file.to_string_lossy().to_string()),
             line: place.as_ref().map(|p| p.line_number),
-            function: function.and_then(|f| f.base.name.clone()),
+            function: function.and_then(|f| f.name.clone()),
         });
         Ok(())
     }
@@ -190,7 +190,7 @@ impl EventHook for TuiHook {
         &self,
         pc: RelocatedAddress,
         place: Option<PlaceDescriptor>,
-        function: Option<&FunctionDie>,
+        function: Option<&FunctionInfo>,
         _: u64,
         _: bool,
     ) -> anyhow::Result<()> {

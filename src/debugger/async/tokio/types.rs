@@ -1,6 +1,6 @@
 use crate::debugger::r#async::AsyncError;
 /// Helpers for typed values.
-use crate::debugger::debugee::dwarf::unit::Unit;
+use crate::debugger::debugee::dwarf::unit::BsUnit;
 use crate::debugger::variable::value::Value;
 use crate::version_switch;
 
@@ -12,7 +12,7 @@ pub struct TaskIdValue {
 impl TaskIdValue {
     /// Return representation of a `tokio::task::id::Id` type with respect of
     /// current rustc version.
-    pub fn from_value(unit: &Unit, value: Value) -> Result<Self, AsyncError> {
+    pub fn from_value(unit: &BsUnit, value: Value) -> Result<Self, AsyncError> {
         let rustc_version = unit.rustc_version().unwrap_or_default();
         let task_id = value
             .field("__0")

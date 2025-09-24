@@ -1,13 +1,11 @@
 use crate::debugger::debugee::dwarf::eval::{AddressKind, EvaluationContext};
-use crate::debugger::debugee::dwarf::unit::{
-    ArrayDie, AtomicDie, BaseTypeDie, ConstTypeDie, DieRef, DieVariant, EnumTypeDie, PointerType,
-    RestrictDie, StructTypeDie, SubroutineDie, TypeDefDie, TypeMemberDie, UnionTypeDie,
-    VolatileDie,
-};
-use crate::debugger::debugee::dwarf::{ContextualDieRef, EndianArcSlice, NamespaceHierarchy, eval};
+use crate::debugger::debugee::dwarf::unit::DieAddr;
+use crate::debugger::debugee::dwarf::unit::die::Die;
+use crate::debugger::debugee::dwarf::unit::die_ref::Hint;
+use crate::debugger::debugee::dwarf::{EndianArcSlice, FatDieRef, NamespaceHierarchy, eval};
 use crate::debugger::error::Error;
 use crate::debugger::variable::ObjectBinaryRepr;
-use crate::{ctx_resolve_unit_call, weak_error};
+use crate::weak_error;
 use bytes::Bytes;
 use gimli::{AttributeValue, DwAte, Expression};
 use indexmap::IndexMap;
@@ -21,7 +19,7 @@ use strum_macros::Display;
 use uuid::Uuid;
 
 /// Type identifier.
-pub type TypeId = DieRef;
+pub type TypeId = DieAddr;
 
 /// Type name with namespace.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
@@ -590,145 +588,87 @@ impl TypeParser {
     }
 
     /// Parse a `ComplexType` from a DIEs.
-    pub fn parse<'dbg, T>(
-        self,
-        ctx_die: ContextualDieRef<'dbg, 'dbg, T>,
-        root_id: TypeId,
-    ) -> ComplexType {
+    pub fn parse<'dbg, H: Hint>(self, die_ref: FatDieRef<'dbg, H>, root_id: TypeId) -> ComplexType {
         let mut this = self;
-        this.parse_inner(ctx_die, root_id);
+        this.parse_inner(die_ref, root_id);
         ComplexType {
             types: this.processed_types,
             root: root_id,
         }
     }
 
-    fn parse_inner<T>(&mut self, ctx_die: ContextualDieRef<'_, '_, T>, type_ref: DieRef) {
+    fn parse_inner<H: Hint>(&mut self, die_fref: FatDieRef<'_, H>, type_addr: DieAddr) {
         // guard from recursion types parsing
-        if self.known_type_ids.contains(&type_ref) {
+        if self.known_type_ids.contains(&type_addr) {
             return;
         }
-        self.known_type_ids.insert(type_ref);
+        self.known_type_ids.insert(type_addr);
 
-        let mb_type_die = ctx_die.debug_info.deref_die(ctx_die.unit(), type_ref);
+        let mb_unit = match type_addr {
+            DieAddr::Unit(_) => Some(die_fref.unit()),
+            DieAddr::Global(debug_info_offset) => die_fref.debug_info.find_unit(debug_info_offset),
+        };
 
-        let type_decl = mb_type_die.and_then(|(entry, unit)| match &entry.die {
-            DieVariant::BaseType(die) => Some(self.parse_base_type(ContextualDieRef {
-                debug_info: ctx_die.debug_info,
-                unit_idx: unit.idx(),
-                node: &entry.node,
-                die,
-            })),
-            DieVariant::StructType(die) => Some(self.parse_struct(ContextualDieRef {
-                debug_info: ctx_die.debug_info,
-                unit_idx: unit.idx(),
-                node: &entry.node,
-                die,
-            })),
-            DieVariant::ArrayType(die) => Some(self.parse_array(ContextualDieRef {
-                debug_info: ctx_die.debug_info,
-                unit_idx: unit.idx(),
-                node: &entry.node,
-                die,
-            })),
-            DieVariant::EnumType(die) => Some(self.parse_enum(ContextualDieRef {
-                debug_info: ctx_die.debug_info,
-                unit_idx: unit.idx(),
-                node: &entry.node,
-                die,
-            })),
-            DieVariant::PointerType(die) => Some(self.parse_pointer(ContextualDieRef {
-                debug_info: ctx_die.debug_info,
-                unit_idx: unit.idx(),
-                node: &entry.node,
-                die,
-            })),
-            DieVariant::UnionTypeDie(die) => Some(self.parse_union(ContextualDieRef {
-                debug_info: ctx_die.debug_info,
-                unit_idx: unit.idx(),
-                node: &entry.node,
-                die,
-            })),
-            DieVariant::Subroutine(die) => Some(self.parse_subroutine(ContextualDieRef {
-                debug_info: ctx_die.debug_info,
-                unit_idx: unit.idx(),
-                node: &entry.node,
-                die,
-            })),
-            DieVariant::TypeDef(die) => Some(self.parse_typedef(ContextualDieRef {
-                debug_info: ctx_die.debug_info,
-                unit_idx: unit.idx(),
-                node: &entry.node,
-                die,
-            })),
-            DieVariant::ConstType(die) => Some(self.parse_const_type(ContextualDieRef {
-                debug_info: ctx_die.debug_info,
-                unit_idx: unit.idx(),
-                node: &entry.node,
-                die,
-            })),
-            DieVariant::Atomic(die) => Some(self.parse_atomic(ContextualDieRef {
-                debug_info: ctx_die.debug_info,
-                unit_idx: unit.idx(),
-                node: &entry.node,
-                die,
-            })),
-            DieVariant::Volatile(die) => Some(self.parse_volatile(ContextualDieRef {
-                debug_info: ctx_die.debug_info,
-                unit_idx: unit.idx(),
-                node: &entry.node,
-                die,
-            })),
-            DieVariant::Restrict(die) => Some(self.parse_restrict(ContextualDieRef {
-                debug_info: ctx_die.debug_info,
-                unit_idx: unit.idx(),
-                node: &entry.node,
-                die,
-            })),
-            _ => {
-                warn!("unsupported type die: {:?}", entry.die);
-                None
+        let mb_type_die_offset = mb_unit.map(|unit| {
+            let offset = type_addr.unit_offset(unit);
+            let fref = FatDieRef::new_no_hint(die_fref.debug_info, unit.idx(), offset);
+            let tag = fref.deref_ensure().tag();
+            (unit, offset, tag)
+        });
+
+        let type_decl = mb_type_die_offset.and_then(|(unit, offset, tag)| {
+            let die_ref = FatDieRef::new_no_hint(die_fref.debug_info, unit.idx(), offset);
+
+            match tag {
+                gimli::DW_TAG_base_type => Some(self.parse_base_type(die_ref)),
+                gimli::DW_TAG_structure_type => Some(self.parse_struct(die_ref)),
+                gimli::DW_TAG_array_type => Some(self.parse_array(die_ref)),
+                gimli::DW_TAG_enumeration_type => Some(self.parse_enum(die_ref)),
+                gimli::DW_TAG_pointer_type => Some(self.parse_pointer(die_ref)),
+                gimli::DW_TAG_union_type => Some(self.parse_union(die_ref)),
+                gimli::DW_TAG_subrange_type => Some(self.parse_subroutine(die_ref)),
+                gimli::DW_TAG_typedef => Some(self.parse_typedef(die_ref)),
+                gimli::DW_TAG_const_type => Some(self.parse_const_type(die_ref)),
+                gimli::DW_TAG_atomic_type => Some(self.parse_atomic(die_ref)),
+                gimli::DW_TAG_volatile_type => Some(self.parse_volatile(die_ref)),
+                gimli::DW_TAG_restrict_type => Some(self.parse_restrict(die_ref)),
+                _ => {
+                    warn!("unsupported type die: {tag} at offset {offset:?}");
+                    None
+                }
             }
         });
         if let Some(type_decl) = type_decl {
-            self.processed_types.insert(type_ref, type_decl);
+            self.processed_types.insert(type_addr, type_decl);
         }
     }
 
-    fn parse_base_type(
-        &mut self,
-        ctx_die: ContextualDieRef<'_, '_, BaseTypeDie>,
-    ) -> TypeDeclaration {
-        let name = ctx_die.die.name.clone();
+    fn parse_base_type(&mut self, die_ref: FatDieRef<'_>) -> TypeDeclaration {
+        let die = die_ref.deref_ensure();
+        let name = die.name();
         TypeDeclaration::Scalar(ScalarType {
-            namespaces: ctx_die.namespaces(),
+            namespaces: die_ref.namespace(),
             name,
-            byte_size: ctx_die.die.byte_size,
-            encoding: ctx_die.die.encoding,
+            byte_size: die.byte_size(),
+            encoding: die.encoding(),
         })
     }
 
-    fn parse_array<'dbg>(
-        &mut self,
-        ctx_die: ContextualDieRef<'dbg, 'dbg, ArrayDie>,
-    ) -> TypeDeclaration {
-        let mb_type_ref = ctx_die.die.type_ref;
+    fn parse_array<'dbg>(&mut self, die_ref: FatDieRef<'dbg>) -> TypeDeclaration {
+        let die = die_ref.deref_ensure();
+        let mb_type_ref = die.type_ref();
         if let Some(reference) = mb_type_ref {
-            self.parse_inner(ctx_die, reference);
+            self.parse_inner(die_ref, reference);
         }
 
-        let subrange = ctx_die.node.children.iter().find_map(|&child_idx| {
-            let entry = ctx_resolve_unit_call!(ctx_die, entry, child_idx);
-            if let DieVariant::ArraySubrange(ref subrange) = entry.die {
-                Some(subrange)
-            } else {
-                None
-            }
+        let subrange = die.for_each_children_t(|child| {
+            (child.tag() == gimli::DW_TAG_subrange_type).then_some(child)
         });
 
         let lower_bound = subrange
+            .as_ref()
             .map(|sr| {
-                let lower_bound = sr.lower_bound.as_ref().map(|lb| lb.value());
+                let lower_bound = sr.lower_bound().as_ref().map(|lb| lb.value());
 
                 if let Some(bound) = lower_bound.as_ref().and_then(|l| l.sdata_value()) {
                     ArrayBoundValue::Const(bound)
@@ -742,7 +682,7 @@ impl TypeParser {
             .unwrap_or(ArrayBoundValue::Const(0));
 
         let upper_bound = subrange.and_then(|sr| {
-            if let Some(ref count) = sr.count {
+            if let Some(ref count) = sr.count() {
                 return if let Some(cnt) = count.value().sdata_value() {
                     Some(UpperBound::Count(ArrayBoundValue::Const(cnt)))
                 } else if let AttributeValue::Exprloc(ref expr) = count.value() {
@@ -754,7 +694,7 @@ impl TypeParser {
                 };
             }
 
-            if let Some(ref bound) = sr.upper_bound {
+            if let Some(ref bound) = sr.upper_bound() {
                 if let Some(bound) = bound.value().sdata_value() {
                     return Some(UpperBound::UpperBound(ArrayBoundValue::Const(bound)));
                 } else if let AttributeValue::Exprloc(ref expr) = bound.value() {
@@ -768,8 +708,8 @@ impl TypeParser {
         });
 
         TypeDeclaration::Array(ArrayType::new(
-            ctx_die.namespaces(),
-            ctx_die.die.byte_size,
+            die_ref.namespace(),
+            die.byte_size(),
             mb_type_ref,
             lower_bound,
             upper_bound,
@@ -778,74 +718,64 @@ impl TypeParser {
 
     /// Convert DW_TAG_structure_type into TypeDeclaration.
     /// In rust DW_TAG_structure_type DIE can be interpreter as enum, see https://github.com/rust-lang/rust/issues/32920
-    fn parse_struct<'dbg>(
-        &mut self,
-        ctx_die: ContextualDieRef<'dbg, 'dbg, StructTypeDie>,
-    ) -> TypeDeclaration {
-        let is_enum = ctx_die.node.children.iter().any(|c_idx| {
-            let entry = ctx_resolve_unit_call!(ctx_die, entry, *c_idx);
-            matches!(entry.die, DieVariant::VariantPart(_))
-        });
+    fn parse_struct<'dbg>(&mut self, die_ref: FatDieRef<'dbg>) -> TypeDeclaration {
+        let die = die_ref.deref_ensure();
+
+        let is_enum = die
+            .for_each_children_t(|child| {
+                (child.tag() == gimli::DW_TAG_variant_part).then_some(child)
+            })
+            .is_some();
 
         if is_enum {
-            self.parse_struct_enum(ctx_die)
+            self.parse_struct_enum(die_ref)
         } else {
-            self.parse_struct_struct(ctx_die)
+            self.parse_struct_struct(die_ref)
         }
     }
 
-    fn parse_struct_struct(
-        &mut self,
-        ctx_die: ContextualDieRef<'_, '_, StructTypeDie>,
-    ) -> TypeDeclaration {
-        let name = ctx_die.die.name.clone();
-        let members = ctx_die
-            .node
-            .children
-            .iter()
-            .filter_map(|child_idx| {
-                let entry = ctx_resolve_unit_call!(ctx_die, entry, *child_idx);
-                if let DieVariant::TypeMember(member) = &entry.die {
-                    return Some(self.parse_member(ContextualDieRef {
-                        debug_info: ctx_die.debug_info,
-                        unit_idx: ctx_die.unit_idx,
-                        node: &entry.node,
-                        die: member,
-                    }));
-                }
-                None
-            })
-            .collect::<Vec<_>>();
+    fn parse_struct_struct(&mut self, die_ref: FatDieRef<'_>) -> TypeDeclaration {
+        let die = die_ref.deref_ensure();
+        let name = die.name();
 
-        let type_params = ctx_die
-            .node
-            .children
-            .iter()
-            .filter_map(|child_idx| {
-                let entry = ctx_resolve_unit_call!(ctx_die, entry, *child_idx);
-                if let DieVariant::TemplateType(param) = &entry.die {
-                    let name = param.name.clone()?;
-                    self.parse_inner(ctx_die, param.type_ref?);
-                    return Some((name, param.type_ref));
-                }
+        let members = die.for_each_children_filter_collect(|child| {
+            if child.tag() == gimli::DW_TAG_member {
+                Some(self.parse_member(FatDieRef::new_no_hint(
+                    die_ref.debug_info,
+                    die_ref.unit().idx(),
+                    child.offset(),
+                )))
+            } else {
                 None
+            }
+        });
+
+        let type_params = die
+            .for_each_children_filter_collect(|child| {
+                if child.tag() == gimli::DW_TAG_template_type_parameter {
+                    let name = child.name()?;
+                    let type_ref = child.type_ref();
+                    self.parse_inner(die_ref, type_ref?);
+                    Some((name, type_ref))
+                } else {
+                    None
+                }
             })
+            .into_iter()
             .collect::<IndexMap<_, _>>();
 
         TypeDeclaration::Structure {
-            namespaces: ctx_die.namespaces(),
+            namespaces: die_ref.namespace(),
             name,
-            byte_size: ctx_die.die.byte_size,
+            byte_size: die.byte_size(),
             members,
             type_params,
         }
     }
 
-    fn parse_member<'dbg>(
-        &mut self,
-        ctx_die: ContextualDieRef<'dbg, 'dbg, TypeMemberDie>,
-    ) -> StructureMember {
-        let loc = ctx_die.die.location.as_ref().map(|attr| attr.value());
+    fn parse_member<'dbg>(&mut self, die_ref: FatDieRef<'dbg>) -> StructureMember {
+        let die = die_ref.deref_ensure();
+        let loc = die.data_member_location().as_ref().map(|attr| attr.value());
         let in_struct_location = if let Some(offset) = loc.as_ref().and_then(|l| l.sdata_value()) {
             Some(MemberLocation::Offset(offset))
         } else if let Some(AttributeValue::Exprloc(ref expr)) = loc {
@@ -856,193 +786,184 @@ impl TypeParser {
             None
         };
 
-        let mb_type_ref = ctx_die.die.type_ref;
+        let mb_type_ref = die.type_ref();
         if let Some(reference) = mb_type_ref {
-            self.parse_inner(ctx_die, reference);
+            self.parse_inner(die_ref, reference);
         }
 
         StructureMember {
             in_struct_location,
-            name: ctx_die.die.name.clone(),
+            name: die.name(),
             type_ref: mb_type_ref,
         }
     }
 
-    fn parse_struct_enum(
-        &mut self,
-        ctx_die: ContextualDieRef<'_, '_, StructTypeDie>,
-    ) -> TypeDeclaration {
-        let name = ctx_die.die.name.clone();
+    fn parse_struct_enum(&mut self, die_ref: FatDieRef<'_>) -> TypeDeclaration {
+        let die = die_ref.deref_ensure();
+        let name = die.name();
 
-        let variant_part = ctx_die.node.children.iter().find_map(|c_idx| {
-            let entry = ctx_resolve_unit_call!(ctx_die, entry, *c_idx);
-            if let DieVariant::VariantPart(ref v) = entry.die {
-                return Some((v, &entry.node));
-            }
-            None
+        let variant_part = die.for_each_children_t(|child| {
+            (child.tag() == gimli::DW_TAG_variant_part).then_some(child)
         });
 
-        let mut member_from_ref = |type_ref: DieRef| -> Option<StructureMember> {
-            let (entry, unit) = ctx_die.debug_info.deref_die(ctx_die.unit(), type_ref)?;
+        let mut member_from_ref = |type_ref: DieAddr| -> Option<StructureMember> {
+            let unit = match type_ref {
+                DieAddr::Unit(_) => Some(die_ref.unit()),
+                DieAddr::Global(debug_info_offset) => {
+                    die_ref.debug_info.find_unit(debug_info_offset)
+                }
+            }?;
+            let offset = type_ref.unit_offset(unit);
 
-            if let DieVariant::TypeMember(member) = &entry.die {
-                return Some(self.parse_member(ContextualDieRef {
-                    debug_info: ctx_die.debug_info,
-                    unit_idx: unit.idx(),
-                    node: &entry.node,
-                    die: member,
-                }));
+            let fref = FatDieRef::new_no_hint(die_ref.debug_info, unit.idx(), offset);
+            let die = fref.deref_ensure();
+
+            if die.tag() == gimli::DW_TAG_member {
+                return Some(self.parse_member(FatDieRef::new_no_hint(
+                    die_ref.debug_info,
+                    unit.idx(),
+                    offset,
+                )));
             }
             None
         };
 
-        let discr_type = variant_part.and_then(|vp| {
-            let variant = vp.0;
+        let discr_type = variant_part.as_ref().and_then(|variant| {
             variant
-                .discr_ref
+                .discr_ref()
                 .and_then(&mut member_from_ref)
-                .or_else(|| variant.type_ref.and_then(&mut member_from_ref))
+                .or_else(|| variant.type_ref().and_then(&mut member_from_ref))
         });
 
         let variants = variant_part
             .map(|vp| {
-                let node = vp.1;
-                node.children
-                    .iter()
-                    .filter_map(|idx| {
-                        let entry = ctx_resolve_unit_call!(ctx_die, entry, *idx);
-                        if let DieVariant::Variant(ref v) = entry.die {
-                            return Some((v, &entry.node));
-                        }
+                let variant_offsets = vp.for_each_children_filter_collect(|child| {
+                    if child.tag() == gimli::DW_TAG_variant {
+                        Some(child.offset())
+                    } else {
                         None
-                    })
+                    }
+                });
+
+                variant_offsets
+                    .into_iter()
+                    .filter_map(|off| weak_error!(Die::new(die_ref.deref_ctx(), off)))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
 
         let enumerators = variants
             .iter()
-            .filter_map(|&(variant, node)| {
-                let member = node.children.iter().find_map(|&c_idx| {
-                    let entry = ctx_resolve_unit_call!(ctx_die, entry, c_idx);
-                    if let DieVariant::TypeMember(ref member) = entry.die {
-                        return Some(self.parse_member(ContextualDieRef {
-                            debug_info: ctx_die.debug_info,
-                            unit_idx: ctx_die.unit_idx,
-                            node: &entry.node,
-                            die: member,
-                        }));
+            .filter_map(|variant| {
+                let member = variant.for_each_children_t(|child| {
+                    if child.tag() == gimli::DW_TAG_member {
+                        let die_ref = FatDieRef::new_no_hint(
+                            die_ref.debug_info,
+                            die_ref.unit().idx(),
+                            child.offset(),
+                        );
+                        Some(self.parse_member(die_ref))
+                    } else {
+                        None
                     }
-                    None
-                })?;
-                Some((variant.discr_value, member))
+                });
+
+                Some((variant.discr_value(), member?))
             })
             .collect::<HashMap<_, _>>();
 
         TypeDeclaration::RustEnum {
-            namespaces: ctx_die.namespaces(),
+            namespaces: die_ref.namespace(),
             name,
-            byte_size: ctx_die.die.byte_size,
+            byte_size: die.byte_size(),
             discr_type: discr_type.map(Box::new),
             enumerators,
         }
     }
 
-    fn parse_enum<'dbg>(
-        &mut self,
-        ctx_die: ContextualDieRef<'dbg, 'dbg, EnumTypeDie>,
-    ) -> TypeDeclaration {
-        let name = ctx_die.die.name.clone();
+    fn parse_enum<'dbg>(&mut self, die_ref: FatDieRef<'dbg>) -> TypeDeclaration {
+        let die = die_ref.deref_ensure();
+        let name = die.name();
 
-        let mb_discr_type = ctx_die.die.type_ref;
+        let mb_discr_type = die.type_ref();
         if let Some(reference) = mb_discr_type {
-            self.parse_inner(ctx_die, reference);
+            self.parse_inner(die_ref, reference);
         }
 
-        let enumerators = ctx_die
-            .node
-            .children
-            .iter()
-            .filter_map(|&child_idx| {
-                let entry = ctx_resolve_unit_call!(ctx_die, entry, child_idx);
-                if let DieVariant::Enumerator(ref enumerator) = entry.die {
-                    Some((
-                        enumerator.const_value?,
-                        enumerator.name.as_ref()?.to_string(),
-                    ))
+        let enumerators = die
+            .for_each_children_filter_collect(|child| {
+                if child.tag() == gimli::DW_TAG_enumerator {
+                    Some((child.const_value()?, child.name()?))
                 } else {
                     None
                 }
             })
+            .into_iter()
             .collect::<HashMap<_, _>>();
 
         TypeDeclaration::CStyleEnum {
-            namespaces: ctx_die.namespaces(),
+            namespaces: die_ref.namespace(),
             name,
-            byte_size: ctx_die.die.byte_size,
+            byte_size: die.byte_size(),
             discr_type: mb_discr_type,
             enumerators,
         }
     }
 
-    fn parse_union(&mut self, ctx_die: ContextualDieRef<'_, '_, UnionTypeDie>) -> TypeDeclaration {
-        let name = ctx_die.die.name.clone();
-        let members = ctx_die
-            .node
-            .children
-            .iter()
-            .filter_map(|child_idx| {
-                let entry = ctx_resolve_unit_call!(ctx_die, entry, *child_idx);
-                if let DieVariant::TypeMember(member) = &entry.die {
-                    return Some(self.parse_member(ContextualDieRef {
-                        debug_info: ctx_die.debug_info,
-                        unit_idx: ctx_die.unit_idx,
-                        node: &entry.node,
-                        die: member,
-                    }));
-                }
+    fn parse_union(&mut self, die_ref: FatDieRef<'_>) -> TypeDeclaration {
+        let die = die_ref.deref_ensure();
+        let name = die.name();
+
+        let members_refs = die.for_each_children_filter_collect(|child| {
+            if child.tag() == gimli::DW_TAG_member {
+                Some(FatDieRef::new_no_hint(
+                    die_ref.debug_info,
+                    die_ref.unit().idx(),
+                    child.offset(),
+                ))
+            } else {
                 None
-            })
+            }
+        });
+
+        let members = members_refs
+            .into_iter()
+            .map(|r| self.parse_member(r))
             .collect::<Vec<_>>();
 
         TypeDeclaration::Union {
-            namespaces: ctx_die.namespaces(),
+            namespaces: die_ref.namespace(),
             name,
-            byte_size: ctx_die.die.byte_size,
+            byte_size: die.byte_size(),
             members,
         }
     }
 
-    fn parse_pointer<'dbg>(
-        &mut self,
-        ctx_die: ContextualDieRef<'dbg, 'dbg, PointerType>,
-    ) -> TypeDeclaration {
-        let name = ctx_die.die.name.clone();
-
-        let mb_type_ref = ctx_die.die.type_ref;
+    fn parse_pointer<'dbg>(&mut self, die_ref: FatDieRef<'dbg>) -> TypeDeclaration {
+        let die = die_ref.deref_ensure();
+        let name = die.name();
+        let mb_type_ref = die.type_ref();
         if let Some(reference) = mb_type_ref {
-            self.parse_inner(ctx_die, reference);
+            self.parse_inner(die_ref, reference);
         }
 
         TypeDeclaration::Pointer {
-            namespaces: ctx_die.namespaces(),
+            namespaces: die_ref.namespace(),
             name,
             target_type: mb_type_ref,
         }
     }
 
-    fn parse_subroutine<'dbg>(
-        &mut self,
-        ctx_die: ContextualDieRef<'dbg, 'dbg, SubroutineDie>,
-    ) -> TypeDeclaration {
-        let name = ctx_die.die.name.clone();
-        let mb_ret_type_ref = ctx_die.die.return_type_ref;
+    fn parse_subroutine<'dbg>(&mut self, die_ref: FatDieRef<'dbg>) -> TypeDeclaration {
+        let die = die_ref.deref_ensure();
+        let name = die.name();
+        let mb_ret_type_ref = die.type_ref();
         if let Some(reference) = mb_ret_type_ref {
-            self.parse_inner(ctx_die, reference);
+            self.parse_inner(die_ref, reference);
         }
 
         TypeDeclaration::Subroutine {
-            namespaces: ctx_die.namespaces(),
+            namespaces: die_ref.namespace(),
             name,
             return_type: mb_ret_type_ref,
         }
@@ -1051,18 +972,16 @@ impl TypeParser {
 
 macro_rules! parse_modifier_fn {
     ($fn_name: ident, $die: ty, $modifier: expr) => {
-        fn $fn_name<'dbg>(
-            &mut self,
-            ctx_die: ContextualDieRef<'dbg, 'dbg, $die>,
-        ) -> TypeDeclaration {
-            let name = ctx_die.die.name.clone();
-            let mb_type_ref = ctx_die.die.type_ref;
+        fn $fn_name<'dbg>(&mut self, die_ref: FatDieRef<'dbg>) -> TypeDeclaration {
+            let d = die_ref.deref_ensure();
+            let name = d.name();
+            let mb_type_ref = d.type_ref();
             if let Some(inner_type) = mb_type_ref {
-                self.parse_inner(ctx_die, inner_type);
+                self.parse_inner(die_ref, inner_type);
             }
 
             TypeDeclaration::ModifiedType {
-                namespaces: ctx_die.namespaces(),
+                namespaces: die_ref.namespace(),
                 modifier: $modifier,
                 name,
                 inner: mb_type_ref,

@@ -1,5 +1,5 @@
 use crate::debugger::address::GlobalAddress;
-use crate::debugger::debugee::dwarf::unit::Unit;
+use crate::debugger::debugee::dwarf::unit::BsUnit;
 use crate::debugger::debugee::dwarf::{DebugInformation, EndianArcSlice};
 use crate::weak_error;
 use fallible_iterator::FallibleIterator;
@@ -20,7 +20,7 @@ impl Location<'_> {
     pub(super) fn try_as_expression(
         &self,
         dwarf_ctx: &DebugInformation<EndianArcSlice>,
-        unit: &Unit,
+        unit: &BsUnit,
         pc: GlobalAddress,
     ) -> Option<Expression<EndianArcSlice>> {
         if let Some(expr) = self.0.exprloc_value() {

@@ -73,7 +73,7 @@ impl CallCache {
         let fn_info = match entry {
             Entry::Occupied(e) => e.into_mut(),
             Entry::Vacant(e) => {
-                let (dwarf, func) = dbg.search_fn_to_call(linkage_name, name)?;
+                let (dwarf, func, _) = dbg.search_fn_to_call(linkage_name, name)?;
                 let fn_addr = func
                     .prolog_start_place()?
                     .address

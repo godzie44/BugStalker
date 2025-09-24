@@ -1,9 +1,9 @@
-use crate::debugger;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::debugee::Debugee;
-use crate::debugger::debugee::dwarf::unit::DieRef;
-use crate::debugger::debugee::dwarf::unit::{DieVariant, Unit};
-use crate::debugger::debugee::dwarf::{ContextualDieRef, DwarfUnwinder, EndianArcSlice};
+use crate::debugger::debugee::dwarf::unit::BsUnit;
+use crate::debugger::debugee::dwarf::unit::DieAddr;
+use crate::debugger::debugee::dwarf::unit::die::{DerefContext, Die};
+use crate::debugger::debugee::dwarf::{DwarfUnwinder, EndianArcSlice, FatDieRef, Variable};
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::{
     DieNotFound, EvalOptionRequired, EvalUnsupportedRequire, FunctionNotFound, ImplicitPointer,
@@ -12,10 +12,11 @@ use crate::debugger::error::Error::{
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::debugger::{ExplorationContext, debugee};
 use crate::version::RustVersion;
+use crate::{debugger, weak_error};
 use bytes::{BufMut, Bytes, BytesMut};
 use gimli::{
-    DebugAddr, Encoding, EndianSlice, EvaluationResult, Expression, Location, Piece, Register,
-    RunTimeEndian, UnitOffset, Value, ValueType,
+    DebugAddr, Dwarf, Encoding, EndianSlice, EvaluationResult, Expression, Location, Piece,
+    Register, RunTimeEndian, UnitOffset, Value, ValueType,
 };
 use nix::unistd::Pid;
 use object::ReadRef;
@@ -60,7 +61,7 @@ impl<'a> RequirementsResolver<'a> {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(e) => {
                 let loc = ctx.location();
-                let func = self
+                let (func, _) = self
                     .debugee
                     .debug_info(ctx.location().pc)?
                     .find_function_by_pc(loc.global_pc)?
@@ -105,7 +106,7 @@ impl<'a> RequirementsResolver<'a> {
 
     fn resolve_registers(&self, ctx: &ExplorationContext) -> Result<DwarfRegisterMap, Error> {
         let current_loc = ctx.location();
-        let current_fn = self
+        let (current_fn, _) = self
             .debugee
             .debug_info(ctx.location().pc)?
             .find_function_by_pc(current_loc.global_pc)?
@@ -180,20 +181,27 @@ impl ExternalRequirementsResolver {
 #[derive(Clone)]
 pub struct ExpressionEvaluator<'a> {
     encoding: Encoding,
-    unit: &'a Unit,
+    dwarf: &'a Dwarf<EndianArcSlice>,
+    unit: &'a BsUnit,
     resolver: RequirementsResolver<'a>,
 }
 
 impl<'a> ExpressionEvaluator<'a> {
-    pub fn new(unit: &'a Unit, encoding: Encoding, debugee: &'a Debugee) -> Self {
+    pub fn new(
+        dwarf: &'a Dwarf<EndianArcSlice>,
+        unit: &'a BsUnit,
+        encoding: Encoding,
+        debugee: &'a Debugee,
+    ) -> Self {
         Self {
             encoding,
+            dwarf,
             unit,
             resolver: RequirementsResolver::new(debugee),
         }
     }
 
-    pub fn unit(&self) -> &Unit {
+    pub fn unit(&self) -> &BsUnit {
         self.unit
     }
 
@@ -201,16 +209,21 @@ impl<'a> ExpressionEvaluator<'a> {
         if base_type == UnitOffset(0) {
             ValueType::Generic
         } else {
-            self.unit
-                .find_entry(base_type)
-                .ensure_ok()
-                .and_then(|entry| match entry.die {
-                    DieVariant::BaseType(ref bt_die) => Some(bt_die),
-                    _ => None,
-                })
-                .and_then(|bt_die| Some((bt_die.byte_size?, bt_die.encoding?)))
-                .and_then(|(size, encoding)| ValueType::from_encoding(encoding, size))
-                .unwrap_or(ValueType::Generic)
+            let die = weak_error!(Die::new(
+                DerefContext::new(self.dwarf, self.unit.unit()),
+                base_type
+            ));
+
+            let value_type_from_die = || {
+                let die = die?;
+                if die.tag() == gimli::DW_TAG_base_type {
+                    let (size, encoding) = (die.byte_size()?, die.encoding()?);
+                    ValueType::from_encoding(encoding, size)
+                } else {
+                    None
+                }
+            };
+            value_type_from_die().unwrap_or(ValueType::Generic)
         }
     }
 
@@ -347,7 +360,6 @@ impl<'a> ExpressionEvaluator<'a> {
 
         Ok(CompletedResult {
             debugee: self.resolver.debugee,
-            unit: self.unit,
             inner: eval.result(),
             ctx,
         })
@@ -357,7 +369,6 @@ impl<'a> ExpressionEvaluator<'a> {
 pub struct CompletedResult<'a> {
     inner: Vec<Piece<EndianArcSlice>>,
     debugee: &'a Debugee,
-    unit: &'a Unit,
     ctx: &'a ExplorationContext,
 }
 
@@ -450,20 +461,20 @@ impl CompletedResult<'_> {
                         data.put_slice(value.bytes());
                     }
                     Location::ImplicitPointer { value, byte_offset } => {
-                        let die_ref = DieRef::Global(value);
                         let dwarf = self.debugee.debug_info(self.ctx.location().pc)?;
-                        let (entry, unit) = dwarf
-                            .deref_die(self.unit, die_ref)
-                            .ok_or_else(|| DieNotFound(die_ref))?;
-                        if let DieVariant::Variable(variable) = &entry.die {
-                            let ctx_die = ContextualDieRef {
-                                debug_info: dwarf,
-                                unit_idx: unit.idx(),
-                                node: &entry.node,
-                                die: variable,
-                            };
-                            let r#type = ctx_die.r#type().ok_or(NoDieType)?;
-                            let repr = ctx_die
+
+                        let unit = dwarf
+                            .find_unit(value)
+                            .ok_or_else(|| DieNotFound(DieAddr::Global(value)))?;
+                        let offset = DieAddr::Global(value).unit_offset(unit);
+
+                        let die_ref = FatDieRef::new_no_hint(dwarf, unit.idx(), offset);
+                        let die = die_ref.deref()?;
+
+                        if die.tag() == gimli::DW_TAG_variable {
+                            let die_ref = die_ref.with_new_hint::<Variable>();
+                            let r#type = die_ref.r#type().ok_or(NoDieType)?;
+                            let repr = die_ref
                                 .read_value(self.ctx, self.debugee, &r#type)
                                 .ok_or(ImplicitPointer)?;
                             let bytes: &[u8] = repr

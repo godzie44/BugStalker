@@ -1,7 +1,7 @@
 use bugstalker::debugger::address::RelocatedAddress;
 use bugstalker::debugger::register::debug::BreakCondition;
 use bugstalker::debugger::variable::value::Value;
-use bugstalker::debugger::{EventHook, FunctionDie, PlaceDescriptor};
+use bugstalker::debugger::{EventHook, FunctionInfo, PlaceDescriptor};
 use bugstalker::version::RustVersion;
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
@@ -37,7 +37,7 @@ impl EventHook for TestHooks {
         pc: RelocatedAddress,
         _: u32,
         place: Option<PlaceDescriptor>,
-        _: Option<&FunctionDie>,
+        _: Option<&FunctionInfo>,
     ) -> anyhow::Result<()> {
         self.info.addr.set(Some(pc));
         let file = &self.info.file;
@@ -73,7 +73,7 @@ impl EventHook for TestHooks {
         &self,
         pc: RelocatedAddress,
         place: Option<PlaceDescriptor>,
-        _: Option<&FunctionDie>,
+        _: Option<&FunctionInfo>,
     ) -> anyhow::Result<()> {
         self.info.addr.set(Some(pc));
         let file = &self.info.file;
@@ -86,7 +86,7 @@ impl EventHook for TestHooks {
         &self,
         pc: RelocatedAddress,
         place: Option<PlaceDescriptor>,
-        function: Option<&FunctionDie>,
+        function: Option<&FunctionInfo>,
         _: u64,
         _: bool,
     ) -> anyhow::Result<()> {
