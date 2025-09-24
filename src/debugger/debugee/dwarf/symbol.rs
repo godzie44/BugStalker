@@ -47,7 +47,7 @@ impl SymbolTab {
         })
     }
 
-    pub fn find(&self, regex: &Regex) -> Vec<Symbol> {
+    pub fn find(&'_ self, regex: &Regex) -> Vec<Symbol<'_>> {
         let keys = self
             .0
             .keys()

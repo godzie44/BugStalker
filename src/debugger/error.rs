@@ -3,7 +3,7 @@ use super::call::fmt::FmtCallError;
 use crate::debugger::address::GlobalAddress;
 use crate::debugger::r#async::AsyncError;
 use crate::debugger::debugee::RendezvousError;
-use crate::debugger::debugee::dwarf::unit::DieRef;
+use crate::debugger::debugee::dwarf::unit::DieAddr;
 use crate::debugger::variable::value::ParsingError;
 use gimli::UnitOffset;
 use nix::unistd::Pid;
@@ -46,7 +46,7 @@ pub enum Error {
     #[error("tracee number {0} not found")]
     TraceeNotFound(u32),
     #[error("debug information entry (die) not found, reference: {0:?}")]
-    DieNotFound(DieRef),
+    DieNotFound(DieAddr),
     #[error("section \"{0}\" not found")]
     SectionNotFound(&'static str),
 

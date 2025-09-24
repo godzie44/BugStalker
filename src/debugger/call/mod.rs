@@ -3,15 +3,19 @@ pub mod fmt;
 pub use cache::CallCache;
 
 use super::{
-    Debugger, Error, FunctionDie, TypeDeclaration,
+    Debugger, Error, TypeDeclaration,
     address::RelocatedAddress,
-    debugee::dwarf::{ContextualDieRef, DebugInformation, r#type::ComplexType},
+    debugee::dwarf::{DebugInformation, r#type::ComplexType},
     register::{Register, RegisterMap},
     utils::PopIf,
     variable::dqe::Literal,
 };
 use crate::{
-    debugger::{read_memory_by_pid, utils},
+    debugger::{
+        FunctionInfo,
+        debugee::dwarf::unit::die_ref::{FatDieRef, Function},
+        read_memory_by_pid, utils,
+    },
     disable_when_not_stared, weak_error,
 };
 use log::debug;
@@ -395,7 +399,7 @@ impl Debugger {
         &self,
         linkage_name_tpl: &str,
         name: Option<&str>,
-    ) -> Result<(&DebugInformation, ContextualDieRef<'_, '_, FunctionDie>), CallError> {
+    ) -> Result<(&DebugInformation, FatDieRef<'_, Function>, &FunctionInfo), CallError> {
         let dwarfs = self.debugee.debug_info_all();
 
         let mut candidates = dwarfs
@@ -416,10 +420,10 @@ impl Debugger {
             .pop_if_cond(|c| c.len() == 1)
             .and_then(|(dwarf, mut funcs)| {
                 if name.is_some() {
-                    funcs.retain(|f| f.die.base.name.as_deref() == name);
+                    funcs.retain(|(_, info)| info.name.as_deref() == name);
                 }
 
-                funcs.retain(|f| {
+                funcs.retain(|(f, _)| {
                     let low = f
                         .prolog_start_place()
                         .map(|p| usize::from(p.address))
@@ -427,10 +431,10 @@ impl Debugger {
                     low != 0
                 });
 
+                let (f_ref, info) = funcs.pop()?;
                 Some((
-                    dwarf,
-                    // TODO take first suitable, is this a good approach?
-                    funcs.pop()?,
+                    dwarf, // TODO take first suitable, is this a good approach?
+                    f_ref, info,
                 ))
             })
             .ok_or(CallError::FunctionNotFoundOrTooMany)

@@ -4,7 +4,7 @@ use crate::{
         Debugger, Error,
         address::RelocatedAddress,
         r#async::future::{AsyncFnFuture, CustomFuture, TokioJoinHandleFuture, TokioSleepFuture},
-        debugee::dwarf::unit::DieVariant,
+        debugee::dwarf::unit::die::Die,
         utils::PopIf,
         variable::{
             dqe::{Dqe, PointerCast},
@@ -177,7 +177,7 @@ pub fn task_from_header<'a>(
     // Now using the value of fn pointer finds poll function of this task
     let poll_fn_addr_global = poll_fn_addr.into_global(&debugger.debugee)?;
     let debug_info = debugger.debugee.debug_info(poll_fn_addr)?;
-    let poll_fn_die = debug_info.find_function_by_pc(poll_fn_addr_global)?.ok_or(
+    let (poll_fn_die, _) = debug_info.find_function_by_pc(poll_fn_addr_global)?.ok_or(
         AsyncError::IncorrectAssumption("poll function for a task not found"),
     )?;
 
@@ -188,47 +188,49 @@ pub fn task_from_header<'a>(
             .ok_or(AsyncError::IncorrectAssumption(
                 "poll function should have `T` type argument",
             ))?;
+    let t_tpl_die_type_ref = t_tpl_die.type_ref();
+
     let s_tpl_die =
         poll_fn_die
             .get_template_parameter("S")
             .ok_or(AsyncError::IncorrectAssumption(
                 "poll function should have `S` type argument",
             ))?;
+    let s_tpl_die_type_ref = s_tpl_die.type_ref();
 
     // Now we try to find suitable `tokio::runtime::task::core::Cell<T, S>` type
     let unit = poll_fn_die.unit();
     let iter = resolve_unit_call!(debug_info.dwarf(), unit, type_iter);
-    let mut cell_type_die = None;
+    let mut cell_type_die_name = None;
     for (typ, offset) in iter {
         if typ.starts_with("Cell") {
-            let typ_entry = resolve_unit_call!(debug_info.dwarf(), unit, find_entry, *offset);
-            if let Some(typ_entry) = typ_entry {
-                if let DieVariant::StructType(ref struct_type) = typ_entry.die {
-                    let mut s_tpl_found = false;
-                    let mut t_tpl_found = false;
+            let typ_die = Die::new(poll_fn_die.deref_ctx(), *offset)?;
 
-                    typ_entry.node.children.iter().for_each(|&idx| {
-                        let entry = resolve_unit_call!(debug_info.dwarf(), unit, entry, idx);
-                        if let DieVariant::TemplateType(ref tpl) = entry.die {
-                            if tpl.type_ref == t_tpl_die.type_ref {
-                                t_tpl_found = true;
-                            }
-                            if tpl.type_ref == s_tpl_die.type_ref {
-                                s_tpl_found = true;
-                            }
+            if typ_die.tag() == gimli::DW_TAG_structure_type {
+                let mut s_tpl_found = false;
+                let mut t_tpl_found = false;
+
+                typ_die.for_each_children(|child| {
+                    if gimli::DW_TAG_template_type_parameter == child.tag() {
+                        let type_ref = child.type_ref();
+                        if type_ref == t_tpl_die_type_ref {
+                            t_tpl_found = true;
                         }
-                    });
-
-                    if s_tpl_found & t_tpl_found {
-                        cell_type_die = Some(struct_type.clone());
-                        break;
+                        if type_ref == s_tpl_die_type_ref {
+                            s_tpl_found = true;
+                        }
                     }
+                });
+
+                if s_tpl_found & t_tpl_found {
+                    cell_type_die_name = typ_die.name();
+                    break;
                 }
             }
         }
     }
 
-    let cell_type_die = cell_type_die.ok_or(AsyncError::IncorrectAssumption(
+    let cell_type_die_name = cell_type_die_name.ok_or(AsyncError::IncorrectAssumption(
         "tokio::runtime::task::core::Cell<T, S> type not found",
     ))?;
 
@@ -236,7 +238,7 @@ pub fn task_from_header<'a>(
     let ptr = RelocatedAddress::from(ptr.value.unwrap() as usize);
     let typ = format!(
         "NonNull<tokio::runtime::task::core::{}>",
-        cell_type_die.name.unwrap()
+        cell_type_die_name
     );
 
     let dqe = Dqe::Deref(

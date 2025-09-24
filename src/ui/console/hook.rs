@@ -5,7 +5,7 @@ use crate::debugger::PlaceDescriptor;
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::value::Value;
-use crate::debugger::{EventHook, FunctionDie};
+use crate::debugger::{EventHook, FunctionInfo};
 use crate::ui::command;
 use crate::ui::console::file::FileView;
 use crate::ui::console::print::ExternalPrinter;
@@ -21,7 +21,7 @@ use std::rc::Rc;
 
 #[derive(Default)]
 struct Context {
-    prev_func: Option<FunctionDie>,
+    prev_func: Option<FunctionInfo>,
 }
 
 pub struct TerminalHook {
@@ -55,7 +55,7 @@ impl EventHook for TerminalHook {
         pc: RelocatedAddress,
         num: u32,
         mb_place: Option<PlaceDescriptor>,
-        mb_func: Option<&FunctionDie>,
+        mb_func: Option<&FunctionInfo>,
     ) -> anyhow::Result<()> {
         let msg = format!("Hit breakpoint {num} at {}:", AddressView::from(pc));
         if let Some(place) = mb_place {
@@ -138,7 +138,7 @@ impl EventHook for TerminalHook {
         &self,
         _: RelocatedAddress,
         mb_place: Option<PlaceDescriptor>,
-        mb_func: Option<&FunctionDie>,
+        mb_func: Option<&FunctionInfo>,
     ) -> anyhow::Result<()> {
         if let Some(place) = mb_place {
             if self.context.borrow().prev_func.as_ref() != mb_func {
@@ -148,7 +148,7 @@ impl EventHook for TerminalHook {
                     f.namespace
                         .join("::")
                         .add("::")
-                        .add(f.base.name.as_deref().unwrap_or_default())
+                        .add(f.name.as_deref().unwrap_or_default())
                 });
 
                 self.printer.println(format!(
@@ -170,7 +170,7 @@ impl EventHook for TerminalHook {
         &self,
         _: RelocatedAddress,
         mb_place: Option<PlaceDescriptor>,
-        mb_func: Option<&FunctionDie>,
+        mb_func: Option<&FunctionInfo>,
         task_id: u64,
         task_completed: bool,
     ) -> anyhow::Result<()> {
@@ -189,7 +189,7 @@ impl EventHook for TerminalHook {
                     f.namespace
                         .join("::")
                         .add("::")
-                        .add(f.base.name.as_deref().unwrap_or_default())
+                        .add(f.name.as_deref().unwrap_or_default())
                 });
 
                 self.printer.println(format!(

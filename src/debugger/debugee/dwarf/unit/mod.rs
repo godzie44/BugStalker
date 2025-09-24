@@ -1,5 +1,8 @@
+pub mod die;
+pub mod die_ref;
 mod parser;
 
+use indexmap::IndexMap;
 pub use parser::DwarfUnitParser;
 
 use crate::debugger::address::GlobalAddress;
@@ -11,13 +14,12 @@ use crate::debugger::error::Error;
 use crate::version::RustVersion;
 use gimli::{
     Attribute, AttributeValue, DW_LANG_Rust, DebugAddrBase, DebugInfoOffset, DebugLocListsBase,
-    DwAte, DwLang, Encoding, Range, UnitHeader, UnitOffset,
+    DwLang, Dwarf, Encoding, Range, UnitOffset,
 };
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use uuid::Uuid;
 
 const IS_STMT: u8 = 1 << 1;
@@ -63,7 +65,7 @@ impl LineRow {
 #[derive(Debug, Clone)]
 pub struct DieRange {
     pub range: Range,
-    pub die_idx: usize,
+    pub die_off: UnitOffset,
 }
 
 /// Represent a place in program text identified by file name
@@ -80,7 +82,7 @@ pub struct PlaceDescriptor<'a> {
     pub epilog_begin: bool,
     pub end_sequence: bool,
     pub prolog_end: bool,
-    unit: &'a Unit,
+    unit: &'a BsUnit,
 }
 
 /// Like a [`PlaceDescriptor`] but without reference to compilation unit.
@@ -96,8 +98,8 @@ pub struct PlaceDescriptorOwned {
     pub prolog_end: bool,
 }
 
-impl<'a> From<(&'a Unit, usize, &LineRow)> for PlaceDescriptor<'a> {
-    fn from((unit, pos_in_unit, line_row): (&'a Unit, usize, &LineRow)) -> Self {
+impl<'a> From<(&'a BsUnit, usize, &LineRow)> for PlaceDescriptor<'a> {
+    fn from((unit, pos_in_unit, line_row): (&'a BsUnit, usize, &LineRow)) -> Self {
         PlaceDescriptor {
             file: unit
                 .files
@@ -163,279 +165,62 @@ impl PartialEq for PlaceDescriptor<'_> {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Hash)]
-pub struct FnBase {
-    pub name: Option<String>,
-    pub ranges: Box<[Range]>,
-}
-
 #[derive(Debug, PartialEq, Clone, Eq)]
-pub struct FunctionDie {
+pub struct FunctionInfo {
     pub namespace: NamespaceHierarchy,
     pub linkage_name: Option<String>,
     pub decl_file_line: Option<(u64, u64)>,
-    pub base: FnBase,
-    pub fb_addr: Option<Attribute<EndianArcSlice>>,
+    pub name: Option<String>,
 }
 
-impl FunctionDie {
+impl FunctionInfo {
     /// If a subprogram die contains a `DW_AT_specification` attribute than this subprogram have
     /// a declaration part in another die.
     /// This function will complete subprogram with
     /// information from its declaration (typically this is a name and linkage_name).
-    pub fn complete_from_decl(&mut self, declaration: &FunctionDie) {
+    pub fn complete_from_decl(&mut self, declaration: &FunctionInfo) {
         if self.linkage_name.is_none() {
             self.namespace = declaration.namespace.clone();
             self.linkage_name.clone_from(&declaration.linkage_name);
         }
 
-        if self.base.name.is_none() {
-            self.base.name.clone_from(&declaration.base.name);
+        if self.name.is_none() {
+            self.name.clone_from(&declaration.name);
         }
 
         if self.decl_file_line.is_none() {
             self.decl_file_line = declaration.decl_file_line;
         }
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct LexicalBlockDie {
-    pub ranges: Box<[Range]>,
-}
-
-#[derive(Debug, Clone)]
-pub struct VariableDie {
-    pub name: Option<String>,
-    pub type_ref: Option<DieRef>,
-    pub location: Option<Attribute<EndianArcSlice>>,
-    pub lexical_block_idx: Option<usize>,
-    pub fn_block_idx: Option<usize>,
-}
-
-#[derive(Debug, Clone)]
-pub struct BaseTypeDie {
-    pub name: Option<String>,
-    pub encoding: Option<DwAte>,
-    pub byte_size: Option<u64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ArrayDie {
-    pub type_ref: Option<DieRef>,
-    pub byte_size: Option<u64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ArraySubrangeDie {
-    pub lower_bound: Option<Attribute<EndianArcSlice>>,
-    pub upper_bound: Option<Attribute<EndianArcSlice>>,
-    pub count: Option<Attribute<EndianArcSlice>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct StructTypeDie {
-    pub name: Option<String>,
-    pub byte_size: Option<u64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct TypeMemberDie {
-    pub name: Option<String>,
-    #[allow(unused)]
-    pub byte_size: Option<u64>,
-    pub location: Option<Attribute<EndianArcSlice>>,
-    pub type_ref: Option<DieRef>,
-}
-
-#[derive(Debug, Clone)]
-pub struct EnumTypeDie {
-    pub name: Option<String>,
-    pub type_ref: Option<DieRef>,
-    pub byte_size: Option<u64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct EnumeratorDie {
-    pub name: Option<String>,
-    pub const_value: Option<i64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct VariantPart {
-    pub discr_ref: Option<DieRef>,
-    pub type_ref: Option<DieRef>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Variant {
-    pub discr_value: Option<i64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PointerType {
-    pub name: Option<String>,
-    pub type_ref: Option<DieRef>,
-    #[allow(unused)]
-    pub address_class: Option<u8>,
-}
-
-#[derive(Debug, Clone)]
-pub struct TemplateTypeParameter {
-    pub name: Option<String>,
-    pub type_ref: Option<DieRef>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Namespace {
-    pub name: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ParameterDie {
-    pub name: Option<String>,
-    pub type_ref: Option<DieRef>,
-    pub location: Option<Attribute<EndianArcSlice>>,
-    pub fn_block_idx: Option<usize>,
-}
-
-#[derive(Debug, Clone)]
-pub struct UnionTypeDie {
-    pub name: Option<String>,
-    pub byte_size: Option<u64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SubroutineDie {
-    pub name: Option<String>,
-    pub return_type_ref: Option<DieRef>,
-}
-
-#[derive(Debug, Clone)]
-pub struct InlineSubroutineDie {
-    pub ranges: Box<[Range]>,
-    pub call_file: Option<u64>,
-    pub call_line: Option<u64>,
-    pub call_column: Option<u64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct TypeDefDie {
-    pub name: Option<String>,
-    pub type_ref: Option<DieRef>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ConstTypeDie {
-    pub name: Option<String>,
-    pub type_ref: Option<DieRef>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AtomicDie {
-    pub name: Option<String>,
-    pub type_ref: Option<DieRef>,
-}
-
-#[derive(Debug, Clone)]
-pub struct VolatileDie {
-    pub name: Option<String>,
-    pub type_ref: Option<DieRef>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RestrictDie {
-    pub name: Option<String>,
-    pub type_ref: Option<DieRef>,
-}
-
-#[derive(Debug, Clone)]
-pub enum DieVariant {
-    Function(FunctionDie),
-    LexicalBlock(LexicalBlockDie),
-    Variable(VariableDie),
-    BaseType(BaseTypeDie),
-    StructType(StructTypeDie),
-    TypeMember(TypeMemberDie),
-    UnionTypeDie(UnionTypeDie),
-    ArrayType(ArrayDie),
-    ArraySubrange(ArraySubrangeDie),
-    Default,
-    EnumType(EnumTypeDie),
-    Enumerator(EnumeratorDie),
-    VariantPart(VariantPart),
-    Variant(Variant),
-    PointerType(PointerType),
-    TemplateType(TemplateTypeParameter),
-    Namespace(Namespace),
-    Parameter(ParameterDie),
-    Subroutine(SubroutineDie),
-    InlineSubroutine(InlineSubroutineDie),
-    TypeDef(TypeDefDie),
-    ConstType(ConstTypeDie),
-    Atomic(AtomicDie),
-    Volatile(VolatileDie),
-    Restrict(RestrictDie),
-}
-
-impl DieVariant {
-    pub fn unwrap_function(&self) -> &FunctionDie {
-        let DieVariant::Function(func) = self else {
-            panic!("function die expected");
-        };
-        func
-    }
-
-    pub fn unwrap_lexical_block(&self) -> &LexicalBlockDie {
-        let DieVariant::LexicalBlock(lb) = self else {
-            panic!("lexical block die expected");
-        };
-        lb
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Node {
-    pub parent: Option<usize>,
-    pub children: Vec<usize>,
-}
-
-impl Node {
-    pub const fn new_leaf(parent: Option<usize>) -> Node {
-        Self {
-            parent,
-            children: vec![],
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Entry {
-    pub die: DieVariant,
-    pub node: Node,
-}
-
-impl Entry {
-    pub(super) fn new(die: DieVariant, parent_idx: Option<usize>) -> Self {
-        Self {
-            die,
-            node: Node::new_leaf(parent_idx),
-        }
+    pub fn full_name(&self) -> Option<String> {
+        self.name
+            .as_ref()
+            .map(|name| format!("{}::{}", self.namespace.0.join("::"), name))
     }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd)]
-pub enum DieRef {
+pub enum DieAddr {
     Unit(UnitOffset),
     Global(DebugInfoOffset),
 }
 
-impl DieRef {
-    fn from_attr(attr: Attribute<EndianArcSlice>) -> Option<DieRef> {
+impl DieAddr {
+    fn from_attr(attr: Attribute<EndianArcSlice>) -> Option<DieAddr> {
         match attr.value() {
-            AttributeValue::DebugInfoRef(offset) => Some(DieRef::Global(offset)),
-            AttributeValue::UnitRef(offset) => Some(DieRef::Unit(offset)),
+            AttributeValue::DebugInfoRef(offset) => Some(DieAddr::Global(offset)),
+            AttributeValue::UnitRef(offset) => Some(DieAddr::Unit(offset)),
             _ => None,
+        }
+    }
+
+    pub fn unit_offset(&self, unit: &BsUnit) -> UnitOffset {
+        match self {
+            DieAddr::Unit(unit_offset) => *unit_offset,
+            DieAddr::Global(debug_info_offset) => {
+                UnitOffset(debug_info_offset.0 - unit.offset().unwrap_or(DebugInfoOffset(0)).0)
+            }
         }
     }
 }
@@ -454,16 +239,18 @@ struct UnitProperties {
 /// loaded on first call, for reduce memory consumption.
 #[derive(Debug, Clone)]
 struct UnitLazyPart {
-    entries: Vec<Entry>,
-    die_ranges: Vec<DieRange>,
+    /// ranges for each function
+    fn_ranges: Vec<DieRange>,
     /// index for variable die position: { variable name -> [namespaces: die position in unit] }
-    variable_index: HashMap<String, Vec<(NamespaceHierarchy, usize)>>,
+    variable_index: HashMap<String, Vec<(NamespaceHierarchy, UnitOffset)>>,
     /// index for type die position: { type name -> offset in unit }
     type_index: HashMap<String, UnitOffset>,
-    /// index for variables: offset in unit -> position in unit `entries`
-    die_offsets_index: HashMap<UnitOffset, usize>,
-    /// index for function entries: function -> die position in unit `entries`
-    function_index: PathSearchIndex<usize>,
+    /// all found functions
+    function_index: HashMap<UnitOffset, FunctionInfo>,
+    /// index for function entries: function -> die offset in unit
+    function_name_index: PathSearchIndex<UnitOffset>,
+    /// {die ; die parent} pairs
+    parent_index: IndexMap<UnitOffset, UnitOffset>,
 }
 
 /// Some of the compilation unit methods may return UnitResult
@@ -512,14 +299,13 @@ impl<T> UnitResult<T> {
 /// In BugStalker any unit load from obj file with partial data on debugee start.
 /// Later, if necessary, the data will be loaded additionally.
 #[derive(Debug)]
-pub struct Unit {
+pub struct BsUnit {
     pub id: Uuid,
     #[allow(unused)]
     pub name: Option<String>,
-    /// DWARF unit header must exist if unit is partial, but contains None if unit is fully load.
-    header: Mutex<Option<UnitHeader<EndianArcSlice>>>,
     /// Index in unit registry may be usize::MAX if the unit is not yet placed in the register
     idx: usize,
+    unit: gimli::Unit<EndianArcSlice>,
     properties: UnitProperties,
     files: Vec<PathBuf>,
     /// List of program lines, ordered by its address
@@ -530,13 +316,16 @@ pub struct Unit {
     producer: Option<String>,
 }
 
-impl Clone for Unit {
-    fn clone(&self) -> Self {
-        let header = self.header.lock().unwrap().clone();
+impl BsUnit {
+    pub fn clone(&self, dwarf: &Dwarf<EndianArcSlice>) -> Self {
+        let unit = {
+            dwarf
+                .unit(self.unit.header.clone())
+                .expect("clone unit should not fail")
+        };
         Self {
             id: self.id,
             name: self.name.clone(),
-            header: Mutex::new(header),
             idx: self.idx,
             properties: self.properties.clone(),
             files: self.files.clone(),
@@ -545,21 +334,19 @@ impl Clone for Unit {
             lazy_part: self.lazy_part.clone(),
             language: self.language,
             producer: self.producer.clone(),
+            unit,
         }
     }
-}
 
-impl Unit {
+    #[inline(always)]
+    pub fn unit(&self) -> &gimli::Unit<EndianArcSlice> {
+        &self.unit
+    }
+
     /// Update unit to full state.
     /// Note: this method will panic if called twice.
     pub fn reload(&self, parser: DwarfUnitParser) -> Result<(), Error> {
-        let additional = parser.parse_additional(
-            self.header
-                .lock()
-                .unwrap()
-                .take()
-                .expect("unreachable: header must exists"),
-        )?;
+        let additional = parser.parse_additional(self)?;
         self.lazy_part
             .set(additional)
             .expect("unreachable: lazy part must be empty");
@@ -727,12 +514,12 @@ impl Unit {
         result
     }
 
-    /// Return list on debug entries.
+    /// Return parent index.
     /// Note: this method requires a full unit.
-    pub fn entries(&self) -> UnitResult<&Vec<Entry>> {
+    pub fn parent_index(&self) -> UnitResult<&IndexMap<UnitOffset, UnitOffset>> {
         match self.lazy_part.get() {
             None => UnitResult::Reload,
-            Some(additional) => UnitResult::Ok(&additional.entries),
+            Some(additional) => UnitResult::Ok(&additional.parent_index),
         }
     }
 
@@ -752,36 +539,28 @@ impl Unit {
     /// * `template`: function search template, contains a function name and full or partial namespace.
     ///
     /// For example: "ns1::ns2::fn1" or "ns2::fn1"
-    pub fn search_functions(&self, template: &str) -> UnitResult<Vec<&Entry>> {
+    pub fn search_functions(&self, template: &str) -> UnitResult<Vec<(UnitOffset, &FunctionInfo)>> {
         match self.lazy_part.get() {
             None => UnitResult::Reload,
             Some(additional) => {
-                let entry_indexes = additional.function_index.get(template);
+                let functions = additional.function_name_index.get(template);
+
                 UnitResult::Ok(
-                    entry_indexes
-                        .iter()
-                        .map(|&&idx| &additional.entries[idx])
+                    functions
+                        .into_iter()
+                        .map(|off| (*off, &additional.function_index[off]))
                         .collect(),
                 )
             }
         }
     }
 
-    /// Return iterator for debug entries.
+    /// Return ranges for fn information entries in unit.
     /// Note: this method requires a full unit.
-    pub fn entries_it(&self) -> UnitResult<impl Iterator<Item = &Entry>> {
+    pub fn fn_ranges(&self) -> UnitResult<&Vec<DieRange>> {
         match self.lazy_part.get() {
             None => UnitResult::Reload,
-            Some(additional) => UnitResult::Ok(additional.entries.iter()),
-        }
-    }
-
-    /// Return ranges for all debug information entries in unit.
-    /// Note: this method requires a full unit.
-    pub fn die_ranges(&self) -> UnitResult<&Vec<DieRange>> {
-        match self.lazy_part.get() {
-            None => UnitResult::Reload,
-            Some(additional) => UnitResult::Ok(&additional.die_ranges),
+            Some(additional) => UnitResult::Ok(&additional.fn_ranges),
         }
     }
 
@@ -791,7 +570,10 @@ impl Unit {
     /// # Arguments
     ///
     /// * `name`: needle variable name
-    pub fn locate_var_die(&self, name: &str) -> UnitResult<Option<&[(NamespaceHierarchy, usize)]>> {
+    pub fn locate_var_die(
+        &self,
+        name: &str,
+    ) -> UnitResult<Option<&[(NamespaceHierarchy, UnitOffset)]>> {
         match self.lazy_part.get() {
             None => UnitResult::Reload,
             Some(additional) => {
@@ -818,37 +600,25 @@ impl Unit {
     pub fn evaluator<'this>(
         &'this self,
         debugee: &'this Debugee,
+        dwarf: &'this Dwarf<EndianArcSlice>,
     ) -> UnitResult<ExpressionEvaluator<'this>> {
         match self.lazy_part.get() {
             None => UnitResult::Reload,
-            Some(_) => UnitResult::Ok(ExpressionEvaluator::new(self, self.encoding(), debugee)),
+            Some(_) => UnitResult::Ok(ExpressionEvaluator::new(
+                dwarf,
+                self,
+                self.encoding(),
+                debugee,
+            )),
         }
     }
 
-    /// Return debug entry by its index.
+    /// Return function information by its offset in unit.
     /// Note: this method requires a full unit.
-    pub fn entry(&self, idx: usize) -> UnitResult<&Entry> {
+    pub fn fn_info(&self, off: UnitOffset) -> UnitResult<Option<&FunctionInfo>> {
         match self.lazy_part.get() {
             None => UnitResult::Reload,
-            Some(additional) => UnitResult::Ok(&additional.entries[idx]),
-        }
-    }
-
-    /// Return debug entry by its offset in unit, `None` if entry not exists.
-    /// Note: this method requires a full unit.
-    pub fn find_entry(&self, offset: UnitOffset) -> UnitResult<Option<&Entry>> {
-        match self.lazy_part.get() {
-            None => UnitResult::Reload,
-            Some(additional) => {
-                let die_idx = additional.die_offsets_index.get(&offset);
-                match die_idx {
-                    None => UnitResult::Ok(None),
-                    Some(die_idx) => match self.entry(*die_idx) {
-                        UnitResult::Ok(entry) => UnitResult::Ok(Some(entry)),
-                        UnitResult::Reload => UnitResult::Reload,
-                    },
-                }
-            }
+            Some(additional) => UnitResult::Ok(additional.function_index.get(&off)),
         }
     }
 

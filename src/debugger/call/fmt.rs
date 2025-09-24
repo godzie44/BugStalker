@@ -3,7 +3,7 @@ use crate::{
         Debugger, Error, TypeDeclaration,
         address::RelocatedAddress,
         call::{CallArgs, CallContext, CallError, CallHelper, RegType},
-        debugee::dwarf::unit::DieRef,
+        debugee::dwarf::unit::DieAddr,
         variable::{execute::QueryResult, render::RenderValue, value::Value},
     },
     version::RustVersion,
@@ -145,7 +145,7 @@ fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCalli
     }
 
     // slow path
-    let mut addr_if_type_params =  |type_params: &IndexMap<String, Option<DieRef>>| -> Result<Option<RelocatedAddress>, Error> {
+    let mut addr_if_type_params =  |type_params: &IndexMap<String, Option<DieAddr>>| -> Result<Option<RelocatedAddress>, Error> {
         if type_params.is_empty() {
             return Ok(None);
         }

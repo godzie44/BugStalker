@@ -1,9 +1,10 @@
 use crate::debugger;
+use crate::debugger::Error;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::debugee::Debugee;
-use crate::debugger::debugee::dwarf::{ContextualDieRef, DebugInformation};
-use crate::debugger::{Error, FunctionDie};
+use crate::debugger::debugee::dwarf::DebugInformation;
+use crate::debugger::debugee::dwarf::unit::die_ref::{FatDieRef, Function};
 use capstone::prelude::*;
 use lru::LruCache;
 use std::cell::RefCell;
@@ -52,7 +53,7 @@ impl Disassembler {
         &self,
         debugee: &Debugee,
         debug_info: &DebugInformation,
-        function: ContextualDieRef<FunctionDie>,
+        function: FatDieRef<'_, Function>,
         breakpoints: &[&Breakpoint],
     ) -> Result<Vec<Instruction>, Error> {
         let fn_glob_pc_start = function.start_instruction()?;

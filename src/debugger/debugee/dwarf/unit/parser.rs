@@ -1,31 +1,24 @@
+use crate::debugger::debugee::dwarf::unit::die::DerefContext;
 use crate::debugger::debugee::dwarf::unit::{
-    ArrayDie, ArraySubrangeDie, AtomicDie, BaseTypeDie, ConstTypeDie, DieRange, DieRef, DieVariant,
-    END_SEQUENCE, EPILOG_BEGIN, Entry, EnumTypeDie, EnumeratorDie, FnBase, FunctionDie, IS_STMT,
-    InlineSubroutineDie, LexicalBlockDie, LineRow, Namespace, Node, PROLOG_END, ParameterDie,
-    PointerType, RestrictDie, StructTypeDie, SubroutineDie, TemplateTypeParameter, TypeDefDie,
-    TypeMemberDie, UnionTypeDie, Unit, UnitLazyPart, UnitProperties, VariableDie, Variant,
-    VariantPart, VolatileDie,
+    BsUnit, DieRange, END_SEQUENCE, EPILOG_BEGIN, FunctionInfo, IS_STMT, LineRow, PROLOG_END,
+    UnitLazyPart, UnitProperties,
 };
 use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::error::Error;
 use crate::debugger::rust::Environment;
-use crate::weak_error;
 use fallible_iterator::FallibleIterator;
 use gimli::{
-    AttributeValue, DW_AT_address_class, DW_AT_byte_size, DW_AT_call_column, DW_AT_call_file,
-    DW_AT_call_line, DW_AT_const_value, DW_AT_count, DW_AT_data_member_location, DW_AT_decl_file,
-    DW_AT_decl_line, DW_AT_declaration, DW_AT_discr, DW_AT_discr_value, DW_AT_encoding,
-    DW_AT_frame_base, DW_AT_language, DW_AT_linkage_name, DW_AT_location, DW_AT_lower_bound,
-    DW_AT_name, DW_AT_producer, DW_AT_specification, DW_AT_type, DW_AT_upper_bound,
-    DebuggingInformationEntry, DwAt, Range, Reader, UnitHeader, UnitOffset,
+    AttributeValue, DW_AT_decl_file, DW_AT_decl_line, DW_AT_language, DW_AT_linkage_name,
+    DW_AT_name, DW_AT_producer, DW_AT_specification, DebuggingInformationEntry, DwAt, Range,
+    Reader, UnitHeader, UnitOffset,
 };
+use indexmap::IndexMap;
 use log::warn;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use uuid::Uuid;
 
 pub struct DwarfUnitParser<'a> {
@@ -49,7 +42,7 @@ impl<'a> DwarfUnitParser<'a> {
             .transpose()
     }
 
-    pub fn parse(&self, header: UnitHeader<EndianArcSlice>) -> gimli::Result<Unit> {
+    pub fn parse(&self, header: UnitHeader<EndianArcSlice>) -> gimli::Result<BsUnit> {
         let unit = self.dwarf.unit(header.clone())?;
 
         let name = unit
@@ -81,8 +74,7 @@ impl<'a> DwarfUnitParser<'a> {
         });
         let producer = self.attr_to_string(&unit, root, DW_AT_producer)?;
 
-        Ok(Unit {
-            header: Mutex::new(Some(header)),
+        Ok(BsUnit {
             idx: usize::MAX,
             properties: UnitProperties {
                 encoding: unit.encoding(),
@@ -92,6 +84,7 @@ impl<'a> DwarfUnitParser<'a> {
                 loclists_base: unit.loclists_base,
                 address_size: unit.header.address_size(),
             },
+            unit,
             id: Uuid::new_v4(),
             name,
             files,
@@ -103,367 +96,214 @@ impl<'a> DwarfUnitParser<'a> {
         })
     }
 
-    pub(super) fn parse_additional(
-        &self,
-        header: UnitHeader<EndianArcSlice>,
-    ) -> Result<UnitLazyPart, Error> {
-        let unit = self.dwarf.unit(header)?;
-
-        let mut entries: Vec<Entry> = vec![];
-        let mut die_ranges: Vec<DieRange> = vec![];
-        let mut variable_index: HashMap<String, Vec<(NamespaceHierarchy, usize)>> = HashMap::new();
+    pub(super) fn parse_additional(&self, bs_unit: &BsUnit) -> Result<UnitLazyPart, Error> {
+        let mut fn_ranges: Vec<DieRange> = vec![];
+        let mut variable_index: HashMap<String, Vec<(NamespaceHierarchy, UnitOffset)>> =
+            HashMap::new();
         let mut type_index: HashMap<String, UnitOffset> = HashMap::new();
-        let mut die_offsets_index: HashMap<UnitOffset, usize> = HashMap::new();
-        let mut function_index = PathSearchIndex::new("::");
-        let mut fn_declarations = HashMap::new();
+        let mut function_index = HashMap::<UnitOffset, FunctionInfo>::new();
+        let mut function_name_index = PathSearchIndex::new("::");
+        let mut parent_index = IndexMap::<UnitOffset, UnitOffset>::new();
 
-        let mut cursor = unit.entries();
+        let mut cursor = bs_unit.unit.entries();
+        let mut prev_die_offset = None;
         while let Some((delta_depth, die)) = cursor.next_dfs()? {
-            let current_idx = entries.len();
-            let prev_index = if entries.is_empty() {
-                None
-            } else {
-                Some(entries.len() - 1)
-            };
-
-            let parent_idx = match delta_depth {
+            let parent_offset = match delta_depth {
                 // if 1 then previous die is a parent
-                1 => prev_index,
+                1 => prev_die_offset,
                 // if 0, then previous die is a sibling
-                0 => entries.last().and_then(|dd| dd.node.parent),
+                0 => parent_index.last().map(|(_, parent)| *parent),
                 // if < 0 then the parent of previous die is a sibling
-                mut x if x < 0 => {
-                    let mut parent = entries.last().unwrap();
-                    while x != 0 {
-                        parent = &entries[parent.node.parent.unwrap()];
-                        x += 1;
-                    }
-                    parent.node.parent
+                x if x < 0 => {
+                    let get_parent = |mut x| {
+                        let mut parent = *parent_index.last()?.0;
+
+                        while x != 0 {
+                            parent = *parent_index.get(&parent)?;
+                            x += 1;
+                        }
+
+                        Some(*parent_index.get(&parent)?)
+                    };
+                    get_parent(x)
                 }
                 _ => unreachable!(),
             };
 
-            if let Some(parent_idx) = parent_idx {
-                entries[parent_idx].node.children.push(current_idx)
+            if let Some(offset) = parent_offset {
+                parent_index.insert(die.offset(), offset);
             }
 
-            let ranges: Box<[Range]> = self
-                .dwarf
-                .die_ranges(&unit, die)?
-                .collect::<Vec<Range>>()?
-                .into();
-
-            ranges.iter().for_each(|r| {
-                die_ranges.push(DieRange {
-                    range: *r,
-                    die_idx: current_idx,
-                })
-            });
-
-            let name = self.attr_to_string(&unit, die, DW_AT_name)?;
-
-            let parsed_die = match die.tag() {
+            match die.tag() {
                 gimli::DW_TAG_subprogram => {
-                    let is_declaration = die.attr(DW_AT_declaration)?.and_then(|attr| {
-                        if let AttributeValue::Flag(f) = attr.value() {
-                            return Some(f);
-                        }
-                        None
-                    });
-                    if is_declaration == Some(true) {
-                        // add declaration in a special map, this die's may be used later, when
-                        // parse implementation
-                        fn_declarations.insert(die.offset(), current_idx);
-                    }
+                    let fn_info_from_die = |d: &DebuggingInformationEntry<
+                        EndianArcSlice,
+                        usize,
+                    >|
+                     -> Result<FunctionInfo, gimli::Error> {
+                        let name = self.attr_to_string(bs_unit.unit(), d, DW_AT_name)?;
 
-                    let mb_file = die
-                        .attr(DW_AT_decl_file)?
-                        .and_then(|attr| attr.udata_value());
-                    let mb_line = die
-                        .attr(DW_AT_decl_line)?
-                        .and_then(|attr| attr.udata_value());
-                    let decl_file_line = mb_file.and_then(|file_idx| Some((file_idx, mb_line?)));
+                        let mb_file = d
+                            .attr(DW_AT_decl_file)?
+                            .and_then(|attr| attr.udata_value());
+                        let mb_line = d
+                            .attr(DW_AT_decl_line)?
+                            .and_then(|attr| attr.udata_value());
+                        let decl_file_line =
+                            mb_file.and_then(|file_idx| Some((file_idx, mb_line?)));
 
-                    let mb_linkage_name = die
-                        .attr(DW_AT_linkage_name)?
-                        .and_then(|attr| self.dwarf.attr_string(&unit, attr.value()).ok());
+                        let mb_linkage_name = d
+                            .attr(DW_AT_linkage_name)?
+                            .and_then(|attr| self.dwarf.attr_string(bs_unit.unit(), attr.value()).ok());
 
-                    let (fn_ns, linkage_name) = match mb_linkage_name {
-                        Some(linkage_name) => {
-                            let linkage_name = linkage_name.to_string_lossy()?;
-                            let (ns, fn_name) = NamespaceHierarchy::from_mangled(&linkage_name);
-                            (ns, Some(fn_name))
-                        }
-                        None => (
-                            NamespaceHierarchy::for_node(&Node::new_leaf(parent_idx), &entries),
-                            None,
-                        ),
+                        let (fn_ns, linkage_name) = match mb_linkage_name {
+                            Some(linkage_name) => {
+                                let linkage_name = linkage_name.to_string_lossy()?;
+                                let (ns, fn_name) = NamespaceHierarchy::from_mangled(&linkage_name);
+                                (ns, Some(fn_name))
+                            }
+                            None => (
+                                NamespaceHierarchy::for_die(
+                                    DerefContext::new(self.dwarf,
+                                    bs_unit.unit()),
+                                    die.offset(),
+                                    &parent_index,
+                                ),
+                                None,
+                            ),
+                        };
+                        Ok(FunctionInfo {
+                            namespace: fn_ns,
+                            name,
+                            decl_file_line,
+                            linkage_name,
+                        })
                     };
 
-                    let mut fn_die = FunctionDie {
-                        namespace: fn_ns,
-                        base: FnBase { name, ranges },
-                        fb_addr: die.attr(DW_AT_frame_base)?,
-                        decl_file_line,
-                        linkage_name,
-                    };
+                    let ranges: Box<[Range]> = self
+                        .dwarf
+                        .die_ranges(bs_unit.unit(), die)?
+                        .collect::<Vec<Range>>()?
+                        .into();
 
-                    let specification = die.attr(DW_AT_specification)?.and_then(|attr| {
-                        if let AttributeValue::UnitRef(r) = attr.value() {
-                            return Some(r);
+                    // subprograms without a range are useless for indexing
+                    if !ranges.is_empty() {
+                        let mut fn_info = fn_info_from_die(die)?;
+
+                        ranges.iter().for_each(|r| {
+                            fn_ranges.push(DieRange {
+                                range: *r,
+                                die_off: die.offset(),
+                            })
+                        });
+
+                        let specification = die.attr(DW_AT_specification)?.and_then(|attr| {
+                            if let AttributeValue::UnitRef(r) = attr.value() {
+                                return Some(r);
+                            }
+                            warn!(target: "parser", "unexpected non-local (unit) reference to function declaration");
+                            None
+                        });
+                        if let Some(decl_offset) = specification {
+                            let decl_info = fn_info_from_die(
+                                &bs_unit
+                                    .unit()
+                                    .entry(decl_offset)
+                                    .map_err(|_| Error::InvalidSpecification(decl_offset))?,
+                            )?;
+
+                            fn_info.complete_from_decl(&decl_info);
                         }
-                        warn!(target: "parser", "unexpected non-local (unit) reference to function declaration");
-                        None
-                    });
-                    if let Some(decl_ref) = specification {
-                        let declaration_idx = weak_error!(
-                            fn_declarations
-                                .get(&decl_ref)
-                                .ok_or(Error::InvalidSpecification(decl_ref))
-                        );
-                        debug_assert!(declaration_idx.is_some(), "reference to unseen declaration");
 
-                        if let Some(&idx) = declaration_idx {
-                            let declaration = &entries[idx];
-                            let declaration = declaration.die.unwrap_function();
-                            fn_die.complete_from_decl(declaration);
-                        }
-                    }
+                        function_index.insert(die.offset(), fn_info.clone());
 
-                    let any_name = fn_die.linkage_name.as_ref().or(fn_die.base.name.as_ref());
-                    if let Some(fn_name) = any_name {
-                        // subprograms without a range are useless for this index
-                        if !fn_die.base.ranges.is_empty() {
-                            function_index.insert_w_head(
-                                fn_die.namespace.iter(),
+                        let any_name = fn_info.linkage_name.as_ref().or(fn_info.name.as_ref());
+                        if let Some(fn_name) = any_name {
+                            function_name_index.insert_w_head(
+                                fn_info.namespace.iter(),
                                 fn_name,
-                                current_idx,
+                                die.offset(),
                             );
                         }
                     }
-
-                    DieVariant::Function(fn_die)
-                }
-                gimli::DW_TAG_subroutine_type => DieVariant::Subroutine(SubroutineDie {
-                    name,
-                    return_type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                }),
-                gimli::DW_TAG_inlined_subroutine => {
-                    DieVariant::InlineSubroutine(InlineSubroutineDie {
-                        ranges,
-                        call_file: die.attr(DW_AT_call_file)?.and_then(|v| match v.value() {
-                            AttributeValue::FileIndex(idx) => Some(idx),
-                            _ => None,
-                        }),
-                        call_line: die.attr(DW_AT_call_line)?.and_then(|v| v.udata_value()),
-                        call_column: die.attr(DW_AT_call_column)?.and_then(|v| v.udata_value()),
-                    })
-                }
-                gimli::DW_TAG_formal_parameter => {
-                    let mut fn_block_idx = None;
-                    let mut mb_parent_idx = parent_idx;
-                    while let Some(parent_idx) = mb_parent_idx {
-                        if let DieVariant::Function(_) = entries[parent_idx].die {
-                            fn_block_idx = Some(parent_idx);
-                            break;
-                        }
-                        mb_parent_idx = entries[parent_idx].node.parent;
-                    }
-
-                    DieVariant::Parameter(ParameterDie {
-                        name,
-                        type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                        location: die.attr(DW_AT_location)?,
-                        fn_block_idx,
-                    })
                 }
                 gimli::DW_TAG_variable => {
-                    let mut lexical_block_idx = None;
-                    let mut fn_block_idx = None;
+                    let name = self.attr_to_string(bs_unit.unit(), die, DW_AT_name)?;
 
-                    let mut mb_parent_idx = parent_idx;
-                    while let Some(parent_idx) = mb_parent_idx {
-                        if let DieVariant::LexicalBlock(_) = entries[parent_idx].die
-                            && lexical_block_idx.is_none()
-                        {
-                            // save the closest lexical block and ignore others
-                            lexical_block_idx = Some(parent_idx);
-                        }
-                        if let DieVariant::Function(_) = entries[parent_idx].die {
-                            fn_block_idx = Some(parent_idx);
-                            break;
-                        }
-                        mb_parent_idx = entries[parent_idx].node.parent;
-                    }
+                    if let Some(ref name) = name {
+                        let mb_linkage_name = die.attr(DW_AT_linkage_name)?.and_then(|attr| {
+                            self.dwarf.attr_string(bs_unit.unit(), attr.value()).ok()
+                        });
 
-                    let mb_linkage_name = die
-                        .attr(DW_AT_linkage_name)?
-                        .and_then(|attr| self.dwarf.attr_string(&unit, attr.value()).ok());
+                        let variable_ns = match mb_linkage_name {
+                            Some(linkage_name) => {
+                                let linkage_name = linkage_name.to_string_lossy()?;
+                                let (ns, _) = NamespaceHierarchy::from_mangled(&linkage_name);
+                                ns
+                            }
+                            None => NamespaceHierarchy::for_die(
+                                DerefContext::new(self.dwarf, bs_unit.unit()),
+                                die.offset(),
+                                &parent_index,
+                            ),
+                        };
 
-                    let variable_ns = match mb_linkage_name {
-                        Some(linkage_name) => {
-                            let linkage_name = linkage_name.to_string_lossy()?;
-                            let (ns, _) = NamespaceHierarchy::from_mangled(&linkage_name);
-                            ns
-                        }
-                        None => NamespaceHierarchy::for_node(&Node::new_leaf(parent_idx), &entries),
-                    };
-
-                    let die = VariableDie {
-                        name,
-                        type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                        location: die.attr(DW_AT_location)?,
-                        lexical_block_idx,
-                        fn_block_idx,
-                    };
-
-                    if let Some(ref name) = die.name {
                         variable_index
                             .entry(name.to_string())
                             .or_default()
-                            .push((variable_ns, current_idx));
+                            .push((variable_ns, die.offset()));
                     }
-
-                    DieVariant::Variable(die)
                 }
                 gimli::DW_TAG_base_type => {
-                    let encoding = die.attr(DW_AT_encoding)?.and_then(|attr| {
-                        if let AttributeValue::Encoding(enc) = attr.value() {
-                            Some(enc)
-                        } else {
-                            None
-                        }
-                    });
-
+                    let name = self.attr_to_string(bs_unit.unit(), die, DW_AT_name)?;
                     if let Some(ref name) = name {
                         type_index.insert(name.to_string(), die.offset());
                     }
-                    DieVariant::BaseType(BaseTypeDie {
-                        name,
-                        encoding,
-                        byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
-                    })
                 }
                 gimli::DW_TAG_structure_type => {
+                    let name = self.attr_to_string(bs_unit.unit(), die, DW_AT_name)?;
                     if let Some(ref name) = name {
                         type_index.insert(name.to_string(), die.offset());
                     }
-                    DieVariant::StructType(StructTypeDie {
-                        name,
-                        byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
-                    })
                 }
-                gimli::DW_TAG_member => DieVariant::TypeMember(TypeMemberDie {
-                    name,
-                    byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
-                    location: die.attr(DW_AT_data_member_location)?,
-                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                }),
                 gimli::DW_TAG_union_type => {
+                    let name = self.attr_to_string(bs_unit.unit(), die, DW_AT_name)?;
                     if let Some(ref name) = name {
                         type_index.insert(name.to_string(), die.offset());
                     }
-                    DieVariant::UnionTypeDie(UnionTypeDie {
-                        name,
-                        byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
-                    })
                 }
-                gimli::DW_TAG_lexical_block => DieVariant::LexicalBlock(LexicalBlockDie { ranges }),
                 gimli::DW_TAG_array_type => {
+                    let name = self.attr_to_string(bs_unit.unit(), die, DW_AT_name)?;
                     if let Some(ref name) = name {
                         type_index.insert(name.to_string(), die.offset());
                     }
-                    DieVariant::ArrayType(ArrayDie {
-                        type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                        byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
-                    })
                 }
-                gimli::DW_TAG_subrange_type => DieVariant::ArraySubrange(ArraySubrangeDie {
-                    lower_bound: die.attr(DW_AT_lower_bound)?,
-                    upper_bound: die.attr(DW_AT_upper_bound)?,
-                    count: die.attr(DW_AT_count)?,
-                }),
-                gimli::DW_TAG_enumeration_type => DieVariant::EnumType(EnumTypeDie {
-                    name,
-                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                    byte_size: die.attr(DW_AT_byte_size)?.and_then(|val| val.udata_value()),
-                }),
-                gimli::DW_TAG_enumerator => DieVariant::Enumerator(EnumeratorDie {
-                    name,
-                    const_value: die
-                        .attr(DW_AT_const_value)?
-                        .and_then(|val| val.sdata_value()),
-                }),
-                gimli::DW_TAG_variant_part => DieVariant::VariantPart(VariantPart {
-                    discr_ref: die.attr(DW_AT_discr)?.and_then(DieRef::from_attr),
-                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                }),
-                gimli::DW_TAG_variant => DieVariant::Variant(Variant {
-                    discr_value: die
-                        .attr(DW_AT_discr_value)?
-                        .and_then(|val| val.sdata_value()),
-                }),
                 gimli::DW_TAG_pointer_type => {
+                    let name = self.attr_to_string(bs_unit.unit(), die, DW_AT_name)?;
                     if let Some(ref name) = name {
                         type_index.insert(name.to_string(), die.offset());
                     }
-                    DieVariant::PointerType(PointerType {
-                        name,
-                        type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                        address_class: die
-                            .attr(DW_AT_address_class)?
-                            .and_then(|v| v.udata_value().map(|u| u as u8)),
-                    })
                 }
-                gimli::DW_TAG_template_type_parameter => {
-                    DieVariant::TemplateType(TemplateTypeParameter {
-                        name,
-                        type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                    })
-                }
-                gimli::DW_TAG_typedef => DieVariant::TypeDef(TypeDefDie {
-                    name,
-                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                }),
-                gimli::DW_TAG_const_type => DieVariant::ConstType(ConstTypeDie {
-                    name,
-                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                }),
-                gimli::DW_TAG_atomic_type => DieVariant::Atomic(AtomicDie {
-                    name,
-                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                }),
-                gimli::DW_TAG_volatile_type => DieVariant::Volatile(VolatileDie {
-                    name,
-                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                }),
-                gimli::DW_TAG_restrict_type => DieVariant::Restrict(RestrictDie {
-                    name,
-                    type_ref: die.attr(DW_AT_type)?.and_then(DieRef::from_attr),
-                }),
-                gimli::DW_TAG_namespace => DieVariant::Namespace(Namespace { name }),
-                _ => DieVariant::Default,
+                _ => {}
             };
 
-            entries.push(Entry::new(parsed_die, parent_idx));
-            die_offsets_index.insert(die.offset(), current_idx);
+            prev_die_offset = Some(die.offset());
         }
-        die_ranges.sort_unstable_by_key(|dr| dr.range.begin);
+        fn_ranges.sort_unstable_by_key(|dr| dr.range.begin);
 
-        entries.shrink_to_fit();
-        die_ranges.shrink_to_fit();
+        fn_ranges.shrink_to_fit();
         variable_index.shrink_to_fit();
         type_index.shrink_to_fit();
-        die_offsets_index.shrink_to_fit();
         function_index.shrink_to_fit();
+        function_name_index.shrink_to_fit();
 
         Ok(UnitLazyPart {
-            entries,
-            die_ranges,
+            fn_ranges,
             variable_index,
             type_index,
-            die_offsets_index,
             function_index,
+            function_name_index,
+            parent_index,
         })
     }
 }

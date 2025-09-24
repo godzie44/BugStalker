@@ -1,4 +1,7 @@
-use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, NamespaceHierarchy};
+use crate::debugger::debugee::dwarf::{
+    NamespaceHierarchy,
+    unit::die_ref::{FatDieRef, Hint},
+};
 use bytes::Bytes;
 use std::fmt::{Display, Formatter};
 
@@ -21,8 +24,9 @@ impl Identity {
         Self { namespace, name }
     }
 
-    pub fn from_die(var: &ContextualDieRef<impl AsAllocatedData>) -> Self {
-        Self::new(var.namespaces(), var.die.name().map(String::from))
+    pub fn from_die<H: Hint>(die_ref: &FatDieRef<'_, H>) -> Self {
+        let name = die_ref.deref_ensure().name();
+        Self::new(die_ref.namespace(), name)
     }
 
     pub fn no_namespace(name: Option<String>) -> Self {

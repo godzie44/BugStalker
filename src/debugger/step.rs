@@ -100,7 +100,7 @@ impl Debugger {
                 let func = loop {
                     let dwarf = debugger.debugee.debug_info(location.pc)?;
                     // step's stop only if there is debug information for PC and current function can be determined
-                    if let Ok(Some(func)) = dwarf.find_function_by_pc(location.global_pc) {
+                    if let Ok(Some((func, _))) = dwarf.find_function_by_pc(location.global_pc) {
                         break func;
                     }
                     prolog_single_step!(debugger);
@@ -273,11 +273,11 @@ impl Debugger {
         let mut current_location = ctx.location();
 
         // determine current function, if no debug information for function - step until function found
-        let func = loop {
+        let (func, info) = loop {
             let dwarf = &self.debugee.debug_info(current_location.pc)?;
             // step's stop only if there is debug information for PC and current function can be determined
-            if let Ok(Some(func)) = dwarf.find_function_by_pc(current_location.global_pc) {
-                break func;
+            if let Ok(Some((func, info))) = dwarf.find_function_by_pc(current_location.global_pc) {
+                break (func, info);
             }
             match self.single_step_instruction()? {
                 Some(StopReason::SignalStop(_, sign)) => {
@@ -290,7 +290,7 @@ impl Debugger {
             }
             current_location = self.exploration_ctx().location();
         };
-        let fn_file = func.die.decl_file_line.map(|fl| fl.0);
+        let fn_file = info.decl_file_line.map(|fl| fl.0);
 
         let prolog = func.prolog()?;
         let dwarf = &self.debugee.debug_info(current_location.pc)?;
@@ -303,14 +303,14 @@ impl Debugger {
         let mut step_over_breakpoints = vec![];
         let mut to_delete = vec![];
 
-        let fn_full_name = func.full_name();
+        let fn_full_name = info.full_name();
         for range in func.ranges() {
             let mut place = func
                 .unit()
                 .find_place_by_pc(GlobalAddress::from(range.begin))
                 .ok_or_else(|| NoFunctionRanges(fn_full_name.clone()))?;
 
-            while place.address.in_range(range) {
+            while place.address.in_range(&range) {
                 if Some(place.file_idx) != fn_file {
                     match place.next() {
                         None => break,
