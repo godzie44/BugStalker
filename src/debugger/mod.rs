@@ -24,7 +24,7 @@ pub use debugee::RegionInfo;
 pub use debugee::ThreadSnapshot;
 pub use debugee::dwarf::Symbol;
 pub use debugee::dwarf::r#type::TypeDeclaration;
-pub use debugee::dwarf::unit::FunctionDie;
+pub use debugee::dwarf::unit::FunctionInfo;
 pub use debugee::dwarf::unit::PlaceDescriptor;
 pub use debugee::dwarf::unit::PlaceDescriptorOwned;
 pub use debugee::dwarf::unwind;
@@ -85,7 +85,7 @@ pub trait EventHook {
         pc: RelocatedAddress,
         num: u32,
         place: Option<PlaceDescriptor>,
-        function: Option<&FunctionDie>,
+        function: Option<&FunctionInfo>,
     ) -> anyhow::Result<()>;
 
     /// Called when watchpoint is activated.
@@ -124,7 +124,7 @@ pub trait EventHook {
         &self,
         pc: RelocatedAddress,
         place: Option<PlaceDescriptor>,
-        function: Option<&FunctionDie>,
+        function: Option<&FunctionInfo>,
     ) -> anyhow::Result<()>;
 
     /// Called when one of async step commands is done.
@@ -140,7 +140,7 @@ pub trait EventHook {
         &self,
         pc: RelocatedAddress,
         place: Option<PlaceDescriptor>,
-        function: Option<&FunctionDie>,
+        function: Option<&FunctionInfo>,
         task_id: u64,
         task_completed: bool,
     ) -> anyhow::Result<()>;
@@ -175,7 +175,7 @@ impl EventHook for NopHook {
         _: RelocatedAddress,
         _: u32,
         _: Option<PlaceDescriptor>,
-        _: Option<&FunctionDie>,
+        _: Option<&FunctionInfo>,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -198,7 +198,7 @@ impl EventHook for NopHook {
         &self,
         _: RelocatedAddress,
         _: Option<PlaceDescriptor>,
-        _: Option<&FunctionDie>,
+        _: Option<&FunctionInfo>,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -207,7 +207,7 @@ impl EventHook for NopHook {
         &self,
         _: RelocatedAddress,
         _: Option<PlaceDescriptor>,
-        _: Option<&FunctionDie>,
+        _: Option<&FunctionInfo>,
         _: u64,
         _: bool,
     ) -> anyhow::Result<()> {
@@ -580,7 +580,7 @@ impl Debugger {
                                 let place = weak_error!(dwarf.find_place_from_pc(pc)).flatten();
                                 let func = weak_error!(dwarf.find_function_by_pc(pc))
                                     .flatten()
-                                    .map(|f| f.die);
+                                    .map(|(_, info)| info);
                                 self.hooks
                                     .on_breakpoint(current_pc, bp.number(), place, func)
                                     .map_err(Hook)?;
@@ -735,7 +735,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `regex`: regular expression
-    pub fn get_symbols(&self, regex: &str) -> Result<Vec<Symbol>, Error> {
+    pub fn get_symbols(&'_ self, regex: &str) -> Result<Vec<Symbol<'_>>, Error> {
         let regex = Regex::new(regex)?;
 
         Ok(self
@@ -782,7 +782,7 @@ impl Debugger {
         let place = weak_error!(dwarf.find_place_from_pc(global_pc)).flatten();
         let func = weak_error!(dwarf.find_function_by_pc(global_pc))
             .flatten()
-            .map(|f| f.die);
+            .map(|(_, info)| info);
         self.hooks.on_step(pc, place, func).map_err(Hook)
     }
 
@@ -795,7 +795,7 @@ impl Debugger {
         let place = weak_error!(dwarf.find_place_from_pc(global_pc)).flatten();
         let func = weak_error!(dwarf.find_function_by_pc(global_pc))
             .flatten()
-            .map(|f| f.die);
+            .map(|(_, info)| info);
         self.hooks
             .on_async_step(pc, place, func, task_id, task_completed)
             .map_err(Hook)

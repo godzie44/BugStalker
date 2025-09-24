@@ -360,7 +360,7 @@ impl Debugee {
 
     pub fn frame_info(&self, ctx: &ExplorationContext) -> Result<FrameInfo, Error> {
         let dwarf = self.debug_info(ctx.location().pc)?;
-        let func = dwarf
+        let (func, _) = dwarf
             .find_function_by_pc(ctx.location().global_pc)?
             .ok_or(FunctionNotFound(ctx.location().global_pc))?;
 
@@ -551,16 +551,17 @@ impl Debugee {
         breakpoints: &[&Breakpoint],
     ) -> Result<FunctionAssembly, Error> {
         let debug_information = self.debug_info(ctx.location().pc)?;
-        let function = debug_information
+        let (function, info) = debug_information
             .find_function_by_pc(ctx.location().global_pc)?
             .ok_or(FunctionNotFound(ctx.location().global_pc))?;
 
+        let name = info.full_name();
         let instructions =
             self.disassembly
                 .disasm_function(self, debug_information, function, breakpoints)?;
 
         Ok(FunctionAssembly {
-            name: function.full_name(),
+            name,
             addr_in_focus: ctx.location().global_pc,
             instructions,
         })
@@ -569,7 +570,7 @@ impl Debugee {
     /// Return two place descriptors, at the start and at the end of the current function.
     pub fn function_range(&self, ctx: &ExplorationContext) -> Result<FunctionRange<'_>, Error> {
         let debug_information = self.debug_info(ctx.location().pc)?;
-        let function = debug_information
+        let (function, info) = debug_information
             .find_function_by_pc(ctx.location().global_pc)?
             .ok_or(FunctionNotFound(ctx.location().global_pc))?;
         let unit = function.unit();
@@ -578,13 +579,11 @@ impl Debugee {
             .find_place_from_pc(ctx.location().global_pc)?
             .ok_or(Error::PlaceNotFound(ctx.location().global_pc))?;
 
-        let (file, start_line) = function.die.decl_file_line.ok_or(FunctionRangeNotFound)?;
+        let (file, start_line) = info.decl_file_line.ok_or(FunctionRangeNotFound)?;
         let file = unit.files()[file as usize].as_path();
 
         let fn_places: Vec<_> = function
-            .die
-            .base
-            .ranges
+            .ranges()
             .iter()
             .flat_map(|range| function.unit().find_lines_for_range(range))
             .collect();
@@ -601,7 +600,7 @@ impl Debugee {
         }
 
         Ok(FunctionRange {
-            name: function.full_name(),
+            name: info.full_name(),
             stop_place,
             file,
             start_line,

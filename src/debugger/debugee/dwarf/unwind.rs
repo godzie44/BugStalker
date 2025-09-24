@@ -156,7 +156,8 @@ impl<'a> UnwindContext<'a> {
                 .find_unit_by_pc(expl_ctx.location().global_pc)?
                 .ok_or(UnitNotFound(expl_ctx.location().global_pc))?;
 
-            let evaluator = resolve_unit_call!(&dwarf.inner, unit, evaluator, debugee);
+            let evaluator =
+                resolve_unit_call!(&dwarf.inner, unit, evaluator, debugee, dwarf.dwarf());
             Ok(evaluator)
         };
 
@@ -289,7 +290,8 @@ impl<'a> DwarfUnwinder<'a> {
             .debug_info(ctx.location().pc)?
             .find_function_by_pc(ctx.location().global_pc)?;
         let fn_start_at = function
-            .and_then(|func| {
+            .as_ref()
+            .and_then(|(func, _)| {
                 func.prolog_start_place().ok().map(|prolog| {
                     prolog
                         .address
@@ -301,7 +303,7 @@ impl<'a> DwarfUnwinder<'a> {
         let mut bt = vec![FrameSpan::new(
             self.debugee,
             ctx.location().pc,
-            function.and_then(|func| func.full_name()),
+            function.and_then(|(_, info)| info.full_name()),
             fn_start_at,
         )?];
 
@@ -329,8 +331,9 @@ impl<'a> DwarfUnwinder<'a> {
                 .debug_info(next_location.pc)?
                 .find_function_by_pc(next_location.global_pc)?;
             let fn_start_at = function
-                .and_then(|func| {
-                    func.prolog_start_place().ok().map(|prolog| {
+                .as_ref()
+                .and_then(|(die_ref, _)| {
+                    die_ref.prolog_start_place().ok().map(|prolog| {
                         prolog
                             .address
                             .relocate_to_segment_by_pc(self.debugee, next_location.pc)
@@ -341,7 +344,7 @@ impl<'a> DwarfUnwinder<'a> {
             let span = FrameSpan::new(
                 self.debugee,
                 next_location.pc,
-                function.and_then(|func| func.full_name()),
+                function.and_then(|(_, info)| info.full_name()),
                 fn_start_at,
             )?;
             bt.push(span);

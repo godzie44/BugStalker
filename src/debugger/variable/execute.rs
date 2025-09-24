@@ -1,7 +1,8 @@
+use crate::debugger::debugee::dwarf::DebugInformation;
 use crate::debugger::debugee::dwarf::eval::{EvaluationContext, ExpressionEvaluator};
 use crate::debugger::debugee::dwarf::r#type::ComplexType;
-use crate::debugger::debugee::dwarf::unit::{ParameterDie, Unit, VariableDie};
-use crate::debugger::debugee::dwarf::{AsAllocatedData, ContextualDieRef, DebugInformation};
+use crate::debugger::debugee::dwarf::unit::BsUnit;
+use crate::debugger::debugee::dwarf::unit::die_ref::{Argument, FatDieRef, Typed, Variable};
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::FunctionNotFound;
 use crate::debugger::variable::dqe::{DataCast, Dqe, PointerCast, Selector};
@@ -10,7 +11,7 @@ use crate::debugger::variable::value::parser::{ParseContext, ValueModifiers, Val
 use crate::debugger::variable::r#virtual::VirtualVariableDie;
 use crate::debugger::variable::{Identity, ObjectBinaryRepr};
 use crate::debugger::{Debugger, read_memory_by_pid};
-use crate::{ctx_resolve_unit_call, weak_error};
+use crate::{ctx_resolve_unit_call, resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::Range;
 use std::fmt::Debug;
@@ -38,7 +39,7 @@ pub struct QueryResult<'a> {
 
 impl QueryResult<'_> {
     /// Return CU in which result values are located.
-    pub fn unit(&self) -> &Unit {
+    pub fn unit(&self) -> &BsUnit {
         self.eval_ctx_builder.unit()
     }
 
@@ -124,20 +125,15 @@ enum EvaluationContextBuilder<'a> {
     Virtual {
         debugger: &'a Debugger,
         debug_info: &'a DebugInformation,
-        unit_idx: usize,
-        die: VirtualVariableDie,
+        unit: &'a BsUnit,
     },
 }
 
 impl EvaluationContextBuilder<'_> {
-    pub fn unit(&self) -> &Unit {
+    pub fn unit(&self) -> &BsUnit {
         match self {
             EvaluationContextBuilder::Ready(_, evaluator) => evaluator.unit(),
-            EvaluationContextBuilder::Virtual {
-                debug_info,
-                unit_idx,
-                ..
-            } => debug_info.unit_ensure(*unit_idx),
+            EvaluationContextBuilder::Virtual { unit, .. } => unit,
         }
     }
 
@@ -151,16 +147,17 @@ impl EvaluationContextBuilder<'_> {
             EvaluationContextBuilder::Virtual {
                 debugger,
                 debug_info,
-                unit_idx,
-                die,
+                unit,
+                ..
             } => {
-                let var = ContextualDieRef {
-                    debug_info,
-                    unit_idx: *unit_idx,
-                    node: VirtualVariableDie::ANY_NODE,
-                    die,
-                };
-                evaluator = ctx_resolve_unit_call!(var, evaluator, &debugger.debugee);
+                let dwarf = debug_info.dwarf();
+                evaluator = resolve_unit_call!(
+                    dwarf,
+                    unit,
+                    evaluator,
+                    &debugger.debugee,
+                    debug_info.dwarf()
+                );
                 EvaluationContext {
                     evaluator: &evaluator,
                     expl_ctx: debugger.exploration_ctx(),
@@ -174,7 +171,9 @@ impl EvaluationContextBuilder<'_> {
 #[macro_export]
 macro_rules! type_from_cache {
     ($variable: expr, $cache: expr) => {
-        $crate::debugger::debugee::dwarf::AsAllocatedData::type_ref($variable.die)
+        $variable
+            .deref_ensure()
+            .type_ref()
             .and_then(
                 |type_ref| match $cache.entry(($variable.unit().id, type_ref)) {
                     std::collections::hash_map::Entry::Occupied(o) => {
@@ -208,11 +207,11 @@ impl<'dbg> DqeExecutor<'dbg> {
     fn variable_die_by_selector(
         &self,
         selector: &Selector,
-    ) -> Result<Vec<ContextualDieRef<'dbg, 'dbg, VariableDie>>, Error> {
+    ) -> Result<Vec<FatDieRef<'dbg, Variable>>, Error> {
         let ctx = self.debugger.exploration_ctx();
 
         let debugee = &self.debugger.debugee;
-        let current_func = debugee
+        let (current_func, _) = debugee
             .debug_info(ctx.location().pc)?
             .find_function_by_pc(ctx.location().global_pc)?
             .ok_or(FunctionNotFound(ctx.location().global_pc))?;
@@ -248,10 +247,10 @@ impl<'dbg> DqeExecutor<'dbg> {
     fn param_die_by_selector(
         &self,
         selector: &Selector,
-    ) -> Result<Vec<ContextualDieRef<'dbg, 'dbg, ParameterDie>>, Error> {
+    ) -> Result<Vec<FatDieRef<'dbg, Argument>>, Error> {
         let expl_ctx_loc = self.debugger.exploration_ctx().location();
         let debugee = &self.debugger.debugee;
-        let current_function = debugee
+        let (current_function, _) = debugee
             .debug_info(expl_ctx_loc.pc)?
             .find_function_by_pc(expl_ctx_loc.global_pc)?
             .ok_or(FunctionNotFound(expl_ctx_loc.global_pc))?;
@@ -259,7 +258,7 @@ impl<'dbg> DqeExecutor<'dbg> {
         let params = match selector {
             Selector::Name { var_name, .. } => params
                 .into_iter()
-                .filter(|param| param.die.name.as_ref() == Some(var_name))
+                .filter(|r| r.deref_ensure().name().as_ref() == Some(var_name))
                 .collect::<Vec<_>>(),
             Selector::Any => params,
         };
@@ -272,27 +271,34 @@ impl<'dbg> DqeExecutor<'dbg> {
         selector: &Selector,
         on_args: bool,
     ) -> Result<Vec<QueryResult<'dbg>>, Error> {
-        fn root_from_die<'dbg, T: AsAllocatedData>(
+        fn root_from_die<'dbg, H: Typed>(
             debugger: &'dbg Debugger,
-            die: &ContextualDieRef<'_, 'dbg, T>,
+            die_ref: &FatDieRef<'dbg, H>,
             ranges: Option<Box<[Range]>>,
         ) -> Option<QueryResult<'dbg>> {
             let r#type = debugger
                 .gcx()
-                .with_type_cache(|tc| weak_error!(type_from_cache!(die, tc)))?;
+                .with_type_cache(|tc| weak_error!(type_from_cache!(die_ref, tc)))?;
 
-            let evaluator = ctx_resolve_unit_call!(die, evaluator, &debugger.debugee);
+            let evaluator = ctx_resolve_unit_call!(
+                die_ref,
+                evaluator,
+                &debugger.debugee,
+                die_ref.debug_info.dwarf()
+            );
             let context_builder = EvaluationContextBuilder::Ready(debugger, evaluator);
 
             let value = context_builder.with_eval_ctx(|eval_ctx| {
-                let data = die.read_value(debugger.exploration_ctx(), &debugger.debugee, &r#type);
+                let data =
+                    die_ref.read_value(debugger.exploration_ctx(), &debugger.debugee, &r#type);
 
                 let parser = ValueParser::new();
                 let parse_ctx = &ParseContext {
                     evaluation_context: eval_ctx,
                     type_graph: &r#type,
                 };
-                let modifiers = &ValueModifiers::from_identity(parse_ctx, Identity::from_die(die));
+                let modifiers =
+                    &ValueModifiers::from_identity(parse_ctx, Identity::from_die(die_ref));
                 parser.parse(parse_ctx, data, modifiers)
             })?;
 
@@ -301,7 +307,7 @@ impl<'dbg> DqeExecutor<'dbg> {
                 scope: ranges,
                 kind: QueryResultKind::Root,
                 base_type: r#type,
-                identity: Identity::from_die(die),
+                identity: Identity::from_die(die_ref),
                 eval_ctx_builder: context_builder,
             })
         }
@@ -327,9 +333,7 @@ impl<'dbg> DqeExecutor<'dbg> {
                 let vars = self.variable_die_by_selector(selector)?;
                 Ok(vars
                     .iter()
-                    .filter_map(|var_die| {
-                        root_from_die(self.debugger, var_die, var_die.ranges().map(Box::from))
-                    })
+                    .filter_map(|var_die| root_from_die(self.debugger, var_die, var_die.ranges()))
                     .collect())
             }
         }
@@ -349,8 +353,7 @@ impl<'dbg> DqeExecutor<'dbg> {
         let context_builder = EvaluationContextBuilder::Virtual {
             debugger: self.debugger,
             debug_info: var_die_ref.debug_info,
-            unit_idx: var_die_ref.unit_idx,
-            die: VirtualVariableDie::workpiece(),
+            unit: var_die_ref.unit(),
         };
 
         let value = context_builder.with_eval_ctx(|eval_ctx| {
@@ -400,8 +403,7 @@ impl<'dbg> DqeExecutor<'dbg> {
         let context_builder = EvaluationContextBuilder::Virtual {
             debugger: self.debugger,
             debug_info: var_die_ref.debug_info,
-            unit_idx: var_die_ref.unit_idx,
-            die: VirtualVariableDie::workpiece(),
+            unit: var_die_ref.unit(),
         };
 
         let value = context_builder.with_eval_ctx(|eval_ctx| {
@@ -505,7 +507,7 @@ impl<'dbg> DqeExecutor<'dbg> {
                 let vars = self.variable_die_by_selector(selector)?;
                 Ok(vars
                     .into_iter()
-                    .filter_map(|die| die.die.name().map(ToOwned::to_owned))
+                    .filter_map(|die_ref| die_ref.deref_ensure().name())
                     .collect())
             }
             _ => unreachable!("unexpected expression variant"),
@@ -524,7 +526,7 @@ impl<'dbg> DqeExecutor<'dbg> {
                 let params = self.param_die_by_selector(selector)?;
                 Ok(params
                     .into_iter()
-                    .filter_map(|die| die.die.name().map(ToOwned::to_owned))
+                    .filter_map(|r| r.deref_ensure().name())
                     .collect())
             }
             _ => unreachable!("unexpected expression variant"),
