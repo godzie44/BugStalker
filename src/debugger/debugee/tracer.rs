@@ -55,6 +55,7 @@ pub enum StopReason {
     NoSuchProcess(Pid),
 }
 
+/// Trace context (or tcx).
 #[derive(Clone, Copy)]
 pub struct TraceContext<'a> {
     pub breakpoints: &'a [&'a Breakpoint],
@@ -110,7 +111,7 @@ impl Tracer {
     }
 
     /// Continue debugee execution until stop happened.
-    pub fn resume(&mut self, ctx: TraceContext) -> Result<StopReason, Error> {
+    pub fn resume(&mut self, tcx: TraceContext) -> Result<StopReason, Error> {
         loop {
             if let Some(req) = self.inject_signal_queue.pop_front() {
                 self.tracee_ctl.cont_stopped_ex(
@@ -123,7 +124,7 @@ impl Tracer {
 
                 if let Some((pid, sign)) = self.inject_signal_queue.front().copied() {
                     // if there are more signals - stop debugee again
-                    self.group_stop_interrupt(ctx, Pid::from_raw(-1))?;
+                    self.group_stop_interrupt(tcx, Pid::from_raw(-1))?;
                     return Ok(StopReason::SignalStop(pid, sign));
                 }
             } else {
@@ -140,7 +141,7 @@ impl Tracer {
             };
 
             debug!(target: "tracer", "received new thread status: {status:?}");
-            if let Some(stop) = self.apply_new_status(ctx, status)? {
+            if let Some(stop) = self.apply_new_status(tcx, status)? {
                 // if stop fired by quiet signal - go to next iteration, this will inject signal at
                 // a tracee process and resume it
                 if let StopReason::SignalStop(_, signal) = stop
@@ -177,7 +178,7 @@ impl Tracer {
     /// # Arguments
     ///
     /// * `initiator_pid`: tracee with this thread id already stopped, there is no need to interrupt it.
-    fn group_stop_interrupt(&mut self, ctx: TraceContext, initiator_pid: Pid) -> Result<(), Error> {
+    fn group_stop_interrupt(&mut self, tcx: TraceContext, initiator_pid: Pid) -> Result<(), Error> {
         if self.group_stop_in_progress() {
             return Ok(());
         }
@@ -236,7 +237,7 @@ impl Tracer {
                 let mut wait = tracee.wait_one()?;
 
                 while !matches!(wait, WaitStatus::PtraceEvent(_, _, libc::PTRACE_EVENT_STOP)) {
-                    let stop = self.apply_new_status(ctx, wait)?;
+                    let stop = self.apply_new_status(tcx, wait)?;
                     match stop {
                         None => {}
                         Some(StopReason::Breakpoint(pid, _))
@@ -302,7 +303,7 @@ impl Tracer {
     /// * `status`: new status returned by `waitpid`.
     fn apply_new_status(
         &mut self,
-        ctx: TraceContext,
+        tcx: TraceContext,
         status: WaitStatus,
     ) -> Result<Option<StopReason>, Error> {
         match status {
@@ -340,7 +341,7 @@ impl Tracer {
                                 self.tracee_ctl.remove(new_thread_id);
                             } else {
                                 // all watchpoints must be distributed to a new tracee
-                                weak_error!(ctx.watchpoints.distribute_to_tracee(new_tracee));
+                                weak_error!(tcx.watchpoints.distribute_to_tracee(new_tracee));
 
                                 debug_assert!(
                                     matches!(
@@ -358,7 +359,7 @@ impl Tracer {
                             Some(tracee) => tracee.set_stop(StopType::Interrupt),
                             None => {
                                 let tracee = self.tracee_ctl.add(pid);
-                                weak_error!(ctx.watchpoints.distribute_to_tracee(tracee));
+                                weak_error!(tcx.watchpoints.distribute_to_tracee(tracee));
                             }
                         }
                     }
@@ -402,7 +403,7 @@ impl Tracer {
                                 tracee.pc()?
                             };
 
-                            let mb_hit_brkpt = ctx
+                            let mb_hit_brkpt = tcx
                                 .breakpoints
                                 .iter()
                                 .find(|brkpt| brkpt.addr == current_pc);
@@ -414,7 +415,7 @@ impl Tracer {
                                 return Ok(None);
                             };
 
-                            let has_tmp_breakpoints = ctx
+                            let has_tmp_breakpoints = tcx
                                 .breakpoints
                                 .iter()
                                 .any(|b| b.is_temporary() | b.is_temporary_async());
@@ -427,7 +428,7 @@ impl Tracer {
                                     unusual_brkpt.pid = pid;
                                     if unusual_brkpt.is_enabled() {
                                         unusual_brkpt.disable()?;
-                                        while self.single_step(ctx, pid)?.is_some() {}
+                                        while self.single_step(tcx, pid)?.is_some() {}
                                         unusual_brkpt.enable()?;
                                     }
                                     self.tracee_ctl
@@ -441,7 +442,7 @@ impl Tracer {
                             self.tracee_ctl
                                 .tracee_ensure_mut(pid)
                                 .set_stop(StopType::Interrupt);
-                            self.group_stop_interrupt(ctx, pid)?;
+                            self.group_stop_interrupt(tcx, pid)?;
 
                             if let BrkptType::WatchpointCompanion(wps) = brkpt.r#type() {
                                 return Ok(Some(StopReason::Watchpoint(
@@ -462,7 +463,7 @@ impl Tracer {
                             self.tracee_ctl
                                 .tracee_ensure_mut(pid)
                                 .set_stop(StopType::Interrupt);
-                            self.group_stop_interrupt(ctx, pid)?;
+                            self.group_stop_interrupt(tcx, pid)?;
 
                             let mut state = register::debug::HardwareDebugState::current(pid)?;
                             let reg = state.dr6.detect_and_flush().expect("should exists");
@@ -488,7 +489,7 @@ impl Tracer {
                             .set_stop(StopType::SignalStop(signal));
 
                         if !QUIET_SIGNALS.contains(&signal) {
-                            self.group_stop_interrupt(ctx, pid)?;
+                            self.group_stop_interrupt(tcx, pid)?;
                         }
 
                         Ok(Some(StopReason::SignalStop(pid, signal)))
@@ -507,7 +508,7 @@ impl Tracer {
     ///
     /// # Arguments
     ///
-    /// * `ctx`: trace context
+    /// * `tcx`: trace context
     /// * `pid`: tracee pid
     ///
     /// returns: [`None`] if an instruction step is done successfully.
@@ -516,7 +517,7 @@ impl Tracer {
     /// Error returned otherwise.
     pub fn single_step(
         &mut self,
-        ctx: TraceContext,
+        tcx: TraceContext,
         pid: Pid,
     ) -> Result<Option<StopReason>, Error> {
         let tracee = self.tracee_ctl.tracee_ensure(pid);
@@ -551,7 +552,7 @@ impl Tracer {
                     break Some(StopReason::Watchpoint(pid, pc, hit_type));
                 }
 
-                let mb_brkpt = ctx.breakpoints.iter().find(|brkpt| brkpt.addr == pc);
+                let mb_brkpt = tcx.breakpoints.iter().find(|brkpt| brkpt.addr == pc);
                 if let Some(BrkptType::WatchpointCompanion(wps)) = mb_brkpt.map(|b| b.r#type()) {
                     let hit_type = WatchpointHitType::EndOfScope(wps.clone());
                     break Some(StopReason::Watchpoint(pid, pc, hit_type));
@@ -585,7 +586,7 @@ impl Tracer {
                 break None;
             }
 
-            let stop = self.apply_new_status(ctx, status)?;
+            let stop = self.apply_new_status(tcx, status)?;
             match stop {
                 None => {}
                 Some(StopReason::Breakpoint(_, _)) => {

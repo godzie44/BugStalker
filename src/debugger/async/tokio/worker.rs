@@ -345,13 +345,13 @@ impl OwnedList {
         context: QueryResult<'a>,
     ) -> Result<Vec<Task>, Error> {
         let list = context
-            .modify_value(|ctx, val| {
+            .modify_value(|pcx, val| {
                 val.field("current")?
                     .field("handle")?
                     .field("value")?
                     .field("__0")?
                     .field("__0")?
-                    .deref(ctx)?
+                    .deref(pcx)?
                     .field("data")?
                     .field("shared")?
                     .field("owned")?

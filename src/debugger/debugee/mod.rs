@@ -285,8 +285,8 @@ impl Debugee {
         }
     }
 
-    pub fn trace_until_stop(&mut self, ctx: TraceContext) -> Result<StopReason, Error> {
-        let event = self.tracer.resume(ctx)?;
+    pub fn trace_until_stop(&mut self, tcx: TraceContext) -> Result<StopReason, Error> {
+        let event = self.tracer.resume(tcx)?;
         match event {
             StopReason::DebugeeExit(_) => {
                 self.execution_status = ExecutionStatus::Exited;
@@ -296,7 +296,7 @@ impl Debugee {
                 print_warns!(self.dwarf_registry.update_mappings(true)?);
             }
             StopReason::Breakpoint(tid, addr) => {
-                let mb_brkpt = ctx.breakpoints.iter().find(|bp| bp.addr == addr);
+                let mb_brkpt = tcx.breakpoints.iter().find(|bp| bp.addr == addr);
                 let mb_type = mb_brkpt.map(|brkpt| brkpt.r#type());
 
                 match mb_type {
