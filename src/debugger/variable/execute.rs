@@ -11,7 +11,7 @@ use crate::debugger::variable::value::parser::{ParseContext, ValueModifiers, Val
 use crate::debugger::variable::r#virtual::VirtualVariableDie;
 use crate::debugger::variable::{Identity, ObjectBinaryRepr};
 use crate::debugger::{Debugger, read_memory_by_pid};
-use crate::{ctx_resolve_unit_call, resolve_unit_call, weak_error};
+use crate::{ref_resolve_unit_call, resolve_unit_call, weak_error};
 use bytes::Bytes;
 use gimli::Range;
 use std::fmt::Debug;
@@ -277,7 +277,7 @@ impl<'dbg> DqeExecutor<'dbg> {
                 .gcx()
                 .with_type_cache(|tc| weak_error!(type_from_cache!(die_ref, tc)))?;
 
-            let evaluator = ctx_resolve_unit_call!(
+            let evaluator = ref_resolve_unit_call!(
                 die_ref,
                 evaluator,
                 &debugger.debugee,
