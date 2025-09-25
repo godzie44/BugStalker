@@ -203,10 +203,10 @@ impl DebugInformation {
         debugee: &Debugee,
         ecx: &ExplorationContext,
     ) -> Result<RelocatedAddress, Error> {
-        let mut ctx = Box::new(UnwindContext::new());
+        let mut ucx = Box::new(UnwindContext::new());
         let row = self.eh_frame.unwind_info_for_address(
             &self.bases,
-            &mut ctx,
+            &mut ucx,
             ecx.location().global_pc.into(),
             EhFrame::cie_from_offset,
         )?;

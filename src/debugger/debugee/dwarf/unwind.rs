@@ -111,7 +111,7 @@ pub fn return_addr(debugee: &Debugee, pid: Pid) -> Result<Option<RelocatedAddres
     libunwind::return_addr(pid)
 }
 
-/// UnwindContext contains information for unwinding single frame.  
+/// UnwindContext (or ucx) contains information for unwinding single frame.  
 pub struct UnwindContext<'a> {
     registers: DwarfRegisterMap,
     location: Location,
@@ -141,11 +141,11 @@ impl<'a> UnwindContext<'a> {
             Err(e) => return Err(e.into()),
         };
 
-        let mut ctx = Box::new(gimli::UnwindContext::new());
+        let mut ucx = Box::new(gimli::UnwindContext::new());
         let row = fde.unwind_info_for_address(
             &dwarf.eh_frame,
             &dwarf.bases,
-            &mut ctx,
+            &mut ucx,
             ecx.location().global_pc.into(),
         )?;
         let cfa = dwarf.evaluate_cfa(debugee, &registers_snap, row, ecx)?;
@@ -224,12 +224,12 @@ impl<'a> UnwindContext<'a> {
     }
 
     pub fn next(
-        previous_ctx: UnwindContext<'a>,
+        previous_ucx: UnwindContext<'a>,
         ecx: &ExplorationContext,
     ) -> Result<Option<Self>, Error> {
-        let mut next_frame_registers: DwarfRegisterMap = previous_ctx.registers;
-        next_frame_registers.update(gimli::Register(7), previous_ctx.cfa.into());
-        UnwindContext::new(previous_ctx.debugee, next_frame_registers, ecx)
+        let mut next_frame_registers: DwarfRegisterMap = previous_ucx.registers;
+        next_frame_registers.update(gimli::Register(7), previous_ucx.cfa.into());
+        UnwindContext::new(previous_ucx.debugee, next_frame_registers, ecx)
     }
 
     fn return_address(&self) -> Option<RelocatedAddress> {
@@ -275,12 +275,12 @@ impl<'a> DwarfUnwinder<'a> {
             .location(self.debugee)?;
 
         let mut ecx = ExplorationContext::new(frame_0_location, 0);
-        let mb_unwind_ctx = UnwindContext::new(
+        let mb_ucx = UnwindContext::new(
             self.debugee,
             DwarfRegisterMap::from(RegisterMap::current(ecx.pid_on_focus())?),
             &ecx,
         )?;
-        let Some(mut unwind_ctx) = mb_unwind_ctx else {
+        let Some(mut ucx) = mb_ucx else {
             return Ok(vec![]);
         };
 
@@ -307,7 +307,7 @@ impl<'a> DwarfUnwinder<'a> {
         )?];
 
         // start unwind
-        while let Some(return_addr) = unwind_ctx.return_address() {
+        while let Some(return_addr) = ucx.return_address() {
             let prev_loc = bt.last().expect("backtrace len > 0");
             if prev_loc.ip == return_addr {
                 break;
@@ -316,13 +316,13 @@ impl<'a> DwarfUnwinder<'a> {
             let next_location = Location {
                 pc: return_addr,
                 global_pc: return_addr.into_global(self.debugee)?,
-                pid: unwind_ctx.location.pid,
+                pid: ucx.location.pid,
             };
 
             ecx = ExplorationContext::new(next_location, ecx.frame_num() + 1);
-            unwind_ctx = match UnwindContext::next(unwind_ctx, &ecx)? {
+            ucx = match UnwindContext::next(ucx, &ecx)? {
                 None => break,
-                Some(ctx) => ctx,
+                Some(ucx) => ucx,
             };
 
             let function = self
@@ -369,7 +369,7 @@ impl<'a> DwarfUnwinder<'a> {
             return Ok(());
         }
 
-        let mut unwind_ctx = UnwindContext::new(
+        let mut unwind_ucx = UnwindContext::new(
             self.debugee,
             DwarfRegisterMap::from(RegisterMap::current(ecx.pid_on_focus())?),
             &ecx,
@@ -377,7 +377,7 @@ impl<'a> DwarfUnwinder<'a> {
         .ok_or(UnwindNoContext)?;
 
         for _ in 0..frame_num {
-            let ret_addr = unwind_ctx.return_address().ok_or(UnwindTooDeepFrame)?;
+            let ret_addr = unwind_ucx.return_address().ok_or(UnwindTooDeepFrame)?;
 
             ecx = ExplorationContext::new(
                 Location {
@@ -388,13 +388,13 @@ impl<'a> DwarfUnwinder<'a> {
                 ecx.frame_num() + 1,
             );
 
-            unwind_ctx = UnwindContext::next(unwind_ctx, &ecx)?.ok_or(UnwindNoContext)?;
+            unwind_ucx = UnwindContext::next(unwind_ucx, &ecx)?.ok_or(UnwindNoContext)?;
         }
 
-        if let Ok(ip) = unwind_ctx.registers().value(gimli::Register(16)) {
+        if let Ok(ip) = unwind_ucx.registers().value(gimli::Register(16)) {
             registers.update(gimli::Register(16), ip);
         }
-        if let Ok(sp) = unwind_ctx.registers().value(gimli::Register(7)) {
+        if let Ok(sp) = unwind_ucx.registers().value(gimli::Register(7)) {
             registers.update(gimli::Register(7), sp);
         }
 
@@ -414,14 +414,14 @@ impl<'a> DwarfUnwinder<'a> {
             .location(self.debugee)?;
         let ecx = ExplorationContext::new(frame_0_location, 0);
 
-        let mb_unwind_ctx = UnwindContext::new(
+        let mb_ucx = UnwindContext::new(
             self.debugee,
             DwarfRegisterMap::from(RegisterMap::current(ecx.pid_on_focus())?),
             &ecx,
         )?;
 
-        if let Some(unwind_ctx) = mb_unwind_ctx {
-            return Ok(unwind_ctx.return_address());
+        if let Some(ucx) = mb_ucx {
+            return Ok(ucx.return_address());
         }
         Ok(None)
     }
