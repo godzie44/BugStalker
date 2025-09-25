@@ -204,7 +204,7 @@ pub fn task_from_header<'a>(
     let mut cell_type_die_name = None;
     for (typ, offset) in iter {
         if typ.starts_with("Cell") {
-            let typ_die = Die::new(poll_fn_die.deref_ctx(), *offset)?;
+            let typ_die = Die::new(poll_fn_die.dcx(), *offset)?;
 
             if typ_die.tag() == gimli::DW_TAG_structure_type {
                 let mut s_tpl_found = false;

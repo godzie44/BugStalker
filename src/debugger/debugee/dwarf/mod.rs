@@ -845,18 +845,18 @@ impl NamespaceHierarchy {
     ///
     /// # Arguments
     ///
-    /// * `deref_ctx`: die dereferencing context
+    /// * `dcx`: die dereferencing context
     /// * `die_offset`: offset of root die
     /// * `parent_index`: parent index
     pub fn for_die(
-        deref_ctx: DerefContext,
+        dcx: DerefContext,
         die_offset: gimli::UnitOffset,
         parent_index: &IndexMap<UnitOffset, UnitOffset>,
     ) -> Self {
         let mut ns_chain = vec![];
         let mut p_idx = parent_index.get(&die_offset).copied();
         let mut next_parent = || -> Option<_> {
-            let parent = weak_error!(Die::new(deref_ctx.clone(), p_idx?))?;
+            let parent = weak_error!(Die::new(dcx.clone(), p_idx?))?;
             p_idx = parent_index.get(&parent.offset()).copied();
             Some(parent)
         };

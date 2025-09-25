@@ -847,7 +847,7 @@ impl TypeParser {
 
                 variant_offsets
                     .into_iter()
-                    .filter_map(|off| weak_error!(Die::new(die_ref.deref_ctx(), off)))
+                    .filter_map(|off| weak_error!(Die::new(die_ref.dcx(), off)))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();

@@ -14,7 +14,7 @@ use gimli::{
 };
 use std::collections::VecDeque;
 
-/// Context suitable for dereference DIE references
+/// Deref context (or dcx). Context suitable for dereference DIE references
 #[derive(Clone)]
 pub struct DerefContext<'unit, 'dwarf: 'unit> {
     dwarf: &'dwarf Dwarf<EndianArcSlice>,
@@ -33,19 +33,19 @@ pub enum Die<'a> {
     Virtual { type_ref: Option<DieAddr> },
     /// DIE located in debug information sections
     Dwarf {
-        ctx: DerefContext<'a, 'a>,
+        dcx: DerefContext<'a, 'a>,
         die: DebuggingInformationEntry<'a, 'a, EndianArcSlice>,
     },
 }
 
 impl<'a> Die<'a> {
     /// Take DIE from debug information
-    pub fn new(ctx: DerefContext<'a, 'a>, offset: UnitOffset) -> Result<Die<'a>, Error> {
-        let die = ctx
+    pub fn new(dcx: DerefContext<'a, 'a>, offset: UnitOffset) -> Result<Die<'a>, Error> {
+        let die = dcx
             .unit
             .entry(offset)
             .map_err(|_| Error::DieNotFound(DieAddr::Unit(offset)))?;
-        Ok(Die::Dwarf { ctx, die })
+        Ok(Die::Dwarf { dcx, die })
     }
 }
 
@@ -54,7 +54,7 @@ macro_rules! impl_no_virt {
         pub fn $name(&self) -> $rty {
             match self {
                 Die::Virtual { .. } => unimplemented!(),
-                Die::Dwarf { ctx, die } => $fn(ctx, die),
+                Die::Dwarf { dcx, die } => $fn(dcx, die),
             }
         }
     };
@@ -67,13 +67,13 @@ impl<'a> Die<'a> {
 
     impl_no_virt!(tag, DwTag, |_, die: GimliDie| { die.tag() });
 
-    impl_no_virt!(name, Option<String>, |ctx: &DerefContext, die: GimliDie| {
-        Self::attr_to_string(ctx.dwarf, ctx.unit, die, DW_AT_name).ok()?
+    impl_no_virt!(name, Option<String>, |dcx: &DerefContext, die: GimliDie| {
+        Self::attr_to_string(dcx.dwarf, dcx.unit, die, DW_AT_name).ok()?
     });
 
-    impl_no_virt!(ranges, Box<[Range]>, |ctx: &DerefContext, die: GimliDie| {
-        ctx.dwarf
-            .die_ranges(ctx.unit, die)
+    impl_no_virt!(ranges, Box<[Range]>, |dcx: &DerefContext, die: GimliDie| {
+        dcx.dwarf
+            .die_ranges(dcx.unit, die)
             .unwrap_or_default()
             .collect::<Vec<Range>>()
             .unwrap_or_default()
@@ -154,13 +154,13 @@ impl<'a> Die<'a> {
     pub fn for_each_children_t<T>(&self, mut f: impl FnMut(Die<'a>) -> Option<T>) -> Option<T> {
         match self {
             Die::Virtual { .. } => unimplemented!(),
-            Die::Dwarf { ctx, die } => {
-                let mut tree = weak_error!(ctx.unit.entries_tree(Some(die.offset())))?;
+            Die::Dwarf { dcx, die } => {
+                let mut tree = weak_error!(dcx.unit.entries_tree(Some(die.offset())))?;
 
                 let root = weak_error!(tree.root())?;
                 let mut children = root.children();
                 while let Some(c) = weak_error!(children.next())? {
-                    let die = Die::new(ctx.clone(), c.entry().offset()).expect("DIE should exist");
+                    let die = Die::new(dcx.clone(), c.entry().offset()).expect("DIE should exist");
 
                     if let Some(r) = f(die) {
                         return Some(r);
@@ -199,16 +199,16 @@ impl<'a> Die<'a> {
     ) -> Option<T> {
         match self {
             Die::Virtual { .. } => unimplemented!(),
-            Die::Dwarf { ctx, die } => {
+            Die::Dwarf { dcx, die } => {
                 let mut queue = VecDeque::from([die.offset()]);
 
                 while let Some(offset) = queue.pop_front() {
-                    let mut tree = weak_error!(ctx.unit.entries_tree(Some(offset)))?;
+                    let mut tree = weak_error!(dcx.unit.entries_tree(Some(offset)))?;
                     let root = weak_error!(tree.root())?;
                     let mut children = root.children();
                     while let Some(child) = weak_error!(children.next())? {
                         let offset = child.entry().offset();
-                        let die = Die::new(ctx.clone(), offset).expect("DIE should exist");
+                        let die = Die::new(dcx.clone(), offset).expect("DIE should exist");
 
                         if let Some(r) = f(die) {
                             return Some(r);
