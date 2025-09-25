@@ -248,7 +248,7 @@ impl Debugger {
         let initial_task_context = self
             .read_variable(Dqe::Variable(Selector::by_name("_task_context", true)))?
             .pop_if_single_el()
-            .and_then(|t_ctx| t_ctx.into_value().into_raw_ptr())
+            .and_then(|qr| qr.into_value().into_raw_ptr())
             .and_then(|ptr| ptr.value)
             .ok_or(AsyncError::IncorrectAssumption(
                 "`_task_context` local variable should exist",
@@ -430,9 +430,9 @@ impl Debugger {
             let mb_task_context = self
                 .read_variable(Dqe::Variable(Selector::by_name("_task_context", true)))?
                 .pop_if_single_el()
-                .and_then(|t_ctx| t_ctx.into_value().into_raw_ptr())
+                .and_then(|qr| qr.into_value().into_raw_ptr())
                 .and_then(|ptr| ptr.value)
-                .map(|t_ctx| t_ctx as usize);
+                .map(|val| val as usize);
 
             let context_equals: bool = if let Some(task_context) = mb_task_context {
                 task_context == initial_task_context

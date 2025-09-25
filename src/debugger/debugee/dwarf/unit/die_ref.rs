@@ -14,7 +14,7 @@ use crate::debugger::error::Error::{
 };
 use crate::debugger::variable::ObjectBinaryRepr;
 use crate::debugger::variable::r#virtual::VirtualVariableDie;
-use crate::{ctx_resolve_unit_call, debug_info_exists, weak_error};
+use crate::{debug_info_exists, ref_resolve_unit_call, weak_error};
 use gimli::{DW_TAG_lexical_block, DW_TAG_subprogram, Range, UnitOffset};
 use indexmap::IndexMap;
 use std::marker::PhantomData;
@@ -52,7 +52,7 @@ pub struct FatDieRef<'dbg, H: Hint = NoHint> {
 }
 
 #[macro_export]
-macro_rules! ctx_resolve_unit_call {
+macro_rules! ref_resolve_unit_call {
     ($self: ident, $fn_name: tt, $($arg: expr),*) => {{
         $crate::resolve_unit_call!($self.debug_info.dwarf(), $self.unit(), $fn_name, $($arg),*)
     }};
@@ -162,7 +162,7 @@ impl<'dbg, H: Hint> FatDieRef<'dbg, H> {
     }
 
     pub fn namespace(&self) -> NamespaceHierarchy {
-        let parent_index = ctx_resolve_unit_call!(self, parent_index,);
+        let parent_index = ref_resolve_unit_call!(self, parent_index,);
 
         let DieReference::Offset(offset) = self.reference else {
             unimplemented!("virtual die are unsupported")
@@ -180,7 +180,7 @@ impl<'dbg> FatDieRef<'dbg, Argument> {
             let die = weak_error!(self.deref())?;
 
             let mut fn_block = None;
-            let parent_index = ctx_resolve_unit_call!(self, parent_index,);
+            let parent_index = ref_resolve_unit_call!(self, parent_index,);
 
             let mut parent_offset = parent_index.get(&die.offset()).copied();
             while let Some(off) = parent_offset {
@@ -215,7 +215,7 @@ impl<'dbg> FatDieRef<'dbg, Variable> {
         let die = weak_error!(self.deref())?;
 
         let parent_index: &IndexMap<UnitOffset, UnitOffset> =
-            ctx_resolve_unit_call!(self, parent_index,);
+            ref_resolve_unit_call!(self, parent_index,);
         let mut parent_offset = parent_index.get(&die.offset()).copied();
         while let Some(off) = parent_offset {
             let die = weak_error!(Die::new(self.dcx(), off))?;
@@ -258,7 +258,7 @@ impl<'dbg, H: Typed> FatDieRef<'dbg, H> {
 
         location_expr.and_then(|expr| {
             let evaluator =
-                ctx_resolve_unit_call!(self, evaluator, debugee, self.debug_info.dwarf());
+                ref_resolve_unit_call!(self, evaluator, debugee, self.debug_info.dwarf());
             let eval_result = weak_error!(evaluator.evaluate(ecx, expr))?;
             let type_size = r#type.type_size_in_bytes(
                 &EvaluationContext {
@@ -290,7 +290,7 @@ impl<'dbg> FatDieRef<'dbg, Function> {
             .try_as_expression(self.debug_info, self.unit(), ecx.location().global_pc)
             .ok_or(FBANotAnExpression)?;
 
-        let evaluator = ctx_resolve_unit_call!(self, evaluator, debugee, self.debug_info.dwarf());
+        let evaluator = ref_resolve_unit_call!(self, evaluator, debugee, self.debug_info.dwarf());
         let result = evaluator
             .evaluate(ecx, expr)?
             .into_scalar::<usize>(AddressKind::Value)?;
