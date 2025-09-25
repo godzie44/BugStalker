@@ -64,7 +64,7 @@ impl LocalQueue {
         let mut task_buffer = Vec::with_capacity((tail - head) as usize);
         let buffer = local_queue_inner
             .clone()
-            .modify_value(|ctx, val| val.field("buffer")?.deref(ctx))?;
+            .modify_value(|pcx, val| val.field("buffer")?.deref(pcx))?;
 
         let mut start = head;
         while start < tail {
@@ -378,9 +378,9 @@ impl OwnedList {
             ))?;
 
         let data_qr = lists
-            .modify_value(|ctx, val| {
+            .modify_value(|pcx, val| {
                 val.field("data_ptr")?
-                    .slice(ctx, None, Some(lists_len as usize))
+                    .slice(pcx, None, Some(lists_len as usize))
             })
             .ok_or(AsyncError::IncorrectAssumption(
                 "error while extract field `list.lists.data_ptr`",
@@ -424,8 +424,8 @@ impl OwnedList {
                 let mut next_ptr_qr = data_qr.clone().modify_value(|_, _| Some(ptr));
 
                 while let Some(ptr_qr) = next_ptr_qr {
-                    next_ptr_qr = ptr_qr.clone().modify_value(|ctx, val| {
-                        val.deref(ctx)?
+                    next_ptr_qr = ptr_qr.clone().modify_value(|pcx, val| {
+                        val.deref(pcx)?
                             .field("queue_next")?
                             .field("__0")?
                             .field("value")?

@@ -369,10 +369,10 @@ impl TokioOracle {
         };
         let header_ptr = *header_ptr;
 
-        let Some(id_offset) = header.modify_value(|ctx, value| {
-            let deref = value.deref(ctx)?;
+        let Some(id_offset) = header.modify_value(|pcx, value| {
+            let deref = value.deref(pcx)?;
             let vtable = deref.field("vtable")?;
-            let deref = vtable.deref(ctx)?;
+            let deref = vtable.deref(pcx)?;
             deref.field("id_offset")
         }) else {
             return Ok(None);
@@ -400,9 +400,7 @@ impl TokioOracle {
         if let Some((task_id, task_ptr)) = Self::get_header_from_self(debugger)? {
             let mut tasks = self.tasks.lock().unwrap();
             let entry = tasks.entry(task_id).or_insert_with(|| {
-                let bt = debugger
-                    .backtrace(debugger.ecx().pid_on_focus())
-                    .ok();
+                let bt = debugger.backtrace(debugger.ecx().pid_on_focus()).ok();
                 Task::new(task_id, bt.as_ref())
             });
             entry.ptr = Some(task_ptr);
@@ -423,9 +421,7 @@ impl TokioOracle {
         if let Value::Scalar(scalar) = id_args[0].value()
             && let Some(SupportedScalar::U64(id_value)) = scalar.value
         {
-            let bt = debugger
-                .backtrace(debugger.ecx().pid_on_focus())
-                .ok();
+            let bt = debugger.backtrace(debugger.ecx().pid_on_focus()).ok();
 
             self.tasks
                 .lock()

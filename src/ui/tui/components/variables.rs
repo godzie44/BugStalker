@@ -113,7 +113,7 @@ fn node_from_var(
                     render_var(name, ty, &value).expect("should be rendered"),
                 );
 
-                let qr = qr.modify_value(|ctx, val| val.deref(ctx));
+                let qr = qr.modify_value(|pcx, val| val.deref(pcx));
 
                 if let Some(qr) = qr {
                     let deref_node = node_from_var(

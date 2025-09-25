@@ -101,11 +101,11 @@ impl QueryResult<'_> {
         let value = self.value.take().expect("should be `Some`");
         let type_graph = self.type_graph();
         let eval_cb = |ctx: &EvaluationContext| {
-            let parse_ctx = &ParseContext {
+            let pcx = &ParseContext {
                 evaluation_context: ctx,
                 type_graph,
             };
-            cb(parse_ctx, value)
+            cb(pcx, value)
         };
         let new_value = self.eval_ctx_builder.with_eval_ctx(eval_cb)?;
         self.value = Some(new_value);
@@ -248,12 +248,12 @@ impl<'dbg> DqeExecutor<'dbg> {
         &self,
         selector: &Selector,
     ) -> Result<Vec<FatDieRef<'dbg, Argument>>, Error> {
-        let expl_ctx_loc = self.debugger.ecx().location();
+        let ecx_loc = self.debugger.ecx().location();
         let debugee = &self.debugger.debugee;
         let (current_function, _) = debugee
-            .debug_info(expl_ctx_loc.pc)?
-            .find_function_by_pc(expl_ctx_loc.global_pc)?
-            .ok_or(FunctionNotFound(expl_ctx_loc.global_pc))?;
+            .debug_info(ecx_loc.pc)?
+            .find_function_by_pc(ecx_loc.global_pc)?
+            .ok_or(FunctionNotFound(ecx_loc.global_pc))?;
         let params = current_function.parameters();
         let params = match selector {
             Selector::Name { var_name, .. } => params
@@ -292,13 +292,12 @@ impl<'dbg> DqeExecutor<'dbg> {
                 let data = die_ref.read_value(debugger.ecx(), &debugger.debugee, &r#type);
 
                 let parser = ValueParser::new();
-                let parse_ctx = &ParseContext {
+                let pcx = &ParseContext {
                     evaluation_context: eval_ctx,
                     type_graph: &r#type,
                 };
-                let modifiers =
-                    &ValueModifiers::from_identity(parse_ctx, Identity::from_die(die_ref));
-                parser.parse(parse_ctx, data, modifiers)
+                let modifiers = &ValueModifiers::from_identity(pcx, Identity::from_die(die_ref));
+                parser.parse(pcx, data, modifiers)
             })?;
 
             Some(QueryResult {
@@ -363,11 +362,11 @@ impl<'dbg> DqeExecutor<'dbg> {
             };
 
             let parser = ValueParser::new();
-            let ctx = &ParseContext {
+            let pcx = &ParseContext {
                 evaluation_context: eval_ctx,
                 type_graph: &r#type,
             };
-            parser.parse(ctx, Some(data), &ValueModifiers::default())
+            parser.parse(pcx, Some(data), &ValueModifiers::default())
         });
 
         Ok(QueryResult {
@@ -421,11 +420,11 @@ impl<'dbg> DqeExecutor<'dbg> {
             };
 
             let parser = ValueParser::new();
-            let ctx = &ParseContext {
+            let pcx = &ParseContext {
                 evaluation_context: eval_ctx,
                 type_graph: &r#type,
             };
-            parser.parse(ctx, Some(data), &ValueModifiers::default())
+            parser.parse(pcx, Some(data), &ValueModifiers::default())
         });
 
         Ok(QueryResult {
@@ -461,21 +460,21 @@ impl<'dbg> DqeExecutor<'dbg> {
                 let results = self.apply_dqe(next, on_args)?;
                 Ok(results
                     .into_iter()
-                    .filter_map(|q| q.modify_value(|ctx, val| val.slice(ctx, *left, *right)))
+                    .filter_map(|q| q.modify_value(|pcx, val| val.slice(pcx, *left, *right)))
                     .collect())
             }
             Dqe::Deref(next) => {
                 let results = self.apply_dqe(next, on_args)?;
                 Ok(results
                     .into_iter()
-                    .filter_map(|q| q.modify_value(|ctx, val| val.deref(ctx)))
+                    .filter_map(|q| q.modify_value(|pcx, val| val.deref(pcx)))
                     .collect())
             }
             Dqe::Address(next) => {
                 let results = self.apply_dqe(next, on_args)?;
                 Ok(results
                     .into_iter()
-                    .filter_map(|q| q.modify_value(|ctx, val| val.address(ctx)))
+                    .filter_map(|q| q.modify_value(|pcx, val| val.address(pcx)))
                     .collect())
             }
             Dqe::Canonic(next) => {
