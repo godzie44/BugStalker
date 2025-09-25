@@ -136,14 +136,14 @@ impl<'dbg, H: Hint> FatDieRef<'dbg, H> {
         self.debug_info.unit_ensure(self.unit_idx)
     }
 
-    pub fn deref_ctx(&'_ self) -> DerefContext<'_, '_> {
+    pub fn dcx(&'_ self) -> DerefContext<'_, '_> {
         DerefContext::new(self.debug_info.dwarf(), self.unit().unit())
     }
 
     pub fn deref(&self) -> Result<Die<'dbg>, Error> {
         let die = match self.reference {
             DieReference::Offset(unit_offset) => Die::Dwarf {
-                ctx: DerefContext::new(self.debug_info.dwarf(), self.unit().unit()),
+                dcx: DerefContext::new(self.debug_info.dwarf(), self.unit().unit()),
                 die: self
                     .unit()
                     .unit()
@@ -168,7 +168,7 @@ impl<'dbg, H: Hint> FatDieRef<'dbg, H> {
             unimplemented!("virtual die are unsupported")
         };
 
-        NamespaceHierarchy::for_die(self.deref_ctx(), offset, parent_index)
+        NamespaceHierarchy::for_die(self.dcx(), offset, parent_index)
     }
 }
 
@@ -184,7 +184,7 @@ impl<'dbg> FatDieRef<'dbg, Argument> {
 
             let mut parent_offset = parent_index.get(&die.offset()).copied();
             while let Some(off) = parent_offset {
-                let die = weak_error!(Die::new(self.deref_ctx(), off))?;
+                let die = weak_error!(Die::new(self.dcx(), off))?;
                 if die.tag() == DW_TAG_subprogram {
                     fn_block = Some(die);
                     break;
@@ -218,7 +218,7 @@ impl<'dbg> FatDieRef<'dbg, Variable> {
             ctx_resolve_unit_call!(self, parent_index,);
         let mut parent_offset = parent_index.get(&die.offset()).copied();
         while let Some(off) = parent_offset {
-            let die = weak_error!(Die::new(self.deref_ctx(), off))?;
+            let die = weak_error!(Die::new(self.dcx(), off))?;
             if die.tag() == DW_TAG_lexical_block || die.tag() == DW_TAG_subprogram {
                 return Some(die.ranges());
             }
