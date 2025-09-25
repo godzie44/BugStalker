@@ -36,7 +36,7 @@ impl ValueModifiers {
     pub fn from_identity(pcx: &ParseContext, ident: Identity) -> ValueModifiers {
         let mut this = ValueModifiers::default();
 
-        let ver = pcx.evaluation_context.rustc_version().unwrap_or_default();
+        let ver = pcx.evcx.rustc_version().unwrap_or_default();
         if ver >= Version((1, 80, 0)) {
             // not sure that value is tls, but some additional checks will be occurred on
             // a value type at parsing stage
@@ -65,7 +65,7 @@ impl ValueModifiers {
 
 /// Parse context (or pcx).
 pub struct ParseContext<'a> {
-    pub evaluation_context: &'a EvaluationContext<'a>,
+    pub evcx: &'a EvaluationContext<'a>,
     pub type_graph: &'a ComplexType,
 }
 
@@ -214,8 +214,7 @@ impl ValueParser {
             );
             return None;
         };
-        let member_val =
-            parent_data.and_then(|data| member.value(pcx.evaluation_context, pcx.type_graph, data));
+        let member_val = parent_data.and_then(|data| member.value(pcx.evcx, pcx.type_graph, data));
         let value = self.parse_inner(pcx, member_val, type_ref)?;
         Some(Member {
             field_name: member.name.clone(),
@@ -230,57 +229,55 @@ impl ValueParser {
         type_id: TypeId,
         array_decl: &ArrayType,
     ) -> ArrayValue {
-        let items = array_decl
-            .bounds(pcx.evaluation_context)
-            .and_then(|bounds| {
-                let len = bounds.1 - bounds.0;
-                if len == 0 {
-                    return Some(vec![]);
-                }
-                if len < 0 {
-                    warn!(
-                        "array `len` less than 0 for type: {}",
-                        pcx.type_graph.identity(type_id)
-                    );
-                    return None;
-                };
+        let items = array_decl.bounds(pcx.evcx).and_then(|bounds| {
+            let len = bounds.1 - bounds.0;
+            if len == 0 {
+                return Some(vec![]);
+            }
+            if len < 0 {
+                warn!(
+                    "array `len` less than 0 for type: {}",
+                    pcx.type_graph.identity(type_id)
+                );
+                return None;
+            };
 
-                let data = data.as_ref()?;
-                let el_size = (array_decl.size_in_bytes(pcx.evaluation_context, pcx.type_graph)?
-                    / len as u64) as usize;
-                let bytes = &data.raw_data;
-                let el_type_id = array_decl.element_type()?;
+            let data = data.as_ref()?;
+            let el_size =
+                (array_decl.size_in_bytes(pcx.evcx, pcx.type_graph)? / len as u64) as usize;
+            let bytes = &data.raw_data;
+            let el_type_id = array_decl.element_type()?;
 
-                let (mut bytes_chunks, mut empty_chunks);
-                let raw_items_iter: &mut dyn Iterator<Item = (usize, &[u8])> = if el_size != 0 {
-                    bytes_chunks = bytes.chunks(el_size).enumerate();
-                    &mut bytes_chunks
-                } else {
-                    // if an item type is zst
-                    let v: Vec<&[u8]> = vec![&[]; len as usize];
-                    empty_chunks = v.into_iter().enumerate();
-                    &mut empty_chunks
-                };
+            let (mut bytes_chunks, mut empty_chunks);
+            let raw_items_iter: &mut dyn Iterator<Item = (usize, &[u8])> = if el_size != 0 {
+                bytes_chunks = bytes.chunks(el_size).enumerate();
+                &mut bytes_chunks
+            } else {
+                // if an item type is zst
+                let v: Vec<&[u8]> = vec![&[]; len as usize];
+                empty_chunks = v.into_iter().enumerate();
+                &mut empty_chunks
+            };
 
-                Some(
-                    raw_items_iter
-                        .filter_map(|(i, chunk)| {
-                            let offset = i * el_size;
-                            let data = ObjectBinaryRepr {
-                                raw_data: bytes.slice_ref(chunk),
-                                address: data.address.map(|addr| addr + offset),
-                                size: el_size,
-                            };
+            Some(
+                raw_items_iter
+                    .filter_map(|(i, chunk)| {
+                        let offset = i * el_size;
+                        let data = ObjectBinaryRepr {
+                            raw_data: bytes.slice_ref(chunk),
+                            address: data.address.map(|addr| addr + offset),
+                            size: el_size,
+                        };
 
-                            let value = self.parse_inner(pcx, Some(data), el_type_id)?;
-                            Some(ArrayItem {
-                                index: bounds.0 + i as i64,
-                                value,
-                            })
+                        let value = self.parse_inner(pcx, Some(data), el_type_id)?;
+                        Some(ArrayItem {
+                            index: bounds.0 + i as i64,
+                            value,
                         })
-                        .collect::<Vec<_>>(),
-                )
-            });
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        });
 
         ArrayValue {
             items,
@@ -440,7 +437,7 @@ impl ValueParser {
                     });
                 };
 
-                let rust_version = pcx.evaluation_context.rustc_version().unwrap_or_default();
+                let rust_version = pcx.evcx.rustc_version().unwrap_or_default();
                 let type_is_tls = version_switch!(
                     rust_version,
                     .. (1 . 77) => type_ns_h.contains(&["std", "sys", "common", "thread_local", "fast_local"]),

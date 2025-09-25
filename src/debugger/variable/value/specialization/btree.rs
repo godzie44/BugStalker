@@ -153,24 +153,24 @@ struct Leaf {
 
 impl Leaf {
     fn from_markup(
-        eval_ctx: &EvaluationContext,
+        evcx: &EvaluationContext,
         r#type: &ComplexType,
         ptr: *const (),
         markup: &LeafNodeMarkup,
     ) -> Result<Leaf, ParsingError> {
         let leaf_bytes =
-            debugger::read_memory_by_pid(eval_ctx.ecx.pid_on_focus(), ptr as usize, markup.size)
+            debugger::read_memory_by_pid(evcx.ecx.pid_on_focus(), ptr as usize, markup.size)
                 .map_err(ReadDebugeeMemory)?;
         let data = ObjectBinaryRepr {
             raw_data: bytes::Bytes::from(leaf_bytes),
             address: Some(ptr as usize),
             size: markup.size,
         };
-        Ok(Self::from_bytes(eval_ctx, r#type, data, markup)?)
+        Ok(Self::from_bytes(evcx, r#type, data, markup)?)
     }
 
     fn from_bytes(
-        eval_ctx: &EvaluationContext,
+        evcx: &EvaluationContext,
         r#type: &ComplexType,
         data: ObjectBinaryRepr,
         markup: &LeafNodeMarkup,
@@ -180,7 +180,7 @@ impl Leaf {
             mem::transmute::<[u8; EXPECTED_SIZE], Option<NonNull<()>>>(
                 markup
                     .parent
-                    .value(eval_ctx, r#type, &data)
+                    .value(evcx, r#type, &data)
                     .ok_or(AssumeError::NoData("leaf node (parent)"))?
                     .raw_data
                     .to_vec()
@@ -197,7 +197,7 @@ impl Leaf {
 
         let len_bytes = markup
             .len
-            .value(eval_ctx, r#type, &data)
+            .value(evcx, r#type, &data)
             .ok_or(AssumeError::NoData("leaf node (len)"))?
             .raw_data
             .to_vec();
@@ -206,7 +206,7 @@ impl Leaf {
         })?);
         let parent_idx_bytes = markup
             .parent_idx
-            .value(eval_ctx, r#type, &data)
+            .value(evcx, r#type, &data)
             .ok_or(AssumeError::NoData("leaf node (parent index)"))?
             .raw_data
             .to_vec();
@@ -217,11 +217,11 @@ impl Leaf {
 
         let keys_data = markup
             .keys
-            .value(eval_ctx, r#type, &data)
+            .value(evcx, r#type, &data)
             .ok_or(AssumeError::NoData("leaf node (keys)"))?;
         let vals_data = markup
             .vals
-            .value(eval_ctx, r#type, &data)
+            .value(evcx, r#type, &data)
             .ok_or(AssumeError::NoData("leaf node (vals)"))?;
 
         Ok(Leaf {
@@ -244,14 +244,14 @@ struct Internal {
 
 impl Internal {
     fn from_markup(
-        eval_ctx: &EvaluationContext,
+        evcx: &EvaluationContext,
         r#type: &ComplexType,
         ptr: *const (),
         l_markup: &LeafNodeMarkup,
         i_markup: &InternalNodeMarkup,
     ) -> Result<Self, ParsingError> {
         let bytes =
-            debugger::read_memory_by_pid(eval_ctx.ecx.pid_on_focus(), ptr as usize, i_markup.size)
+            debugger::read_memory_by_pid(evcx.ecx.pid_on_focus(), ptr as usize, i_markup.size)
                 .map_err(ReadDebugeeMemory)?;
         let data = ObjectBinaryRepr {
             raw_data: bytes::Bytes::from(bytes),
@@ -260,7 +260,7 @@ impl Internal {
         };
         let edges_v = i_markup
             .edges
-            .value(eval_ctx, r#type, &data)
+            .value(evcx, r#type, &data)
             .ok_or(AssumeError::NoData("internal node (edges_v)"))?
             .raw_data
             .to_vec()
@@ -279,11 +279,11 @@ impl Internal {
 
         let leaf_bytes = i_markup
             .data
-            .value(eval_ctx, r#type, &data)
+            .value(evcx, r#type, &data)
             .ok_or(AssumeError::NoData("internal node (leaf_bytes)"))?;
 
         Ok(Internal {
-            leaf: Leaf::from_bytes(eval_ctx, r#type, leaf_bytes, l_markup)?,
+            leaf: Leaf::from_bytes(evcx, r#type, leaf_bytes, l_markup)?,
             edges,
         })
     }
@@ -368,7 +368,7 @@ impl Handle {
 
     fn next_leaf_edge(
         self,
-        eval_ctx: &EvaluationContext,
+        evcx: &EvaluationContext,
         reflection: &BTreeReflection,
     ) -> Result<Self, ParsingError> {
         if self.node_is_leaf() {
@@ -380,13 +380,12 @@ impl Handle {
             let mut idx = self.idx + 1;
 
             let internal = self.node.data.internal();
-            let mut node =
-                reflection.make_node(eval_ctx, internal.edges[idx], self.node.height - 1)?;
+            let mut node = reflection.make_node(evcx, internal.edges[idx], self.node.height - 1)?;
 
             while node.height != 0 {
                 idx = 0;
                 let internal = node.data.internal();
-                node = reflection.make_node(eval_ctx, internal.edges[idx], node.height - 1)?;
+                node = reflection.make_node(evcx, internal.edges[idx], node.height - 1)?;
             }
 
             if node.height == 0 {
@@ -400,7 +399,7 @@ impl Handle {
     /// Returns first leaf of tree with root in handle.
     fn first_leaf_edge(
         self,
-        eval_ctx: &EvaluationContext,
+        evcx: &EvaluationContext,
         reflection: &BTreeReflection,
     ) -> Result<Handle, ParsingError> {
         let mut handle = self;
@@ -408,7 +407,7 @@ impl Handle {
         while !handle.node_is_leaf() {
             let internal = handle.node.data.internal();
             handle = Handle {
-                node: reflection.make_node(eval_ctx, internal.edges[0], handle.node.height - 1)?,
+                node: reflection.make_node(evcx, internal.edges[0], handle.node.height - 1)?,
                 idx: 0,
             }
         }
@@ -419,7 +418,7 @@ impl Handle {
     /// Ascend node. Return None if current node is root.
     pub(crate) fn try_ascend(
         &self,
-        eval_ctx: &EvaluationContext,
+        evcx: &EvaluationContext,
         reflection: &BTreeReflection,
     ) -> Result<Option<Handle>, ParsingError> {
         let leaf = self.node.data.leaf();
@@ -429,7 +428,7 @@ impl Handle {
         };
 
         Ok(Some(Handle {
-            node: reflection.make_node(eval_ctx, parent.as_ptr(), self.node.height + 1)?,
+            node: reflection.make_node(evcx, parent.as_ptr(), self.node.height + 1)?,
             idx: leaf.parent_idx as usize,
         }))
     }
@@ -471,20 +470,20 @@ impl<'a> BTreeReflection<'a> {
 
     fn make_node(
         &self,
-        eval_ctx: &EvaluationContext,
+        evcx: &EvaluationContext,
         node_ptr: *const (),
         height: usize,
     ) -> Result<Node, ParsingError> {
         let data = if height == 0 {
             LeafOrInternal::Leaf(Leaf::from_markup(
-                eval_ctx,
+                evcx,
                 self.r#type,
                 node_ptr,
                 &self.leaf_markup,
             )?)
         } else {
             LeafOrInternal::Internal(Internal::from_markup(
-                eval_ctx,
+                evcx,
                 self.r#type,
                 node_ptr,
                 &self.leaf_markup,
@@ -496,24 +495,18 @@ impl<'a> BTreeReflection<'a> {
     }
 
     /// Creates new BTreeMap key-value iterator.
-    pub fn iter(self, eval_ctx: &'a EvaluationContext) -> Result<KVIterator<'a>, AssumeError> {
-        let k_size = self
-            .r#type
-            .type_size_in_bytes(eval_ctx, self.k_type_id)
-            .ok_or(AssumeError::UnknownSize(TypeIdentity::no_namespace(
-                "btree key type",
-            )))?;
-        let v_size = self
-            .r#type
-            .type_size_in_bytes(eval_ctx, self.v_type_id)
-            .ok_or(AssumeError::UnknownSize(TypeIdentity::no_namespace(
-                "btree value type",
-            )))?;
+    pub fn iter(self, evcx: &'a EvaluationContext) -> Result<KVIterator<'a>, AssumeError> {
+        let k_size = self.r#type.type_size_in_bytes(evcx, self.k_type_id).ok_or(
+            AssumeError::UnknownSize(TypeIdentity::no_namespace("btree key type")),
+        )?;
+        let v_size = self.r#type.type_size_in_bytes(evcx, self.v_type_id).ok_or(
+            AssumeError::UnknownSize(TypeIdentity::no_namespace("btree value type")),
+        )?;
 
         Ok(KVIterator {
             reflection: self,
             handle: None,
-            eval_ctx,
+            evcx,
             k_size: k_size as usize,
             v_size: v_size as usize,
         })
@@ -522,7 +515,7 @@ impl<'a> BTreeReflection<'a> {
 
 pub struct KVIterator<'a> {
     reflection: BTreeReflection<'a>,
-    eval_ctx: &'a EvaluationContext<'a>,
+    evcx: &'a EvaluationContext<'a>,
     handle: Option<Handle>,
     k_size: usize,
     v_size: usize,
@@ -536,20 +529,20 @@ impl FallibleIterator for KVIterator<'_> {
         let mut handle = match self.handle.take() {
             None => Handle {
                 node: self.reflection.make_node(
-                    self.eval_ctx,
+                    self.evcx,
                     self.reflection.root,
                     self.reflection.root_h,
                 )?,
                 idx: 0,
             }
-            .first_leaf_edge(self.eval_ctx, &self.reflection)?,
+            .first_leaf_edge(self.evcx, &self.reflection)?,
             Some(handle) => handle,
         };
 
         loop {
             let is_kv = handle.is_right_kv();
             if !is_kv {
-                handle = match handle.try_ascend(self.eval_ctx, &self.reflection)? {
+                handle = match handle.try_ascend(self.evcx, &self.reflection)? {
                     None => return Ok(None),
                     Some(h) => h,
                 };
@@ -558,7 +551,7 @@ impl FallibleIterator for KVIterator<'_> {
 
             let data = handle.data(self.k_size, self.v_size)?;
 
-            self.handle = Some(handle.next_leaf_edge(self.eval_ctx, &self.reflection)?);
+            self.handle = Some(handle.next_leaf_edge(self.evcx, &self.reflection)?);
 
             return Ok(Some(data));
         }

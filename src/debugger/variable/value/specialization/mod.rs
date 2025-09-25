@@ -146,7 +146,7 @@ impl<'a> VariableParserExtension<'a> {
         let data_ptr = val.assume_field_as_pointer("data_ptr")?;
 
         let data = debugger::read_memory_by_pid(
-            pcx.evaluation_context.ecx.pid_on_focus(),
+            pcx.evcx.ecx.pid_on_focus(),
             data_ptr as usize,
             len as usize,
         )
@@ -180,7 +180,7 @@ impl<'a> VariableParserExtension<'a> {
         let data_ptr = val.assume_field_as_pointer("pointer")?;
 
         let data = debugger::read_memory_by_pid(
-            pcx.evaluation_context.ecx.pid_on_focus(),
+            pcx.evcx.ecx.pid_on_focus(),
             data_ptr as usize,
             len as usize,
         )?;
@@ -223,11 +223,11 @@ impl<'a> VariableParserExtension<'a> {
 
         let el_type = pcx.type_graph;
         let el_type_size = el_type
-            .type_size_in_bytes(pcx.evaluation_context, inner_type)
+            .type_size_in_bytes(pcx.evcx, inner_type)
             .ok_or(UnknownSize(el_type.identity(inner_type)))? as usize;
 
         let raw_data = debugger::read_memory_by_pid(
-            pcx.evaluation_context.ecx.pid_on_focus(),
+            pcx.evcx.ecx.pid_on_focus(),
             data_ptr,
             len as usize * el_type_size,
         )
@@ -495,17 +495,17 @@ impl<'a> VariableParserExtension<'a> {
 
         let r#type = pcx.type_graph;
         let kv_size = r#type
-            .type_size_in_bytes(pcx.evaluation_context, kv_type)
+            .type_size_in_bytes(pcx.evcx, kv_type)
             .ok_or(UnknownSize(r#type.identity(kv_type)))?;
 
         let reflection =
             HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
 
-        let iterator = reflection.iter(pcx.evaluation_context.ecx.pid_on_focus())?;
+        let iterator = reflection.iter(pcx.evcx.ecx.pid_on_focus())?;
         let kv_items = iterator
             .map_err(ParsingError::from)
             .filter_map(|bucket| {
-                let raw_data = bucket.read(pcx.evaluation_context.ecx.pid_on_focus());
+                let raw_data = bucket.read(pcx.evcx.ecx.pid_on_focus());
                 let data = weak_error!(raw_data).map(|d| ObjectBinaryRepr {
                     raw_data: Bytes::from(d),
                     address: Some(bucket.location()),
@@ -560,17 +560,17 @@ impl<'a> VariableParserExtension<'a> {
             .ok_or(TypeParameterTypeNotFound("T"))?;
         let r#type = pcx.type_graph;
         let kv_size = r#type
-            .type_size_in_bytes(pcx.evaluation_context, kv_type)
+            .type_size_in_bytes(pcx.evcx, kv_type)
             .ok_or_else(|| UnknownSize(r#type.identity(kv_type)))?;
 
         let reflection =
             HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
 
-        let iterator = reflection.iter(pcx.evaluation_context.ecx.pid_on_focus())?;
+        let iterator = reflection.iter(pcx.evcx.ecx.pid_on_focus())?;
         let items = iterator
             .map_err(ParsingError::from)
             .filter_map(|bucket| {
-                let raw_data = bucket.read(pcx.evaluation_context.ecx.pid_on_focus());
+                let raw_data = bucket.read(pcx.evcx.ecx.pid_on_focus());
                 let data = weak_error!(raw_data).map(|d| ObjectBinaryRepr {
                     raw_data: Bytes::from(d),
                     address: Some(bucket.location()),
@@ -643,7 +643,7 @@ impl<'a> VariableParserExtension<'a> {
             k_type,
             v_type,
         )?;
-        let iterator = reflection.iter(pcx.evaluation_context)?;
+        let iterator = reflection.iter(pcx.evcx)?;
         let kv_items = iterator
             .map_err(ParsingError::from)
             .filter_map(|(k, v)| {
@@ -723,7 +723,7 @@ impl<'a> VariableParserExtension<'a> {
 
         let r#type = pcx.type_graph;
         let el_type_size = r#type
-            .type_size_in_bytes(pcx.evaluation_context, inner_type)
+            .type_size_in_bytes(pcx.evcx, inner_type)
             .ok_or_else(|| UnknownSize(r#type.identity(inner_type)))?
             as usize;
         let cap = if el_type_size == 0 {
@@ -745,12 +745,9 @@ impl<'a> VariableParserExtension<'a> {
 
         let data_ptr = val.assume_field_as_pointer("pointer")? as usize;
 
-        let data = debugger::read_memory_by_pid(
-            pcx.evaluation_context.ecx.pid_on_focus(),
-            data_ptr,
-            cap * el_type_size,
-        )
-        .map(Bytes::from)?;
+        let data =
+            debugger::read_memory_by_pid(pcx.evcx.ecx.pid_on_focus(), data_ptr, cap * el_type_size)
+                .map(Bytes::from)?;
 
         let items = slice_ranges
             .0
@@ -1067,7 +1064,7 @@ impl<'a> VariableParserExtension<'a> {
 
 fn extract_capacity(pcx: &ParseContext, val: &Value) -> Result<usize, ParsingError> {
     let rust_version = pcx
-        .evaluation_context
+        .evcx
         .rustc_version()
         .ok_or(ParsingError::UnsupportedVersion)?;
 

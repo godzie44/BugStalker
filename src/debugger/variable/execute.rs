@@ -34,13 +34,13 @@ pub struct QueryResult<'a> {
     kind: QueryResultKind,
     base_type: Rc<ComplexType>,
     identity: Identity,
-    eval_ctx_builder: EvaluationContextBuilder<'a>,
+    evcx_builder: EvaluationContextBuilder<'a>,
 }
 
 impl QueryResult<'_> {
     /// Return CU in which result values are located.
     pub fn unit(&self) -> &BsUnit {
-        self.eval_ctx_builder.unit()
+        self.evcx_builder.unit()
     }
 
     /// Return underlying typed value representation.
@@ -89,8 +89,8 @@ impl QueryResult<'_> {
     }
 
     /// Evaluate any function with evaluation context.
-    pub fn with_eval_ctx<T, F: FnOnce(&EvaluationContext) -> T>(&self, cb: F) -> T {
-        self.eval_ctx_builder.with_eval_ctx(cb)
+    pub fn with_evcx<T, F: FnOnce(&EvaluationContext) -> T>(&self, cb: F) -> T {
+        self.evcx_builder.with_evcx(cb)
     }
 
     /// Modify the underlying value and return a new result extended from the current one.
@@ -100,14 +100,11 @@ impl QueryResult<'_> {
     ) -> Option<Self> {
         let value = self.value.take().expect("should be `Some`");
         let type_graph = self.type_graph();
-        let eval_cb = |ctx: &EvaluationContext| {
-            let pcx = &ParseContext {
-                evaluation_context: ctx,
-                type_graph,
-            };
+        let eval_cb = |evcx: &EvaluationContext| {
+            let pcx = &ParseContext { evcx, type_graph };
             cb(pcx, value)
         };
-        let new_value = self.eval_ctx_builder.with_eval_ctx(eval_cb)?;
+        let new_value = self.evcx_builder.with_evcx(eval_cb)?;
         self.value = Some(new_value);
         Some(self)
     }
@@ -137,9 +134,9 @@ impl EvaluationContextBuilder<'_> {
         }
     }
 
-    fn with_eval_ctx<T, F: FnOnce(&EvaluationContext) -> T>(&self, cb: F) -> T {
+    fn with_evcx<T, F: FnOnce(&EvaluationContext) -> T>(&self, cb: F) -> T {
         let evaluator;
-        let ctx = match self {
+        let evcx = match self {
             EvaluationContextBuilder::Ready(debugger, evaluator) => EvaluationContext {
                 evaluator,
                 ecx: debugger.ecx(),
@@ -164,7 +161,7 @@ impl EvaluationContextBuilder<'_> {
                 }
             }
         };
-        cb(&ctx)
+        cb(&evcx)
     }
 }
 
@@ -288,12 +285,12 @@ impl<'dbg> DqeExecutor<'dbg> {
             );
             let context_builder = EvaluationContextBuilder::Ready(debugger, evaluator);
 
-            let value = context_builder.with_eval_ctx(|eval_ctx| {
+            let value = context_builder.with_evcx(|evcx| {
                 let data = die_ref.read_value(debugger.ecx(), &debugger.debugee, &r#type);
 
                 let parser = ValueParser::new();
                 let pcx = &ParseContext {
-                    evaluation_context: eval_ctx,
+                    evcx,
                     type_graph: &r#type,
                 };
                 let modifiers = &ValueModifiers::from_identity(pcx, Identity::from_die(die_ref));
@@ -306,7 +303,7 @@ impl<'dbg> DqeExecutor<'dbg> {
                 kind: QueryResultKind::Root,
                 base_type: r#type,
                 identity: Identity::from_die(die_ref),
-                eval_ctx_builder: context_builder,
+                evcx_builder: context_builder,
             })
         }
 
@@ -354,7 +351,7 @@ impl<'dbg> DqeExecutor<'dbg> {
             unit: var_die_ref.unit(),
         };
 
-        let value = context_builder.with_eval_ctx(|eval_ctx| {
+        let value = context_builder.with_evcx(|evcx| {
             let data = ObjectBinaryRepr {
                 raw_data: Bytes::copy_from_slice(&ptr_cast.ptr.to_le_bytes()),
                 address: None,
@@ -363,7 +360,7 @@ impl<'dbg> DqeExecutor<'dbg> {
 
             let parser = ValueParser::new();
             let pcx = &ParseContext {
-                evaluation_context: eval_ctx,
+                evcx,
                 type_graph: &r#type,
             };
             parser.parse(pcx, Some(data), &ValueModifiers::default())
@@ -375,7 +372,7 @@ impl<'dbg> DqeExecutor<'dbg> {
             kind: QueryResultKind::Expression,
             base_type: r#type,
             identity: Identity::default(),
-            eval_ctx_builder: context_builder,
+            evcx_builder: context_builder,
         })
     }
 
@@ -404,11 +401,11 @@ impl<'dbg> DqeExecutor<'dbg> {
             unit: var_die_ref.unit(),
         };
 
-        let value = context_builder.with_eval_ctx(|eval_ctx| {
-            let size = r#type.type_size_in_bytes(eval_ctx, r#type.root())? as usize;
+        let value = context_builder.with_evcx(|evcx| {
+            let size = r#type.type_size_in_bytes(evcx, r#type.root())? as usize;
 
             let raw_data = weak_error!(read_memory_by_pid(
-                eval_ctx.ecx.pid_on_focus(),
+                evcx.ecx.pid_on_focus(),
                 data_cast.ptr,
                 size
             ))?;
@@ -421,7 +418,7 @@ impl<'dbg> DqeExecutor<'dbg> {
 
             let parser = ValueParser::new();
             let pcx = &ParseContext {
-                evaluation_context: eval_ctx,
+                evcx,
                 type_graph: &r#type,
             };
             parser.parse(pcx, Some(data), &ValueModifiers::default())
@@ -433,7 +430,7 @@ impl<'dbg> DqeExecutor<'dbg> {
             kind: QueryResultKind::Expression,
             base_type: r#type,
             identity: Identity::default(),
-            eval_ctx_builder: context_builder,
+            evcx_builder: context_builder,
         })
     }
 

@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::mem;
 
+/// Evaluation context (or evcx).
 pub struct EvaluationContext<'a> {
     pub evaluator: &'a ExpressionEvaluator<'a>,
     pub ecx: &'a ExplorationContext,

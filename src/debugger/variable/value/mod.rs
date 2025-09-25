@@ -266,10 +266,9 @@ impl PointerValue {
     /// Dereference pointer and return variable IR that represents underline value.
     pub fn deref(&self, pcx: &ParseContext) -> Option<Value> {
         let target_type = self.target_type?;
-        let deref_size = self.target_type_size.or_else(|| {
-            pcx.type_graph
-                .type_size_in_bytes(pcx.evaluation_context, target_type)
-        });
+        let deref_size = self
+            .target_type_size
+            .or_else(|| pcx.type_graph.type_size_in_bytes(pcx.evcx, target_type));
 
         let target_type_decl = pcx.type_graph.types.get(&target_type);
         if matches!(target_type_decl, Some(TypeDeclaration::Subroutine { .. })) {
@@ -280,7 +279,7 @@ impl PointerValue {
         self.value.and_then(|ptr| {
             let data = deref_size.and_then(|sz| {
                 let raw_data = debugger::read_memory_by_pid(
-                    pcx.evaluation_context.ecx.pid_on_focus(),
+                    pcx.evcx.ecx.pid_on_focus(),
                     ptr as usize,
                     sz as usize,
                 )
@@ -301,15 +300,13 @@ impl PointerValue {
     /// Returns variable IR that represents an array.
     pub fn slice(&self, pcx: &ParseContext, left: Option<usize>, right: usize) -> Option<Value> {
         let target_type = self.target_type?;
-        let deref_size =
-            pcx.type_graph
-                .type_size_in_bytes(pcx.evaluation_context, target_type)? as usize;
+        let deref_size = pcx.type_graph.type_size_in_bytes(pcx.evcx, target_type)? as usize;
 
         self.value.and_then(|ptr| {
             let left = left.unwrap_or_default();
             let base_addr = ptr as usize + deref_size * left;
             let raw_data = weak_error!(debugger::read_memory_by_pid(
-                pcx.evaluation_context.ecx.pid_on_focus(),
+                pcx.evcx.ecx.pid_on_focus(),
                 base_addr,
                 deref_size * (right - left)
             ))?;
@@ -659,7 +656,7 @@ impl Value {
             target_type: self.type_id(),
             target_type_size: self
                 .type_id()
-                .and_then(|t| pcx.type_graph.type_size_in_bytes(pcx.evaluation_context, t)),
+                .and_then(|t| pcx.type_graph.type_size_in_bytes(pcx.evcx, t)),
             raw_address: None,
             type_id: None,
         }))
