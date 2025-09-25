@@ -70,12 +70,12 @@ fn test_brkpt_on_function() {
     debugger.set_breakpoint_at_fn("sum2").unwrap();
 
     debugger.start_debugee().unwrap();
-    let pc1 = debugger.exploration_ctx().location().pc;
+    let pc1 = debugger.ecx().location().pc;
     assert!(u64::from(pc1) > 0);
     assert_eq!(info.line.take(), Some(21));
 
     debugger.continue_debugee().unwrap();
-    let pc2 = debugger.exploration_ctx().location().pc;
+    let pc2 = debugger.ecx().location().pc;
     assert_eq!(pc1, pc2);
     assert_eq!(info.line.take(), Some(21));
 
@@ -159,12 +159,12 @@ fn test_brkpt_on_line() {
         .unwrap();
 
     debugger.start_debugee().unwrap();
-    let pc1 = debugger.exploration_ctx().location().pc;
+    let pc1 = debugger.ecx().location().pc;
     assert!(u64::from(pc1) > 0);
     assert_eq!(info.line.take(), Some(15));
 
     debugger.continue_debugee().unwrap();
-    let pc2 = debugger.exploration_ctx().location().pc;
+    let pc2 = debugger.ecx().location().pc;
     assert_eq!(pc1, pc2);
     assert_eq!(info.line.take(), Some(15));
 

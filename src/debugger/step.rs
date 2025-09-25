@@ -94,8 +94,8 @@ impl Debugger {
             loop {
                 // initial step
                 prolog_single_step!(debugger);
-                let ctx = debugger.exploration_ctx();
-                let mut location = ctx.location();
+                let ecx = debugger.ecx();
+                let mut location = ecx.location();
                 // determine current function, if no debug information for function - step until function found
                 let func = loop {
                     let dwarf = debugger.debugee.debug_info(location.pc)?;
@@ -104,22 +104,17 @@ impl Debugger {
                         break func;
                     }
                     prolog_single_step!(debugger);
-                    let ctx = debugger.exploration_ctx();
-                    location = ctx.location();
+                    let ecx = debugger.ecx();
+                    location = ecx.location();
                 };
 
                 let prolog = func.prolog()?;
                 // if PC in prolog range - step until function body is reached
-                while debugger
-                    .exploration_ctx()
-                    .location()
-                    .global_pc
-                    .in_range(&prolog)
-                {
+                while debugger.ecx().location().global_pc.in_range(&prolog) {
                     prolog_single_step!(debugger);
                 }
 
-                let location = debugger.exploration_ctx().location();
+                let location = debugger.ecx().location();
                 if let Some(place) = debugger
                     .debugee
                     .debug_info(location.pc)?
@@ -130,7 +125,7 @@ impl Debugger {
             }
         }
 
-        let mut location = self.exploration_ctx().location();
+        let mut location = self.ecx().location();
 
         let start_place = loop {
             let dwarf = &self.debugee.debug_info(location.pc)?;
@@ -146,7 +141,7 @@ impl Debugger {
                 }
                 _ => {}
             }
-            location = self.exploration_ctx().location();
+            location = self.ecx().location();
         };
 
         let sp_file = start_place.file.to_path_buf();
@@ -168,7 +163,7 @@ impl Debugger {
                 continue;
             }
             let in_same_place = sp_file == next_place.file && sp_line == next_place.line_number;
-            let location = self.exploration_ctx().location();
+            let location = self.ecx().location();
             let next_cfa = self
                 .debugee
                 .debug_info(location.pc)?
@@ -182,7 +177,7 @@ impl Debugger {
             }
         }
 
-        self.expl_ctx_update_location()?;
+        self.ecx_update_location()?;
         Ok(StepResult::Done)
     }
 
@@ -191,7 +186,7 @@ impl Debugger {
     ///
     /// **! change exploration context**
     pub(super) fn single_step_instruction(&mut self) -> Result<Option<StopReason>, Error> {
-        let loc = self.exploration_ctx().location();
+        let loc = self.ecx().location();
         let mb_reason = if self.breakpoints.get_enabled(loc.pc).is_some() {
             self.step_over_breakpoint()?
         } else {
@@ -199,7 +194,7 @@ impl Debugger {
                 TraceContext::new(&self.breakpoints.active_breakpoints(), &self.watchpoints),
                 loc.pid,
             )?;
-            self.expl_ctx_update_location()?;
+            self.ecx_update_location()?;
             maybe_reason
         };
         Ok(mb_reason)
@@ -213,9 +208,7 @@ impl Debugger {
     /// **! change exploration context**
     pub(super) fn step_over_breakpoint(&mut self) -> Result<Option<StopReason>, Error> {
         // cannot use debugee::Location mapping offset may be not init yet
-        let tracee = self
-            .debugee
-            .get_tracee_ensure(self.exploration_ctx().pid_on_focus());
+        let tracee = self.debugee.get_tracee_ensure(self.ecx().pid_on_focus());
         let mb_brkpt = self.breakpoints.get_enabled(tracee.pc()?);
         let tracee_pid = tracee.pid;
         if let Some(brkpt) = mb_brkpt
@@ -227,7 +220,7 @@ impl Debugger {
                 tracee_pid,
             )?;
             brkpt.enable()?;
-            self.expl_ctx_update_location()?;
+            self.ecx_update_location()?;
             return Ok(maybe_reason);
         }
         Ok(None)
@@ -237,11 +230,11 @@ impl Debugger {
     ///
     /// **! change exploration context**
     pub(super) fn step_out_frame(&mut self) -> Result<(), Error> {
-        let ctx = self.exploration_ctx();
-        let location = ctx.location();
+        let ecx = self.ecx();
+        let location = ecx.location();
         let debug_info = self.debugee.debug_info(location.pc)?;
 
-        if let Some(ret_addr) = self.debugee.return_addr(ctx.pid_on_focus())? {
+        if let Some(ret_addr) = self.debugee.return_addr(ecx.pid_on_focus())? {
             let brkpt_is_set = self.breakpoints.get_enabled(ret_addr).is_some();
             if brkpt_is_set {
                 self.continue_execution()?;
@@ -259,7 +252,7 @@ impl Debugger {
             return Err(ProcessExit(0));
         }
 
-        self.expl_ctx_update_location()?;
+        self.ecx_update_location()?;
         Ok(())
     }
 
@@ -269,8 +262,8 @@ impl Debugger {
     ///
     /// **! change exploration context**
     pub(super) fn step_over_any(&mut self) -> Result<StepResult, Error> {
-        let ctx = self.exploration_ctx();
-        let mut current_location = ctx.location();
+        let ecx = self.ecx();
+        let mut current_location = ecx.location();
 
         // determine current function, if no debug information for function - step until function found
         let (func, info) = loop {
@@ -288,7 +281,7 @@ impl Debugger {
                 }
                 _ => {}
             }
-            current_location = self.exploration_ctx().location();
+            current_location = self.ecx().location();
         };
         let fn_file = info.decl_file_line.map(|fl| fl.0);
 
@@ -396,7 +389,7 @@ impl Debugger {
         // if a step is taken outside and new location pc not equals to place pc,
         // then we stopped at the place of the previous function call,
         // and got into an assignment operation or similar in this case do a single step
-        let new_location = self.exploration_ctx().location();
+        let new_location = self.ecx().location();
         if Some(new_location.pc) == return_addr {
             let place = self
                 .debugee
@@ -421,7 +414,7 @@ impl Debugger {
             return Err(ProcessExit(0));
         }
 
-        self.expl_ctx_update_location()?;
+        self.ecx_update_location()?;
         Ok(StepResult::Done)
     }
 }

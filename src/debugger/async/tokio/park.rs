@@ -39,7 +39,7 @@ pub fn try_as_park_thread(
     };
 
     let debugger = context.debugger_mut();
-    debugger.expl_ctx_switch_thread(thread.thread.pid)?;
+    debugger.ecx_switch_thread(thread.thread.pid)?;
     debugger.set_frame_into_focus(block_on_frame_num as u32)?;
 
     let future = debugger

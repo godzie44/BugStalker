@@ -142,7 +142,7 @@ impl EvaluationContextBuilder<'_> {
         let ctx = match self {
             EvaluationContextBuilder::Ready(debugger, evaluator) => EvaluationContext {
                 evaluator,
-                expl_ctx: debugger.exploration_ctx(),
+                ecx: debugger.ecx(),
             },
             EvaluationContextBuilder::Virtual {
                 debugger,
@@ -160,7 +160,7 @@ impl EvaluationContextBuilder<'_> {
                 );
                 EvaluationContext {
                     evaluator: &evaluator,
-                    expl_ctx: debugger.exploration_ctx(),
+                    ecx: debugger.ecx(),
                 }
             }
         };
@@ -208,13 +208,13 @@ impl<'dbg> DqeExecutor<'dbg> {
         &self,
         selector: &Selector,
     ) -> Result<Vec<FatDieRef<'dbg, Variable>>, Error> {
-        let ctx = self.debugger.exploration_ctx();
+        let ecx = self.debugger.ecx();
 
         let debugee = &self.debugger.debugee;
         let (current_func, _) = debugee
-            .debug_info(ctx.location().pc)?
-            .find_function_by_pc(ctx.location().global_pc)?
-            .ok_or(FunctionNotFound(ctx.location().global_pc))?;
+            .debug_info(ecx.location().pc)?
+            .find_function_by_pc(ecx.location().global_pc)?
+            .ok_or(FunctionNotFound(ecx.location().global_pc))?;
 
         let vars = match selector {
             Selector::Name {
@@ -222,7 +222,7 @@ impl<'dbg> DqeExecutor<'dbg> {
                 local_only: local,
             } => {
                 let local_variants = current_func
-                    .local_variable(ctx.location().global_pc, var_name)
+                    .local_variable(ecx.location().global_pc, var_name)
                     .map(|v| vec![v])
                     .unwrap_or_default();
 
@@ -232,13 +232,13 @@ impl<'dbg> DqeExecutor<'dbg> {
                 // selector allow non-locals then try to search in a whole object
                 if !local && local_variants.is_empty() {
                     debugee
-                        .debug_info(ctx.location().pc)?
-                        .find_variables(ctx.location(), var_name)?
+                        .debug_info(ecx.location().pc)?
+                        .find_variables(ecx.location(), var_name)?
                 } else {
                     local_variants
                 }
             }
-            Selector::Any => current_func.local_variables(ctx.location().global_pc),
+            Selector::Any => current_func.local_variables(ecx.location().global_pc),
         };
 
         Ok(vars)
@@ -248,7 +248,7 @@ impl<'dbg> DqeExecutor<'dbg> {
         &self,
         selector: &Selector,
     ) -> Result<Vec<FatDieRef<'dbg, Argument>>, Error> {
-        let expl_ctx_loc = self.debugger.exploration_ctx().location();
+        let expl_ctx_loc = self.debugger.ecx().location();
         let debugee = &self.debugger.debugee;
         let (current_function, _) = debugee
             .debug_info(expl_ctx_loc.pc)?
@@ -289,8 +289,7 @@ impl<'dbg> DqeExecutor<'dbg> {
             let context_builder = EvaluationContextBuilder::Ready(debugger, evaluator);
 
             let value = context_builder.with_eval_ctx(|eval_ctx| {
-                let data =
-                    die_ref.read_value(debugger.exploration_ctx(), &debugger.debugee, &r#type);
+                let data = die_ref.read_value(debugger.ecx(), &debugger.debugee, &r#type);
 
                 let parser = ValueParser::new();
                 let parse_ctx = &ParseContext {
@@ -410,7 +409,7 @@ impl<'dbg> DqeExecutor<'dbg> {
             let size = r#type.type_size_in_bytes(eval_ctx, r#type.root())? as usize;
 
             let raw_data = weak_error!(read_memory_by_pid(
-                eval_ctx.expl_ctx.pid_on_focus(),
+                eval_ctx.ecx.pid_on_focus(),
                 data_cast.ptr,
                 size
             ))?;

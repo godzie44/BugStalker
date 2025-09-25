@@ -19,7 +19,7 @@ impl Location<'_> {
     ///  Return `None` otherwise.
     pub(super) fn try_as_expression(
         &self,
-        dwarf_ctx: &DebugInformation<EndianArcSlice>,
+        di: &DebugInformation<EndianArcSlice>,
         unit: &BsUnit,
         pc: GlobalAddress,
     ) -> Option<Expression<EndianArcSlice>> {
@@ -29,19 +29,19 @@ impl Location<'_> {
 
         let offset = match self.0.value() {
             AttributeValue::LocationListsRef(offset) => offset,
-            AttributeValue::DebugLocListsIndex(index) => weak_error!(
-                dwarf_ctx
-                    .locations()
-                    .get_offset(unit.encoding(), unit.loclists_base(), index)
-            )?,
+            AttributeValue::DebugLocListsIndex(index) => weak_error!(di.locations().get_offset(
+                unit.encoding(),
+                unit.loclists_base(),
+                index
+            ))?,
             _ => return None,
         };
 
-        let mut iter = weak_error!(dwarf_ctx.locations().locations(
+        let mut iter = weak_error!(di.locations().locations(
             offset,
             unit.encoding(),
             unit.low_pc(),
-            dwarf_ctx.debug_addr(),
+            di.debug_addr(),
             unit.addr_base(),
         ))?;
 

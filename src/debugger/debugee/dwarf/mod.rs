@@ -178,7 +178,7 @@ impl DebugInformation {
         debugee: &Debugee,
         registers: &DwarfRegisterMap,
         utr: &UnwindTableRow<EndianArcSlice>,
-        ctx: &ExplorationContext,
+        ecx: &ExplorationContext,
     ) -> Result<RelocatedAddress, Error> {
         let rule = utr.cfa();
         match rule {
@@ -187,11 +187,11 @@ impl DebugInformation {
                 Ok(RelocatedAddress::from(ra as usize).offset(*offset as isize))
             }
             CfaRule::Expression(expr) => {
-                let unit = debug_info_exists!(self.find_unit_by_pc(ctx.location().global_pc))
-                    .ok_or(UnitNotFound(ctx.location().global_pc))?;
+                let unit = debug_info_exists!(self.find_unit_by_pc(ecx.location().global_pc))
+                    .ok_or(UnitNotFound(ecx.location().global_pc))?;
                 let evaluator =
                     resolve_unit_call!(&self.inner, unit, evaluator, debugee, self.dwarf());
-                let expr_result = evaluator.evaluate(ctx, expr.clone())?;
+                let expr_result = evaluator.evaluate(ecx, expr.clone())?;
 
                 Ok((expr_result.into_scalar::<usize>(AddressKind::Value)?).into())
             }
@@ -201,20 +201,20 @@ impl DebugInformation {
     pub fn get_cfa(
         &self,
         debugee: &Debugee,
-        expl_ctx: &ExplorationContext,
+        ecx: &ExplorationContext,
     ) -> Result<RelocatedAddress, Error> {
         let mut ctx = Box::new(UnwindContext::new());
         let row = self.eh_frame.unwind_info_for_address(
             &self.bases,
             &mut ctx,
-            expl_ctx.location().global_pc.into(),
+            ecx.location().global_pc.into(),
             EhFrame::cie_from_offset,
         )?;
         self.evaluate_cfa(
             debugee,
-            &DwarfRegisterMap::from(RegisterMap::current(expl_ctx.pid_on_focus())?),
+            &DwarfRegisterMap::from(RegisterMap::current(ecx.pid_on_focus())?),
             row,
-            expl_ctx,
+            ecx,
         )
     }
 

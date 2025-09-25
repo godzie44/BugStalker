@@ -358,19 +358,19 @@ impl Debugee {
         &self.tracer.tracee_ctl
     }
 
-    pub fn frame_info(&self, ctx: &ExplorationContext) -> Result<FrameInfo, Error> {
-        let dwarf = self.debug_info(ctx.location().pc)?;
+    pub fn frame_info(&self, ecx: &ExplorationContext) -> Result<FrameInfo, Error> {
+        let dwarf = self.debug_info(ecx.location().pc)?;
         let (func, _) = dwarf
-            .find_function_by_pc(ctx.location().global_pc)?
-            .ok_or(FunctionNotFound(ctx.location().global_pc))?;
+            .find_function_by_pc(ecx.location().global_pc)?
+            .ok_or(FunctionNotFound(ecx.location().global_pc))?;
 
-        let base_addr = func.frame_base_addr(ctx, self)?;
-        let cfa = dwarf.get_cfa(self, ctx)?;
-        let backtrace = self.unwind(ctx.pid_on_focus())?;
+        let base_addr = func.frame_base_addr(ecx, self)?;
+        let cfa = dwarf.get_cfa(self, ecx)?;
+        let backtrace = self.unwind(ecx.pid_on_focus())?;
         let (bt_frame_num, frame) = backtrace
             .iter()
             .enumerate()
-            .find(|(_, frame)| frame.ip == ctx.location().pc)
+            .find(|(_, frame)| frame.ip == ecx.location().pc)
             .expect("frame must exists");
         let return_addr = backtrace.get(bt_frame_num + 1).map(|f| f.ip);
         Ok(FrameInfo {
@@ -382,25 +382,25 @@ impl Debugee {
         })
     }
 
-    pub fn thread_state(&self, ctx: &ExplorationContext) -> Result<Vec<ThreadSnapshot>, Error> {
+    pub fn thread_state(&self, ecx: &ExplorationContext) -> Result<Vec<ThreadSnapshot>, Error> {
         let threads = self.tracee_ctl().snapshot();
         Ok(threads
             .into_iter()
             .filter_map(|tracee| {
-                let _tracee_ctx;
-                let tracee_ctx = if tracee.pid == ctx.pid_on_focus() {
-                    ctx
+                let _tracee_ecx;
+                let tracee_ecx = if tracee.pid == ecx.pid_on_focus() {
+                    ecx
                 } else {
                     let location = weak_error!(tracee.location(self))?;
-                    _tracee_ctx = ExplorationContext::new(location, 0);
-                    &_tracee_ctx
+                    _tracee_ecx = ExplorationContext::new(location, 0);
+                    &_tracee_ecx
                 };
 
-                let mb_bt = weak_error!(self.unwind(tracee_ctx.pid_on_focus()));
+                let mb_bt = weak_error!(self.unwind(tracee_ecx.pid_on_focus()));
                 let frame_num = mb_bt.as_ref().and_then(|bt| {
                     bt.iter()
                         .enumerate()
-                        .find_map(|(i, frame)| (frame.ip == ctx.location().pc).then_some(i))
+                        .find_map(|(i, frame)| (frame.ip == ecx.location().pc).then_some(i))
                 });
 
                 let place = mb_bt.as_ref().and_then(|bt| {
@@ -413,7 +413,7 @@ impl Debugee {
                 });
 
                 Some(ThreadSnapshot {
-                    in_focus: tracee.pid == ctx.pid_on_focus(),
+                    in_focus: tracee.pid == ecx.pid_on_focus(),
                     thread: tracee,
                     bt: mb_bt,
                     place: place.map(|p| p.to_owned()),
@@ -547,13 +547,13 @@ impl Debugee {
     /// Return a list of disassembled instruction for a function in focus.
     pub fn disasm(
         &self,
-        ctx: &ExplorationContext,
+        ecx: &ExplorationContext,
         breakpoints: &[&Breakpoint],
     ) -> Result<FunctionAssembly, Error> {
-        let debug_information = self.debug_info(ctx.location().pc)?;
+        let debug_information = self.debug_info(ecx.location().pc)?;
         let (function, info) = debug_information
-            .find_function_by_pc(ctx.location().global_pc)?
-            .ok_or(FunctionNotFound(ctx.location().global_pc))?;
+            .find_function_by_pc(ecx.location().global_pc)?
+            .ok_or(FunctionNotFound(ecx.location().global_pc))?;
 
         let name = info.full_name();
         let instructions =
@@ -562,22 +562,22 @@ impl Debugee {
 
         Ok(FunctionAssembly {
             name,
-            addr_in_focus: ctx.location().global_pc,
+            addr_in_focus: ecx.location().global_pc,
             instructions,
         })
     }
 
     /// Return two place descriptors, at the start and at the end of the current function.
-    pub fn function_range(&self, ctx: &ExplorationContext) -> Result<FunctionRange<'_>, Error> {
-        let debug_information = self.debug_info(ctx.location().pc)?;
+    pub fn function_range(&self, ecx: &ExplorationContext) -> Result<FunctionRange<'_>, Error> {
+        let debug_information = self.debug_info(ecx.location().pc)?;
         let (function, info) = debug_information
-            .find_function_by_pc(ctx.location().global_pc)?
-            .ok_or(FunctionNotFound(ctx.location().global_pc))?;
+            .find_function_by_pc(ecx.location().global_pc)?
+            .ok_or(FunctionNotFound(ecx.location().global_pc))?;
         let unit = function.unit();
 
         let stop_place = debug_information
-            .find_place_from_pc(ctx.location().global_pc)?
-            .ok_or(Error::PlaceNotFound(ctx.location().global_pc))?;
+            .find_place_from_pc(ecx.location().global_pc)?
+            .ok_or(Error::PlaceNotFound(ecx.location().global_pc))?;
 
         let (file, start_line) = info.decl_file_line.ok_or(FunctionRangeNotFound)?;
         let file = unit.files()[file as usize].as_path();

@@ -28,7 +28,7 @@ use std::mem;
 
 pub struct EvaluationContext<'a> {
     pub evaluator: &'a ExpressionEvaluator<'a>,
-    pub expl_ctx: &'a ExplorationContext,
+    pub ecx: &'a ExplorationContext,
 }
 
 impl EvaluationContext<'_> {
@@ -56,38 +56,38 @@ impl<'a> RequirementsResolver<'a> {
     }
 
     /// Return base address of current frame.
-    fn base_addr(&self, ctx: &ExplorationContext) -> Result<RelocatedAddress, Error> {
-        match self.base_address.borrow_mut().entry(ctx.pid_on_focus()) {
+    fn base_addr(&self, ecx: &ExplorationContext) -> Result<RelocatedAddress, Error> {
+        match self.base_address.borrow_mut().entry(ecx.pid_on_focus()) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(e) => {
-                let loc = ctx.location();
+                let loc = ecx.location();
                 let (func, _) = self
                     .debugee
-                    .debug_info(ctx.location().pc)?
+                    .debug_info(ecx.location().pc)?
                     .find_function_by_pc(loc.global_pc)?
                     .ok_or(FunctionNotFound(loc.global_pc))?;
-                let base_addr = func.frame_base_addr(ctx, self.debugee)?;
+                let base_addr = func.frame_base_addr(ecx, self.debugee)?;
                 Ok(*e.insert(base_addr))
             }
         }
     }
 
     /// Return canonical frame address of current frame.
-    fn cfa(&self, ctx: &ExplorationContext) -> Result<RelocatedAddress, Error> {
-        match self.cfa.borrow_mut().entry(ctx.pid_on_focus()) {
+    fn cfa(&self, ecx: &ExplorationContext) -> Result<RelocatedAddress, Error> {
+        match self.cfa.borrow_mut().entry(ecx.pid_on_focus()) {
             Entry::Occupied(e) => Ok(*e.get()),
             Entry::Vacant(e) => {
                 let cfa = self
                     .debugee
-                    .debug_info(ctx.location().pc)?
-                    .get_cfa(self.debugee, ctx)?;
+                    .debug_info(ecx.location().pc)?
+                    .get_cfa(self.debugee, ecx)?;
                 Ok(*e.insert(cfa))
             }
         }
     }
 
-    fn relocation_addr(&self, ctx: &ExplorationContext) -> Result<usize, Error> {
-        self.debugee.mapping_offset_for_pc(ctx.location().pc)
+    fn relocation_addr(&self, ecx: &ExplorationContext) -> Result<usize, Error> {
+        self.debugee.mapping_offset_for_pc(ecx.location().pc)
     }
 
     fn resolve_tls(&self, pid: Pid, offset: u64) -> Result<RelocatedAddress, Error> {
@@ -99,31 +99,31 @@ impl<'a> RequirementsResolver<'a> {
 
     fn debug_addr_section(
         &self,
-        ctx: &ExplorationContext,
+        ecx: &ExplorationContext,
     ) -> Result<&DebugAddr<EndianArcSlice>, Error> {
-        Ok(self.debugee.debug_info(ctx.location().pc)?.debug_addr())
+        Ok(self.debugee.debug_info(ecx.location().pc)?.debug_addr())
     }
 
-    fn resolve_registers(&self, ctx: &ExplorationContext) -> Result<DwarfRegisterMap, Error> {
-        let current_loc = ctx.location();
+    fn resolve_registers(&self, ecx: &ExplorationContext) -> Result<DwarfRegisterMap, Error> {
+        let current_loc = ecx.location();
         let (current_fn, _) = self
             .debugee
-            .debug_info(ctx.location().pc)?
+            .debug_info(ecx.location().pc)?
             .find_function_by_pc(current_loc.global_pc)?
             .ok_or(FunctionNotFound(current_loc.global_pc))?;
         let entry_pc: GlobalAddress = current_fn.start_instruction()?;
 
-        let backtrace = self.debugee.unwind(ctx.pid_on_focus())?;
-        let entry_pc_rel = entry_pc.relocate_to_segment_by_pc(self.debugee, ctx.location().pc)?;
+        let backtrace = self.debugee.unwind(ecx.pid_on_focus())?;
+        let entry_pc_rel = entry_pc.relocate_to_segment_by_pc(self.debugee, ecx.location().pc)?;
         backtrace
             .iter()
             .enumerate()
             .find(|(_, frame)| frame.fn_start_ip == Some(entry_pc_rel))
             .map(|(num, _)| -> Result<DwarfRegisterMap, Error> {
                 // try to use libunwind if frame determined
-                let mut registers = RegisterMap::current(ctx.pid_on_focus())?.into();
+                let mut registers = RegisterMap::current(ecx.pid_on_focus())?.into();
                 self.debugee.restore_registers_at_frame(
-                    ctx.pid_on_focus(),
+                    ecx.pid_on_focus(),
                     &mut registers,
                     num as u32,
                 )?;
@@ -133,12 +133,12 @@ impl<'a> RequirementsResolver<'a> {
                 // use dwarf unwinder as a fallback
                 let unwinder = DwarfUnwinder::new(self.debugee);
                 let location = debugee::Location {
-                    pid: ctx.pid_on_focus(),
+                    pid: ecx.pid_on_focus(),
                     pc: entry_pc_rel,
                     global_pc: entry_pc,
                 };
                 Ok(unwinder
-                    .context_for(&ExplorationContext::new(location, ctx.frame_num()))?
+                    .context_for(&ExplorationContext::new(location, ecx.frame_num()))?
                     .ok_or(UnwindNoContext)?
                     .registers())
             })
@@ -229,16 +229,16 @@ impl<'a> ExpressionEvaluator<'a> {
 
     pub fn evaluate(
         &self,
-        ctx: &'a ExplorationContext,
+        ecx: &'a ExplorationContext,
         expr: Expression<EndianArcSlice>,
     ) -> Result<CompletedResult<'_>, Error> {
-        self.evaluate_with_resolver(ExternalRequirementsResolver::default(), ctx, expr)
+        self.evaluate_with_resolver(ExternalRequirementsResolver::default(), ecx, expr)
     }
 
     pub fn evaluate_with_resolver(
         &self,
         mut resolver: ExternalRequirementsResolver,
-        ctx: &'a ExplorationContext,
+        ecx: &'a ExplorationContext,
         expr: Expression<EndianArcSlice>,
     ) -> Result<CompletedResult<'_>, Error> {
         let mut eval = expr.evaluation(self.encoding);
@@ -254,23 +254,23 @@ impl<'a> ExpressionEvaluator<'a> {
 
                     // if there is registers dump for functions entry - use it
                     let bytes =
-                        if let Some(regs) = resolver.entry_registers.remove(&ctx.pid_on_focus()) {
+                        if let Some(regs) = resolver.entry_registers.remove(&ecx.pid_on_focus()) {
                             regs.value(register)?
                         } else {
-                            let pid = ctx.pid_on_focus();
+                            let pid = ecx.pid_on_focus();
                             let mut registers = DwarfRegisterMap::from(RegisterMap::current(pid)?);
                             // try to use registers for in focus frame
                             self.resolver.debugee.restore_registers_at_frame(
-                                ctx.pid_on_focus(),
+                                ecx.pid_on_focus(),
                                 &mut registers,
-                                ctx.frame_num(),
+                                ecx.frame_num(),
                             )?;
                             registers.value(register)?
                         };
                     result = eval.resume_with_register(Value::from_u64(value_type, bytes)?)?;
                 }
                 EvaluationResult::RequiresFrameBase => {
-                    result = eval.resume_with_frame_base(self.resolver.base_addr(ctx)?.into())?;
+                    result = eval.resume_with_frame_base(self.resolver.base_addr(ecx)?.into())?;
                 }
                 EvaluationResult::RequiresAtLocation(_) => {
                     let buf = EndianArcSlice::new(
@@ -294,7 +294,7 @@ impl<'a> ExpressionEvaluator<'a> {
                     ..
                 } => {
                     let memory = debugger::read_memory_by_pid(
-                        ctx.pid_on_focus(),
+                        ecx.pid_on_focus(),
                         address as usize,
                         size as usize,
                     )
@@ -318,34 +318,34 @@ impl<'a> ExpressionEvaluator<'a> {
                     result = eval.resume_with_memory(value)?;
                 }
                 EvaluationResult::RequiresRelocatedAddress(addr) => {
-                    let relocation_addr = self.resolver.relocation_addr(ctx)?;
+                    let relocation_addr = self.resolver.relocation_addr(ecx)?;
                     result = eval.resume_with_relocated_address(addr + relocation_addr as u64)?;
                 }
                 EvaluationResult::RequiresTls(offset) => {
-                    let addr = self.resolver.resolve_tls(ctx.pid_on_focus(), offset)?;
+                    let addr = self.resolver.resolve_tls(ecx.pid_on_focus(), offset)?;
                     result = eval.resume_with_tls(addr.into())?;
                 }
                 EvaluationResult::RequiresIndexedAddress { index, relocate } => {
-                    let debug_addr = self.resolver.debug_addr_section(ctx)?;
+                    let debug_addr = self.resolver.debug_addr_section(ecx)?;
                     let mut addr = debug_addr.get_address(
                         self.unit.address_size(),
                         self.unit.addr_base(),
                         index,
                     )?;
                     if relocate {
-                        addr += self.resolver.relocation_addr(ctx)? as u64;
+                        addr += self.resolver.relocation_addr(ecx)? as u64;
                     }
                     result = eval.resume_with_indexed_address(addr)?;
                 }
                 EvaluationResult::RequiresCallFrameCfa => {
-                    let cfa = self.resolver.cfa(ctx)?;
+                    let cfa = self.resolver.cfa(ecx)?;
                     result = eval.resume_with_call_frame_cfa(cfa.into())?;
                 }
                 EvaluationResult::RequiresEntryValue(expr) => {
-                    let regs = self.resolver.resolve_registers(ctx)?;
+                    let regs = self.resolver.resolve_registers(ecx)?;
                     let ctx_resolver = ExternalRequirementsResolver::default()
-                        .with_entry_registers(ctx.pid_on_focus(), regs);
-                    let eval_res = self.evaluate_with_resolver(ctx_resolver, ctx, expr)?;
+                        .with_entry_registers(ecx.pid_on_focus(), regs);
+                    let eval_res = self.evaluate_with_resolver(ctx_resolver, ecx, expr)?;
                     let u = eval_res.into_scalar::<u64>(AddressKind::MemoryAddress)?;
                     result = eval.resume_with_entry_value(Value::Generic(u))?;
                 }
@@ -361,7 +361,7 @@ impl<'a> ExpressionEvaluator<'a> {
         Ok(CompletedResult {
             debugee: self.resolver.debugee,
             inner: eval.result(),
-            ctx,
+            ecx,
         })
     }
 }
@@ -369,7 +369,7 @@ impl<'a> ExpressionEvaluator<'a> {
 pub struct CompletedResult<'a> {
     inner: Vec<Piece<EndianArcSlice>>,
     debugee: &'a Debugee,
-    ctx: &'a ExplorationContext,
+    ecx: &'a ExplorationContext,
 }
 
 /// Determine how to interpret [`Location::Address`] in piece location field,
@@ -418,7 +418,7 @@ impl CompletedResult<'_> {
                     Location::Register { register } => {
                         data.put(read_register(
                             self.debugee,
-                            self.ctx,
+                            self.ecx,
                             register,
                             read_size,
                             offset,
@@ -431,7 +431,7 @@ impl CompletedResult<'_> {
                         match address_kind {
                             AddressKind::MemoryAddress => {
                                 let memory = debugger::read_memory_by_pid(
-                                    self.ctx.pid_on_focus(),
+                                    self.ecx.pid_on_focus(),
                                     address as usize,
                                     read_size,
                                 )
@@ -461,7 +461,7 @@ impl CompletedResult<'_> {
                         data.put_slice(value.bytes());
                     }
                     Location::ImplicitPointer { value, byte_offset } => {
-                        let dwarf = self.debugee.debug_info(self.ctx.location().pc)?;
+                        let dwarf = self.debugee.debug_info(self.ecx.location().pc)?;
 
                         let unit = dwarf
                             .find_unit(value)
@@ -475,7 +475,7 @@ impl CompletedResult<'_> {
                             let die_ref = die_ref.with_new_hint::<Variable>();
                             let r#type = die_ref.r#type().ok_or(NoDieType)?;
                             let repr = die_ref
-                                .read_value(self.ctx, self.debugee, &r#type)
+                                .read_value(self.ecx, self.debugee, &r#type)
                                 .ok_or(ImplicitPointer)?;
                             let bytes: &[u8] = repr
                                 .raw_data
@@ -495,15 +495,15 @@ impl CompletedResult<'_> {
 
 fn read_register(
     debugee: &Debugee,
-    ctx: &ExplorationContext,
+    ecx: &ExplorationContext,
     reg: Register,
     size_in_bytes: usize,
     offset: u64,
 ) -> Result<Bytes, Error> {
-    let pid = ctx.pid_on_focus();
+    let pid = ecx.pid_on_focus();
     let mut registers = DwarfRegisterMap::from(RegisterMap::current(pid)?);
     // try to use registers for in focus frame
-    debugee.restore_registers_at_frame(ctx.pid_on_focus(), &mut registers, ctx.frame_num())?;
+    debugee.restore_registers_at_frame(ecx.pid_on_focus(), &mut registers, ecx.frame_num())?;
     let register_value = registers.value(reg)?;
     let bytes = (register_value >> offset).to_ne_bytes();
     let write_size = min(size_in_bytes, std::mem::size_of::<u64>());

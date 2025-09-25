@@ -280,7 +280,7 @@ impl PointerValue {
         self.value.and_then(|ptr| {
             let data = deref_size.and_then(|sz| {
                 let raw_data = debugger::read_memory_by_pid(
-                    ctx.evaluation_context.expl_ctx.pid_on_focus(),
+                    ctx.evaluation_context.ecx.pid_on_focus(),
                     ptr as usize,
                     sz as usize,
                 )
@@ -309,7 +309,7 @@ impl PointerValue {
             let left = left.unwrap_or_default();
             let base_addr = ptr as usize + deref_size * left;
             let raw_data = weak_error!(debugger::read_memory_by_pid(
-                ctx.evaluation_context.expl_ctx.pid_on_focus(),
+                ctx.evaluation_context.ecx.pid_on_focus(),
                 base_addr,
                 deref_size * (right - left)
             ))?;

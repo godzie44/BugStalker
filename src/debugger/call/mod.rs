@@ -233,8 +233,8 @@ struct CallContext<'a> {
 
 impl<'a> CallContext<'a> {
     fn new(dbg: &'a Debugger) -> Result<Self, Error> {
-        let pid = dbg.exploration_ctx().pid_on_focus();
-        let pc = dbg.exploration_ctx().location().pc;
+        let pid = dbg.ecx().pid_on_focus();
+        let pc = dbg.ecx().location().pc;
         let text = read_memory_by_pid(pid, pc.into(), size_of::<u64>()).map_err(Error::Ptrace)?;
         let text = usize::from_ne_bytes(text.try_into().expect("unexpected size"));
         let regs = RegisterMap::current(pid)?;
