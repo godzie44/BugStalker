@@ -60,7 +60,7 @@ impl<'a> Handler<'a> {
                     Reg::Es,
                 ];
 
-                let register_map = RegisterMap::current(self.dbg.exploration_ctx().pid_on_focus())
+                let register_map = RegisterMap::current(self.dbg.ecx().pid_on_focus())
                     .map_err(CommandError::Handle)?;
 
                 Ok(registers_to_dump

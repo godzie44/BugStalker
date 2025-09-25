@@ -214,13 +214,13 @@ pub struct Watchpoint {
     temporary: bool,
 }
 
-fn call_with_context<F, T>(debugger: &mut Debugger, ctx: ExplorationContext, f: F) -> T
+fn call_with_context<F, T>(debugger: &mut Debugger, ecx: ExplorationContext, f: F) -> T
 where
     F: FnOnce(&Debugger) -> T,
 {
-    let old_ctx = mem::replace(&mut debugger.expl_context, ctx);
+    let old_ecx = mem::replace(&mut debugger.expl_context, ecx);
     let result = f(debugger);
-    debugger.expl_context = old_ctx;
+    debugger.expl_context = old_ecx;
     result
 }
 
@@ -288,15 +288,15 @@ impl Watchpoint {
         let mut frame_id = None;
         if let Some(scope) = address_dqe_result.scope() {
             // take a current frame id
-            let expl_ctx = debugger.exploration_ctx();
-            let frame_num = expl_ctx.frame_num();
-            let backtrace = debugger.backtrace(expl_ctx.pid_on_focus())?;
+            let ecx = debugger.ecx();
+            let frame_num = ecx.frame_num();
+            let backtrace = debugger.backtrace(ecx.pid_on_focus())?;
             frame_id = backtrace
                 .get(frame_num as usize)
                 .ok_or(Error::FrameNotFound(frame_num))?
                 .id();
 
-            let pc = expl_ctx.location().pc;
+            let pc = ecx.location().pc;
             let dwarf = debugger.debugee.debug_info(pc)?;
 
             // from all expression ranges take end-address with maximum line number -
@@ -372,7 +372,7 @@ impl Watchpoint {
                 &debugger.breakpoints,
                 next_wp_num,
                 end_of_scope,
-                expl_ctx.pid_on_focus(),
+                ecx.pid_on_focus(),
             );
             let brkpt_view = debugger.breakpoints.add_and_enable(brkpt)?;
             end_of_scope_brkpt = Some(brkpt_view.number);
@@ -383,7 +383,7 @@ impl Watchpoint {
             dqe,
             last_value: None,
             frame_id,
-            tid: debugger.exploration_ctx().pid_on_focus(),
+            tid: debugger.ecx().pid_on_focus(),
             companion: end_of_scope_brkpt,
         };
         let underlying_dqe = target.underlying_dqe().clone();
@@ -830,7 +830,7 @@ impl Debugger {
                     match &wp.subject {
                         Subject::Expression(target) => {
                             let dqe = target.underlying_dqe().clone();
-                            let current_tid = self.exploration_ctx().pid_on_focus();
+                            let current_tid = self.ecx().pid_on_focus();
 
                             let new_value = match target.frame_id {
                                 None => {
@@ -854,8 +854,8 @@ impl Debugger {
                                         frame.ip.into_global(&self.debugee).unwrap(),
                                         current_tid,
                                     );
-                                    let ctx = ExplorationContext::new(loc, num as u32);
-                                    call_with_context(self, ctx, |debugger| {
+                                    let ecx = ExplorationContext::new(loc, num as u32);
+                                    call_with_context(self, ecx, |debugger| {
                                         Watchpoint::execute_dqe(debugger, dqe)
                                             .map(|qr| qr.into_value())
                                     })

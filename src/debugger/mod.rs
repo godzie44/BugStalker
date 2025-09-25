@@ -230,7 +230,7 @@ macro_rules! disable_when_not_stared {
     };
 }
 
-/// Exploration context. Contains current explored thread and program counter.
+/// Exploration context (or ecx). Contains current explored thread and program counter.
 /// May be changed by user (by `thread` or `frame` command)
 /// or by debugger (at breakpoints, after steps, etc.).
 #[derive(Clone, Debug)]
@@ -439,29 +439,29 @@ impl Debugger {
 
     /// Return last set exploration context.
     #[inline(always)]
-    pub fn exploration_ctx(&self) -> &ExplorationContext {
+    pub fn ecx(&self) -> &ExplorationContext {
         &self.expl_context
     }
 
     /// Update current program counters for current in focus thread.
-    fn expl_ctx_update_location(&mut self) -> Result<&ExplorationContext, Error> {
-        let old_ctx = self.exploration_ctx();
+    fn ecx_update_location(&mut self) -> Result<&ExplorationContext, Error> {
+        let old_ecx = self.ecx();
         self.expl_context = ExplorationContext::new(
             self.debugee
-                .get_tracee_ensure(old_ctx.pid_on_focus())
+                .get_tracee_ensure(old_ecx.pid_on_focus())
                 .location(&self.debugee)?,
             0,
         );
         Ok(&self.expl_context)
     }
 
-    fn expl_ctx_swap(&mut self, new: ExplorationContext) {
+    fn ecx_swap(&mut self, new: ExplorationContext) {
         self.expl_context = new;
     }
 
     /// Restore frame from user defined to real.
-    fn expl_ctx_restore_frame(&mut self) -> Result<&ExplorationContext, Error> {
-        self.expl_ctx_update_location()
+    fn ecx_restore_frame(&mut self) -> Result<&ExplorationContext, Error> {
+        self.ecx_update_location()
     }
 
     /// Change in focus thread and update program counters.
@@ -469,7 +469,7 @@ impl Debugger {
     /// # Arguments
     ///
     /// * `pid`: new in focus thread id
-    fn expl_ctx_switch_thread(&mut self, pid: Pid) -> Result<&ExplorationContext, Error> {
+    fn ecx_switch_thread(&mut self, pid: Pid) -> Result<&ExplorationContext, Error> {
         self.expl_context = ExplorationContext::new(
             self.debugee
                 .get_tracee_ensure(pid)
@@ -525,7 +525,7 @@ impl Debugger {
                     return Err(ProcessNotStarted);
                 }
                 StopReason::Breakpoint(pid, current_pc) => {
-                    self.expl_ctx_switch_thread(pid)?;
+                    self.ecx_switch_thread(pid)?;
 
                     if let Some(bp) = self.breakpoints.get_enabled(current_pc) {
                         match bp.r#type() {
@@ -574,9 +574,7 @@ impl Debugger {
                             }
                             BrkptType::UserDefined => {
                                 let pc = current_pc.into_global(&self.debugee)?;
-                                let dwarf = self
-                                    .debugee
-                                    .debug_info(self.exploration_ctx().location().pc)?;
+                                let dwarf = self.debugee.debug_info(self.ecx().location().pc)?;
                                 let place = weak_error!(dwarf.find_place_from_pc(pc)).flatten();
                                 let func = weak_error!(dwarf.find_function_by_pc(pc))
                                     .flatten()
@@ -615,12 +613,12 @@ impl Debugger {
                         continue;
                     }
 
-                    self.expl_ctx_switch_thread(pid)?;
+                    self.ecx_switch_thread(pid)?;
                     self.hooks.on_signal(sign);
                     break event;
                 }
                 StopReason::Watchpoint(pid, current_pc, ref ty) => {
-                    self.expl_ctx_switch_thread(pid)?;
+                    self.ecx_switch_thread(pid)?;
                     self.execute_on_watchpoint_hook(pid, current_pc, ty)?;
                     break event;
                 }
@@ -749,7 +747,7 @@ impl Debugger {
     /// Return in focus frame information.
     pub fn frame_info(&self) -> Result<FrameInfo, Error> {
         disable_when_not_stared!(self);
-        self.debugee.frame_info(self.exploration_ctx())
+        self.debugee.frame_info(self.ecx())
     }
 
     /// Set new frame into focus.
@@ -759,14 +757,14 @@ impl Debugger {
     /// * `num`: frame number in backtrace
     pub fn set_frame_into_focus(&mut self, num: u32) -> Result<u32, Error> {
         disable_when_not_stared!(self);
-        let ctx = self.exploration_ctx();
-        let backtrace = self.debugee.unwind(ctx.pid_on_focus())?;
+        let ecx = self.ecx();
+        let backtrace = self.debugee.unwind(ecx.pid_on_focus())?;
         let frame = backtrace.get(num as usize).ok_or(FrameNotFound(num))?;
         self.expl_context = ExplorationContext::new(
             Location {
                 pc: frame.ip,
                 global_pc: frame.ip.into_global(&self.debugee)?,
-                pid: ctx.pid_on_focus(),
+                pid: ecx.pid_on_focus(),
             },
             num,
         );
@@ -775,9 +773,9 @@ impl Debugger {
 
     /// Execute `on_step` callback with current exploration context
     fn execute_on_step_hook(&self) -> Result<(), Error> {
-        let ctx = self.exploration_ctx();
-        let pc = ctx.location().pc;
-        let global_pc = ctx.location().global_pc;
+        let ecx = self.ecx();
+        let pc = ecx.location().pc;
+        let global_pc = ecx.location().global_pc;
         let dwarf = self.debugee.debug_info(pc)?;
         let place = weak_error!(dwarf.find_place_from_pc(global_pc)).flatten();
         let func = weak_error!(dwarf.find_function_by_pc(global_pc))
@@ -788,9 +786,9 @@ impl Debugger {
 
     /// Execute `on_async_step` callback with current exploration context
     fn execute_on_async_step_hook(&self, task_id: u64, task_completed: bool) -> Result<(), Error> {
-        let ctx = self.exploration_ctx();
-        let pc = ctx.location().pc;
-        let global_pc = ctx.location().global_pc;
+        let ecx = self.ecx();
+        let pc = ecx.location().pc;
+        let global_pc = ecx.location().global_pc;
         let dwarf = self.debugee.debug_info(pc)?;
         let place = weak_error!(dwarf.find_place_from_pc(global_pc)).flatten();
         let func = weak_error!(dwarf.find_function_by_pc(global_pc))
@@ -806,7 +804,7 @@ impl Debugger {
     /// **! change exploration context**
     pub fn step_into(&mut self) -> Result<(), Error> {
         disable_when_not_stared!(self);
-        self.expl_ctx_restore_frame()?;
+        self.ecx_restore_frame()?;
 
         match self.step_in()? {
             StepResult::Done => self.execute_on_step_hook(),
@@ -829,7 +827,7 @@ impl Debugger {
     /// **! change exploration context**
     pub fn stepi(&mut self) -> Result<(), Error> {
         disable_when_not_stared!(self);
-        self.expl_ctx_restore_frame()?;
+        self.ecx_restore_frame()?;
 
         match self.single_step_instruction()? {
             Some(StopReason::SignalStop(_, sign)) => {
@@ -846,7 +844,7 @@ impl Debugger {
     /// Return list of currently running debugee threads.
     pub fn thread_state(&self) -> Result<Vec<ThreadSnapshot>, Error> {
         disable_when_not_stared!(self);
-        self.debugee.thread_state(self.exploration_ctx())
+        self.debugee.thread_state(self.ecx())
     }
 
     /// Sets the thread into focus.
@@ -857,7 +855,7 @@ impl Debugger {
     pub fn set_thread_into_focus(&mut self, num: u32) -> Result<Tracee, Error> {
         disable_when_not_stared!(self);
         let tracee = self.debugee.get_tracee_by_num(num)?;
-        self.expl_ctx_switch_thread(tracee.pid)?;
+        self.ecx_switch_thread(tracee.pid)?;
         Ok(tracee)
     }
 
@@ -904,7 +902,7 @@ impl Debugger {
     /// Move to higher stack frame.
     pub fn step_out(&mut self) -> Result<(), Error> {
         disable_when_not_stared!(self);
-        self.expl_ctx_restore_frame()?;
+        self.ecx_restore_frame()?;
         self.step_out_frame()?;
         self.execute_on_step_hook()
     }
@@ -912,7 +910,7 @@ impl Debugger {
     /// Do debugee step (over subroutine calls to).
     pub fn step_over(&mut self) -> Result<(), Error> {
         disable_when_not_stared!(self);
-        self.expl_ctx_restore_frame()?;
+        self.ecx_restore_frame()?;
         match self.step_over_any()? {
             StepResult::Done => self.execute_on_step_hook(),
             StepResult::SignalInterrupt { signal, quiet } if !quiet => {
@@ -998,7 +996,7 @@ impl Debugger {
 
         let r = Register::from_str(register_name)
             .map_err(|_| RegisterNameNotFound(register_name.into()))?;
-        Ok(RegisterMap::current(self.exploration_ctx().pid_on_focus())?.value(r))
+        Ok(RegisterMap::current(self.ecx().pid_on_focus())?.value(r))
     }
 
     /// Return registers dump for on focus thread at instruction defined by pc.
@@ -1015,7 +1013,7 @@ impl Debugger {
         let location = Location {
             pc,
             global_pc: pc.into_global(&self.debugee)?,
-            pid: self.exploration_ctx().pid_on_focus(),
+            pid: self.ecx().pid_on_focus(),
         };
         Ok(unwinder
             // there is no chance to determine frame number,
@@ -1035,7 +1033,7 @@ impl Debugger {
     pub fn set_register_value(&self, register_name: &str, val: u64) -> Result<(), Error> {
         disable_when_not_stared!(self);
 
-        let in_focus_pid = self.exploration_ctx().pid_on_focus();
+        let in_focus_pid = self.ecx().pid_on_focus();
         let mut map = RegisterMap::current(in_focus_pid)?;
         map.update(
             Register::try_from(register_name)
@@ -1062,16 +1060,14 @@ impl Debugger {
     /// Return a list of disassembled instruction for a function in focus.
     pub fn disasm(&self) -> Result<FunctionAssembly, Error> {
         disable_when_not_stared!(self);
-        self.debugee.disasm(
-            self.exploration_ctx(),
-            &self.breakpoints.active_breakpoints(),
-        )
+        self.debugee
+            .disasm(self.ecx(), &self.breakpoints.active_breakpoints())
     }
 
     /// Return two place descriptors, at the start and at the end of the current function.
     pub fn current_function_range(&self) -> Result<FunctionRange<'_>, Error> {
         disable_when_not_stared!(self);
-        self.debugee.function_range(self.exploration_ctx())
+        self.debugee.function_range(self.ecx())
     }
 
     pub fn gcx(&self) -> &GlobalContext {

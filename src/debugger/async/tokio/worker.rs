@@ -258,7 +258,7 @@ pub fn try_as_worker(
     thread: &ThreadSnapshot,
 ) -> Result<Option<Worker>, Error> {
     let debugger = context.debugger_mut();
-    debugger.expl_ctx_switch_thread(thread.thread.pid)?;
+    debugger.ecx_switch_thread(thread.thread.pid)?;
 
     let main_debug_info = debugger
         .debugee
@@ -266,8 +266,8 @@ pub fn try_as_worker(
         .pathname()
         .to_path_buf();
     for i in 0..thread.bt.as_ref().map(|bt| bt.len()).unwrap_or_default() {
-        let expl_ctx = debugger.exploration_ctx();
-        let debug_info = debugger.debugee.debug_info(expl_ctx.location().pc)?;
+        let ecx = debugger.ecx();
+        let debug_info = debugger.debugee.debug_info(ecx.location().pc)?;
         if debug_info.pathname() == main_debug_info {
             break;
         }

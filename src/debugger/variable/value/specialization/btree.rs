@@ -158,12 +158,9 @@ impl Leaf {
         ptr: *const (),
         markup: &LeafNodeMarkup,
     ) -> Result<Leaf, ParsingError> {
-        let leaf_bytes = debugger::read_memory_by_pid(
-            eval_ctx.expl_ctx.pid_on_focus(),
-            ptr as usize,
-            markup.size,
-        )
-        .map_err(ReadDebugeeMemory)?;
+        let leaf_bytes =
+            debugger::read_memory_by_pid(eval_ctx.ecx.pid_on_focus(), ptr as usize, markup.size)
+                .map_err(ReadDebugeeMemory)?;
         let data = ObjectBinaryRepr {
             raw_data: bytes::Bytes::from(leaf_bytes),
             address: Some(ptr as usize),
@@ -253,12 +250,9 @@ impl Internal {
         l_markup: &LeafNodeMarkup,
         i_markup: &InternalNodeMarkup,
     ) -> Result<Self, ParsingError> {
-        let bytes = debugger::read_memory_by_pid(
-            eval_ctx.expl_ctx.pid_on_focus(),
-            ptr as usize,
-            i_markup.size,
-        )
-        .map_err(ReadDebugeeMemory)?;
+        let bytes =
+            debugger::read_memory_by_pid(eval_ctx.ecx.pid_on_focus(), ptr as usize, i_markup.size)
+                .map_err(ReadDebugeeMemory)?;
         let data = ObjectBinaryRepr {
             raw_data: bytes::Bytes::from(bytes),
             address: Some(ptr as usize),

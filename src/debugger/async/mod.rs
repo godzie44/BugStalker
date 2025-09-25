@@ -153,9 +153,9 @@ impl Debugger {
         let tokio_version = self.debugee.tokio_version();
         disable_when_not_stared!(self);
 
-        let expl_ctx = self.exploration_ctx().clone();
+        let ecx = self.ecx().clone();
 
-        let threads = self.debugee.thread_state(&expl_ctx)?;
+        let threads = self.debugee.thread_state(&ecx)?;
         let mut analyze_context = TokioAnalyzeContext::new(self, tokio_version.unwrap_or_default());
         let mut backtrace = AsyncBacktrace {
             workers: vec![],
@@ -200,14 +200,14 @@ impl Debugger {
             }
         }
 
-        self.expl_ctx_swap(expl_ctx);
+        self.ecx_swap(ecx);
 
         Ok(backtrace)
     }
 
     pub fn async_step_over(&mut self) -> Result<(), Error> {
         disable_when_not_stared!(self);
-        self.expl_ctx_restore_frame()?;
+        self.ecx_restore_frame()?;
 
         match self.async_step_over_any()? {
             AsyncStepResult::Done { task_id, completed } => {
@@ -234,8 +234,8 @@ impl Debugger {
     ///
     /// **! change exploration context**
     fn async_step_over_any(&mut self) -> Result<AsyncStepResult, Error> {
-        let ctx = self.exploration_ctx();
-        let mut current_location = ctx.location();
+        let ecx = self.ecx();
+        let mut current_location = ecx.location();
 
         let async_bt = self.async_backtrace()?;
         let current_task = async_bt
@@ -308,7 +308,7 @@ impl Debugger {
                 }
                 _ => {}
             }
-            current_location = self.exploration_ctx().location();
+            current_location = self.ecx().location();
         };
 
         let prolog = func.prolog()?;
@@ -461,7 +461,7 @@ impl Debugger {
         }
 
         clear!();
-        self.expl_ctx_update_location()?;
+        self.ecx_update_location()?;
         Ok(AsyncStepResult::Done {
             task_id,
             completed: task_completed,
@@ -471,7 +471,7 @@ impl Debugger {
     /// Wait for current task ends.
     pub fn async_step_out(&mut self) -> Result<(), Error> {
         disable_when_not_stared!(self);
-        self.expl_ctx_restore_frame()?;
+        self.ecx_restore_frame()?;
 
         match self.step_out_task()? {
             AsyncStepResult::Done { task_id, completed } => {
@@ -587,7 +587,7 @@ impl Debugger {
         }
 
         clear!();
-        self.expl_ctx_update_location()?;
+        self.ecx_update_location()?;
         Ok(AsyncStepResult::Done {
             task_id,
             completed: true,

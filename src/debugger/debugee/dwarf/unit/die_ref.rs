@@ -244,7 +244,7 @@ impl<'dbg, H: Typed> FatDieRef<'dbg, H> {
 
     pub fn read_value(
         &self,
-        ctx: &ExplorationContext,
+        ecx: &ExplorationContext,
         debugee: &Debugee,
         r#type: &ComplexType,
     ) -> Option<ObjectBinaryRepr> {
@@ -253,17 +253,17 @@ impl<'dbg, H: Typed> FatDieRef<'dbg, H> {
         let location_expr = DwarfLocation(&location).try_as_expression(
             self.debug_info,
             self.unit(),
-            ctx.location().global_pc,
+            ecx.location().global_pc,
         );
 
         location_expr.and_then(|expr| {
             let evaluator =
                 ctx_resolve_unit_call!(self, evaluator, debugee, self.debug_info.dwarf());
-            let eval_result = weak_error!(evaluator.evaluate(ctx, expr))?;
+            let eval_result = weak_error!(evaluator.evaluate(ecx, expr))?;
             let type_size = r#type.type_size_in_bytes(
                 &EvaluationContext {
                     evaluator: &evaluator,
-                    expl_ctx: ctx,
+                    ecx,
                 },
                 r#type.root(),
             )? as usize;
@@ -281,18 +281,18 @@ impl<'dbg, H: Typed> FatDieRef<'dbg, H> {
 impl<'dbg> FatDieRef<'dbg, Function> {
     pub fn frame_base_addr(
         &self,
-        ctx: &ExplorationContext,
+        ecx: &ExplorationContext,
         debugee: &Debugee,
     ) -> Result<RelocatedAddress, Error> {
         let attr = self.deref()?.frame_base().ok_or(NoFBA)?;
 
         let expr = DwarfLocation(&attr)
-            .try_as_expression(self.debug_info, self.unit(), ctx.location().global_pc)
+            .try_as_expression(self.debug_info, self.unit(), ecx.location().global_pc)
             .ok_or(FBANotAnExpression)?;
 
         let evaluator = ctx_resolve_unit_call!(self, evaluator, debugee, self.debug_info.dwarf());
         let result = evaluator
-            .evaluate(ctx, expr)?
+            .evaluate(ecx, expr)?
             .into_scalar::<usize>(AddressKind::Value)?;
         Ok(result.into())
     }

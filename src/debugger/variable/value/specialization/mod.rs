@@ -146,7 +146,7 @@ impl<'a> VariableParserExtension<'a> {
         let data_ptr = val.assume_field_as_pointer("data_ptr")?;
 
         let data = debugger::read_memory_by_pid(
-            ctx.evaluation_context.expl_ctx.pid_on_focus(),
+            ctx.evaluation_context.ecx.pid_on_focus(),
             data_ptr as usize,
             len as usize,
         )
@@ -180,7 +180,7 @@ impl<'a> VariableParserExtension<'a> {
         let data_ptr = val.assume_field_as_pointer("pointer")?;
 
         let data = debugger::read_memory_by_pid(
-            ctx.evaluation_context.expl_ctx.pid_on_focus(),
+            ctx.evaluation_context.ecx.pid_on_focus(),
             data_ptr as usize,
             len as usize,
         )?;
@@ -227,7 +227,7 @@ impl<'a> VariableParserExtension<'a> {
             .ok_or(UnknownSize(el_type.identity(inner_type)))? as usize;
 
         let raw_data = debugger::read_memory_by_pid(
-            ctx.evaluation_context.expl_ctx.pid_on_focus(),
+            ctx.evaluation_context.ecx.pid_on_focus(),
             data_ptr,
             len as usize * el_type_size,
         )
@@ -501,11 +501,11 @@ impl<'a> VariableParserExtension<'a> {
         let reflection =
             HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
 
-        let iterator = reflection.iter(ctx.evaluation_context.expl_ctx.pid_on_focus())?;
+        let iterator = reflection.iter(ctx.evaluation_context.ecx.pid_on_focus())?;
         let kv_items = iterator
             .map_err(ParsingError::from)
             .filter_map(|bucket| {
-                let raw_data = bucket.read(ctx.evaluation_context.expl_ctx.pid_on_focus());
+                let raw_data = bucket.read(ctx.evaluation_context.ecx.pid_on_focus());
                 let data = weak_error!(raw_data).map(|d| ObjectBinaryRepr {
                     raw_data: Bytes::from(d),
                     address: Some(bucket.location()),
@@ -566,11 +566,11 @@ impl<'a> VariableParserExtension<'a> {
         let reflection =
             HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
 
-        let iterator = reflection.iter(ctx.evaluation_context.expl_ctx.pid_on_focus())?;
+        let iterator = reflection.iter(ctx.evaluation_context.ecx.pid_on_focus())?;
         let items = iterator
             .map_err(ParsingError::from)
             .filter_map(|bucket| {
-                let raw_data = bucket.read(ctx.evaluation_context.expl_ctx.pid_on_focus());
+                let raw_data = bucket.read(ctx.evaluation_context.ecx.pid_on_focus());
                 let data = weak_error!(raw_data).map(|d| ObjectBinaryRepr {
                     raw_data: Bytes::from(d),
                     address: Some(bucket.location()),
@@ -746,7 +746,7 @@ impl<'a> VariableParserExtension<'a> {
         let data_ptr = val.assume_field_as_pointer("pointer")? as usize;
 
         let data = debugger::read_memory_by_pid(
-            ctx.evaluation_context.expl_ctx.pid_on_focus(),
+            ctx.evaluation_context.ecx.pid_on_focus(),
             data_ptr,
             cap * el_type_size,
         )

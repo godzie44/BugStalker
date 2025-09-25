@@ -401,7 +401,7 @@ impl TokioOracle {
             let mut tasks = self.tasks.lock().unwrap();
             let entry = tasks.entry(task_id).or_insert_with(|| {
                 let bt = debugger
-                    .backtrace(debugger.exploration_ctx().pid_on_focus())
+                    .backtrace(debugger.ecx().pid_on_focus())
                     .ok();
                 Task::new(task_id, bt.as_ref())
             });
@@ -424,7 +424,7 @@ impl TokioOracle {
             && let Some(SupportedScalar::U64(id_value)) = scalar.value
         {
             let bt = debugger
-                .backtrace(debugger.exploration_ctx().pid_on_focus())
+                .backtrace(debugger.ecx().pid_on_focus())
                 .ok();
 
             self.tasks

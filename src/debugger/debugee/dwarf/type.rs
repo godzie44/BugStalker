@@ -121,7 +121,7 @@ impl MemberLocationExpression {
             .evaluate_with_resolver(
                 eval::ExternalRequirementsResolver::new()
                     .with_at_location(entity_addr.to_ne_bytes()),
-                eval_ctx.expl_ctx,
+                eval_ctx.ecx,
                 self.expr.clone(),
             )?
             .into_scalar::<usize>(AddressKind::Value)
@@ -191,7 +191,7 @@ impl ArrayBoundValueExpression {
     fn bound(&self, eval_ctx: &EvaluationContext) -> Result<i64, Error> {
         eval_ctx
             .evaluator
-            .evaluate(eval_ctx.expl_ctx, self.expr.clone())?
+            .evaluate(eval_ctx.ecx, self.expr.clone())?
             .into_scalar::<i64>(AddressKind::MemoryAddress)
     }
 }

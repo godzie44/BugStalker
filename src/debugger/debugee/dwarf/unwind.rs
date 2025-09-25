@@ -124,14 +124,14 @@ impl<'a> UnwindContext<'a> {
     fn new(
         debugee: &'a Debugee,
         registers: DwarfRegisterMap,
-        expl_ctx: &ExplorationContext,
+        ecx: &ExplorationContext,
     ) -> Result<Option<Self>, Error> {
-        let dwarf = &debugee.debug_info(expl_ctx.location().pc)?;
+        let dwarf = &debugee.debug_info(ecx.location().pc)?;
         let mut next_registers = registers.clone();
         let registers_snap = registers;
         let fde = match dwarf.eh_frame.fde_for_address(
             &dwarf.bases,
-            expl_ctx.location().global_pc.into(),
+            ecx.location().global_pc.into(),
             EhFrame::cie_from_offset,
         ) {
             Ok(fde) => fde,
@@ -146,15 +146,15 @@ impl<'a> UnwindContext<'a> {
             &dwarf.eh_frame,
             &dwarf.bases,
             &mut ctx,
-            expl_ctx.location().global_pc.into(),
+            ecx.location().global_pc.into(),
         )?;
-        let cfa = dwarf.evaluate_cfa(debugee, &registers_snap, row, expl_ctx)?;
+        let cfa = dwarf.evaluate_cfa(debugee, &registers_snap, row, ecx)?;
 
         let mut lazy_evaluator = None;
         let evaluator_init_fn = || -> Result<ExpressionEvaluator, Error> {
             let unit = dwarf
-                .find_unit_by_pc(expl_ctx.location().global_pc)?
-                .ok_or(UnitNotFound(expl_ctx.location().global_pc))?;
+                .find_unit_by_pc(ecx.location().global_pc)?
+                .ok_or(UnitNotFound(ecx.location().global_pc))?;
 
             let evaluator =
                 resolve_unit_call!(&dwarf.inner, unit, evaluator, debugee, dwarf.dwarf());
@@ -166,15 +166,14 @@ impl<'a> UnwindContext<'a> {
                 let value = match rule {
                     RegisterRule::Undefined => return None,
                     RegisterRule::SameValue => {
-                        let register_map =
-                            weak_error!(RegisterMap::current(expl_ctx.pid_on_focus()))?;
+                        let register_map = weak_error!(RegisterMap::current(ecx.pid_on_focus()))?;
                         weak_error!(DwarfRegisterMap::from(register_map).value(*register))?
                     }
                     RegisterRule::Offset(offset) => {
                         let addr = cfa.offset(*offset as isize);
 
                         let bytes = weak_error!(debugger::read_memory_by_pid(
-                            expl_ctx.pid_on_focus(),
+                            ecx.pid_on_focus(),
                             addr.into(),
                             mem::size_of::<u64>()
                         ))?;
@@ -187,12 +186,12 @@ impl<'a> UnwindContext<'a> {
                     RegisterRule::Expression(expr) => {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
-                        let expr_result = weak_error!(evaluator.evaluate(expl_ctx, expr.clone()))?;
+                        let expr_result = weak_error!(evaluator.evaluate(ecx, expr.clone()))?;
                         let addr = weak_error!(
                             expr_result.into_scalar::<usize>(AddressKind::MemoryAddress)
                         )?;
                         let bytes = weak_error!(debugger::read_memory_by_pid(
-                            expl_ctx.pid_on_focus(),
+                            ecx.pid_on_focus(),
                             addr,
                             mem::size_of::<u64>()
                         ))?;
@@ -203,7 +202,7 @@ impl<'a> UnwindContext<'a> {
                     RegisterRule::ValExpression(expr) => {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
-                        let expr_result = weak_error!(evaluator.evaluate(expl_ctx, expr.clone()))?;
+                        let expr_result = weak_error!(evaluator.evaluate(ecx, expr.clone()))?;
                         weak_error!(expr_result.into_scalar::<u64>(AddressKind::MemoryAddress))?
                     }
                     RegisterRule::Architectural => return None,
@@ -217,7 +216,7 @@ impl<'a> UnwindContext<'a> {
 
         Ok(Some(Self {
             registers: next_registers,
-            location: expl_ctx.location(),
+            location: ecx.location(),
             debugee,
             fde,
             cfa,
@@ -226,11 +225,11 @@ impl<'a> UnwindContext<'a> {
 
     pub fn next(
         previous_ctx: UnwindContext<'a>,
-        ctx: &ExplorationContext,
+        ecx: &ExplorationContext,
     ) -> Result<Option<Self>, Error> {
         let mut next_frame_registers: DwarfRegisterMap = previous_ctx.registers;
         next_frame_registers.update(gimli::Register(7), previous_ctx.cfa.into());
-        UnwindContext::new(previous_ctx.debugee, next_frame_registers, ctx)
+        UnwindContext::new(previous_ctx.debugee, next_frame_registers, ecx)
     }
 
     fn return_address(&self) -> Option<RelocatedAddress> {
@@ -275,11 +274,11 @@ impl<'a> DwarfUnwinder<'a> {
             .tracee_ensure(pid)
             .location(self.debugee)?;
 
-        let mut ctx = ExplorationContext::new(frame_0_location, 0);
+        let mut ecx = ExplorationContext::new(frame_0_location, 0);
         let mb_unwind_ctx = UnwindContext::new(
             self.debugee,
-            DwarfRegisterMap::from(RegisterMap::current(ctx.pid_on_focus())?),
-            &ctx,
+            DwarfRegisterMap::from(RegisterMap::current(ecx.pid_on_focus())?),
+            &ecx,
         )?;
         let Some(mut unwind_ctx) = mb_unwind_ctx else {
             return Ok(vec![]);
@@ -287,22 +286,22 @@ impl<'a> DwarfUnwinder<'a> {
 
         let function = self
             .debugee
-            .debug_info(ctx.location().pc)?
-            .find_function_by_pc(ctx.location().global_pc)?;
+            .debug_info(ecx.location().pc)?
+            .find_function_by_pc(ecx.location().global_pc)?;
         let fn_start_at = function
             .as_ref()
             .and_then(|(func, _)| {
                 func.prolog_start_place().ok().map(|prolog| {
                     prolog
                         .address
-                        .relocate_to_segment_by_pc(self.debugee, ctx.location().pc)
+                        .relocate_to_segment_by_pc(self.debugee, ecx.location().pc)
                 })
             })
             .transpose()?;
 
         let mut bt = vec![FrameSpan::new(
             self.debugee,
-            ctx.location().pc,
+            ecx.location().pc,
             function.and_then(|(_, info)| info.full_name()),
             fn_start_at,
         )?];
@@ -320,8 +319,8 @@ impl<'a> DwarfUnwinder<'a> {
                 pid: unwind_ctx.location.pid,
             };
 
-            ctx = ExplorationContext::new(next_location, ctx.frame_num() + 1);
-            unwind_ctx = match UnwindContext::next(unwind_ctx, &ctx)? {
+            ecx = ExplorationContext::new(next_location, ecx.frame_num() + 1);
+            unwind_ctx = match UnwindContext::next(unwind_ctx, &ecx)? {
                 None => break,
                 Some(ctx) => ctx,
             };
@@ -364,7 +363,7 @@ impl<'a> DwarfUnwinder<'a> {
             .tracee_ctl()
             .tracee_ensure(pid)
             .location(self.debugee)?;
-        let mut ctx = ExplorationContext::new(frame_0_location, 0);
+        let mut ecx = ExplorationContext::new(frame_0_location, 0);
 
         if frame_num == 0 {
             return Ok(());
@@ -372,24 +371,24 @@ impl<'a> DwarfUnwinder<'a> {
 
         let mut unwind_ctx = UnwindContext::new(
             self.debugee,
-            DwarfRegisterMap::from(RegisterMap::current(ctx.pid_on_focus())?),
-            &ctx,
+            DwarfRegisterMap::from(RegisterMap::current(ecx.pid_on_focus())?),
+            &ecx,
         )?
         .ok_or(UnwindNoContext)?;
 
         for _ in 0..frame_num {
             let ret_addr = unwind_ctx.return_address().ok_or(UnwindTooDeepFrame)?;
 
-            ctx = ExplorationContext::new(
+            ecx = ExplorationContext::new(
                 Location {
                     pc: ret_addr,
                     global_pc: ret_addr.into_global(self.debugee)?,
-                    pid: ctx.pid_on_focus(),
+                    pid: ecx.pid_on_focus(),
                 },
-                ctx.frame_num() + 1,
+                ecx.frame_num() + 1,
             );
 
-            unwind_ctx = UnwindContext::next(unwind_ctx, &ctx)?.ok_or(UnwindNoContext)?;
+            unwind_ctx = UnwindContext::next(unwind_ctx, &ecx)?.ok_or(UnwindNoContext)?;
         }
 
         if let Ok(ip) = unwind_ctx.registers().value(gimli::Register(16)) {
@@ -413,12 +412,12 @@ impl<'a> DwarfUnwinder<'a> {
             .tracee_ctl()
             .tracee_ensure(pid)
             .location(self.debugee)?;
-        let ctx = ExplorationContext::new(frame_0_location, 0);
+        let ecx = ExplorationContext::new(frame_0_location, 0);
 
         let mb_unwind_ctx = UnwindContext::new(
             self.debugee,
-            DwarfRegisterMap::from(RegisterMap::current(ctx.pid_on_focus())?),
-            &ctx,
+            DwarfRegisterMap::from(RegisterMap::current(ecx.pid_on_focus())?),
+            &ecx,
         )?;
 
         if let Some(unwind_ctx) = mb_unwind_ctx {
@@ -434,12 +433,12 @@ impl<'a> DwarfUnwinder<'a> {
     /// * `location`: some debugee thread position.
     pub fn context_for(
         &self,
-        ctx: &ExplorationContext,
+        ecx: &ExplorationContext,
     ) -> Result<Option<UnwindContext<'_>>, Error> {
         UnwindContext::new(
             self.debugee,
-            DwarfRegisterMap::from(RegisterMap::current(ctx.pid_on_focus())?),
-            ctx,
+            DwarfRegisterMap::from(RegisterMap::current(ecx.pid_on_focus())?),
+            ecx,
         )
     }
 }
