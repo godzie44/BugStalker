@@ -660,31 +660,31 @@ fn test_read_pointers() {
 
     assert_scalar(a.value(), "i32", Some(SupportedScalar::I32(2)));
     assert_pointer(ref_a.value(), "&i32");
-    let deref = ref_a.clone().modify_value(|ctx, val| val.deref(ctx));
+    let deref = ref_a.clone().modify_value(|pcx, val| val.deref(pcx));
     assert_scalar(deref.unwrap().value(), "i32", Some(SupportedScalar::I32(2)));
     assert_pointer(ptr_a.value(), "*const i32");
-    let deref = ptr_a.clone().modify_value(|ctx, val| val.deref(ctx));
+    let deref = ptr_a.clone().modify_value(|pcx, val| val.deref(pcx));
     assert_scalar(deref.unwrap().value(), "i32", Some(SupportedScalar::I32(2)));
     assert_pointer(ptr_ptr_a.value(), "*const *const i32");
-    let deref = ptr_ptr_a.clone().modify_value(|ctx, val| val.deref(ctx));
+    let deref = ptr_ptr_a.clone().modify_value(|pcx, val| val.deref(pcx));
     assert_pointer(deref.unwrap().value(), "*const i32");
     let deref = ptr_ptr_a
         .clone()
-        .modify_value(|ctx, v| v.deref(ctx).and_then(|v| v.deref(ctx)));
+        .modify_value(|pcx, v| v.deref(pcx).and_then(|v| v.deref(pcx)));
     assert_scalar(deref.unwrap().value(), "i32", Some(SupportedScalar::I32(2)));
     assert_scalar(b.value(), "i32", Some(SupportedScalar::I32(2)));
     assert_pointer(mut_ref_b.value(), "&mut i32");
-    let deref = mut_ref_b.clone().modify_value(|ctx, v| v.deref(ctx));
+    let deref = mut_ref_b.clone().modify_value(|pcx, v| v.deref(pcx));
     assert_scalar(deref.unwrap().value(), "i32", Some(SupportedScalar::I32(2)));
     assert_scalar(c.value(), "i32", Some(SupportedScalar::I32(2)));
     assert_pointer(mut_ptr_c.value(), "*mut i32");
-    let deref = mut_ptr_c.clone().modify_value(|ctx, v| v.deref(ctx));
+    let deref = mut_ptr_c.clone().modify_value(|pcx, v| v.deref(pcx));
     assert_scalar(deref.unwrap().value(), "i32", Some(SupportedScalar::I32(2)));
     assert_pointer(
         box_d.value(),
         "alloc::boxed::Box<i32, alloc::alloc::Global>",
     );
-    let deref = box_d.clone().modify_value(|ctx, v| v.deref(ctx));
+    let deref = box_d.clone().modify_value(|pcx, v| v.deref(pcx));
     assert_scalar(deref.unwrap().value(), "i32", Some(SupportedScalar::I32(2)));
     assert_struct(f.value(), "Foo", |i, member| match i {
         0 => assert_member(member, "bar", |val| {
@@ -700,13 +700,13 @@ fn test_read_pointers() {
         2 => {
             assert_member(member, "foo", |val| assert_pointer(val, "&i32"));
             let foo_val = member.value.clone();
-            let deref = f.clone().modify_value(|ctx, _| foo_val.deref(ctx));
+            let deref = f.clone().modify_value(|pcx, _| foo_val.deref(pcx));
             assert_scalar(deref.unwrap().value(), "i32", Some(SupportedScalar::I32(2)));
         }
         _ => panic!("3 members expected"),
     });
     assert_pointer(ref_f.value(), "&vars::references::Foo");
-    let deref = ref_f.clone().modify_value(|ctx, v| v.deref(ctx));
+    let deref = ref_f.clone().modify_value(|pcx, v| v.deref(pcx));
     assert_struct(deref.unwrap().value(), "Foo", |i, member| match i {
         0 => assert_member(member, "bar", |val| {
             assert_scalar(val, "i32", Some(SupportedScalar::I32(1)))
@@ -721,7 +721,7 @@ fn test_read_pointers() {
         2 => {
             assert_member(member, "foo", |val| assert_pointer(val, "&i32"));
             let foo_val = member.value.clone();
-            let deref = ref_f.clone().modify_value(|ctx, _| foo_val.deref(ctx));
+            let deref = ref_f.clone().modify_value(|pcx, _| foo_val.deref(pcx));
             assert_scalar(deref.unwrap().value(), "i32", Some(SupportedScalar::I32(2)));
         }
         _ => panic!("3 members expected"),
@@ -856,7 +856,7 @@ fn test_read_vec_and_slice() {
     );
 
     assert_pointer(slice1.value(), "&[i32; 3]");
-    let deref = slice1.clone().modify_value(|ctx, val| val.deref(ctx));
+    let deref = slice1.clone().modify_value(|pcx, val| val.deref(pcx));
     assert_array(deref.unwrap().value(), "[i32]", |i, item| match i {
         0 => assert_scalar(item, "i32", Some(SupportedScalar::I32(1))),
         1 => assert_scalar(item, "i32", Some(SupportedScalar::I32(2))),
@@ -865,12 +865,12 @@ fn test_read_vec_and_slice() {
     });
 
     assert_pointer(slice2.value(), "&[&[i32; 3]; 2]");
-    let deref = slice2.clone().modify_value(|ctx, val| val.deref(ctx));
+    let deref = slice2.clone().modify_value(|pcx, val| val.deref(pcx));
     assert_array(deref.unwrap().value(), "[&[i32; 3]]", |i, item| match i {
         0 => {
             assert_pointer(item, "&[i32; 3]");
             let item_val = item.clone();
-            let deref = slice2.clone().modify_value(|ctx, _| item_val.deref(ctx));
+            let deref = slice2.clone().modify_value(|pcx, _| item_val.deref(pcx));
             assert_array(deref.unwrap().value(), "[i32]", |i, item| match i {
                 0 => assert_scalar(item, "i32", Some(SupportedScalar::I32(1))),
                 1 => assert_scalar(item, "i32", Some(SupportedScalar::I32(2))),
@@ -881,7 +881,7 @@ fn test_read_vec_and_slice() {
         1 => {
             assert_pointer(item, "&[i32; 3]");
             let item_val = item.clone();
-            let deref = slice2.clone().modify_value(|ctx, _| item_val.deref(ctx));
+            let deref = slice2.clone().modify_value(|pcx, _| item_val.deref(pcx));
             assert_array(deref.unwrap().value(), "[i32]", |i, item| match i {
                 0 => assert_scalar(item, "i32", Some(SupportedScalar::I32(1))),
                 1 => assert_scalar(item, "i32", Some(SupportedScalar::I32(2))),
@@ -1171,7 +1171,7 @@ fn test_read_closures() {
                 let member_val = member.value.clone();
                 let deref = trait_once
                     .clone()
-                    .modify_value(|ctx, _| member_val.deref(ctx));
+                    .modify_value(|pcx, _| member_val.deref(pcx));
                 assert_struct(
                     deref.unwrap().value(),
                     "dyn core::ops::function::FnOnce<(), Output=()>",
@@ -1188,7 +1188,7 @@ fn test_read_closures() {
                 let member_val = member.value.clone();
                 let deref = trait_once
                     .clone()
-                    .modify_value(|ctx, _| member_val.deref(ctx));
+                    .modify_value(|pcx, _| member_val.deref(pcx));
                 assert_array(deref.unwrap().value(), "[usize]", |_, _| {});
             }
             _ => panic!("2 members expected"),
@@ -1205,7 +1205,7 @@ fn test_read_closures() {
                 let member_val = member.value.clone();
                 let deref = trait_mut
                     .clone()
-                    .modify_value(|ctx, _| member_val.deref(ctx));
+                    .modify_value(|pcx, _| member_val.deref(pcx));
                 assert_struct(
                     deref.unwrap().value(),
                     "dyn core::ops::function::FnMut<(), Output=()>",
@@ -1222,7 +1222,7 @@ fn test_read_closures() {
                 let member_val = member.value.clone();
                 let deref = trait_mut
                     .clone()
-                    .modify_value(|ctx, _| member_val.deref(ctx));
+                    .modify_value(|pcx, _| member_val.deref(pcx));
                 assert_array(deref.unwrap().value(), "[usize]", |_, _| {});
             }
             _ => panic!("2 members expected"),
@@ -1239,7 +1239,7 @@ fn test_read_closures() {
                 let member_val = member.value.clone();
                 let deref = trait_fn
                     .clone()
-                    .modify_value(|ctx, _| member_val.deref(ctx));
+                    .modify_value(|pcx, _| member_val.deref(pcx));
                 assert_struct(
                     deref.unwrap().value(),
                     "dyn core::ops::function::Fn<(), Output=()>",
@@ -1256,7 +1256,7 @@ fn test_read_closures() {
                 let member_val = member.value.clone();
                 let deref = trait_fn
                     .clone()
-                    .modify_value(|ctx, _| member_val.deref(ctx));
+                    .modify_value(|pcx, _| member_val.deref(pcx));
                 assert_array(deref.unwrap().value(), "[usize]", |_, _| {});
             }
             _ => panic!("2 members expected"),
@@ -1288,7 +1288,7 @@ fn test_arguments() {
     assert_scalar(by_val.value(), "i32", Some(SupportedScalar::I32(1)));
 
     assert_pointer(by_ref.value(), "&i32");
-    let deref = by_ref.clone().modify_value(|ctx, value| value.deref(ctx));
+    let deref = by_ref.clone().modify_value(|pcx, value| value.deref(pcx));
     assert_scalar(deref.unwrap().value(), "i32", Some(SupportedScalar::I32(2)));
 
     assert_vec(vec.value(), "Vec<u8, alloc::alloc::Global>", 3, |buf| {
@@ -1309,7 +1309,7 @@ fn test_arguments() {
                 let data_ptr_val = member.value.clone();
                 let deref = box_arr
                     .clone()
-                    .modify_value(|ctx, _| data_ptr_val.deref(ctx));
+                    .modify_value(|pcx, _| data_ptr_val.deref(pcx));
                 assert_scalar(deref.unwrap().value(), "u8", Some(SupportedScalar::U8(6)));
             }
             1 => assert_member(member, "length", |val| {
@@ -1648,7 +1648,7 @@ fn test_circular_ref_types() {
         "Rc<vars::circular::List, alloc::alloc::Global>",
     );
 
-    let deref = a_circ.clone().modify_value(|ctx, v| v.deref(ctx));
+    let deref = a_circ.clone().modify_value(|pcx, v| v.deref(pcx));
     let rust_version = rust_version(VARS_APP).unwrap();
     let deref_type = version_switch!(
         rust_version,
@@ -2118,7 +2118,7 @@ fn test_read_atomic() {
 
     let deref = int32_atomic_ptr
         .clone()
-        .modify_value(|ctx, v| v.field("p").unwrap().field("value").unwrap().deref(ctx));
+        .modify_value(|pcx, v| v.field("p").unwrap().field("value").unwrap().deref(pcx));
     assert_scalar(deref.unwrap().value(), "i32", Some(SupportedScalar::I32(2)));
 
     debugger.continue_debugee().unwrap();
@@ -2187,7 +2187,7 @@ fn test_shared_ptr() {
     );
 
     assert_rc(rc0.value(), "Rc<i32, alloc::alloc::Global>");
-    let deref = rc0.clone().modify_value(|ctx, v| v.deref(ctx));
+    let deref = rc0.clone().modify_value(|pcx, v| v.deref(pcx));
     let deref_type = version_switch!(
         rust_version,
         .. (1 . 84) => "RcBox<i32>",
@@ -2212,7 +2212,7 @@ fn test_shared_ptr() {
     });
 
     assert_rc(rc1.value(), "Rc<i32, alloc::alloc::Global>");
-    let deref = rc1.clone().modify_value(|ctx, v| v.deref(ctx));
+    let deref = rc1.clone().modify_value(|pcx, v| v.deref(pcx));
     assert_struct(deref.unwrap().value(), deref_type, |i, member| match i {
         0 => assert_member(member, "strong", |val| {
             assert_cell(val, "Cell<usize>", |inner| {
@@ -2231,7 +2231,7 @@ fn test_shared_ptr() {
     });
 
     assert_rc(weak_rc2.value(), "Weak<i32, alloc::alloc::Global>");
-    let deref = weak_rc2.clone().modify_value(|ctx, v| v.deref(ctx));
+    let deref = weak_rc2.clone().modify_value(|pcx, v| v.deref(pcx));
     assert_struct(deref.unwrap().value(), deref_type, |i, member| match i {
         0 => assert_member(member, "strong", |val| {
             assert_cell(val, "Cell<usize>", |inner| {
@@ -2250,7 +2250,7 @@ fn test_shared_ptr() {
     });
 
     assert_arc(arc0.value(), "Arc<i32, alloc::alloc::Global>");
-    let deref = arc0.clone().modify_value(|ctx, v| v.deref(ctx));
+    let deref = arc0.clone().modify_value(|pcx, v| v.deref(pcx));
     assert_struct(
         deref.unwrap().value(),
         "ArcInner<i32>",
@@ -2287,7 +2287,7 @@ fn test_shared_ptr() {
     );
 
     assert_arc(arc1.value(), "Arc<i32, alloc::alloc::Global>");
-    let deref = arc1.clone().modify_value(|ctx, v| v.deref(ctx));
+    let deref = arc1.clone().modify_value(|pcx, v| v.deref(pcx));
     assert_struct(
         deref.unwrap().value(),
         "ArcInner<i32>",
@@ -2326,7 +2326,7 @@ fn test_shared_ptr() {
     assert_arc(weak_arc2.value(), "Weak<i32, alloc::alloc::Global>");
     let deref = weak_arc2
         .clone()
-        .modify_value(|ctx, v| v.deref(ctx))
+        .modify_value(|pcx, v| v.deref(pcx))
         .unwrap();
     assert_struct(deref.value(), "ArcInner<i32>", |i, member| match i {
         0 => assert_member(member, "strong", |val| {
@@ -2393,7 +2393,7 @@ fn test_zst_types() {
     );
 
     assert_pointer(ptr_zst.value(), "&()");
-    let deref = ptr_zst.clone().modify_value(|ctx, v| v.deref(ctx));
+    let deref = ptr_zst.clone().modify_value(|pcx, v| v.deref(pcx));
     assert_scalar(deref.unwrap().value(), "()", Some(SupportedScalar::Empty()));
 
     assert_array(array_zst.value(), "[()]", |i, item| match i {
@@ -2412,7 +2412,7 @@ fn test_zst_types() {
     });
 
     assert_pointer(slice_zst.value(), "&[(); 4]");
-    let deref = slice_zst.clone().modify_value(|ctx, v| v.deref(ctx));
+    let deref = slice_zst.clone().modify_value(|pcx, v| v.deref(pcx));
     assert_array(deref.unwrap().value(), "[()]", |i, item| match i {
         0 => assert_scalar(item, "()", Some(SupportedScalar::Empty())),
         1 => assert_scalar(item, "()", Some(SupportedScalar::Empty())),
@@ -2770,7 +2770,7 @@ fn test_address_operator() {
         2 => {
             assert_member(member, "foo", |val| assert_pointer(val, "&i32"));
             let member_val = member.value.clone();
-            let deref = f.clone().modify_value(|ctx, _| member_val.deref(ctx));
+            let deref = f.clone().modify_value(|pcx, _| member_val.deref(pcx));
             assert_scalar(deref.unwrap().value(), "i32", Some(SupportedScalar::I32(2)));
         }
         _ => panic!("3 members expected"),

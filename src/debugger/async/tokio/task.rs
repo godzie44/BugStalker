@@ -160,7 +160,7 @@ pub fn task_from_header<'a>(
 
     let vtab_ptr = task_header_ptr
         .clone()
-        .modify_value(|ctx, val| val.deref(ctx)?.field("vtable")?.deref(ctx)?.field("poll"))
+        .modify_value(|pcx, val| val.deref(pcx)?.field("vtable")?.deref(pcx)?.field("poll"))
         .unwrap();
     let Value::Pointer(fn_ptr) = vtab_ptr.value() else {
         return Err(Error::Async(AsyncError::IncorrectAssumption(

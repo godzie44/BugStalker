@@ -129,24 +129,24 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_str(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         structure: &StructValue,
     ) -> Option<SpecializedValue> {
         weak_error!(
-            self.parse_str_inner(ctx, Value::Struct(structure.clone()))
+            self.parse_str_inner(pcx, Value::Struct(structure.clone()))
                 .context("&str interpretation")
         )
         .map(SpecializedValue::Str)
     }
 
-    fn parse_str_inner(&self, ctx: &ParseContext, val: Value) -> Result<StrVariable, ParsingError> {
+    fn parse_str_inner(&self, pcx: &ParseContext, val: Value) -> Result<StrVariable, ParsingError> {
         let len = val.assume_field_as_scalar_number("length")?;
         let len = guard_len(len);
 
         let data_ptr = val.assume_field_as_pointer("data_ptr")?;
 
         let data = debugger::read_memory_by_pid(
-            ctx.evaluation_context.ecx.pid_on_focus(),
+            pcx.evaluation_context.ecx.pid_on_focus(),
             data_ptr as usize,
             len as usize,
         )
@@ -159,11 +159,11 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_string(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         structure: &StructValue,
     ) -> Option<SpecializedValue> {
         weak_error!(
-            self.parse_string_inner(ctx, Value::Struct(structure.clone()))
+            self.parse_string_inner(pcx, Value::Struct(structure.clone()))
                 .context("String interpretation")
         )
         .map(SpecializedValue::String)
@@ -171,7 +171,7 @@ impl<'a> VariableParserExtension<'a> {
 
     fn parse_string_inner(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         val: Value,
     ) -> Result<StringVariable, ParsingError> {
         let len = val.assume_field_as_scalar_number("len")?;
@@ -180,7 +180,7 @@ impl<'a> VariableParserExtension<'a> {
         let data_ptr = val.assume_field_as_pointer("pointer")?;
 
         let data = debugger::read_memory_by_pid(
-            ctx.evaluation_context.ecx.pid_on_focus(),
+            pcx.evaluation_context.ecx.pid_on_focus(),
             data_ptr as usize,
             len as usize,
         )?;
@@ -192,12 +192,12 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_vector(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         structure: &StructValue,
         type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Option<SpecializedValue> {
         weak_error!(
-            self.parse_vector_inner(ctx, Value::Struct(structure.clone()), type_params)
+            self.parse_vector_inner(pcx, Value::Struct(structure.clone()), type_params)
                 .context("Vec<T> interpretation")
         )
         .map(SpecializedValue::Vector)
@@ -205,7 +205,7 @@ impl<'a> VariableParserExtension<'a> {
 
     fn parse_vector_inner(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         val: Value,
         type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Result<VecValue, ParsingError> {
@@ -216,18 +216,18 @@ impl<'a> VariableParserExtension<'a> {
         let len = val.assume_field_as_scalar_number("len")?;
         let len = guard_len(len);
 
-        let cap = extract_capacity(ctx, &val)? as i64;
+        let cap = extract_capacity(pcx, &val)? as i64;
         let cap = guard_cap(cap);
 
         let data_ptr = val.assume_field_as_pointer("pointer")? as usize;
 
-        let el_type = ctx.type_graph;
+        let el_type = pcx.type_graph;
         let el_type_size = el_type
-            .type_size_in_bytes(ctx.evaluation_context, inner_type)
+            .type_size_in_bytes(pcx.evaluation_context, inner_type)
             .ok_or(UnknownSize(el_type.identity(inner_type)))? as usize;
 
         let raw_data = debugger::read_memory_by_pid(
-            ctx.evaluation_context.ecx.pid_on_focus(),
+            pcx.evaluation_context.ecx.pid_on_focus(),
             data_ptr,
             len as usize * el_type_size,
         )
@@ -253,7 +253,7 @@ impl<'a> VariableParserExtension<'a> {
                 };
                 Some(ArrayItem {
                     index: i as i64,
-                    value: self.parser.parse_inner(ctx, Some(data), inner_type)?,
+                    value: self.parser.parse_inner(pcx, Some(data), inner_type)?,
                 })
             })
             .collect::<Vec<_>>();
@@ -267,7 +267,7 @@ impl<'a> VariableParserExtension<'a> {
                         field_name: Some("buf".to_owned()),
                         value: Value::Array(ArrayValue {
                             type_id: None,
-                            type_ident: ctx.type_graph.identity(inner_type).as_array_type(),
+                            type_ident: pcx.type_graph.identity(inner_type).as_array_type(),
                             items: Some(items),
                             // set to `None` because the address operator unavailable for spec vars
                             raw_address: None,
@@ -293,15 +293,15 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_tls_old(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         structure: &StructValue,
         type_params: &IndexMap<String, Option<TypeId>>,
         is_const_initialized: bool,
     ) -> Option<SpecializedValue> {
         let tls_var = if is_const_initialized {
-            self.parse_const_init_tls_inner(ctx, Value::Struct(structure.clone()), type_params)
+            self.parse_const_init_tls_inner(pcx, Value::Struct(structure.clone()), type_params)
         } else {
-            self.parse_tls_inner_old(ctx, Value::Struct(structure.clone()), type_params)
+            self.parse_tls_inner_old(pcx, Value::Struct(structure.clone()), type_params)
         };
 
         weak_error!(tls_var.context("TLS variable interpretation")).map(SpecializedValue::Tls)
@@ -309,7 +309,7 @@ impl<'a> VariableParserExtension<'a> {
 
     fn parse_const_init_tls_inner(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         inner: Value,
         type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Result<TlsVariable, ParsingError> {
@@ -320,13 +320,13 @@ impl<'a> VariableParserExtension<'a> {
         let value = inner.field("value");
         Ok(TlsVariable {
             inner_value: value.map(Box::new),
-            inner_type: ctx.type_graph.identity(value_type),
+            inner_type: pcx.type_graph.identity(value_type),
         })
     }
 
     fn parse_tls_inner_old(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         inner_val: Value,
         type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Result<TlsVariable, ParsingError> {
@@ -363,7 +363,7 @@ impl<'a> VariableParserExtension<'a> {
 
             return Ok(TlsVariable {
                 inner_value: tls_value,
-                inner_type: ctx.type_graph.identity(inner_type),
+                inner_type: pcx.type_graph.identity(inner_type),
             });
         }
 
@@ -374,22 +374,22 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_tls(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         structure: &StructValue,
         type_params: &IndexMap<String, Option<TypeId>>,
         rv: RustVersion,
     ) -> Result<Option<TlsVariable>, ParsingError> {
         if structure.type_ident.namespace().contains(&["eager"]) {
             // constant tls
-            self.parse_const_tls_inner(ctx, Value::Struct(structure.clone()), type_params)
+            self.parse_const_tls_inner(pcx, Value::Struct(structure.clone()), type_params)
         } else {
-            self.parse_tls_inner(ctx, Value::Struct(structure.clone()), type_params, rv)
+            self.parse_tls_inner(pcx, Value::Struct(structure.clone()), type_params, rv)
         }
     }
 
     fn parse_tls_inner(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         inner_val: Value,
         type_params: &IndexMap<String, Option<TypeId>>,
         rv: RustVersion,
@@ -437,7 +437,7 @@ impl<'a> VariableParserExtension<'a> {
 
             return Ok(Some(TlsVariable {
                 inner_value: tls_val,
-                inner_type: ctx.type_graph.identity(inner_type),
+                inner_type: pcx.type_graph.identity(inner_type),
             }));
         };
         Ok(None)
@@ -445,7 +445,7 @@ impl<'a> VariableParserExtension<'a> {
 
     fn parse_const_tls_inner(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         inner_val: Value,
         type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Result<Option<TlsVariable>, ParsingError> {
@@ -457,7 +457,7 @@ impl<'a> VariableParserExtension<'a> {
         if let Some(val) = inner_val.field("val") {
             return Ok(Some(TlsVariable {
                 inner_value: val.field("value").map(Box::new),
-                inner_type: ctx.type_graph.identity(inner_type),
+                inner_type: pcx.type_graph.identity(inner_type),
             }));
         }
 
@@ -468,11 +468,11 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_hashmap(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         structure: &StructValue,
     ) -> Option<SpecializedValue> {
         weak_error!(
-            self.parse_hashmap_inner(ctx, Value::Struct(structure.clone()))
+            self.parse_hashmap_inner(pcx, Value::Struct(structure.clone()))
                 .context("HashMap<K, V> interpretation")
         )
         .map(SpecializedValue::HashMap)
@@ -480,7 +480,7 @@ impl<'a> VariableParserExtension<'a> {
 
     fn parse_hashmap_inner(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         val: Value,
     ) -> Result<HashMapVariable, ParsingError> {
         let ctrl = val.assume_field_as_pointer("pointer")?;
@@ -493,26 +493,26 @@ impl<'a> VariableParserExtension<'a> {
             .ok_or(TypeParameterNotFound("T"))?
             .ok_or(TypeParameterTypeNotFound("T"))?;
 
-        let r#type = ctx.type_graph;
+        let r#type = pcx.type_graph;
         let kv_size = r#type
-            .type_size_in_bytes(ctx.evaluation_context, kv_type)
+            .type_size_in_bytes(pcx.evaluation_context, kv_type)
             .ok_or(UnknownSize(r#type.identity(kv_type)))?;
 
         let reflection =
             HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
 
-        let iterator = reflection.iter(ctx.evaluation_context.ecx.pid_on_focus())?;
+        let iterator = reflection.iter(pcx.evaluation_context.ecx.pid_on_focus())?;
         let kv_items = iterator
             .map_err(ParsingError::from)
             .filter_map(|bucket| {
-                let raw_data = bucket.read(ctx.evaluation_context.ecx.pid_on_focus());
+                let raw_data = bucket.read(pcx.evaluation_context.ecx.pid_on_focus());
                 let data = weak_error!(raw_data).map(|d| ObjectBinaryRepr {
                     raw_data: Bytes::from(d),
                     address: Some(bucket.location()),
                     size: bucket.size(),
                 });
 
-                let tuple = self.parser.parse_inner(ctx, data, kv_type);
+                let tuple = self.parser.parse_inner(pcx, data, kv_type);
 
                 if let Some(Value::Struct(mut tuple)) = tuple
                     && tuple.members.len() == 2
@@ -534,11 +534,11 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_hashset(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         structure: &StructValue,
     ) -> Option<SpecializedValue> {
         weak_error!(
-            self.parse_hashset_inner(ctx, Value::Struct(structure.clone()))
+            self.parse_hashset_inner(pcx, Value::Struct(structure.clone()))
                 .context("HashSet<T> interpretation")
         )
         .map(SpecializedValue::HashSet)
@@ -546,7 +546,7 @@ impl<'a> VariableParserExtension<'a> {
 
     fn parse_hashset_inner(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         val: Value,
     ) -> Result<HashSetVariable, ParsingError> {
         let ctrl = val.assume_field_as_pointer("pointer")?;
@@ -558,26 +558,26 @@ impl<'a> VariableParserExtension<'a> {
             .get("T")
             .ok_or(TypeParameterNotFound("T"))?
             .ok_or(TypeParameterTypeNotFound("T"))?;
-        let r#type = ctx.type_graph;
+        let r#type = pcx.type_graph;
         let kv_size = r#type
-            .type_size_in_bytes(ctx.evaluation_context, kv_type)
+            .type_size_in_bytes(pcx.evaluation_context, kv_type)
             .ok_or_else(|| UnknownSize(r#type.identity(kv_type)))?;
 
         let reflection =
             HashmapReflection::new(ctrl as *mut u8, bucket_mask as usize, kv_size as usize);
 
-        let iterator = reflection.iter(ctx.evaluation_context.ecx.pid_on_focus())?;
+        let iterator = reflection.iter(pcx.evaluation_context.ecx.pid_on_focus())?;
         let items = iterator
             .map_err(ParsingError::from)
             .filter_map(|bucket| {
-                let raw_data = bucket.read(ctx.evaluation_context.ecx.pid_on_focus());
+                let raw_data = bucket.read(pcx.evaluation_context.ecx.pid_on_focus());
                 let data = weak_error!(raw_data).map(|d| ObjectBinaryRepr {
                     raw_data: Bytes::from(d),
                     address: Some(bucket.location()),
                     size: bucket.size(),
                 });
 
-                let tuple = self.parser.parse_inner(ctx, data, kv_type);
+                let tuple = self.parser.parse_inner(pcx, data, kv_type);
 
                 if let Some(Value::Struct(mut tuple)) = tuple
                     && tuple.members.len() == 2
@@ -599,14 +599,14 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_btree_map(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         structure: &StructValue,
         identity: TypeId,
         type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Option<SpecializedValue> {
         weak_error!(
             self.parse_btree_map_inner(
-                ctx,
+                pcx,
                 Value::Struct(structure.clone()),
                 identity,
                 type_params
@@ -618,7 +618,7 @@ impl<'a> VariableParserExtension<'a> {
 
     fn parse_btree_map_inner(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         val: Value,
         identity: TypeId,
         type_params: &IndexMap<String, Option<TypeId>>,
@@ -636,22 +636,22 @@ impl<'a> VariableParserExtension<'a> {
             .ok_or(TypeParameterTypeNotFound("V"))?;
 
         let reflection = BTreeReflection::new(
-            ctx.type_graph,
+            pcx.type_graph,
             ptr,
             height as usize,
             identity,
             k_type,
             v_type,
         )?;
-        let iterator = reflection.iter(ctx.evaluation_context)?;
+        let iterator = reflection.iter(pcx.evaluation_context)?;
         let kv_items = iterator
             .map_err(ParsingError::from)
             .filter_map(|(k, v)| {
-                let Some(key) = self.parser.parse_inner(ctx, Some(k), k_type) else {
+                let Some(key) = self.parser.parse_inner(pcx, Some(k), k_type) else {
                     return Ok(None);
                 };
 
-                let Some(value) = self.parser.parse_inner(ctx, Some(v), v_type) else {
+                let Some(value) = self.parser.parse_inner(pcx, Some(v), v_type) else {
                     return Ok(None);
                 };
 
@@ -697,12 +697,12 @@ impl<'a> VariableParserExtension<'a> {
 
     pub fn parse_vec_dequeue(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         structure: &StructValue,
         type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Option<SpecializedValue> {
         weak_error!(
-            self.parse_vec_dequeue_inner(ctx, Value::Struct(structure.clone()), type_params)
+            self.parse_vec_dequeue_inner(pcx, Value::Struct(structure.clone()), type_params)
                 .context("VeqDequeue<T> interpretation")
         )
         .map(SpecializedValue::VecDeque)
@@ -710,7 +710,7 @@ impl<'a> VariableParserExtension<'a> {
 
     fn parse_vec_dequeue_inner(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         val: Value,
         type_params: &IndexMap<String, Option<TypeId>>,
     ) -> Result<VecValue, ParsingError> {
@@ -721,15 +721,15 @@ impl<'a> VariableParserExtension<'a> {
         let len = val.assume_field_as_scalar_number("len")? as usize;
         let len = guard_len(len as i64) as usize;
 
-        let r#type = ctx.type_graph;
+        let r#type = pcx.type_graph;
         let el_type_size = r#type
-            .type_size_in_bytes(ctx.evaluation_context, inner_type)
+            .type_size_in_bytes(pcx.evaluation_context, inner_type)
             .ok_or_else(|| UnknownSize(r#type.identity(inner_type)))?
             as usize;
         let cap = if el_type_size == 0 {
             usize::MAX
         } else {
-            guard_cap(extract_capacity(ctx, &val)? as i64) as usize
+            guard_cap(extract_capacity(pcx, &val)? as i64) as usize
         };
         let head = val.assume_field_as_scalar_number("head")? as usize;
 
@@ -746,7 +746,7 @@ impl<'a> VariableParserExtension<'a> {
         let data_ptr = val.assume_field_as_pointer("pointer")? as usize;
 
         let data = debugger::read_memory_by_pid(
-            ctx.evaluation_context.ecx.pid_on_focus(),
+            pcx.evaluation_context.ecx.pid_on_focus(),
             data_ptr,
             cap * el_type_size,
         )
@@ -767,7 +767,7 @@ impl<'a> VariableParserExtension<'a> {
 
                 Some(ArrayItem {
                     index: i as i64,
-                    value: self.parser.parse_inner(ctx, Some(el_data), inner_type)?,
+                    value: self.parser.parse_inner(pcx, Some(el_data), inner_type)?,
                 })
             })
             .collect::<Vec<_>>();
@@ -781,7 +781,7 @@ impl<'a> VariableParserExtension<'a> {
                         field_name: Some("buf".to_owned()),
                         value: Value::Array(ArrayValue {
                             type_id: None,
-                            type_ident: ctx.type_graph.identity(inner_type).as_array_type(),
+                            type_ident: pcx.type_graph.identity(inner_type).as_array_type(),
                             items: Some(items),
                             // set to `None` because the address operator unavailable for spec vars
                             raw_address: None,
@@ -1065,8 +1065,8 @@ impl<'a> VariableParserExtension<'a> {
     }
 }
 
-fn extract_capacity(ctx: &ParseContext, val: &Value) -> Result<usize, ParsingError> {
-    let rust_version = ctx
+fn extract_capacity(pcx: &ParseContext, val: &Value) -> Result<usize, ParsingError> {
+    let rust_version = pcx
         .evaluation_context
         .rustc_version()
         .ok_or(ParsingError::UnsupportedVersion)?;

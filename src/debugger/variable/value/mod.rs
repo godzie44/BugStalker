@@ -264,14 +264,14 @@ pub struct PointerValue {
 
 impl PointerValue {
     /// Dereference pointer and return variable IR that represents underline value.
-    pub fn deref(&self, ctx: &ParseContext) -> Option<Value> {
+    pub fn deref(&self, pcx: &ParseContext) -> Option<Value> {
         let target_type = self.target_type?;
         let deref_size = self.target_type_size.or_else(|| {
-            ctx.type_graph
-                .type_size_in_bytes(ctx.evaluation_context, target_type)
+            pcx.type_graph
+                .type_size_in_bytes(pcx.evaluation_context, target_type)
         });
 
-        let target_type_decl = ctx.type_graph.types.get(&target_type);
+        let target_type_decl = pcx.type_graph.types.get(&target_type);
         if matches!(target_type_decl, Some(TypeDeclaration::Subroutine { .. })) {
             // this variable is a fn pointer - don't deref it
             return None;
@@ -280,7 +280,7 @@ impl PointerValue {
         self.value.and_then(|ptr| {
             let data = deref_size.and_then(|sz| {
                 let raw_data = debugger::read_memory_by_pid(
-                    ctx.evaluation_context.ecx.pid_on_focus(),
+                    pcx.evaluation_context.ecx.pid_on_focus(),
                     ptr as usize,
                     sz as usize,
                 )
@@ -293,23 +293,23 @@ impl PointerValue {
                 })
             });
             let parser = ValueParser::new();
-            parser.parse_inner(ctx, data, target_type)
+            parser.parse_inner(pcx, data, target_type)
         })
     }
 
     /// Interpret a pointer as a pointer on first array element.
     /// Returns variable IR that represents an array.
-    pub fn slice(&self, ctx: &ParseContext, left: Option<usize>, right: usize) -> Option<Value> {
+    pub fn slice(&self, pcx: &ParseContext, left: Option<usize>, right: usize) -> Option<Value> {
         let target_type = self.target_type?;
         let deref_size =
-            ctx.type_graph
-                .type_size_in_bytes(ctx.evaluation_context, target_type)? as usize;
+            pcx.type_graph
+                .type_size_in_bytes(pcx.evaluation_context, target_type)? as usize;
 
         self.value.and_then(|ptr| {
             let left = left.unwrap_or_default();
             let base_addr = ptr as usize + deref_size * left;
             let raw_data = weak_error!(debugger::read_memory_by_pid(
-                ctx.evaluation_context.ecx.pid_on_focus(),
+                pcx.evaluation_context.ecx.pid_on_focus(),
                 base_addr,
                 deref_size * (right - left)
             ))?;
@@ -327,7 +327,7 @@ impl PointerValue {
                     };
                     Some(ArrayItem {
                         index: i as i64,
-                        value: parser.parse_inner(ctx, Some(data), target_type)?,
+                        value: parser.parse_inner(pcx, Some(data), target_type)?,
                     })
                 })
                 .collect::<Vec<_>>();
@@ -335,7 +335,7 @@ impl PointerValue {
             Some(Value::Array(ArrayValue {
                 items: Some(items),
                 type_id: None,
-                type_ident: ctx.type_graph.identity(target_type).as_array_type(),
+                type_ident: pcx.type_graph.identity(target_type).as_array_type(),
                 raw_address: Some(base_addr),
             }))
         })
@@ -622,10 +622,10 @@ impl Value {
 
     /// Try to dereference variable and returns underline variable IR.
     /// Return `None` if dereference not allowed.
-    pub fn deref(self, ctx: &ParseContext) -> Option<Self> {
+    pub fn deref(self, pcx: &ParseContext) -> Option<Self> {
         match self {
-            Value::Pointer(ptr) => ptr.deref(ctx),
-            Value::RustEnum(r_enum) => r_enum.value.and_then(|v| v.value.deref(ctx)),
+            Value::Pointer(ptr) => ptr.deref(pcx),
+            Value::RustEnum(r_enum) => r_enum.value.and_then(|v| v.value.deref(pcx)),
             Value::Specialized {
                 value: Some(SpecializedValue::Rc(ptr)),
                 ..
@@ -633,11 +633,11 @@ impl Value {
             | Value::Specialized {
                 value: Some(SpecializedValue::Arc(ptr)),
                 ..
-            } => ptr.deref(ctx),
+            } => ptr.deref(pcx),
             Value::Specialized {
                 value: Some(SpecializedValue::Tls(tls_var)),
                 ..
-            } => tls_var.inner_value.and_then(|inner| inner.deref(ctx)),
+            } => tls_var.inner_value.and_then(|inner| inner.deref(pcx)),
             Value::Specialized {
                 value: Some(SpecializedValue::Cell(cell)),
                 ..
@@ -645,13 +645,13 @@ impl Value {
             | Value::Specialized {
                 value: Some(SpecializedValue::RefCell(cell)),
                 ..
-            } => cell.deref(ctx),
+            } => cell.deref(pcx),
             _ => None,
         }
     }
 
     /// Return address (as pointer variable) of raw data in debugee memory.
-    pub fn address(self, ctx: &ParseContext) -> Option<Self> {
+    pub fn address(self, pcx: &ParseContext) -> Option<Self> {
         let addr = self.in_memory_location()?;
         Some(Value::Pointer(PointerValue {
             type_ident: self.r#type().as_address_type(),
@@ -659,7 +659,7 @@ impl Value {
             target_type: self.type_id(),
             target_type_size: self
                 .type_id()
-                .and_then(|t| ctx.type_graph.type_size_in_bytes(ctx.evaluation_context, t)),
+                .and_then(|t| pcx.type_graph.type_size_in_bytes(pcx.evaluation_context, t)),
             raw_address: None,
             type_id: None,
         }))
@@ -755,7 +755,7 @@ impl Value {
 
     pub fn slice(
         self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         left: Option<usize>,
         right: Option<usize>,
     ) -> Option<Self> {
@@ -767,7 +767,7 @@ impl Value {
             Value::Pointer(ptr) => {
                 // for pointer the right bound must always be specified
                 let right = right?;
-                ptr.slice(ctx, left, right)
+                ptr.slice(pcx, left, right)
             }
             Value::Specialized {
                 value: Some(spec_val),
@@ -776,7 +776,7 @@ impl Value {
                 SpecializedValue::Rc(ptr) | SpecializedValue::Arc(ptr) => {
                     // for pointer the right bound must always be specified
                     let right = right?;
-                    ptr.slice(ctx, left, right)
+                    ptr.slice(pcx, left, right)
                 }
                 SpecializedValue::Vector(mut vec) => {
                     vec.slice(left, right);
@@ -794,10 +794,10 @@ impl Value {
                 }
                 SpecializedValue::Tls(mut tls_var) => {
                     let inner = tls_var.inner_value.take()?;
-                    inner.slice(ctx, left, right)
+                    inner.slice(pcx, left, right)
                 }
                 SpecializedValue::Cell(cell) | SpecializedValue::RefCell(cell) => {
-                    cell.slice(ctx, left, right)
+                    cell.slice(pcx, left, right)
                 }
                 _ => None,
             },

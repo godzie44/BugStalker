@@ -33,10 +33,10 @@ pub struct ValueModifiers {
 }
 
 impl ValueModifiers {
-    pub fn from_identity(p_ctx: &ParseContext, ident: Identity) -> ValueModifiers {
+    pub fn from_identity(pcx: &ParseContext, ident: Identity) -> ValueModifiers {
         let mut this = ValueModifiers::default();
 
-        let ver = p_ctx.evaluation_context.rustc_version().unwrap_or_default();
+        let ver = pcx.evaluation_context.rustc_version().unwrap_or_default();
         if ver >= Version((1, 80, 0)) {
             // not sure that value is tls, but some additional checks will be occurred on
             // a value type at parsing stage
@@ -63,6 +63,7 @@ impl ValueModifiers {
     }
 }
 
+/// Parse context (or pcx).
 pub struct ParseContext<'a> {
     pub evaluation_context: &'a EvaluationContext<'a>,
     pub type_graph: &'a ComplexType,
@@ -179,7 +180,7 @@ impl ValueParser {
 
     fn parse_struct_variable(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         data: Option<ObjectBinaryRepr>,
         type_id: TypeId,
         type_params: IndexMap<String, Option<TypeId>>,
@@ -187,12 +188,12 @@ impl ValueParser {
     ) -> StructValue {
         let children = members
             .iter()
-            .filter_map(|member| self.parse_struct_member(ctx, member, data.as_ref()))
+            .filter_map(|member| self.parse_struct_member(pcx, member, data.as_ref()))
             .collect();
 
         StructValue {
             type_id: Some(type_id),
-            type_ident: ctx.type_graph.identity(type_id),
+            type_ident: pcx.type_graph.identity(type_id),
             members: children,
             type_params,
             raw_address: data.and_then(|d| d.address),
@@ -201,7 +202,7 @@ impl ValueParser {
 
     fn parse_struct_member(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         member: &StructureMember,
         parent_data: Option<&ObjectBinaryRepr>,
     ) -> Option<Member> {
@@ -214,8 +215,8 @@ impl ValueParser {
             return None;
         };
         let member_val =
-            parent_data.and_then(|data| member.value(ctx.evaluation_context, ctx.type_graph, data));
-        let value = self.parse_inner(ctx, member_val, type_ref)?;
+            parent_data.and_then(|data| member.value(pcx.evaluation_context, pcx.type_graph, data));
+        let value = self.parse_inner(pcx, member_val, type_ref)?;
         Some(Member {
             field_name: member.name.clone(),
             value,
@@ -224,13 +225,13 @@ impl ValueParser {
 
     fn parse_array(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         data: Option<ObjectBinaryRepr>,
         type_id: TypeId,
         array_decl: &ArrayType,
     ) -> ArrayValue {
         let items = array_decl
-            .bounds(ctx.evaluation_context)
+            .bounds(pcx.evaluation_context)
             .and_then(|bounds| {
                 let len = bounds.1 - bounds.0;
                 if len == 0 {
@@ -239,13 +240,13 @@ impl ValueParser {
                 if len < 0 {
                     warn!(
                         "array `len` less than 0 for type: {}",
-                        ctx.type_graph.identity(type_id)
+                        pcx.type_graph.identity(type_id)
                     );
                     return None;
                 };
 
                 let data = data.as_ref()?;
-                let el_size = (array_decl.size_in_bytes(ctx.evaluation_context, ctx.type_graph)?
+                let el_size = (array_decl.size_in_bytes(pcx.evaluation_context, pcx.type_graph)?
                     / len as u64) as usize;
                 let bytes = &data.raw_data;
                 let el_type_id = array_decl.element_type()?;
@@ -271,7 +272,7 @@ impl ValueParser {
                                 size: el_size,
                             };
 
-                            let value = self.parse_inner(ctx, Some(data), el_type_id)?;
+                            let value = self.parse_inner(pcx, Some(data), el_type_id)?;
                             Some(ArrayItem {
                                 index: bounds.0 + i as i64,
                                 value,
@@ -284,21 +285,21 @@ impl ValueParser {
         ArrayValue {
             items,
             type_id: Some(type_id),
-            type_ident: ctx.type_graph.identity(type_id),
+            type_ident: pcx.type_graph.identity(type_id),
             raw_address: data.and_then(|d| d.address),
         }
     }
 
     fn parse_c_enum(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         data: Option<ObjectBinaryRepr>,
         type_id: TypeId,
         discr_type: Option<TypeId>,
         enumerators: &HashMap<i64, String>,
     ) -> CEnumValue {
         let in_debugee_loc = data.as_ref().and_then(|d| d.address);
-        let mb_discr = discr_type.and_then(|type_id| self.parse_inner(ctx, data, type_id));
+        let mb_discr = discr_type.and_then(|type_id| self.parse_inner(pcx, data, type_id));
 
         let value = mb_discr.and_then(|discr| {
             if let Value::Scalar(scalar) = discr {
@@ -309,7 +310,7 @@ impl ValueParser {
         });
 
         CEnumValue {
-            type_ident: ctx.type_graph.identity(type_id),
+            type_ident: pcx.type_graph.identity(type_id),
             type_id: Some(type_id),
             value: value.and_then(|val| enumerators.get(&val).cloned()),
             raw_address: in_debugee_loc,
@@ -318,14 +319,14 @@ impl ValueParser {
 
     fn parse_rust_enum(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         data: Option<ObjectBinaryRepr>,
         type_id: TypeId,
         discr_member: Option<&StructureMember>,
         enumerators: &HashMap<Option<i64>, StructureMember>,
     ) -> RustEnumValue {
         let discr_value = discr_member.and_then(|member| {
-            let discr = self.parse_struct_member(ctx, member, data.as_ref())?.value;
+            let discr = self.parse_struct_member(pcx, member, data.as_ref())?.value;
             if let Value::Scalar(scalar) = discr {
                 return scalar.try_as_number();
             }
@@ -337,7 +338,7 @@ impl ValueParser {
 
         let enumerator = enumerator.and_then(|member| {
             Some(Box::new(self.parse_struct_member(
-                ctx,
+                pcx,
                 member,
                 data.as_ref(),
             )?))
@@ -345,7 +346,7 @@ impl ValueParser {
 
         RustEnumValue {
             type_id: Some(type_id),
-            type_ident: ctx.type_graph.identity(type_id),
+            type_ident: pcx.type_graph.identity(type_id),
             value: enumerator,
             raw_address: data.and_then(|d| d.address),
         }
@@ -353,7 +354,7 @@ impl ValueParser {
 
     fn parse_pointer(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         data: Option<ObjectBinaryRepr>,
         type_id: TypeId,
         target_type: Option<TypeId>,
@@ -362,11 +363,11 @@ impl ValueParser {
             .as_ref()
             .map(|v| scalar_from_bytes::<*const ()>(&v.raw_data));
 
-        let mut type_ident = ctx.type_graph.identity(type_id);
+        let mut type_ident = pcx.type_graph.identity(type_id);
         if type_ident.is_unknown()
             && let Some(target_type) = target_type
         {
-            type_ident = ctx.type_graph.identity(target_type).as_deref_type();
+            type_ident = pcx.type_graph.identity(target_type).as_deref_type();
         }
 
         PointerValue {
@@ -381,12 +382,12 @@ impl ValueParser {
 
     fn parse_inner_with_modifiers(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         data: Option<ObjectBinaryRepr>,
         type_id: TypeId,
         modifiers: &ValueModifiers,
     ) -> Option<Value> {
-        let type_graph = ctx.type_graph;
+        let type_graph = pcx.type_graph;
         match &type_graph.types[&type_id] {
             TypeDeclaration::Scalar(scalar_type) => {
                 Some(Value::Scalar(self.parse_scalar(data, type_id, scalar_type)))
@@ -399,7 +400,7 @@ impl ValueParser {
                 ..
             } => {
                 let struct_var =
-                    self.parse_struct_variable(ctx, data, type_id, type_params.clone(), members);
+                    self.parse_struct_variable(pcx, data, type_id, type_params.clone(), members);
 
                 let parser_ext = VariableParserExtension::new(self);
                 // Reinterpret structure if underline data type is:
@@ -418,14 +419,14 @@ impl ValueParser {
                 // - SystemTime/Instant
                 if struct_name.as_deref() == Some("&str") {
                     return Some(Value::Specialized {
-                        value: parser_ext.parse_str(ctx, &struct_var),
+                        value: parser_ext.parse_str(pcx, &struct_var),
                         original: struct_var,
                     });
                 };
 
                 if struct_name.as_deref() == Some("String") {
                     return Some(Value::Specialized {
-                        value: parser_ext.parse_string(ctx, &struct_var),
+                        value: parser_ext.parse_string(pcx, &struct_var),
                         original: struct_var,
                     });
                 };
@@ -434,12 +435,12 @@ impl ValueParser {
                     && type_ns_h.contains(&["vec"])
                 {
                     return Some(Value::Specialized {
-                        value: parser_ext.parse_vector(ctx, &struct_var, type_params),
+                        value: parser_ext.parse_vector(pcx, &struct_var, type_params),
                         original: struct_var,
                     });
                 };
 
-                let rust_version = ctx.evaluation_context.rustc_version().unwrap_or_default();
+                let rust_version = pcx.evaluation_context.rustc_version().unwrap_or_default();
                 let type_is_tls = version_switch!(
                     rust_version,
                     .. (1 . 77) => type_ns_h.contains(&["std", "sys", "common", "thread_local", "fast_local"]),
@@ -450,7 +451,7 @@ impl ValueParser {
 
                 if type_is_tls || modifiers.tls {
                     return if rust_version >= Version((1, 80, 0)) {
-                        match parser_ext.parse_tls(ctx, &struct_var, type_params, rust_version) {
+                        match parser_ext.parse_tls(pcx, &struct_var, type_params, rust_version) {
                             Ok(Some(value)) => Some(Value::Specialized {
                                 value: Some(SpecializedValue::Tls(value)),
                                 original: struct_var,
@@ -467,7 +468,7 @@ impl ValueParser {
                     } else {
                         Some(Value::Specialized {
                             value: parser_ext.parse_tls_old(
-                                ctx,
+                                pcx,
                                 &struct_var,
                                 type_params,
                                 modifiers.tls_const,
@@ -481,7 +482,7 @@ impl ValueParser {
                     && type_ns_h.contains(&["collections", "hash", "map"])
                 {
                     return Some(Value::Specialized {
-                        value: parser_ext.parse_hashmap(ctx, &struct_var),
+                        value: parser_ext.parse_hashmap(pcx, &struct_var),
                         original: struct_var,
                     });
                 };
@@ -490,7 +491,7 @@ impl ValueParser {
                     && type_ns_h.contains(&["collections", "hash", "set"])
                 {
                     return Some(Value::Specialized {
-                        value: parser_ext.parse_hashset(ctx, &struct_var),
+                        value: parser_ext.parse_hashset(pcx, &struct_var),
                         original: struct_var,
                     });
                 };
@@ -502,7 +503,7 @@ impl ValueParser {
                     && type_ns_h.contains(&["collections", "btree", "map"])
                 {
                     return Some(Value::Specialized {
-                        value: parser_ext.parse_btree_map(ctx, &struct_var, type_id, type_params),
+                        value: parser_ext.parse_btree_map(pcx, &struct_var, type_id, type_params),
                         original: struct_var,
                     });
                 };
@@ -526,7 +527,7 @@ impl ValueParser {
                     && type_ns_h.contains(&["collections", "vec_deque"])
                 {
                     return Some(Value::Specialized {
-                        value: parser_ext.parse_vec_dequeue(ctx, &struct_var, type_params),
+                        value: parser_ext.parse_vec_dequeue(pcx, &struct_var, type_params),
                         original: struct_var,
                     });
                 };
@@ -603,14 +604,14 @@ impl ValueParser {
                 Some(Value::Struct(struct_var))
             }
             TypeDeclaration::Array(decl) => {
-                Some(Value::Array(self.parse_array(ctx, data, type_id, decl)))
+                Some(Value::Array(self.parse_array(pcx, data, type_id, decl)))
             }
             TypeDeclaration::CStyleEnum {
                 discr_type,
                 enumerators,
                 ..
             } => Some(Value::CEnum(self.parse_c_enum(
-                ctx,
+                pcx,
                 data,
                 type_id,
                 *discr_type,
@@ -621,22 +622,22 @@ impl ValueParser {
                 enumerators,
                 ..
             } => Some(Value::RustEnum(self.parse_rust_enum(
-                ctx,
+                pcx,
                 data,
                 type_id,
                 discr_type.as_ref().map(|t| t.as_ref()),
                 enumerators,
             ))),
             TypeDeclaration::Pointer { target_type, .. } => Some(Value::Pointer(
-                self.parse_pointer(ctx, data, type_id, *target_type),
+                self.parse_pointer(pcx, data, type_id, *target_type),
             )),
             TypeDeclaration::Union { members, .. } => {
                 let struct_var =
-                    self.parse_struct_variable(ctx, data, type_id, IndexMap::new(), members);
+                    self.parse_struct_variable(pcx, data, type_id, IndexMap::new(), members);
                 Some(Value::Struct(struct_var))
             }
             TypeDeclaration::Subroutine { return_type, .. } => {
-                let ret_type = return_type.map(|t_id| ctx.type_graph.identity(t_id));
+                let ret_type = return_type.map(|t_id| pcx.type_graph.identity(t_id));
                 let fn_var = SubroutineValue {
                     type_id: Some(type_id),
                     return_type_ident: ret_type,
@@ -650,10 +651,10 @@ impl ValueParser {
                 let in_debugee_loc = data.as_ref().and_then(|d| d.address);
                 Some(Value::CModifiedVariable(CModifiedValue {
                     type_id: Some(type_id),
-                    type_ident: ctx.type_graph.identity(type_id),
+                    type_ident: pcx.type_graph.identity(type_id),
                     modifier: *modifier,
                     value: inner.and_then(|inner_type| {
-                        Some(Box::new(self.parse_inner(ctx, data, inner_type)?))
+                        Some(Box::new(self.parse_inner(pcx, data, inner_type)?))
                     }),
                     address: in_debugee_loc,
                 }))
@@ -663,23 +664,23 @@ impl ValueParser {
 
     pub(super) fn parse_inner(
         &self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         data: Option<ObjectBinaryRepr>,
         type_id: TypeId,
     ) -> Option<Value> {
-        self.parse_inner_with_modifiers(ctx, data, type_id, &ValueModifiers::default())
+        self.parse_inner_with_modifiers(pcx, data, type_id, &ValueModifiers::default())
     }
 
     /// Return a new value of a root type from the underlying type graph.
     ///
     /// # Arguments
     ///
-    /// * `ctx`: parsing context
+    /// * `pcx`: parsing context
     /// * `bin_data`: binary value representation from debugee memory
     /// * `modifiers`: value addition info
     pub fn parse(
         self,
-        ctx: &ParseContext,
+        pcx: &ParseContext,
         bin_data: Option<ObjectBinaryRepr>,
         modifiers: &ValueModifiers,
     ) -> Option<Value> {
@@ -687,7 +688,7 @@ impl ValueParser {
             return None;
         }
 
-        self.parse_inner_with_modifiers(ctx, bin_data, ctx.type_graph.root(), modifiers)
+        self.parse_inner_with_modifiers(pcx, bin_data, pcx.type_graph.root(), modifiers)
     }
 }
 
