@@ -222,7 +222,7 @@ impl CallArgs {
     }
 }
 
-/// Program state before a call.
+/// Call context (or ccx). Program state before a call.
 struct CallContext<'a> {
     dbg: &'a Debugger,
     pid: nix::unistd::Pid,
@@ -254,7 +254,7 @@ impl<'a> CallContext<'a> {
         Ok(())
     }
 
-    fn with_ctx<F, T>(mut self, f: F) -> Result<T, Error>
+    fn with_ccx<F, T>(mut self, f: F) -> Result<T, Error>
     where
         F: FnOnce(&mut Self) -> Result<T, Error>,
     {
@@ -271,60 +271,60 @@ impl<'a> CallContext<'a> {
 struct CallHelper;
 
 impl CallHelper {
-    fn call_fn(ctx: &CallContext, rip: u64, fn_addr: u64, args: CallArgs) -> Result<(), Error> {
+    fn call_fn(ccx: &CallContext, rip: u64, fn_addr: u64, args: CallArgs) -> Result<(), Error> {
         // new text:
         // FF D0 - CALL %rax
         // CC - break
         const CALL_FN: usize = 0xFFusize | (0xD0usize << 0x8) | (0xCCusize << 0x10);
 
         debug!(target: "debugger", "add call instructions");
-        ctx.dbg.write_memory(rip as usize, CALL_FN)?;
+        ccx.dbg.write_memory(rip as usize, CALL_FN)?;
 
         debug!(target: "debugger", "prepare function arguments");
-        let mut regs: RegisterMap = ctx.regs.clone();
+        let mut regs: RegisterMap = ccx.regs.clone();
         args.prepare_registers(&mut regs);
         regs.update(Register::Rax, fn_addr);
         regs.update(Register::Rip, rip);
-        regs.persist(ctx.pid)?;
+        regs.persist(ccx.pid)?;
 
         debug!(target: "debugger", "call a function, wait until breakpoint are hit");
-        sys::ptrace::cont(ctx.pid, None).map_err(Error::Ptrace)?;
-        let res = nix::sys::wait::waitpid(ctx.pid, None).map_err(Error::Waitpid)?;
-        debug_assert!(res == WaitStatus::Stopped(ctx.pid, Signal::SIGTRAP));
+        sys::ptrace::cont(ccx.pid, None).map_err(Error::Ptrace)?;
+        let res = nix::sys::wait::waitpid(ccx.pid, None).map_err(Error::Waitpid)?;
+        debug_assert!(res == WaitStatus::Stopped(ccx.pid, Signal::SIGTRAP));
 
         Ok(())
     }
 
-    fn jump(ctx: &CallContext, dest_ptr: u64) -> Result<(), Error> {
-        debug_assert!(ctx.regs.value(Register::Rip) == ctx.pc.as_u64());
+    fn jump(ccx: &CallContext, dest_ptr: u64) -> Result<(), Error> {
+        debug_assert!(ccx.regs.value(Register::Rip) == ccx.pc.as_u64());
 
-        let mut regs = ctx.regs.clone();
+        let mut regs = ccx.regs.clone();
         regs.update(Register::Rax, dest_ptr);
-        regs.persist(ctx.pid)?;
+        regs.persist(ccx.pid)?;
 
         const JMP_RAX: usize = 0x000000000000E0FF;
         const JMP_RAX_MASK: usize = 0xFFFFFFFFFFFF0000;
 
-        let new_text = (ctx.text & JMP_RAX_MASK) | JMP_RAX;
+        let new_text = (ccx.text & JMP_RAX_MASK) | JMP_RAX;
 
-        ctx.dbg.write_memory(ctx.pc.as_usize(), new_text)?;
+        ccx.dbg.write_memory(ccx.pc.as_usize(), new_text)?;
 
-        sys::ptrace::step(ctx.pid, None).map_err(Error::Ptrace)?;
-        let res = nix::sys::wait::waitpid(ctx.pid, None).map_err(Error::Waitpid)?;
+        sys::ptrace::step(ccx.pid, None).map_err(Error::Ptrace)?;
+        let res = nix::sys::wait::waitpid(ccx.pid, None).map_err(Error::Waitpid)?;
         debug_assert!(matches!(res, WaitStatus::Stopped(_, _)));
 
-        if RegisterMap::current(ctx.pid)?.value(Register::Rip) != dest_ptr {
+        if RegisterMap::current(ccx.pid)?.value(Register::Rip) != dest_ptr {
             return Err(CallError::Jmp.into());
         }
 
         Ok(())
     }
 
-    fn mmap(ctx: &CallContext) -> Result<u64, Error> {
-        debug_assert!(ctx.regs.value(Register::Rip) == ctx.pc.as_u64());
+    fn mmap(ccx: &CallContext) -> Result<u64, Error> {
+        debug_assert!(ccx.regs.value(Register::Rip) == ccx.pc.as_u64());
 
         // Update registers for calling a `mmap` syscall
-        let mut regs = ctx.regs.clone();
+        let mut regs = ccx.regs.clone();
         const MMAP: u64 = 9;
         const PROT: u64 =
             (nix::libc::PROT_READ | nix::libc::PROT_EXEC | nix::libc::PROT_WRITE) as u64;
@@ -338,57 +338,57 @@ impl CallHelper {
         regs.update(Register::R8, -1i32 as u64);
         regs.update(Register::R9, 0);
 
-        regs.persist(ctx.pid)?;
+        regs.persist(ccx.pid)?;
 
         const SYSCALL: usize = 0x000000000000050F;
         const SYSCALL_MASK: usize = 0xFFFFFFFFFFFF0000;
 
-        let new_instructions = (ctx.text & SYSCALL_MASK) | SYSCALL;
+        let new_instructions = (ccx.text & SYSCALL_MASK) | SYSCALL;
 
-        ctx.dbg.write_memory(ctx.pc.as_usize(), new_instructions)?;
+        ccx.dbg.write_memory(ccx.pc.as_usize(), new_instructions)?;
 
-        sys::ptrace::step(ctx.pid, None).map_err(Error::Ptrace)?;
-        let res = nix::sys::wait::waitpid(ctx.pid, None).map_err(Error::Waitpid)?;
+        sys::ptrace::step(ccx.pid, None).map_err(Error::Ptrace)?;
+        let res = nix::sys::wait::waitpid(ccx.pid, None).map_err(Error::Waitpid)?;
         debug_assert!(matches!(res, WaitStatus::Stopped(_, _)));
 
-        let regs = RegisterMap::current(ctx.pid)?;
+        let regs = RegisterMap::current(ccx.pid)?;
         let alloc_ptr: u64 = regs.value(Register::Rax);
         if alloc_ptr as i64 == -1 {
             return Err(CallError::Mmap.into());
         }
 
-        debug_assert!(utils::region_exist(ctx.pid, alloc_ptr)?);
+        debug_assert!(utils::region_exist(ccx.pid, alloc_ptr)?);
 
         Ok(alloc_ptr)
     }
 
-    fn munmap(ctx: &CallContext, addr: u64) -> Result<(), Error> {
+    fn munmap(ccx: &CallContext, addr: u64) -> Result<(), Error> {
         const SYSCALL: usize = 0x000000000000050F;
         const SYSCALL_MASK: usize = 0xFFFFFFFFFFFF0000;
 
-        let new_text = (ctx.text & SYSCALL_MASK) | SYSCALL;
-        ctx.dbg.write_memory(ctx.pc.as_usize(), new_text)?;
+        let new_text = (ccx.text & SYSCALL_MASK) | SYSCALL;
+        ccx.dbg.write_memory(ccx.pc.as_usize(), new_text)?;
 
         // Update registers for calling a `munmap` syscall
-        let mut regs = ctx.regs.clone();
+        let mut regs = ccx.regs.clone();
         const MUNMAP: u64 = 11;
         regs.update(Register::Rax, MUNMAP);
         regs.update(Register::Rdi, addr);
         let page_size = unsafe { nix::libc::sysconf(nix::libc::_SC_PAGESIZE) as u64 };
         regs.update(Register::Rsi, page_size);
-        regs.persist(ctx.pid)?;
+        regs.persist(ccx.pid)?;
 
-        sys::ptrace::step(ctx.pid, None).map_err(Error::Ptrace)?;
-        let res = nix::sys::wait::waitpid(ctx.pid, None).map_err(Error::Waitpid)?;
+        sys::ptrace::step(ccx.pid, None).map_err(Error::Ptrace)?;
+        let res = nix::sys::wait::waitpid(ccx.pid, None).map_err(Error::Waitpid)?;
         debug_assert!(matches!(res, WaitStatus::Stopped(_, _)));
 
-        let regs: RegisterMap = RegisterMap::current(ctx.pid)?;
+        let regs: RegisterMap = RegisterMap::current(ccx.pid)?;
         if regs.value(Register::Rax) != 0 {
             return Err(CallError::Munmap.into());
         }
-        debug_assert!(utils::region_non_exist(ctx.pid, addr)?);
+        debug_assert!(utils::region_non_exist(ccx.pid, addr)?);
 
-        ctx.dbg.write_memory(ctx.pc.as_usize(), ctx.text)?;
+        ccx.dbg.write_memory(ccx.pc.as_usize(), ccx.text)?;
 
         Ok(())
     }
@@ -464,21 +464,21 @@ impl Debugger {
     fn call_fn_raw(&self, fn_addr: RelocatedAddress, args: CallArgs) -> Result<(), Error> {
         let call_context = CallContext::new(self)?;
 
-        call_context.with_ctx(|ctx| {
+        call_context.with_ccx(|ccx| {
             debug!(target: "debugger", "alloc temporary memory area");
-            let alloc_ptr = CallHelper::mmap(ctx)?;
+            let alloc_ptr = CallHelper::mmap(ccx)?;
 
             debug!(target: "debugger", "jump into mmap'ed region");
-            CallHelper::jump(ctx, alloc_ptr)?;
+            CallHelper::jump(ccx, alloc_ptr)?;
 
             debug!(target: "debugger", "call a given function");
-            CallHelper::call_fn(ctx, alloc_ptr, fn_addr.as_u64(), args)?;
+            CallHelper::call_fn(ccx, alloc_ptr, fn_addr.as_u64(), args)?;
 
             debug!(target: "debugger", "going to original rip");
-            ctx.regs.clone().persist(ctx.pid)?;
+            ccx.regs.clone().persist(ccx.pid)?;
 
             debug!(target: "debugger", "dealloc temporary memory area");
-            CallHelper::munmap(ctx, alloc_ptr)?;
+            CallHelper::munmap(ccx, alloc_ptr)?;
 
             Ok(())
         })

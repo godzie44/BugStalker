@@ -412,29 +412,29 @@ pub fn call_debug_fmt(dbg: &Debugger, var: &QueryResult) -> Result<String, Error
     let write_string_vtable = WriteStringVTable::new(dbg, rust_version)?;
 
     debug!("allocate memory for String header and std::fmt::Formatter");
-    let ctx = CallContext::new(dbg)?;
-    let (alloc_ptr, formatter_ptr, string_header_ptr, self_arg) = ctx.with_ctx(|ctx| {
+    let ccx = CallContext::new(dbg)?;
+    let (alloc_ptr, formatter_ptr, string_header_ptr, self_arg) = ccx.with_ccx(|ccx| {
         // use vector cause string have a same layout
         let vec = Vec::<u8>::new();
 
         // SAFETY: `vec`` is never allocate memory on the heap (since the capacity is 0),
         // so no memory leaks should occur here
         let vec_header_bytes: [u8; 24] = unsafe { std::mem::transmute::<_, [u8; 24]>(vec) };
-        let alloc_ptr = CallHelper::mmap(ctx)?;
+        let alloc_ptr = CallHelper::mmap(ccx)?;
 
         // write string header
         let string_header_ptr = alloc_ptr as usize;
         for offset in (0usize..3).map(|el| el * size_of::<usize>()) {
             let bytes = &vec_header_bytes[offset..offset + size_of::<usize>()];
             let value = usize::from_ne_bytes(bytes.try_into().expect("infallible"));
-            ctx.dbg.write_memory(string_header_ptr + offset, value)?;
+            ccx.dbg.write_memory(string_header_ptr + offset, value)?;
         }
 
         // write vtable for <String as core::fmt::Write>
         let vtable_raw = write_string_vtable.as_raw();
         let vtable_ptr = string_header_ptr + vec_header_bytes.len();
         for (i, value) in vtable_raw.into_iter().enumerate() {
-            ctx.dbg
+            ccx.dbg
                 .write_memory(vtable_ptr + i * size_of::<usize>(), value)?;
         }
 
@@ -452,7 +452,7 @@ pub fn call_debug_fmt(dbg: &Debugger, var: &QueryResult) -> Result<String, Error
         for offset in (0..(formatter_size / size_of::<usize>())).map(|el| el * size_of::<usize>()) {
             let bytes = &formatter_bytes[offset..offset + size_of::<usize>()];
             let value = usize::from_ne_bytes(bytes.try_into().expect("infallible"));
-            ctx.dbg.write_memory(formatter_ptr + offset, value)?;
+            ccx.dbg.write_memory(formatter_ptr + offset, value)?;
         }
 
         let var_addr = var
@@ -462,7 +462,7 @@ pub fn call_debug_fmt(dbg: &Debugger, var: &QueryResult) -> Result<String, Error
 
         if calling_plan.need_indirection {
             let self_ptr = formatter_ptr + formatter_size;
-            ctx.dbg.write_memory(self_ptr, var_addr)?;
+            ccx.dbg.write_memory(self_ptr, var_addr)?;
             return Ok((alloc_ptr, formatter_ptr, string_header_ptr, self_ptr));
         }
 
@@ -509,9 +509,9 @@ pub fn call_debug_fmt(dbg: &Debugger, var: &QueryResult) -> Result<String, Error
 
     debug!(target: "debugger", "dealloc temporary memory area");
 
-    let ctx =
+    let ccx =
         CallContext::new(dbg).expect("failed to retrieve original program state after a call");
-    ctx.with_ctx(|ctx| CallHelper::munmap(ctx, alloc_ptr))
+    ccx.with_ccx(|ccx| CallHelper::munmap(ccx, alloc_ptr))
         .expect("failed to retrieve original program state after a call");
 
     debug_fmt_call_result
