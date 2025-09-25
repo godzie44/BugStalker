@@ -115,13 +115,12 @@ pub struct MemberLocationExpression {
 }
 
 impl MemberLocationExpression {
-    fn base_addr(&self, eval_ctx: &EvaluationContext, entity_addr: usize) -> Result<usize, Error> {
-        eval_ctx
-            .evaluator
+    fn base_addr(&self, evcx: &EvaluationContext, entity_addr: usize) -> Result<usize, Error> {
+        evcx.evaluator
             .evaluate_with_resolver(
                 eval::ExternalRequirementsResolver::new()
                     .with_at_location(entity_addr.to_ne_bytes()),
-                eval_ctx.ecx,
+                evcx.ecx,
                 self.expr.clone(),
             )?
             .into_scalar::<usize>(AddressKind::Value)
@@ -146,16 +145,16 @@ impl StructureMember {
     ///
     /// # Arguments
     ///
-    /// * `eval_ctx`: evaluation context
+    /// * `evcx`: evaluation context
     /// * `r#type`: member data type
     /// * `base_data`: binary representation of the parent structure
     pub fn value(
         &self,
-        eval_ctx: &EvaluationContext,
+        evcx: &EvaluationContext,
         r#type: &ComplexType,
         base_data: &ObjectBinaryRepr,
     ) -> Option<ObjectBinaryRepr> {
-        let type_size = r#type.type_size_in_bytes(eval_ctx, self.type_ref?)? as usize;
+        let type_size = r#type.type_size_in_bytes(evcx, self.type_ref?)? as usize;
 
         let base_entity_addr = base_data.raw_data.as_ptr() as usize;
         let addr = match self.in_struct_location.as_ref()? {
@@ -163,7 +162,7 @@ impl StructureMember {
                 Some((base_entity_addr as isize + (*offset as isize)) as usize)
             }
             MemberLocation::Expr(expr) => {
-                weak_error!(expr.base_addr(eval_ctx, base_entity_addr))
+                weak_error!(expr.base_addr(evcx, base_entity_addr))
             }
         }? as *const u8;
 
@@ -188,10 +187,9 @@ pub struct ArrayBoundValueExpression {
 }
 
 impl ArrayBoundValueExpression {
-    fn bound(&self, eval_ctx: &EvaluationContext) -> Result<i64, Error> {
-        eval_ctx
-            .evaluator
-            .evaluate(eval_ctx.ecx, self.expr.clone())?
+    fn bound(&self, evcx: &EvaluationContext) -> Result<i64, Error> {
+        evcx.evaluator
+            .evaluate(evcx.ecx, self.expr.clone())?
             .into_scalar::<i64>(AddressKind::MemoryAddress)
     }
 }
@@ -203,10 +201,10 @@ pub enum ArrayBoundValue {
 }
 
 impl ArrayBoundValue {
-    pub fn value(&self, eval_ctx: &EvaluationContext) -> Result<i64, Error> {
+    pub fn value(&self, evcx: &EvaluationContext) -> Result<i64, Error> {
         match self {
             ArrayBoundValue::Const(v) => Ok(*v),
-            ArrayBoundValue::Expr(e) => e.bound(eval_ctx),
+            ArrayBoundValue::Expr(e) => e.bound(evcx),
         }
     }
 }
@@ -252,34 +250,30 @@ impl ArrayType {
         self.element_type
     }
 
-    fn lower_bound(&self, eval_ctx: &EvaluationContext) -> i64 {
-        self.lower_bound.value(eval_ctx).unwrap_or(0)
+    fn lower_bound(&self, evcx: &EvaluationContext) -> i64 {
+        self.lower_bound.value(evcx).unwrap_or(0)
     }
 
-    pub fn bounds(&self, eval_ctx: &EvaluationContext) -> Option<(i64, i64)> {
+    pub fn bounds(&self, evcx: &EvaluationContext) -> Option<(i64, i64)> {
         if self.bounds_memo.get().is_none() {
-            let lb = self.lower_bound(eval_ctx);
+            let lb = self.lower_bound(evcx);
             let bounds = match self.upper_bound.as_ref()? {
-                UpperBound::UpperBound(ub) => (lb, ub.value(eval_ctx).ok()? - lb),
-                UpperBound::Count(c) => (lb, c.value(eval_ctx).ok()?),
+                UpperBound::UpperBound(ub) => (lb, ub.value(evcx).ok()? - lb),
+                UpperBound::Count(c) => (lb, c.value(evcx).ok()?),
             };
             self.bounds_memo.set(Some(bounds));
         }
         self.bounds_memo.get()
     }
 
-    pub fn size_in_bytes(
-        &self,
-        eval_ctx: &EvaluationContext,
-        type_graph: &ComplexType,
-    ) -> Option<u64> {
+    pub fn size_in_bytes(&self, evcx: &EvaluationContext, type_graph: &ComplexType) -> Option<u64> {
         if self.byte_size.is_some() {
             return self.byte_size;
         }
 
         if self.byte_size_memo.get().is_none() {
-            let bounds = self.bounds(eval_ctx)?;
-            let inner_type_size = type_graph.type_size_in_bytes(eval_ctx, self.element_type?)?;
+            let bounds = self.bounds(evcx)?;
+            let inner_type_size = type_graph.type_size_in_bytes(evcx, self.element_type?)?;
             self.byte_size_memo
                 .set(Some(inner_type_size * (bounds.1 - bounds.0) as u64));
         }
@@ -468,18 +462,18 @@ impl ComplexType {
     }
 
     /// Return size of a type existed from a complex type.
-    pub fn type_size_in_bytes(&self, eval_ctx: &EvaluationContext, typ: TypeId) -> Option<u64> {
+    pub fn type_size_in_bytes(&self, evcx: &EvaluationContext, typ: TypeId) -> Option<u64> {
         match &self.types.get(&typ)? {
             TypeDeclaration::Scalar(s) => s.byte_size,
             TypeDeclaration::Structure { byte_size, .. } => *byte_size,
-            TypeDeclaration::Array(arr) => arr.size_in_bytes(eval_ctx, self),
+            TypeDeclaration::Array(arr) => arr.size_in_bytes(evcx, self),
             TypeDeclaration::CStyleEnum { byte_size, .. } => *byte_size,
             TypeDeclaration::RustEnum { byte_size, .. } => *byte_size,
             TypeDeclaration::Pointer { .. } => Some(mem::size_of::<usize>() as u64),
             TypeDeclaration::Union { byte_size, .. } => *byte_size,
             TypeDeclaration::Subroutine { .. } => Some(mem::size_of::<usize>() as u64),
             TypeDeclaration::ModifiedType { inner, .. } => {
-                inner.and_then(|inner_id| self.type_size_in_bytes(eval_ctx, inner_id))
+                inner.and_then(|inner_id| self.type_size_in_bytes(evcx, inner_id))
             }
         }
     }
