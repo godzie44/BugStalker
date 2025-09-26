@@ -4,7 +4,9 @@ use std::{
 };
 
 use crate::{
-    debugger::{Debugger, address::RelocatedAddress, debugee::dwarf::r#type::ComplexType},
+    debugger::{
+        Debugger, address::RelocatedAddress, context::gcx, debugee::dwarf::r#type::ComplexType,
+    },
     type_from_cache,
 };
 
@@ -82,7 +84,7 @@ impl CallCache {
                 let params = {
                     func.parameters()
                         .into_iter()
-                        .map(|die| dbg.gcx().with_type_cache(|tc| type_from_cache!(die, tc)))
+                        .map(|die| gcx().with_type_cache(|tc| type_from_cache!(die, tc)))
                         .collect::<Result<Box<[_]>, _>>()?
                 };
                 e.insert(Value::new(fn_addr, params))

@@ -1,3 +1,4 @@
+use crate::debugger::context::gcx;
 use crate::debugger::debugee::dwarf::DebugInformation;
 use crate::debugger::debugee::dwarf::eval::{EvaluationContext, ExpressionEvaluator};
 use crate::debugger::debugee::dwarf::r#type::ComplexType;
@@ -273,9 +274,7 @@ impl<'dbg> DqeExecutor<'dbg> {
             die_ref: &FatDieRef<'dbg, H>,
             ranges: Option<Box<[Range]>>,
         ) -> Option<QueryResult<'dbg>> {
-            let r#type = debugger
-                .gcx()
-                .with_type_cache(|tc| weak_error!(type_from_cache!(die_ref, tc)))?;
+            let r#type = gcx().with_type_cache(|tc| weak_error!(type_from_cache!(die_ref, tc)))?;
 
             let evaluator = ref_resolve_unit_call!(
                 die_ref,
@@ -340,10 +339,7 @@ impl<'dbg> DqeExecutor<'dbg> {
         let mut var_die = VirtualVariableDie::workpiece();
         let var_die_ref = var_die.init_with_type(&self.debugger.debugee, &ptr_cast.ty)?;
 
-        let r#type = self
-            .debugger
-            .gcx()
-            .with_type_cache(|tc| type_from_cache!(var_die_ref, tc))?;
+        let r#type = gcx().with_type_cache(|tc| type_from_cache!(var_die_ref, tc))?;
 
         let context_builder = EvaluationContextBuilder::Virtual {
             debugger: self.debugger,
@@ -390,10 +386,7 @@ impl<'dbg> DqeExecutor<'dbg> {
             data_cast.ty_die_off,
         )?;
 
-        let r#type = self
-            .debugger
-            .gcx()
-            .with_type_cache(|tc| type_from_cache!(var_die_ref, tc))?;
+        let r#type = gcx().with_type_cache(|tc| type_from_cache!(var_die_ref, tc))?;
 
         let context_builder = EvaluationContextBuilder::Virtual {
             debugger: self.debugger,

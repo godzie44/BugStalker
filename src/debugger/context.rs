@@ -1,13 +1,29 @@
 use crate::debugger::{call::CallCache, debugee::dwarf::r#type::TypeCache};
-use std::cell::RefCell;
+use std::{cell::RefCell, sync::LazyLock};
+
+/// Promise to use value only at one unique thread
+#[derive(Default)]
+struct SingleThreadPromise<T: Default>(T);
+
+// SAFETY: cause promise never share this value between threads
+unsafe impl<T: Default> Sync for SingleThreadPromise<T> {}
+// SAFETY: cause promise never share this value between threads
+unsafe impl<T: Default> Send for SingleThreadPromise<T> {}
 
 #[derive(Default)]
 pub struct GlobalContext {
     /// Type declaration cache.
-    type_cache: RefCell<TypeCache>,
+    type_cache: SingleThreadPromise<RefCell<TypeCache>>,
 
     /// Cache for called functions.
-    call_cache: RefCell<CallCache>,
+    call_cache: SingleThreadPromise<RefCell<CallCache>>,
+}
+
+// TODO: make this context part of the debugger structure
+static GCX: LazyLock<GlobalContext> = LazyLock::new(|| GlobalContext::default());
+
+pub fn gcx() -> &'static GlobalContext {
+    &GCX
 }
 
 impl GlobalContext {
@@ -16,7 +32,7 @@ impl GlobalContext {
     where
         F: FnOnce(&mut TypeCache) -> T,
     {
-        let mut cache = self.type_cache.borrow_mut();
+        let mut cache = self.type_cache.0.borrow_mut();
         f(&mut cache)
     }
 
@@ -25,7 +41,7 @@ impl GlobalContext {
     where
         F: FnOnce(&mut CallCache) -> T,
     {
-        let mut cache = self.call_cache.borrow_mut();
+        let mut cache = self.call_cache.0.borrow_mut();
         f(&mut cache)
     }
 }
