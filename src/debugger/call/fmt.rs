@@ -3,6 +3,7 @@ use crate::{
         Debugger, Error, TypeDeclaration,
         address::RelocatedAddress,
         call::{CallArgs, CallContext, CallError, CallHelper, RegType},
+        context::gcx,
         debugee::dwarf::unit::DieAddr,
         variable::{execute::QueryResult, render::RenderValue, value::Value},
     },
@@ -60,7 +61,7 @@ impl WriteStringVTable {
         const STRING_ALIGN: usize = std::mem::align_of::<String>();
 
         let find_fn_for_vtable = |tpl, name_attr| -> Result<RelocatedAddress, FmtCallError> {
-            let fn_info = dbg.gcx().with_call_cache(|cc| {
+            let fn_info = gcx().with_call_cache(|cc| {
                 cc.get_or_insert(dbg, tpl, name_attr)
                     .map_err(|_| FmtCallError::VTable(tpl.to_string()))
             })?;
@@ -134,9 +135,8 @@ fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCalli
 
     // fast path, try to find fmt function using "<{type_name} as core::fmt::Debug>::fmt" pattern
     let naive_linkage_name = format!("<{type_name} as core::fmt::Debug>::fmt");
-    let fn_info_result = dbg
-        .gcx()
-        .with_call_cache(|cc| cc.get_or_insert(dbg, &naive_linkage_name, None));
+    let fn_info_result =
+        gcx().with_call_cache(|cc| cc.get_or_insert(dbg, &naive_linkage_name, None));
     if let Ok(fn_info) = fn_info_result {
         return Ok(FmtCallingPlan {
             fmt_fn_addr: fn_info.fn_addr(),
@@ -166,7 +166,7 @@ fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCalli
 
         let fmt_fn_name = format!("fmt<{concrete_types}>");
 
-        let fmt_fn_info_result = dbg.gcx()
+        let fmt_fn_info_result = gcx()
         .with_call_cache(|cc| cc.get_or_insert(dbg, &linkage_name, Some(&fmt_fn_name)));
 
         if let Ok(fmt_fn) = fmt_fn_info_result {
@@ -198,7 +198,7 @@ fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCalli
 
             let fmt_fn_name = format!("fmt<{el_type_name}, {size}>");
 
-            let fmt_fn_info_result = dbg.gcx().with_call_cache(|cc| {
+            let fmt_fn_info_result = gcx().with_call_cache(|cc| {
                 cc.get_or_insert(dbg, ARRAY_DEBUG_FMT_LINKAGE_NAME, Some(&fmt_fn_name))
             });
 
@@ -261,7 +261,7 @@ fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCalli
     // Currently this used in just one case - for &str type,
     // but perhaps the use will expand in the future
     let fmt_fn_name = format!("fmt<{type_name}>");
-    let fmt_fn_info_result = dbg.gcx().with_call_cache(|cc| {
+    let fmt_fn_info_result = gcx().with_call_cache(|cc| {
         cc.get_or_insert(dbg, "<&T as core::fmt::Debug>::fmt", Some(&fmt_fn_name))
     });
 

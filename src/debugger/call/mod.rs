@@ -13,6 +13,7 @@ use super::{
 use crate::{
     debugger::{
         FunctionInfo,
+        context::gcx,
         debugee::dwarf::unit::die_ref::{FatDieRef, Function},
         read_memory_by_pid, utils,
     },
@@ -487,9 +488,7 @@ impl Debugger {
     fn call_fn(&self, linkage_name: &str, arguments: &[Literal]) -> Result<(), Error> {
         debug!(target: "debugger", "find function address and prepare arguments");
 
-        let fn_info = self
-            .gcx()
-            .with_call_cache(|cc| cc.get_or_insert(self, linkage_name, None))?;
+        let fn_info = gcx().with_call_cache(|cc| cc.get_or_insert(self, linkage_name, None))?;
 
         let args = CallArgs::new(arguments, fn_info.fn_param_types())?;
         self.call_fn_raw(fn_info.fn_addr(), args)

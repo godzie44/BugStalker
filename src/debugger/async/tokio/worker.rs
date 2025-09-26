@@ -4,6 +4,7 @@ use crate::debugger::r#async::context::TokioAnalyzeContext;
 use crate::debugger::r#async::tokio::task::Task;
 use crate::debugger::r#async::tokio::task::task_from_header;
 use crate::debugger::r#async::{AsyncError, TaskBacktrace};
+use crate::debugger::context::gcx;
 use crate::debugger::utils::PopIf;
 use crate::debugger::variable::dqe::DataCast;
 use crate::debugger::variable::dqe::{Dqe, Literal, Selector};
@@ -204,7 +205,7 @@ impl WorkerInternal {
                     .find_map(|(offset_of_unit, offset_of_die)| {
                         let mut var_die = VirtualVariableDie::workpiece();
                         let var_die_ref = weak_error!(var_die.init_with_known_type(debug_info, offset_of_unit, offset_of_die))?;
-                        let r#type = debugger.gcx().with_type_cache(|tc| weak_error!(type_from_cache!(var_die_ref, tc)))? ;
+                        let r#type = gcx().with_type_cache(|tc| weak_error!(type_from_cache!(var_die_ref, tc)))? ;
                         let root_type = r#type.types.get(&r#type.root())?;
 
                         let TypeDeclaration::Structure { members, .. } = root_type else {

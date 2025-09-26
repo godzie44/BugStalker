@@ -36,7 +36,6 @@ pub use watchpoint::WatchpointViewOwned;
 use crate::debugger::Error::Syscall;
 use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};
-use crate::debugger::context::GlobalContext;
 use crate::debugger::debugee::dwarf::DwarfUnwinder;
 use crate::debugger::debugee::dwarf::unwind::Backtrace;
 use crate::debugger::debugee::tracer::{StopReason, TraceContext};
@@ -353,8 +352,6 @@ pub struct Debugger {
     expl_context: ExplorationContext,
     /// Map of name -> (oracle, installed flag) pairs.
     oracles: IndexMap<&'static str, (Arc<dyn Oracle>, bool)>,
-
-    gcx: GlobalContext,
 }
 
 impl Debugger {
@@ -392,7 +389,6 @@ impl Debugger {
             breakpoints,
             watchpoints: WatchpointRegistry::default(),
             hooks: Box::new(hooks),
-            gcx: GlobalContext::default(),
             expl_context: ExplorationContext::new_non_running(process_id),
             oracles: oracles
                 .into_iter()
@@ -1068,10 +1064,6 @@ impl Debugger {
     pub fn current_function_range(&self) -> Result<FunctionRange<'_>, Error> {
         disable_when_not_stared!(self);
         self.debugee.function_range(self.ecx())
-    }
-
-    pub fn gcx(&self) -> &GlobalContext {
-        &self.gcx
     }
 }
 
