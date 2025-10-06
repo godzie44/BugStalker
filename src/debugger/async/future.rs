@@ -52,7 +52,12 @@ impl TryFrom<&RustEnumValue> for AsyncFnFuture {
         const SUSPEND_STATE: &str = "Suspend";
         const OK_STATE: &str = "Ok";
 
-        let async_fn = repr.type_ident.namespace().join("::").to_string();
+        let async_fn = repr
+            .type_ident
+            .namespace()
+            .as_parts()
+            .join("::")
+            .to_string();
         let name = repr.type_ident.name_fmt().to_string();
 
         let Some(Value::Struct(state)) = repr.value.as_deref().map(|m| &m.value) else {

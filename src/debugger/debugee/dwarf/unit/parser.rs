@@ -1,3 +1,4 @@
+use crate::debugger::context::gcx;
 use crate::debugger::debugee::dwarf::unit::die::DerefContext;
 use crate::debugger::debugee::dwarf::unit::{
     BsUnit, DieRange, END_SEQUENCE, EPILOG_BEGIN, FunctionInfo, IS_STMT, LineRow, PROLOG_END,
@@ -98,9 +99,11 @@ impl<'a> DwarfUnitParser<'a> {
 
     pub(super) fn parse_additional(&self, bs_unit: &BsUnit) -> Result<UnitLazyPart, Error> {
         let mut fn_ranges: Vec<DieRange> = vec![];
-        let mut variable_index: HashMap<String, Vec<(NamespaceHierarchy, UnitOffset)>> =
-            HashMap::new();
-        let mut type_index: HashMap<String, UnitOffset> = HashMap::new();
+        let mut variable_index: HashMap<
+            string_interner::DefaultSymbol,
+            Vec<(NamespaceHierarchy, UnitOffset)>,
+        > = HashMap::new();
+        let mut type_index: HashMap<string_interner::DefaultSymbol, UnitOffset> = HashMap::new();
         let mut function_index = HashMap::<UnitOffset, FunctionInfo>::new();
         let mut function_name_index = PathSearchIndex::new("::");
         let mut parent_index = IndexMap::<UnitOffset, UnitOffset>::new();
@@ -220,7 +223,7 @@ impl<'a> DwarfUnitParser<'a> {
                         let any_name = fn_info.linkage_name.as_ref().or(fn_info.name.as_ref());
                         if let Some(fn_name) = any_name {
                             function_name_index.insert_w_head(
-                                fn_info.namespace.iter(),
+                                fn_info.namespace.as_parts().iter(),
                                 fn_name,
                                 die.offset(),
                             );
@@ -248,8 +251,9 @@ impl<'a> DwarfUnitParser<'a> {
                             ),
                         };
 
+                        let name_sym = gcx().with_interner(|i| i.get_or_intern(name));
                         variable_index
-                            .entry(name.to_string())
+                            .entry(name_sym)
                             .or_default()
                             .push((variable_ns, die.offset()));
                     }
@@ -257,31 +261,37 @@ impl<'a> DwarfUnitParser<'a> {
                 gimli::DW_TAG_base_type => {
                     let name = self.attr_to_string(bs_unit.unit(), die, DW_AT_name)?;
                     if let Some(ref name) = name {
-                        type_index.insert(name.to_string(), die.offset());
+                        let sym = gcx().with_interner(|i| i.get_or_intern(name));
+                        type_index.insert(sym, die.offset());
                     }
                 }
                 gimli::DW_TAG_structure_type => {
                     let name = self.attr_to_string(bs_unit.unit(), die, DW_AT_name)?;
                     if let Some(ref name) = name {
-                        type_index.insert(name.to_string(), die.offset());
+                        let sym = gcx().with_interner(|i| i.get_or_intern(name));
+                        type_index.insert(sym, die.offset());
                     }
                 }
                 gimli::DW_TAG_union_type => {
                     let name = self.attr_to_string(bs_unit.unit(), die, DW_AT_name)?;
                     if let Some(ref name) = name {
-                        type_index.insert(name.to_string(), die.offset());
+                        let sym: string_interner::symbol::SymbolU32 =
+                            gcx().with_interner(|i| i.get_or_intern(name));
+                        type_index.insert(sym, die.offset());
                     }
                 }
                 gimli::DW_TAG_array_type => {
                     let name = self.attr_to_string(bs_unit.unit(), die, DW_AT_name)?;
                     if let Some(ref name) = name {
-                        type_index.insert(name.to_string(), die.offset());
+                        let sym = gcx().with_interner(|i| i.get_or_intern(name));
+                        type_index.insert(sym, die.offset());
                     }
                 }
                 gimli::DW_TAG_pointer_type => {
                     let name = self.attr_to_string(bs_unit.unit(), die, DW_AT_name)?;
                     if let Some(ref name) = name {
-                        type_index.insert(name.to_string(), die.offset());
+                        let sym = gcx().with_interner(|i| i.get_or_intern(name));
+                        type_index.insert(sym, die.offset());
                     }
                 }
                 _ => {}

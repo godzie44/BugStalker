@@ -6,6 +6,7 @@ use indexmap::IndexMap;
 pub use parser::DwarfUnitParser;
 
 use crate::debugger::address::GlobalAddress;
+use crate::debugger::context::gcx;
 use crate::debugger::debugee::Debugee;
 use crate::debugger::debugee::dwarf::eval::ExpressionEvaluator;
 use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
@@ -17,6 +18,7 @@ use gimli::{
     DwLang, Dwarf, Encoding, Range, UnitOffset,
 };
 use once_cell::sync::OnceCell;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::path::{Path, PathBuf};
@@ -196,7 +198,7 @@ impl FunctionInfo {
     pub fn full_name(&self) -> Option<String> {
         self.name
             .as_ref()
-            .map(|name| format!("{}::{}", self.namespace.0.join("::"), name))
+            .map(|name| format!("{}::{}", self.namespace.as_parts().join("::"), name))
     }
 }
 
@@ -242,9 +244,9 @@ struct UnitLazyPart {
     /// ranges for each function
     fn_ranges: Vec<DieRange>,
     /// index for variable die position: { variable name -> [namespaces: die position in unit] }
-    variable_index: HashMap<String, Vec<(NamespaceHierarchy, UnitOffset)>>,
+    variable_index: HashMap<string_interner::DefaultSymbol, Vec<(NamespaceHierarchy, UnitOffset)>>,
     /// index for type die position: { type name -> offset in unit }
-    type_index: HashMap<String, UnitOffset>,
+    type_index: HashMap<string_interner::DefaultSymbol, UnitOffset>,
     /// all found functions
     function_index: HashMap<UnitOffset, FunctionInfo>,
     /// index for function entries: function -> die offset in unit
@@ -524,7 +526,9 @@ impl BsUnit {
     }
 
     /// Return iterator over pairs (type_name, offset).
-    pub fn type_iter(&self) -> UnitResult<impl Iterator<Item = (&String, &UnitOffset)>> {
+    pub fn type_iter(
+        &self,
+    ) -> UnitResult<impl Iterator<Item = (&string_interner::DefaultSymbol, &UnitOffset)>> {
         match self.lazy_part.get() {
             None => UnitResult::Reload,
             Some(additional) => UnitResult::Ok(additional.type_index.iter()),
@@ -577,7 +581,11 @@ impl BsUnit {
         match self.lazy_part.get() {
             None => UnitResult::Reload,
             Some(additional) => {
-                UnitResult::Ok(additional.variable_index.get(name).map(|v| v.as_slice()))
+                let Some(sym) = gcx().with_interner(|i| i.get(name)) else {
+                    return UnitResult::Ok(None);
+                };
+
+                UnitResult::Ok(additional.variable_index.get(&sym).map(|v| v.as_slice()))
             }
         }
     }
@@ -591,7 +599,12 @@ impl BsUnit {
     pub fn locate_type(&self, name: &str) -> UnitResult<Option<UnitOffset>> {
         match self.lazy_part.get() {
             None => UnitResult::Reload,
-            Some(additional) => UnitResult::Ok(additional.type_index.get(name).copied()),
+            Some(additional) => {
+                let Some(name_sym) = gcx().with_interner(|i| i.get(name)) else {
+                    return UnitResult::Ok(None);
+                };
+                UnitResult::Ok(additional.type_index.get(&name_sym).copied())
+            }
         }
     }
 
@@ -631,7 +644,7 @@ impl BsUnit {
     /// create searching indexes.
     pub(super) fn file_path_with_lines_pairs(
         &self,
-    ) -> impl Iterator<Item = (impl IntoIterator<Item = impl ToString + '_>, Vec<usize>)> {
+    ) -> impl Iterator<Item = (impl IntoIterator<Item = Cow<'_, str>>, Vec<usize>)> {
         let mut grouped_by_file_lines = HashMap::with_capacity(self.files.len());
         for (line_idx, line) in self.lines.iter().enumerate() {
             let file_idx = line.file_index as usize;

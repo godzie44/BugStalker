@@ -11,6 +11,7 @@ pub use self::unwind::DwarfUnwinder;
 
 use crate::debugger::ExplorationContext;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
+use crate::debugger::context::gcx;
 use crate::debugger::debugee::dwarf::eval::AddressKind;
 use crate::debugger::debugee::dwarf::symbol::SymbolTab;
 use crate::debugger::debugee::dwarf::unit::die::{DerefContext, Die};
@@ -38,7 +39,7 @@ use object::{Object, ObjectSection};
 use rayon::prelude::*;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
-use std::ops::{Add, Deref};
+use std::ops::Add;
 use std::path::{Path, PathBuf};
 use std::{fs, path};
 pub use symbol::Symbol;
@@ -830,17 +831,33 @@ impl DebugInformationBuilder {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct NamespaceHierarchy(Vec<String>);
-
-impl Deref for NamespaceHierarchy {
-    type Target = Vec<String>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+pub struct NamespaceHierarchy(Vec<string_interner::DefaultSymbol>);
 
 impl NamespaceHierarchy {
+    pub fn new(parts: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
+        let inner = parts
+            .into_iter()
+            .map(|s| gcx().with_interner(|i| i.get_or_intern(s)));
+        Self(inner.collect())
+    }
+
+    pub fn as_parts(&self) -> Vec<String> {
+        self.0
+            .iter()
+            .map(|s| {
+                gcx().with_interner(|i| {
+                    i.resolve(*s)
+                        .expect("symbol should be resolved")
+                        .to_string()
+                })
+            })
+            .collect()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Create namespace for a selected die.
     ///
     /// # Arguments
@@ -867,7 +884,7 @@ impl NamespaceHierarchy {
         }
         ns_chain.reverse();
 
-        NamespaceHierarchy(ns_chain)
+        NamespaceHierarchy::new(ns_chain)
     }
 
     /// Return `true` if namespace part contains in target namespace, `false` otherwise.
@@ -876,7 +893,13 @@ impl NamespaceHierarchy {
     ///
     /// * `needle`: searched part of the namespace
     pub fn contains(&self, needle: &[&str]) -> bool {
-        self.0.windows(needle.len()).any(|slice| slice == needle)
+        let needle_symbols = needle
+            .iter()
+            .map(|n| gcx().with_interner(|i| i.get_or_intern(n)))
+            .collect::<Vec<_>>();
+        self.0
+            .windows(needle.len())
+            .any(|slice| slice == needle_symbols)
     }
 
     /// Return (namespace, subroutine name) pair from mangled representation.
@@ -891,7 +914,7 @@ impl NamespaceHierarchy {
         let mut parts: Vec<_> = demangled.split("::").map(ToString::to_string).collect();
         debug_assert!(!parts.is_empty());
         let fn_name = parts.pop().expect("function name must exists");
-        (NamespaceHierarchy(parts), fn_name)
+        (NamespaceHierarchy::new(parts), fn_name)
     }
 }
 
@@ -903,32 +926,32 @@ mod test {
     fn test_namespace_from_mangled() {
         struct TestCase {
             mangled: &'static str,
-            expected_ns: NamespaceHierarchy,
+            expected_ns: Vec<String>,
             expected_fn: &'static str,
         }
 
         let test_cases = vec![
             TestCase {
                 mangled: "_ZN5tokio7runtime4task3raw7RawTask4poll17h7b89afb116da4cf2E",
-                expected_ns: NamespaceHierarchy(vec![
+                expected_ns: vec![
                     "tokio".to_string(),
                     "runtime".to_string(),
                     "task".to_string(),
                     "raw".to_string(),
                     "RawTask".to_string(),
-                ]),
+                ],
                 expected_fn: "poll",
             },
             TestCase {
                 mangled: "poll",
-                expected_ns: NamespaceHierarchy(vec![]),
+                expected_ns: vec![],
                 expected_fn: "poll",
             },
         ];
 
         for tc in test_cases {
             let (ns, name) = NamespaceHierarchy::from_mangled(tc.mangled);
-            assert_eq!(ns, tc.expected_ns);
+            assert_eq!(ns.as_parts(), tc.expected_ns);
             assert_eq!(name, tc.expected_fn);
         }
     }

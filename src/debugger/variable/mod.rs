@@ -42,7 +42,7 @@ impl Display for Identity {
         let namespaces = if self.namespace.is_empty() {
             String::default()
         } else {
-            self.namespace.join("::") + "::"
+            self.namespace.as_parts().join("::") + "::"
         };
 
         match self.name.as_deref() {

@@ -4,6 +4,7 @@ use crate::{
         Debugger, Error,
         address::RelocatedAddress,
         r#async::future::{AsyncFnFuture, CustomFuture, TokioJoinHandleFuture, TokioSleepFuture},
+        context::gcx,
         debugee::dwarf::unit::die::Die,
         utils::PopIf,
         variable::{
@@ -202,33 +203,39 @@ pub fn task_from_header<'a>(
     let unit = poll_fn_die.unit();
     let iter = resolve_unit_call!(debug_info.dwarf(), unit, type_iter);
     let mut cell_type_die_name = None;
-    for (typ, offset) in iter {
-        if typ.starts_with("Cell") {
-            let typ_die = Die::new(poll_fn_die.dcx(), *offset)?;
 
-            if typ_die.tag() == gimli::DW_TAG_structure_type {
-                let mut s_tpl_found = false;
-                let mut t_tpl_found = false;
+    gcx().with_interner(|i| -> Result<(), Error> {
+        for (typ_sym, offset) in iter {
+            let typ = i.resolve(*typ_sym).expect("string should exist");
 
-                typ_die.for_each_children(|child| {
-                    if gimli::DW_TAG_template_type_parameter == child.tag() {
-                        let type_ref = child.type_ref();
-                        if type_ref == t_tpl_die_type_ref {
-                            t_tpl_found = true;
+            if typ.starts_with("Cell") {
+                let typ_die = Die::new(poll_fn_die.dcx(), *offset)?;
+
+                if typ_die.tag() == gimli::DW_TAG_structure_type {
+                    let mut s_tpl_found = false;
+                    let mut t_tpl_found = false;
+
+                    typ_die.for_each_children(|child| {
+                        if gimli::DW_TAG_template_type_parameter == child.tag() {
+                            let type_ref = child.type_ref();
+                            if type_ref == t_tpl_die_type_ref {
+                                t_tpl_found = true;
+                            }
+                            if type_ref == s_tpl_die_type_ref {
+                                s_tpl_found = true;
+                            }
                         }
-                        if type_ref == s_tpl_die_type_ref {
-                            s_tpl_found = true;
-                        }
+                    });
+
+                    if s_tpl_found & t_tpl_found {
+                        cell_type_die_name = typ_die.name();
+                        return Ok(());
                     }
-                });
-
-                if s_tpl_found & t_tpl_found {
-                    cell_type_die_name = typ_die.name();
-                    break;
                 }
             }
         }
-    }
+        Ok(())
+    })?;
 
     let cell_type_die_name = cell_type_die_name.ok_or(AsyncError::IncorrectAssumption(
         "tokio::runtime::task::core::Cell<T, S> type not found",
