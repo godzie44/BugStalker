@@ -146,6 +146,7 @@ impl EventHook for TerminalHook {
 
                 let func_name = mb_func.map(|f| {
                     f.namespace
+                        .as_parts()
                         .join("::")
                         .add("::")
                         .add(f.name.as_deref().unwrap_or_default())
@@ -187,6 +188,7 @@ impl EventHook for TerminalHook {
 
                 let func_name = mb_func.map(|f| {
                     f.namespace
+                        .as_parts()
                         .join("::")
                         .add("::")
                         .add(f.name.as_deref().unwrap_or_default())

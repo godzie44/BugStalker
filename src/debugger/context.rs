@@ -1,5 +1,8 @@
 use crate::debugger::{call::CallCache, debugee::dwarf::r#type::TypeCache};
-use std::{cell::RefCell, sync::LazyLock};
+use std::{
+    cell::RefCell,
+    sync::{LazyLock, Mutex},
+};
 
 /// Promise to use value only at one unique thread
 #[derive(Default)]
@@ -17,6 +20,9 @@ pub struct GlobalContext {
 
     /// Cache for called functions.
     call_cache: SingleThreadPromise<RefCell<CallCache>>,
+
+    /// String interner
+    interner: Mutex<string_interner::StringInterner<string_interner::DefaultBackend>>,
 }
 
 // TODO: make this context part of the debugger structure
@@ -43,5 +49,13 @@ impl GlobalContext {
     {
         let mut cache = self.call_cache.0.borrow_mut();
         f(&mut cache)
+    }
+
+    pub fn with_interner<F, T>(&self, f: F) -> T
+    where
+        F: FnOnce(&mut string_interner::StringInterner<string_interner::DefaultBackend>) -> T,
+    {
+        let mut interner = self.interner.lock().unwrap();
+        f(&mut interner)
     }
 }

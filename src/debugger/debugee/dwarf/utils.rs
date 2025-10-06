@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::iter;
 
+use crate::debugger::context::gcx;
+
 /// Index data structure. All (path, value) pair unfolds into this structure.
 /// For example fold a ("/one/two/three", 101) pair, head is "three", and tail is `["one", "two"]`
 /// first add tail into `tail` vector, then add a head ("three") and
@@ -10,8 +12,8 @@ use std::iter;
 #[derive(Clone, Debug)]
 struct PathIndexInner<T> {
     next_nonce: u64,
-    heads: HashMap<String, (Vec<usize>, u64)>,
-    tails: Vec<Vec<String>>,
+    heads: HashMap<string_interner::DefaultSymbol, (Vec<usize>, u64)>,
+    tails: Vec<Vec<string_interner::DefaultSymbol>>,
     data: HashMap<(u64, usize), T>,
 }
 
@@ -59,13 +61,13 @@ impl<T> PathSearchIndex<T> {
     /// * `path`: an iterator over path parts
     /// * `value`: a value associated with path
     #[allow(unused)]
-    pub fn insert(&mut self, path: impl IntoIterator<Item = impl ToString>, value: T) {
-        let path: Vec<_> = path.into_iter().map(|p| p.to_string()).collect();
+    pub fn insert(&mut self, path: impl IntoIterator<Item = impl AsRef<str>>, value: T) {
+        let path: Vec<_> = path.into_iter().map(|p| p).collect();
         let Some(head) = path.last() else {
             return;
         };
 
-        self.insert_w_head(path[..path.len() - 1].iter(), head.to_string(), value)
+        self.insert_w_head(path[..path.len() - 1].iter(), head, value)
     }
 
     /// Insert a new index value.
@@ -77,14 +79,18 @@ impl<T> PathSearchIndex<T> {
     /// * `value`: a value associated with path
     pub fn insert_w_head(
         &mut self,
-        path: impl IntoIterator<Item = impl ToString>,
-        head: impl ToString,
+        path: impl IntoIterator<Item = impl AsRef<str>>,
+        head: impl AsRef<str>,
         value: T,
     ) {
         let index = &mut self.index;
 
-        let path: Vec<_> = path.into_iter().map(|p| p.to_string()).collect();
-        let head = head.to_string();
+        let gcx = gcx();
+        let path: Vec<_> = path
+            .into_iter()
+            .map(|p| gcx.with_interner(|i| i.get_or_intern(p)))
+            .collect();
+        let head = gcx.with_interner(|i| i.get_or_intern(head));
 
         let tail = path;
         index.tails.push(tail);
@@ -110,12 +116,12 @@ impl<T> PathSearchIndex<T> {
             // we explicitly add this as index part
             iter::once(self.delimiter.as_str())
                 .chain(needle.split(&self.delimiter).skip(1))
-                .map(|part| part.to_string())
+                .map(|part| gcx().with_interner(|i| i.get_or_intern(part)))
                 .collect()
         } else {
             needle
                 .split(&self.delimiter)
-                .map(|part| part.to_string())
+                .map(|part| gcx().with_interner(|i| i.get_or_intern(part)))
                 .collect()
         };
 

@@ -103,7 +103,7 @@ impl Display for TypeIdentity {
 
         f.write_fmt(format_args!(
             "{}::{}",
-            self.namespace.join("::"),
+            self.namespace.as_parts().join("::"),
             self.name_fmt()
         ))
     }
