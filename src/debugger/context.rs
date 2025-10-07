@@ -26,7 +26,7 @@ pub struct GlobalContext {
 }
 
 // TODO: make this context part of the debugger structure
-static GCX: LazyLock<GlobalContext> = LazyLock::new(|| GlobalContext::default());
+static GCX: LazyLock<GlobalContext> = LazyLock::new(GlobalContext::default);
 
 pub fn gcx() -> &'static GlobalContext {
     &GCX
