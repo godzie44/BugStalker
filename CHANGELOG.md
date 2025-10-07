@@ -5,7 +5,17 @@ All notable changes to this project will be documented in this file.
 # [?.?.?] Unreleased
 
 ### Added
+
+- debugger: add `GlobalContext`
+
 ### Changed
+
+- debugger: use string interner
+- debugger: use ecx/ccx/pcx/etc naming for different contexts
+- debugger: parse DIEs on demand rather than upfront to reduce initial memory load
+- debugger: reduce memory consumption for debug information representation
+- debugger: reduce memory consumption for symbol tables
+
 ### Fixed
 
 - debugger: panic when vecdeque have infinite capacity (bug in debug info) 
