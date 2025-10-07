@@ -62,7 +62,7 @@ impl<T> PathSearchIndex<T> {
     /// * `value`: a value associated with path
     #[allow(unused)]
     pub fn insert(&mut self, path: impl IntoIterator<Item = impl AsRef<str>>, value: T) {
-        let path: Vec<_> = path.into_iter().map(|p| p).collect();
+        let path: Vec<_> = path.into_iter().collect();
         let Some(head) = path.last() else {
             return;
         };
