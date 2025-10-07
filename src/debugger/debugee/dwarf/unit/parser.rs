@@ -75,6 +75,8 @@ impl<'a> DwarfUnitParser<'a> {
         });
         let producer = self.attr_to_string(&unit, root, DW_AT_producer)?;
 
+        ranges.shrink_to_fit();
+
         Ok(BsUnit {
             idx: usize::MAX,
             properties: UnitProperties {
