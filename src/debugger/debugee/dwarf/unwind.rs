@@ -186,7 +186,8 @@ impl<'a> UnwindContext<'a> {
                     RegisterRule::Expression(expr) => {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
-                        let expr_result = weak_error!(evaluator.evaluate(ecx, expr.clone()))?;
+                        let expression = weak_error!(expr.get(&dwarf.eh_frame))?;
+                        let expr_result = weak_error!(evaluator.evaluate(ecx, expression))?;
                         let addr = weak_error!(
                             expr_result.into_scalar::<usize>(AddressKind::MemoryAddress)
                         )?;
@@ -202,7 +203,8 @@ impl<'a> UnwindContext<'a> {
                     RegisterRule::ValExpression(expr) => {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
-                        let expr_result = weak_error!(evaluator.evaluate(ecx, expr.clone()))?;
+                        let expression = weak_error!(expr.get(&dwarf.eh_frame))?;
+                        let expr_result = weak_error!(evaluator.evaluate(ecx, expression))?;
                         weak_error!(expr_result.into_scalar::<u64>(AddressKind::MemoryAddress))?
                     }
                     RegisterRule::Architectural => return None,

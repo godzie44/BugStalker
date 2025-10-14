@@ -78,6 +78,8 @@ impl Clone for DebugInformation {
                 debug_str: self.inner.debug_str.clone(),
                 debug_str_offsets: self.inner.debug_str_offsets.clone(),
                 debug_types: self.inner.debug_types.clone(),
+                debug_macinfo: self.inner.debug_macinfo.clone(),
+                debug_macro: self.inner.debug_macro.clone(),
                 locations: self.inner.locations.clone(),
                 ranges: self.inner.ranges.clone(),
                 file_type: self.inner.file_type,
@@ -178,7 +180,7 @@ impl DebugInformation {
         &self,
         debugee: &Debugee,
         registers: &DwarfRegisterMap,
-        utr: &UnwindTableRow<EndianArcSlice>,
+        utr: &UnwindTableRow<usize>,
         ecx: &ExplorationContext,
     ) -> Result<RelocatedAddress, Error> {
         let rule = utr.cfa();
@@ -192,7 +194,8 @@ impl DebugInformation {
                     .ok_or(UnitNotFound(ecx.location().global_pc))?;
                 let evaluator =
                     resolve_unit_call!(&self.inner, unit, evaluator, debugee, self.dwarf());
-                let expr_result = evaluator.evaluate(ecx, expr.clone())?;
+                let expression = expr.get(&self.eh_frame)?;
+                let expr_result = evaluator.evaluate(ecx, expression)?;
 
                 Ok((expr_result.into_scalar::<usize>(AddressKind::Value)?).into())
             }
@@ -737,6 +740,7 @@ impl DebugInformationBuilder {
             };
 
         let dwarf = loader::load_par(debug_info_file, endian)?;
+
         let symbol_table = SymbolTab::new(debug_info_file);
 
         // let mb_pub_names_sect = muted_error!(DebugPubNames::load(|id| {

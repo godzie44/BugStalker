@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - debugger: parse DIEs on demand rather than upfront to reduce initial memory load
 - debugger: reduce memory consumption for debug information representation
 - debugger: reduce memory consumption for symbol tables
+- debugger: update `gimli` version to "0.32.3"
 
 ### Fixed
 

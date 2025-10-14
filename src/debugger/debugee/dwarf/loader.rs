@@ -5,6 +5,7 @@ use gimli::{
     DebugLoc, DebugLocLists, DebugRanges, DebugRngLists, DebugStr, DebugStrOffsets, DebugTypes,
     Dwarf, DwarfFileType, LocationLists, RangeLists, RunTimeEndian, Section, SectionId,
 };
+use gimli::{DebugMacinfo, DebugMacro};
 use object::{File, Object, ObjectSection};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::borrow::Cow;
@@ -27,6 +28,8 @@ struct Sections {
     debug_loclists: Option<DebugLocLists<EndianArcSlice>>,
     debug_ranges: Option<DebugRanges<EndianArcSlice>>,
     debug_rnglists: Option<DebugRngLists<EndianArcSlice>>,
+    debug_macinfo: Option<DebugMacinfo<EndianArcSlice>>,
+    debug_macro: Option<DebugMacro<EndianArcSlice>>,
 }
 
 pub fn load_section(
@@ -75,6 +78,8 @@ pub fn load_par(file: &File, endian: RunTimeEndian) -> Result<Dwarf<EndianArcSli
     let load_debug_loclists = make_sect_loader!(file, endian, debug_loclists);
     let load_debug_ranges = make_sect_loader!(file, endian, debug_ranges);
     let load_debug_rnglists = make_sect_loader!(file, endian, debug_rnglists);
+    let load_debug_macinfo = make_sect_loader!(file, endian, debug_macinfo);
+    let load_debug_macro = make_sect_loader!(file, endian, debug_macro);
 
     type SectLoaders<'a> =
         Vec<Box<dyn FnOnce(Arc<Mutex<Option<Sections>>>) -> Result<(), Error> + Send + Sync + 'a>>;
@@ -93,6 +98,8 @@ pub fn load_par(file: &File, endian: RunTimeEndian) -> Result<Dwarf<EndianArcSli
         Box::new(load_debug_loclists),
         Box::new(load_debug_ranges),
         Box::new(load_debug_rnglists),
+        Box::new(load_debug_macinfo),
+        Box::new(load_debug_macro),
     ];
 
     let sections = Arc::new(Mutex::new(Some(Sections::default())));
@@ -118,6 +125,8 @@ pub fn load_par(file: &File, endian: RunTimeEndian) -> Result<Dwarf<EndianArcSli
         debug_str: sections.debug_str.expect(SECT_MUST_EXISTS),
         debug_str_offsets: sections.debug_str_offsets.expect(SECT_MUST_EXISTS),
         debug_types: sections.debug_types.expect(SECT_MUST_EXISTS),
+        debug_macinfo: sections.debug_macinfo.expect(SECT_MUST_EXISTS),
+        debug_macro: sections.debug_macro.expect(SECT_MUST_EXISTS),
         locations: LocationLists::new(
             sections.debug_loc.expect(SECT_MUST_EXISTS),
             sections.debug_loclists.expect(SECT_MUST_EXISTS),
