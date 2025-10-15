@@ -23,7 +23,7 @@ impl EventHook for DapHook {
         _pc: crate::debugger::address::RelocatedAddress,
         num: u32,
         _place: Option<crate::debugger::PlaceDescriptor>,
-        _function: Option<&crate::debugger::FunctionDie>,
+        _function: Option<&crate::debugger::FunctionInfo>,
     ) -> anyhow::Result<()> {
         let mut output = self.output.lock().unwrap();
 
@@ -58,7 +58,7 @@ impl EventHook for DapHook {
         &self,
         _pc: crate::debugger::address::RelocatedAddress,
         _place: Option<crate::debugger::PlaceDescriptor>,
-        _function: Option<&crate::debugger::FunctionDie>,
+        _function: Option<&crate::debugger::FunctionInfo>,
     ) -> anyhow::Result<()> {
         let mut output = self.output.lock().unwrap();
 
@@ -79,7 +79,7 @@ impl EventHook for DapHook {
         &self,
         _pc: crate::debugger::address::RelocatedAddress,
         _place: Option<crate::debugger::PlaceDescriptor>,
-        _function: Option<&crate::debugger::FunctionDie>,
+        _function: Option<&crate::debugger::FunctionInfo>,
         _task_id: u64,
         _task_completed: bool,
     ) -> anyhow::Result<()> {
