@@ -1,14 +1,16 @@
 mod hook;
 mod logger;
 mod server;
+mod variable;
 
 use std::io::{BufRead, BufReader, Stdout};
 use std::path::Path;
 use std::sync::{Arc, Mutex, mpsc};
 
 use anyhow::anyhow;
+use chumsky::Parser;
 use dap::events::{Event, OutputEventBody};
-use dap::requests::{Command, Request};
+use dap::requests::{Command, Request, VariablesArguments};
 use dap::responses::{
     ContinueResponse, ResponseBody, ScopesResponse, SetBreakpointsResponse, StackTraceResponse,
     ThreadsResponse, VariablesResponse,
@@ -16,26 +18,29 @@ use dap::responses::{
 use dap::server::ServerOutput;
 use dap::types::{
     Breakpoint, Capabilities, OutputEventCategory, Scope, ScopePresentationhint, Source,
-    SourceBreakpoint, StackFrame, StackFramePresentationhint, Thread, Variable,
+    SourceBreakpoint, StackFrame, StackFramePresentationhint, Thread,
 };
 use itertools::Itertools;
 use logger::DapLogger;
 use nix::sys::signal::Signal::SIGKILL;
 
+use super::supervisor;
 use crate::debugger::variable::Identity;
 use crate::debugger::variable::dqe::{Dqe, Selector};
 use crate::debugger::variable::value::Value;
 use crate::debugger::{Debugger, DebuggerBuilder, ThreadSnapshot};
+use crate::ui::command::parser::expression::parser;
 use crate::ui::dap::hook::DapHook;
 use crate::ui::dap::server::DapServer;
+use crate::ui::dap::variable::ReferenceRegistry;
 use crate::ui::supervisor::DebugeeSource;
-
-use super::supervisor;
 
 pub struct DapApplication {
     debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook> + Send + Sync>,
     server: DapServer,
     session: Option<Session>,
+
+    var_ref_registry: ReferenceRegistry,
 }
 
 struct Session {
@@ -63,6 +68,7 @@ impl DapApplication {
             debugger_builder: Arc::new(debugger_builder),
             server: DapServer::new(),
             session: None,
+            var_ref_registry: ReferenceRegistry::default(),
         })
     }
 
@@ -276,6 +282,14 @@ impl DapApplication {
                 }
             }
             Command::Scopes(args) => {
+                let loc_ref = variable::VarRef {
+                    scope: variable::VarScope::Locals,
+                    frame_num: args.frame_id as u8, // TODO
+                    var_id: 0,
+                }
+                .decode();
+                log::info!("loc_ref: {:?}", loc_ref);
+
                 self.server.respond_success(
                     req.seq,
                     ResponseBody::Scopes(ScopesResponse {
@@ -283,14 +297,24 @@ impl DapApplication {
                             Scope {
                                 name: "Args".to_owned(),
                                 presentation_hint: Some(ScopePresentationhint::Arguments),
-                                variables_reference: args.frame_id * 2 + 1, // Can't use 0 as reference
+                                variables_reference: variable::VarRef {
+                                    scope: variable::VarScope::Args,
+                                    frame_num: args.frame_id as u8, // TODO
+                                    var_id: 0,
+                                }
+                                .decode(), // Can't use 0 as reference
                                 expensive: false,
                                 ..Default::default()
                             },
                             Scope {
                                 name: "Locals".to_owned(),
                                 presentation_hint: Some(ScopePresentationhint::Locals),
-                                variables_reference: args.frame_id * 2 + 2, // Can't use 0 as reference
+                                variables_reference: variable::VarRef {
+                                    scope: variable::VarScope::Locals,
+                                    frame_num: args.frame_id as u8, // TODO
+                                    var_id: 0,
+                                }
+                                .decode(),
                                 expensive: false,
                                 ..Default::default()
                             },
@@ -299,32 +323,7 @@ impl DapApplication {
                 )?;
             }
             Command::Variables(args) => {
-                if let Some(session) = &self.session {
-                    let frame_num = (args.variables_reference - 1) / 2;
-
-                    session
-                        .command_sender
-                        .send(DebuggerCommand::FocusFrame(frame_num.try_into()?))?;
-
-                    let variables = session
-                        .request(if args.variables_reference % 2 == 1 {
-                            DebuggerCommand::Args
-                        } else {
-                            DebuggerCommand::Locals
-                        })?
-                        .into_iter()
-                        .map(|(identity, value)| Variable {
-                            name: identity.name.unwrap_or_else(|| "Unknown".to_string()),
-                            value: format!("{value:?}"),
-                            ..Default::default()
-                        })
-                        .collect_vec();
-
-                    self.server.respond_success(
-                        req.seq,
-                        ResponseBody::Variables(VariablesResponse { variables }),
-                    )?;
-                }
+                self.handle_var_request(args, req.seq)?;
             }
             Command::Next(_args) => {
                 if let Some(session) = &self.session {
@@ -378,6 +377,80 @@ impl DapApplication {
 
         Ok(true)
     }
+
+    fn handle_var_request(&mut self, args: &VariablesArguments, seq: i64) -> anyhow::Result<()> {
+        let Some(session) = &self.session else {
+            return Ok(());
+        };
+
+        let var_ref = variable::VarRef::encode(args.variables_reference as u64);
+
+        log::info!("var req: {:?}", var_ref);
+
+        session
+            .command_sender
+            .send(DebuggerCommand::FocusFrame(var_ref.frame_num as u32))?;
+
+        let (sender, receiver) = mpsc::sync_channel(0);
+
+        let variables = if var_ref.var_id == 0 {
+            let cmd = if var_ref.scope == variable::VarScope::Args {
+                DebuggerCommand::Args(Dqe::Variable(Selector::Any), sender)
+            } else {
+                DebuggerCommand::Locals(Dqe::Variable(Selector::Any), sender)
+            };
+
+            session.command_sender.send(cmd)?;
+            let variables = receiver.recv()?;
+
+            variables
+                .into_iter()
+                .filter_map(|(ident, val)| {
+                    let path = ident.name.as_deref().unwrap_or("");
+                    let name = ident.name.as_deref().unwrap_or("unknown");
+
+                    variable::into_dap_var_repr(
+                        &mut self.var_ref_registry,
+                        var_ref,
+                        path,
+                        name,
+                        &val,
+                    )
+                })
+                .collect_vec()
+        } else {
+            let path = self.var_ref_registry.get_path(var_ref.var_id).to_string();
+
+            log::info!("expand: {}", path);
+            log::info!("var_req: {:?}", var_ref);
+
+            let dqe = parser().parse(&path).unwrap();
+
+            log::info!("dqe: {:?}", dqe);
+
+            let cmd = if var_ref.scope == variable::VarScope::Args {
+                DebuggerCommand::Args(dqe, sender)
+            } else {
+                DebuggerCommand::Locals(dqe, sender)
+            };
+
+            session.command_sender.send(cmd)?;
+            let mut variables = receiver.recv()?;
+
+            log::info!("res len: {:?}", variables.len());
+
+            let (_, value) = variables.pop().unwrap();
+
+            variable::expand_and_collect(&mut self.var_ref_registry, var_ref, &path, &value)
+        };
+
+        self.server.respond_success(
+            seq,
+            ResponseBody::Variables(VariablesResponse { variables }),
+        )?;
+
+        Ok(())
+    }
 }
 
 enum DebuggerCommand {
@@ -393,8 +466,8 @@ enum DebuggerCommand {
         mpsc::SyncSender<Vec<Option<i64>>>,
     ),
     Threads(mpsc::SyncSender<Vec<ThreadSnapshot>>),
-    Args(mpsc::SyncSender<Vec<(Identity, Value)>>),
-    Locals(mpsc::SyncSender<Vec<(Identity, Value)>>),
+    Args(Dqe, mpsc::SyncSender<Vec<(Identity, Value)>>),
+    Locals(Dqe, mpsc::SyncSender<Vec<(Identity, Value)>>),
 }
 
 fn debugger_thread(
@@ -503,22 +576,22 @@ fn handle_debugger_command(
         DebuggerCommand::Threads(sender) => {
             sender.send(debugger.thread_state()?)?;
         }
-        DebuggerCommand::Args(sender) => {
+        DebuggerCommand::Args(dqe, sender) => {
             sender
                 .send(
                     debugger
-                        .read_argument(Dqe::Variable(Selector::Any))?
+                        .read_argument(dqe)?
                         .into_iter()
                         .map(|v| v.into_identified_value())
                         .collect_vec(),
                 )
                 .map_err(|e| anyhow!("{e}"))?;
         }
-        DebuggerCommand::Locals(sender) => {
+        DebuggerCommand::Locals(dqe, sender) => {
             sender
                 .send(
                     debugger
-                        .read_variable(Dqe::Variable(Selector::Any))?
+                        .read_variable(dqe)?
                         .into_iter()
                         .map(|v| v.into_identified_value())
                         .collect_vec(),
