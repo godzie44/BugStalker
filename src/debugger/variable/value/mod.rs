@@ -687,6 +687,18 @@ impl Value {
                         _ => None,
                     })
                 }
+                Some(SpecializedValue::Vector(vec_val))
+                | Some(SpecializedValue::VecDeque(vec_val)) => {
+                    if field_name == "buf" {
+                        vec_val
+                            .structure
+                            .members
+                            .first()
+                            .map(|member| member.value.clone())
+                    } else {
+                        None
+                    }
+                }
                 Some(SpecializedValue::Tls(tls_var)) => tls_var
                     .inner_value
                     .and_then(|inner| inner.field(field_name)),
