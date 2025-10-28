@@ -385,8 +385,6 @@ impl DapApplication {
 
         let var_ref = variable::VarRef::encode(args.variables_reference as u64);
 
-        log::info!("var req: {:?}", var_ref);
-
         session
             .command_sender
             .send(DebuggerCommand::FocusFrame(var_ref.frame_num as u32))?;
@@ -421,12 +419,7 @@ impl DapApplication {
         } else {
             let path = self.var_ref_registry.get_path(var_ref.var_id).to_string();
 
-            log::info!("expand: {}", path);
-            log::info!("var_req: {:?}", var_ref);
-
             let dqe = parser().parse(&path).unwrap();
-
-            log::info!("dqe: {:?}", dqe);
 
             let cmd = if var_ref.scope == variable::VarScope::Args {
                 DebuggerCommand::Args(dqe, sender)
@@ -436,8 +429,6 @@ impl DapApplication {
 
             session.command_sender.send(cmd)?;
             let mut variables = receiver.recv()?;
-
-            log::info!("res len: {:?}", variables.len());
 
             let (_, value) = variables.pop().unwrap();
 
@@ -602,15 +593,16 @@ fn handle_debugger_command(
             let mut breakpoint_ids = Vec::new();
 
             for (source, bp) in breakpoints {
-                if let Some(path) = source.path {
-                    let breakpoint = debugger
-                        .set_breakpoint_at_line(&path, bp.line.try_into()?)?
-                        .into_iter()
-                        .next();
-                    breakpoint_ids.push(breakpoint.map(|breakpoint| breakpoint.number as i64));
-                } else {
-                    breakpoint_ids.push(None);
-                }
+                let id = source.path.and_then(|path| {
+                    let brkpts = debugger
+                        .set_breakpoint_at_line(&path, bp.line as u64)
+                        .inspect_err(|e| log::error!("breakpoint: {e}"))
+                        .ok()?;
+
+                    brkpts.first().map(|breakpoint| breakpoint.number as i64)
+                });
+
+                breakpoint_ids.push(id);
             }
 
             sender.send(breakpoint_ids)?;
