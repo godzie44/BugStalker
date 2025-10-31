@@ -282,14 +282,6 @@ impl DapApplication {
                 }
             }
             Command::Scopes(args) => {
-                let loc_ref = variable::VarRef {
-                    scope: variable::VarScope::Locals,
-                    frame_num: args.frame_id as u8, // TODO
-                    var_id: 0,
-                }
-                .decode();
-                log::info!("loc_ref: {:?}", loc_ref);
-
                 self.server.respond_success(
                     req.seq,
                     ResponseBody::Scopes(ScopesResponse {
