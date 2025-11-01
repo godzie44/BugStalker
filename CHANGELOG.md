@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 # [?.?.?] Unreleased
 
 ### Added
+### Changed
+### Fixed
+### Deprecated
+### Breaking changes
+
+---
+
+# [0.3.5] Nov 3 2025
+
+### Added
 
 - debugger: add `GlobalContext`
 - debugger: added support rustc 1.91
