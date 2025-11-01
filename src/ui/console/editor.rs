@@ -503,7 +503,8 @@ impl BSEditor {
         };
 
         if save_history_in_file {
-            let mut editor = Editor::with_history(config, FileHistory::with_config(config))?;
+            let fh = FileHistory::with_config(&config);
+            let mut editor = Editor::with_history(config, fh)?;
             editor.set_helper(Some(h));
             _ = editor.load_history(&Self::history_file()?);
 
