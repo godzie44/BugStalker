@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - debugger: add `GlobalContext`
+- debugger: added support rustc 1.91
 
 ### Changed
 
