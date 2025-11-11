@@ -130,6 +130,7 @@ impl EventHook for TuiHook {
         num: u32,
         place: Option<PlaceDescriptor>,
         function: Option<&FunctionInfo>,
+        _: Option<u32>,
     ) -> anyhow::Result<()> {
         self.event_queue
             .lock()
@@ -176,6 +177,7 @@ impl EventHook for TuiHook {
         pc: RelocatedAddress,
         place: Option<PlaceDescriptor>,
         function: Option<&FunctionInfo>,
+        _: Option<u32>,
     ) -> anyhow::Result<()> {
         self.event_queue.lock().unwrap().push(UserEvent::Step {
             pc,
@@ -194,7 +196,7 @@ impl EventHook for TuiHook {
         _: u64,
         _: bool,
     ) -> anyhow::Result<()> {
-        self.on_step(pc, place, function)
+        self.on_step(pc, place, function, None)
     }
 
     fn on_signal(&self, signal: Signal) {

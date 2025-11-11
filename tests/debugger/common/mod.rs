@@ -38,6 +38,7 @@ impl EventHook for TestHooks {
         _: u32,
         place: Option<PlaceDescriptor>,
         _: Option<&FunctionInfo>,
+        _: Option<u32>,
     ) -> anyhow::Result<()> {
         self.info.addr.set(Some(pc));
         let file = &self.info.file;
@@ -74,6 +75,7 @@ impl EventHook for TestHooks {
         pc: RelocatedAddress,
         place: Option<PlaceDescriptor>,
         _: Option<&FunctionInfo>,
+        _: Option<u32>,
     ) -> anyhow::Result<()> {
         self.info.addr.set(Some(pc));
         let file = &self.info.file;
@@ -90,7 +92,7 @@ impl EventHook for TestHooks {
         _: u64,
         _: bool,
     ) -> anyhow::Result<()> {
-        self.on_step(pc, place, function)
+        self.on_step(pc, place, function, None)
     }
 
     fn on_signal(&self, _: Signal) {}
