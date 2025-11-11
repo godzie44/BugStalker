@@ -80,12 +80,14 @@ pub trait EventHook {
     /// * `num`: breakpoint number
     /// * `place`: stop place information
     /// * `function`: function debug information entry
+    /// * `thread_num`: number of in focus thread
     fn on_breakpoint(
         &self,
         pc: RelocatedAddress,
         num: u32,
         place: Option<PlaceDescriptor>,
         function: Option<&FunctionInfo>,
+        thread_num: Option<u32>,
     ) -> anyhow::Result<()>;
 
     /// Called when watchpoint is activated.
@@ -120,11 +122,13 @@ pub trait EventHook {
     /// * `pc`: address of instruction where breakpoint is reached
     /// * `place`: stop place information
     /// * `function`: function debug information entry
+    /// * `thread_num`: number of in focus thread
     fn on_step(
         &self,
         pc: RelocatedAddress,
         place: Option<PlaceDescriptor>,
         function: Option<&FunctionInfo>,
+        thread_num: Option<u32>,
     ) -> anyhow::Result<()>;
 
     /// Called when one of async step commands is done.
@@ -176,6 +180,7 @@ impl EventHook for NopHook {
         _: u32,
         _: Option<PlaceDescriptor>,
         _: Option<&FunctionInfo>,
+        _: Option<u32>,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -199,6 +204,7 @@ impl EventHook for NopHook {
         _: RelocatedAddress,
         _: Option<PlaceDescriptor>,
         _: Option<&FunctionInfo>,
+        _: Option<u32>,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -576,8 +582,18 @@ impl Debugger {
                                 let func = weak_error!(dwarf.find_function_by_pc(pc))
                                     .flatten()
                                     .map(|(_, info)| info);
+                                let tracee_ctl = self.debugee.tracee_ctl();
+                                let tracee_in_focus = tracee_ctl
+                                    .tracee(self.ecx().pid_on_focus())
+                                    .map(|t| t.number);
                                 self.hooks
-                                    .on_breakpoint(current_pc, bp.number(), place, func)
+                                    .on_breakpoint(
+                                        current_pc,
+                                        bp.number(),
+                                        place,
+                                        func,
+                                        tracee_in_focus,
+                                    )
                                     .map_err(Hook)?;
                                 break event;
                             }
@@ -778,7 +794,12 @@ impl Debugger {
         let func = weak_error!(dwarf.find_function_by_pc(global_pc))
             .flatten()
             .map(|(_, info)| info);
-        self.hooks.on_step(pc, place, func).map_err(Hook)
+        let tracee_ctl = self.debugee.tracee_ctl();
+        let thread_in_focus = tracee_ctl.tracee(ecx.pid_on_focus()).map(|t| t.number);
+
+        self.hooks
+            .on_step(pc, place, func, thread_in_focus)
+            .map_err(Hook)
     }
 
     /// Execute `on_async_step` callback with current exploration context

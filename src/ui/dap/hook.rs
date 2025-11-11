@@ -24,16 +24,17 @@ impl EventHook for DapHook {
         num: u32,
         _place: Option<crate::debugger::PlaceDescriptor>,
         _function: Option<&crate::debugger::FunctionInfo>,
+        thread: Option<u32>,
     ) -> anyhow::Result<()> {
         let mut output = self.output.lock().unwrap();
 
         output.send_event(Event::Stopped(StoppedEventBody {
             reason: StoppedEventReason::Breakpoint,
             description: None,
-            thread_id: Some(1),
+            thread_id: thread.map(|n| n as i64),
             preserve_focus_hint: None,
             text: None,
-            all_threads_stopped: None,
+            all_threads_stopped: Some(true),
             hit_breakpoint_ids: Some(vec![num.into()]),
         }))?;
 
@@ -59,16 +60,16 @@ impl EventHook for DapHook {
         _pc: crate::debugger::address::RelocatedAddress,
         _place: Option<crate::debugger::PlaceDescriptor>,
         _function: Option<&crate::debugger::FunctionInfo>,
+        thread: Option<u32>,
     ) -> anyhow::Result<()> {
         let mut output = self.output.lock().unwrap();
-
         output.send_event(Event::Stopped(StoppedEventBody {
             reason: StoppedEventReason::Step,
             description: None,
-            thread_id: Some(1),
+            thread_id: thread.map(|n| n as i64),
             preserve_focus_hint: None,
             text: None,
-            all_threads_stopped: None,
+            all_threads_stopped: Some(true),
             hit_breakpoint_ids: None,
         }))?;
 
