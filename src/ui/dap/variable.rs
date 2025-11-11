@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::atomic::AtomicU32};
+use std::{collections::HashMap, sync::atomic::AtomicU16};
 
 use dap::types::{Variable, VariablePresentationHint};
 use itertools::Itertools;
@@ -12,18 +12,18 @@ use crate::debugger::{
 };
 
 #[derive(Default)]
-pub struct ReferenceRegistry(HashMap<u32, String>);
+pub struct ReferenceRegistry(HashMap<u16, String>);
 
 impl ReferenceRegistry {
-    pub fn insert(&mut self, path: &str) -> u32 {
-        static NONCE: AtomicU32 = AtomicU32::new(100);
+    pub fn insert(&mut self, path: &str) -> u16 {
+        static NONCE: AtomicU16 = AtomicU16::new(100);
 
         let next = NONCE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.0.insert(next, path.to_string());
         next
     }
 
-    pub fn get_path(&self, id: u32) -> &str {
+    pub fn get_path(&self, id: u16) -> &str {
         &self.0[&id]
     }
 }
@@ -52,27 +52,27 @@ impl TryFrom<u8> for VarScope {
 #[derive(Debug, Clone, Copy)]
 pub struct VarRef {
     pub scope: VarScope,
-    pub frame_num: u8,
-    pub var_id: u32,
+    pub frame_info: u32,
+    pub var_id: u16,
 }
 
 impl VarRef {
     pub fn decode(&self) -> i64 {
-        (self.scope as u64 | ((self.frame_num as u64) << 8) | ((self.var_id as u64) << 16)) as i64
+        (self.scope as u64 | ((self.frame_info as u64) << 8) | ((self.var_id as u64) << 40)) as i64
     }
 
     pub fn encode(raw: u64) -> Self {
         Self {
             scope: ((raw & 0xFF) as u8).try_into().unwrap(),
-            frame_num: ((raw >> 8) & 0xFF) as u8,
-            var_id: ((raw >> 16) & 0xFFFFFFFF) as u32,
+            frame_info: ((raw >> 8) & 0xFFFFFFFF) as u32,
+            var_id: ((raw >> 40) & 0xFFFF) as u16,
         }
     }
 
-    fn extend(other: VarRef, new_id: u32) -> Self {
+    fn extend(other: VarRef, new_id: u16) -> Self {
         Self {
             scope: other.scope,
-            frame_num: other.frame_num,
+            frame_info: other.frame_info,
             var_id: new_id,
         }
     }
@@ -81,7 +81,7 @@ impl VarRef {
     fn unexpanded() -> Self {
         VarRef {
             scope: VarScope::None,
-            frame_num: 0,
+            frame_info: 0,
             var_id: 0,
         }
     }
