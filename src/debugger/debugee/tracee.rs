@@ -163,7 +163,7 @@ impl TraceeCtl {
         }
     }
 
-    pub(crate) fn tracee(&mut self, pid: Pid) -> Option<&Tracee> {
+    pub(crate) fn tracee(&self, pid: Pid) -> Option<&Tracee> {
         self.threads_state.get(&pid)
     }
 

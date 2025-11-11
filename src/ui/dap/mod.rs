@@ -109,6 +109,7 @@ impl DapApplication {
                     req.seq,
                     ResponseBody::Initialize(Capabilities {
                         supports_configuration_done_request: Some(true),
+                        supports_single_thread_execution_requests: Some(false),
                         ..Default::default()
                     }),
                 )?;
@@ -244,9 +245,15 @@ impl DapApplication {
                             .flatten()
                             .enumerate()
                             .map(|(idx, frame)| {
+                                // TODO add frames/threads len checks
+                                let id = FrameInfo {
+                                    thread_id: thread.thread.number as u16,
+                                    frame_id: idx as u16,
+                                };
+
                                 if let Some(place) = frame.place {
                                     StackFrame {
-                                        id: idx as i64,
+                                        id: id.pack() as i64,
                                         name: frame
                                             .func_name
                                             .unwrap_or_else(|| "Unknown".to_owned()),
@@ -260,7 +267,7 @@ impl DapApplication {
                                     }
                                 } else {
                                     StackFrame {
-                                        id: idx as i64,
+                                        id: id.pack() as i64,
                                         name: "Unknown".to_owned(),
                                         presentation_hint: Some(StackFramePresentationhint::Subtle),
                                         ..Default::default()
@@ -291,7 +298,7 @@ impl DapApplication {
                                 presentation_hint: Some(ScopePresentationhint::Arguments),
                                 variables_reference: variable::VarRef {
                                     scope: variable::VarScope::Args,
-                                    frame_num: args.frame_id as u8, // TODO
+                                    frame_info: args.frame_id as u32,
                                     var_id: 0,
                                 }
                                 .decode(), // Can't use 0 as reference
@@ -303,7 +310,7 @@ impl DapApplication {
                                 presentation_hint: Some(ScopePresentationhint::Locals),
                                 variables_reference: variable::VarRef {
                                     scope: variable::VarScope::Locals,
-                                    frame_num: args.frame_id as u8, // TODO
+                                    frame_info: args.frame_id as u32,
                                     var_id: 0,
                                 }
                                 .decode(),
@@ -376,10 +383,15 @@ impl DapApplication {
         };
 
         let var_ref = variable::VarRef::encode(args.variables_reference as u64);
+        let frame_info = FrameInfo::unpack(var_ref.frame_info as i64);
 
         session
             .command_sender
-            .send(DebuggerCommand::FocusFrame(var_ref.frame_num as u32))?;
+            .send(DebuggerCommand::FocusThread(frame_info.thread_id as u32))?;
+
+        session
+            .command_sender
+            .send(DebuggerCommand::FocusFrame(frame_info.frame_id as u32))?;
 
         let (sender, receiver) = mpsc::sync_channel(0);
 
@@ -436,7 +448,7 @@ impl DapApplication {
     }
 }
 
-enum DebuggerCommand {
+pub enum DebuggerCommand {
     Start,
     StepOver,
     StepIn,
@@ -444,6 +456,7 @@ enum DebuggerCommand {
     Continue,
     Exit,
     FocusFrame(u32),
+    FocusThread(u32),
     SetBreakpoints(
         Vec<(Source, SourceBreakpoint)>,
         mpsc::SyncSender<Vec<Option<i64>>>,
@@ -556,6 +569,9 @@ fn handle_debugger_command(
         DebuggerCommand::FocusFrame(n) => {
             let _ = debugger.set_frame_into_focus(n);
         }
+        DebuggerCommand::FocusThread(n) => {
+            let _ = debugger.set_thread_into_focus(n);
+        }
         DebuggerCommand::Threads(sender) => {
             sender.send(debugger.thread_state()?)?;
         }
@@ -602,4 +618,26 @@ fn handle_debugger_command(
     }
 
     Ok(true)
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct FrameInfo {
+    thread_id: u16,
+    frame_id: u16,
+}
+
+impl FrameInfo {
+    pub fn pack(self) -> u32 {
+        let packed = ((self.thread_id as u32) << 16) | self.frame_id as u32;
+
+        packed
+    }
+
+    pub fn unpack(packed: i64) -> Self {
+        let packed = packed as u64;
+        Self {
+            thread_id: (packed >> 16) as u16,
+            frame_id: (packed & 0xFFFF) as u16,
+        }
+    }
 }

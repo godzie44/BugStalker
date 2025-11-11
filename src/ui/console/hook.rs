@@ -56,6 +56,7 @@ impl EventHook for TerminalHook {
         num: u32,
         mb_place: Option<PlaceDescriptor>,
         mb_func: Option<&FunctionInfo>,
+        _: Option<u32>,
     ) -> anyhow::Result<()> {
         let msg = format!("Hit breakpoint {num} at {}:", AddressView::from(pc));
         if let Some(place) = mb_place {
@@ -139,6 +140,7 @@ impl EventHook for TerminalHook {
         _: RelocatedAddress,
         mb_place: Option<PlaceDescriptor>,
         mb_func: Option<&FunctionInfo>,
+        _: Option<u32>,
     ) -> anyhow::Result<()> {
         if let Some(place) = mb_place {
             if self.context.borrow().prev_func.as_ref() != mb_func {
