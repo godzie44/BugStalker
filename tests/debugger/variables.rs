@@ -1273,6 +1273,9 @@ fn test_read_closures() {
     );
     assert_pointer(fn_ptr.value(), "fn() -> u8");
 
+    let deref_fn_ptr = fn_ptr.clone().modify_value(|ctx, v| v.deref(ctx));
+    assert!(deref_fn_ptr.is_none());
+
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
