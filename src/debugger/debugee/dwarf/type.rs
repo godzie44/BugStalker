@@ -626,6 +626,7 @@ impl TypeParser {
                 gimli::DW_TAG_atomic_type => Some(self.parse_atomic(die_ref)),
                 gimli::DW_TAG_volatile_type => Some(self.parse_volatile(die_ref)),
                 gimli::DW_TAG_restrict_type => Some(self.parse_restrict(die_ref)),
+                gimli::DW_TAG_subroutine_type => Some(self.parse_subroutine(die_ref)),
                 _ => {
                     warn!("unsupported type die: {tag} at offset {offset:?}");
                     None
