@@ -423,7 +423,10 @@ impl DapApplication {
         } else {
             let path = self.var_ref_registry.get_path(var_ref.var_id).to_string();
 
-            let dqe = parser().parse(&path).unwrap();
+            let dqe = parser()
+                .parse(&path)
+                .into_result()
+                .map_err(|_| anyhow!("parse request DQE error"))?;
 
             let cmd = if var_ref.scope == variable::VarScope::Args {
                 DebuggerCommand::Args(dqe, sender)
@@ -432,11 +435,15 @@ impl DapApplication {
             };
 
             session.command_sender.send(cmd)?;
-            let mut variables = receiver.recv()?;
+            let variables = receiver.recv()?;
 
-            let (_, value) = variables.pop().unwrap();
-
-            variable::expand_and_collect(&mut self.var_ref_registry, var_ref, &path, &value)
+            variables
+                .into_iter()
+                .map(|(_, val)| {
+                    variable::expand_and_collect(&mut self.var_ref_registry, var_ref, &path, &val)
+                })
+                .flatten()
+                .collect_vec()
         };
 
         self.server.respond_success(
