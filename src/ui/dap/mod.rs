@@ -439,10 +439,9 @@ impl DapApplication {
 
             variables
                 .into_iter()
-                .map(|(_, val)| {
+                .flat_map(|(_, val)| {
                     variable::expand_and_collect(&mut self.var_ref_registry, var_ref, &path, &val)
                 })
-                .flatten()
                 .collect_vec()
         };
 
@@ -635,9 +634,7 @@ struct FrameInfo {
 
 impl FrameInfo {
     pub fn pack(self) -> u32 {
-        let packed = ((self.thread_id as u32) << 16) | self.frame_id as u32;
-
-        packed
+        ((self.thread_id as u32) << 16) | self.frame_id as u32
     }
 
     pub fn unpack(packed: i64) -> Self {
