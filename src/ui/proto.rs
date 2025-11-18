@@ -2,6 +2,8 @@ use crate::debugger::Debugger;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
+/// Utilities for communication between the debugger thread and UI threads
+
 type DebuggerSyncTask = dyn FnOnce(&mut Debugger) -> Box<dyn std::any::Any + Send + 'static> + Send;
 type DebuggerAsyncTask = dyn FnOnce(&mut Debugger) -> anyhow::Result<()> + Send;
 
