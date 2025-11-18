@@ -18,21 +18,22 @@ use dap::responses::{
 use dap::server::ServerOutput;
 use dap::types::{
     Breakpoint, Capabilities, OutputEventCategory, Scope, ScopePresentationhint, Source,
-    SourceBreakpoint, StackFrame, StackFramePresentationhint, Thread,
+    StackFrame, StackFramePresentationhint, Thread,
 };
 use itertools::Itertools;
 use logger::DapLogger;
 use nix::sys::signal::Signal::SIGKILL;
 
 use super::supervisor;
+use crate::debugger::DebuggerBuilder;
 use crate::debugger::variable::Identity;
 use crate::debugger::variable::dqe::{Dqe, Selector};
 use crate::debugger::variable::value::Value;
-use crate::debugger::{Debugger, DebuggerBuilder, ThreadSnapshot};
 use crate::ui::command::parser::expression::parser;
 use crate::ui::dap::hook::DapHook;
 use crate::ui::dap::server::DapServer;
 use crate::ui::dap::variable::ReferenceRegistry;
+use crate::ui::proto::{self, ClientExchanger, ServerExchanger, exchanger};
 use crate::ui::supervisor::DebugeeSource;
 
 pub struct DapApplication {
@@ -45,19 +46,7 @@ pub struct DapApplication {
 
 struct Session {
     pid: nix::unistd::Pid,
-    command_sender: mpsc::SyncSender<DebuggerCommand>,
-}
-
-impl Session {
-    fn request<T>(
-        &self,
-        cmd: impl Fn(mpsc::SyncSender<T>) -> DebuggerCommand,
-    ) -> anyhow::Result<T> {
-        let (sender, receiver) = mpsc::sync_channel(0);
-        self.command_sender.send(cmd(sender))?;
-        let result = receiver.recv()?;
-        Ok(result)
-    }
+    debugger_client: ClientExchanger,
 }
 
 impl DapApplication {
@@ -103,6 +92,16 @@ impl DapApplication {
     }
 
     fn handle_request(&mut self, req: Request) -> anyhow::Result<bool> {
+        macro_rules! session_or_fail {
+            () => {{
+                let Some(session) = &self.session else {
+                    self.server.respond_error(req.seq, "No running session")?;
+                    anyhow::bail!("No running session");
+                };
+                session
+            }};
+        }
+
         match &req.command {
             Command::Initialize(_args) => {
                 self.server.respond_success(
@@ -126,8 +125,10 @@ impl DapApplication {
                     .and_then(|cwd| cwd.as_str())
                     .map(ToOwned::to_owned);
 
-                let (command_sender, command_receiver) = mpsc::sync_channel(0);
+                // let (command_sender, command_receiver) = mpsc::sync_channel(0);
                 let (launched_sender, launched_receiver) = mpsc::sync_channel(0);
+
+                let (srv, client) = exchanger();
 
                 std::thread::spawn({
                     let debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook> + Send + Sync> =
@@ -141,7 +142,7 @@ impl DapApplication {
                             debugger_builder,
                             output,
                             launched_sender,
-                            command_receiver,
+                            srv,
                         );
 
                         if let Err(e) = result {
@@ -154,7 +155,7 @@ impl DapApplication {
 
                 self.session = Some(Session {
                     pid,
-                    command_sender,
+                    debugger_client: client,
                 });
 
                 log::info!("launch successful");
@@ -164,10 +165,7 @@ impl DapApplication {
                 self.server.send_event(Event::Initialized)?;
             }
             Command::SetBreakpoints(args) => {
-                let Some(session) = &self.session else {
-                    self.server.respond_error(req.seq, "No running session")?;
-                    anyhow::bail!("No running session");
-                };
+                let session = session_or_fail!();
 
                 let breakpoints = args
                     .breakpoints
@@ -177,13 +175,24 @@ impl DapApplication {
                     .map(|bp| (args.source.clone(), bp))
                     .collect_vec();
 
-                let (sender, receiver) = mpsc::sync_channel(0);
+                let breakpoint_ids = session.debugger_client.request_sync(|debugger| {
+                    let mut breakpoint_ids = Vec::new();
 
-                session
-                    .command_sender
-                    .send(DebuggerCommand::SetBreakpoints(breakpoints, sender))?;
+                    for (source, bp) in breakpoints {
+                        let id = source.path.and_then(|path| {
+                            let brkpts = debugger
+                                .set_breakpoint_at_line(&path, bp.line as u64)
+                                .inspect_err(|e| log::error!("breakpoint: {e}"))
+                                .ok()?;
 
-                let breakpoint_ids = receiver.recv()?;
+                            brkpts.first().map(|breakpoint| breakpoint.number as i64)
+                        });
+
+                        breakpoint_ids.push(id);
+                    }
+
+                    breakpoint_ids
+                })?;
 
                 self.server.respond_success(
                     req.seq,
@@ -205,87 +214,91 @@ impl DapApplication {
                 )?;
             }
             Command::ConfigurationDone => {
-                let Some(session) = &self.session else {
-                    self.server.respond_error(req.seq, "No running session")?;
-                    anyhow::bail!("No running session");
-                };
+                let session = session_or_fail!();
 
-                session.command_sender.send(DebuggerCommand::Start)?;
+                session.debugger_client.request_sync(|debugger| {
+                    log::debug!("Starting execution");
+                    debugger.start_debugee()
+                })??;
 
                 self.server
                     .respond_success(req.seq, ResponseBody::ConfigurationDone)?;
             }
             Command::Threads => {
-                if let Some(session) = &self.session {
-                    let threads = session.request(DebuggerCommand::Threads)?;
-                    self.server.respond_success(
-                        req.seq,
-                        ResponseBody::Threads(ThreadsResponse {
-                            threads: threads
-                                .iter()
-                                .map(|thread| Thread {
-                                    id: thread.thread.number.into(),
-                                    name: format!("Thread #{}", thread.thread.number),
-                                })
-                                .collect_vec(),
-                        }),
-                    )?;
-                }
+                let session = session_or_fail!();
+
+                let threads = session
+                    .debugger_client
+                    .request_sync(|debugger| debugger.thread_state())??;
+
+                self.server.respond_success(
+                    req.seq,
+                    ResponseBody::Threads(ThreadsResponse {
+                        threads: threads
+                            .iter()
+                            .map(|thread| Thread {
+                                id: thread.thread.number.into(),
+                                name: format!("Thread #{}", thread.thread.number),
+                            })
+                            .collect_vec(),
+                    }),
+                )?;
             }
             Command::StackTrace(args) => {
-                if let Some(session) = &self.session {
-                    let threads = session.request(DebuggerCommand::Threads)?;
-                    let thread = threads
+                let session = session_or_fail!();
+
+                let threads = session
+                    .debugger_client
+                    .request_sync(|debugger| debugger.thread_state())??;
+
+                let thread = threads
+                    .into_iter()
+                    .find(|thread| i64::from(thread.thread.number) == args.thread_id);
+                if let Some(thread) = thread {
+                    let stack_frames = thread
+                        .bt
                         .into_iter()
-                        .find(|thread| i64::from(thread.thread.number) == args.thread_id);
-                    if let Some(thread) = thread {
-                        let stack_frames = thread
-                            .bt
-                            .into_iter()
-                            .flatten()
-                            .enumerate()
-                            .map(|(idx, frame)| {
-                                // TODO add frames/threads len checks
-                                let id = FrameInfo {
-                                    thread_id: thread.thread.number as u16,
-                                    frame_id: idx as u16,
-                                };
+                        .flatten()
+                        .enumerate()
+                        .map(|(idx, frame)| {
+                            // TODO add frames/threads len checks
+                            let id = FrameInfo {
+                                thread_id: thread.thread.number as u16,
+                                frame_id: idx as u16,
+                            };
 
-                                if let Some(place) = frame.place {
-                                    StackFrame {
-                                        id: id.pack() as i64,
-                                        name: frame
-                                            .func_name
-                                            .unwrap_or_else(|| "Unknown".to_owned()),
-                                        source: Some(Source {
-                                            path: Some(place.file.to_string_lossy().into_owned()),
-                                            ..Default::default()
-                                        }),
-                                        line: place.line_number.try_into().unwrap(),
-                                        column: place.column_number.try_into().unwrap(),
+                            if let Some(place) = frame.place {
+                                StackFrame {
+                                    id: id.pack() as i64,
+                                    name: frame.func_name.unwrap_or_else(|| "Unknown".to_owned()),
+                                    source: Some(Source {
+                                        path: Some(place.file.to_string_lossy().into_owned()),
                                         ..Default::default()
-                                    }
-                                } else {
-                                    StackFrame {
-                                        id: id.pack() as i64,
-                                        name: "Unknown".to_owned(),
-                                        presentation_hint: Some(StackFramePresentationhint::Subtle),
-                                        ..Default::default()
-                                    }
+                                    }),
+                                    line: place.line_number.try_into().unwrap(),
+                                    column: place.column_number.try_into().unwrap(),
+                                    ..Default::default()
                                 }
-                            })
-                            .collect_vec();
+                            } else {
+                                StackFrame {
+                                    id: id.pack() as i64,
+                                    name: "Unknown".to_owned(),
+                                    presentation_hint: Some(StackFramePresentationhint::Subtle),
+                                    ..Default::default()
+                                }
+                            }
+                        })
+                        .collect_vec();
 
-                        self.server.respond_success(
-                            req.seq,
-                            ResponseBody::StackTrace(StackTraceResponse {
-                                total_frames: Some(stack_frames.len().try_into().unwrap()),
-                                stack_frames,
-                            }),
-                        )?;
-                    } else {
-                        self.server.respond_error(req.seq, "Thread not found")?;
-                    }
+                    self.server.respond_success(
+                        req.seq,
+                        ResponseBody::StackTrace(StackTraceResponse {
+                            total_frames: Some(stack_frames.len().try_into().unwrap()),
+                            stack_frames,
+                        }),
+                    )?;
+                } else {
+                    self.server.respond_error(req.seq, "Thread not found")?;
                 }
             }
             Command::Scopes(args) => {
@@ -325,40 +338,54 @@ impl DapApplication {
                 self.handle_var_request(args, req.seq)?;
             }
             Command::Next(_args) => {
-                if let Some(session) = &self.session {
-                    session.command_sender.send(DebuggerCommand::StepOver)?;
-                    self.server.respond_success(req.seq, ResponseBody::Next)?;
-                }
+                let session = session_or_fail!();
+
+                session
+                    .debugger_client
+                    .request_sync(|debugger| debugger.step_over())??;
+
+                self.server.respond_success(req.seq, ResponseBody::Next)?;
             }
             Command::StepIn(_args) => {
-                if let Some(session) = &self.session {
-                    session.command_sender.send(DebuggerCommand::StepIn)?;
-                    self.server.respond_success(req.seq, ResponseBody::StepIn)?;
-                }
+                let session = session_or_fail!();
+
+                session
+                    .debugger_client
+                    .request_sync(|debugger| debugger.step_into())??;
+
+                self.server.respond_success(req.seq, ResponseBody::StepIn)?;
             }
             Command::StepOut(_args) => {
-                if let Some(session) = &self.session {
-                    session.command_sender.send(DebuggerCommand::StepOut)?;
-                    self.server
-                        .respond_success(req.seq, ResponseBody::StepOut)?;
-                }
+                let session = session_or_fail!();
+
+                session
+                    .debugger_client
+                    .request_sync(|debugger| debugger.step_out())??;
+
+                self.server
+                    .respond_success(req.seq, ResponseBody::StepOut)?;
             }
             Command::Continue(_args) => {
-                if let Some(session) = &self.session {
-                    session.command_sender.send(DebuggerCommand::Continue)?;
-                    self.server.respond_success(
-                        req.seq,
-                        ResponseBody::Continue(ContinueResponse {
-                            ..Default::default()
-                        }),
-                    )?;
-                }
+                let session = session_or_fail!();
+
+                session
+                    .debugger_client
+                    .request_sync(|debugger| debugger.continue_debugee())??;
+
+                self.server.respond_success(
+                    req.seq,
+                    ResponseBody::Continue(ContinueResponse {
+                        ..Default::default()
+                    }),
+                )?;
             }
             Command::Disconnect(_) => {
                 if let Some(session) = self.session.take() {
                     let _ = nix::sys::signal::kill(session.pid, SIGKILL)
                         .inspect_err(|e| log::error!("{e}"));
-                    session.command_sender.send(DebuggerCommand::Exit)?;
+
+                    session.debugger_client.send_exit();
+
                     self.server
                         .respond_success(req.seq, ResponseBody::Disconnect)?;
                 } else {
@@ -385,25 +412,40 @@ impl DapApplication {
         let var_ref = variable::VarRef::encode(args.variables_reference as u64);
         let frame_info = FrameInfo::unpack(var_ref.frame_info as i64);
 
+        let thread_id = frame_info.thread_id;
         session
-            .command_sender
-            .send(DebuggerCommand::FocusThread(frame_info.thread_id as u32))?;
+            .debugger_client
+            .request_sync(move |debugger| debugger.set_thread_into_focus(thread_id as u32))??;
 
+        let frame_id = frame_info.frame_id;
         session
-            .command_sender
-            .send(DebuggerCommand::FocusFrame(frame_info.frame_id as u32))?;
+            .debugger_client
+            .request_sync(move |debugger| debugger.set_frame_into_focus(frame_id as u32))??;
 
-        let (sender, receiver) = mpsc::sync_channel(0);
+        type VarReqResult = anyhow::Result<Vec<(Identity, Value)>>;
 
         let variables = if var_ref.var_id == 0 {
-            let cmd = if var_ref.scope == variable::VarScope::Args {
-                DebuggerCommand::Args(Dqe::Variable(Selector::Any), sender)
+            let variables = if var_ref.scope == variable::VarScope::Args {
+                session
+                    .debugger_client
+                    .request_sync(|debugger| -> VarReqResult {
+                        Ok(debugger
+                            .read_argument(Dqe::Variable(Selector::Any))?
+                            .into_iter()
+                            .map(|v| v.into_identified_value())
+                            .collect_vec())
+                    })??
             } else {
-                DebuggerCommand::Locals(Dqe::Variable(Selector::Any), sender)
+                session
+                    .debugger_client
+                    .request_sync(|debugger| -> VarReqResult {
+                        Ok(debugger
+                            .read_variable(Dqe::Variable(Selector::Any))?
+                            .into_iter()
+                            .map(|v| v.into_identified_value())
+                            .collect_vec())
+                    })??
             };
-
-            session.command_sender.send(cmd)?;
-            let variables = receiver.recv()?;
 
             variables
                 .into_iter()
@@ -428,14 +470,27 @@ impl DapApplication {
                 .into_result()
                 .map_err(|_| anyhow!("parse request DQE error"))?;
 
-            let cmd = if var_ref.scope == variable::VarScope::Args {
-                DebuggerCommand::Args(dqe, sender)
+            let variables = if var_ref.scope == variable::VarScope::Args {
+                session
+                    .debugger_client
+                    .request_sync(|debugger| -> VarReqResult {
+                        Ok(debugger
+                            .read_argument(dqe)?
+                            .into_iter()
+                            .map(|v| v.into_identified_value())
+                            .collect_vec())
+                    })??
             } else {
-                DebuggerCommand::Locals(dqe, sender)
+                session
+                    .debugger_client
+                    .request_sync(|debugger| -> VarReqResult {
+                        Ok(debugger
+                            .read_variable(dqe)?
+                            .into_iter()
+                            .map(|v| v.into_identified_value())
+                            .collect_vec())
+                    })??
             };
-
-            session.command_sender.send(cmd)?;
-            let variables = receiver.recv()?;
 
             variables
                 .into_iter()
@@ -454,31 +509,13 @@ impl DapApplication {
     }
 }
 
-pub enum DebuggerCommand {
-    Start,
-    StepOver,
-    StepIn,
-    StepOut,
-    Continue,
-    Exit,
-    FocusFrame(u32),
-    FocusThread(u32),
-    SetBreakpoints(
-        Vec<(Source, SourceBreakpoint)>,
-        mpsc::SyncSender<Vec<Option<i64>>>,
-    ),
-    Threads(mpsc::SyncSender<Vec<ThreadSnapshot>>),
-    Args(Dqe, mpsc::SyncSender<Vec<(Identity, Value)>>),
-    Locals(Dqe, mpsc::SyncSender<Vec<(Identity, Value)>>),
-}
-
 fn debugger_thread(
     program: String,
     cwd: Option<String>,
     debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook>>,
     output: Arc<Mutex<ServerOutput<Stdout>>>,
     launched_sender: mpsc::SyncSender<nix::unistd::Pid>,
-    command_receiver: mpsc::Receiver<DebuggerCommand>,
+    srv_exchanger: ServerExchanger,
 ) -> anyhow::Result<()> {
     let source = DebugeeSource::File {
         path: &program,
@@ -530,15 +567,25 @@ fn debugger_thread(
 
     launched_sender.send(pid)?;
 
-    while let Ok(command) = command_receiver.recv() {
-        match handle_debugger_command(&mut debugger, command) {
-            Ok(should_continue) => {
-                if !should_continue {
-                    break;
+    loop {
+        match srv_exchanger.next_request() {
+            Some(proto::Request::Exit) => {
+                break;
+            }
+            Some(proto::Request::DebuggerSyncTask(task)) => {
+                let result = task(&mut debugger);
+                srv_exchanger.send_response(result);
+            }
+            Some(proto::Request::DebuggerAsyncTask(task)) => {
+                if let Err(e) = task(&mut debugger) {
+                    srv_exchanger.send_async_response(e);
                 }
             }
-            Err(e) => {
-                log::error!("{e}");
+            Some(proto::Request::SwitchUi) => {
+                unreachable!("DAP application cannot be switched");
+            }
+            None => {
+                break;
             }
         }
     }
@@ -546,84 +593,6 @@ fn debugger_thread(
     log::debug!("Debugger thread exiting");
 
     Ok(())
-}
-
-fn handle_debugger_command(
-    debugger: &mut Debugger,
-    command: DebuggerCommand,
-) -> anyhow::Result<bool> {
-    match command {
-        DebuggerCommand::Start => {
-            log::debug!("Starting execution");
-            debugger.start_debugee()?;
-        }
-        DebuggerCommand::StepOver => {
-            debugger.step_over()?;
-        }
-        DebuggerCommand::StepIn => {
-            debugger.step_into()?;
-        }
-        DebuggerCommand::StepOut => {
-            debugger.step_out()?;
-        }
-        DebuggerCommand::Continue => {
-            debugger.continue_debugee()?;
-        }
-        DebuggerCommand::Exit => {
-            return Ok(false);
-        }
-        DebuggerCommand::FocusFrame(n) => {
-            let _ = debugger.set_frame_into_focus(n);
-        }
-        DebuggerCommand::FocusThread(n) => {
-            let _ = debugger.set_thread_into_focus(n);
-        }
-        DebuggerCommand::Threads(sender) => {
-            sender.send(debugger.thread_state()?)?;
-        }
-        DebuggerCommand::Args(dqe, sender) => {
-            sender
-                .send(
-                    debugger
-                        .read_argument(dqe)?
-                        .into_iter()
-                        .map(|v| v.into_identified_value())
-                        .collect_vec(),
-                )
-                .map_err(|e| anyhow!("{e}"))?;
-        }
-        DebuggerCommand::Locals(dqe, sender) => {
-            sender
-                .send(
-                    debugger
-                        .read_variable(dqe)?
-                        .into_iter()
-                        .map(|v| v.into_identified_value())
-                        .collect_vec(),
-                )
-                .map_err(|e| anyhow!("{e}"))?;
-        }
-        DebuggerCommand::SetBreakpoints(breakpoints, sender) => {
-            let mut breakpoint_ids = Vec::new();
-
-            for (source, bp) in breakpoints {
-                let id = source.path.and_then(|path| {
-                    let brkpts = debugger
-                        .set_breakpoint_at_line(&path, bp.line as u64)
-                        .inspect_err(|e| log::error!("breakpoint: {e}"))
-                        .ok()?;
-
-                    brkpts.first().map(|breakpoint| breakpoint.number as i64)
-                });
-
-                breakpoint_ids.push(id);
-            }
-
-            sender.send(breakpoint_ids)?;
-        }
-    }
-
-    Ok(true)
 }
 
 #[derive(Clone, Copy, PartialEq)]
