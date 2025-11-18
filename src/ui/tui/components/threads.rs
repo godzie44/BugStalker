@@ -1,11 +1,11 @@
 use crate::debugger::register::debug::BreakCondition;
 use crate::ui;
 use crate::ui::command::thread::ExecutionResult as ThreadResult;
+use crate::ui::proto::ClientExchanger;
 use crate::ui::short::Abbreviator;
 use crate::ui::syntax::StylizedLine;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::CommonAction;
-use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::syntect::into_text_span;
 use crate::ui::tui::{Id, Msg};
 use crate::ui::{command, syntax};

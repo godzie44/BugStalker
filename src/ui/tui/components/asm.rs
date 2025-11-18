@@ -1,8 +1,8 @@
 use crate::debugger::register::debug::BreakCondition;
 use crate::ui;
+use crate::ui::proto::ClientExchanger;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::CommonAction;
-use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::mstextarea::MultiSpanTextarea;
 use crate::ui::tui::{Id, Msg};
 use std::sync::Arc;

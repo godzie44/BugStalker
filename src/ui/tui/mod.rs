@@ -1,11 +1,11 @@
 use crate::debugger::process::{Child, Installed};
 use crate::debugger::{BreakpointViewOwned, Debugger, DebuggerBuilder, WatchpointViewOwned};
+use crate::ui::proto::{Request, exchanger};
 use crate::ui::tui::app::Model;
 pub use crate::ui::tui::app::port::TuiHook;
 use crate::ui::tui::app::port::{DebuggerEventQueue, UserEvent};
 use crate::ui::tui::components::popup::Popup;
 use crate::ui::tui::output::{OutputLine, OutputStreamProcessor, StreamType};
-use crate::ui::tui::proto::{Request, exchanger};
 use crate::ui::{DebugeeOutReader, console, supervisor};
 use crate::weak_error;
 use anyhow::anyhow;
@@ -23,7 +23,6 @@ pub mod app;
 pub mod components;
 pub mod config;
 mod output;
-mod proto;
 pub mod utils;
 
 // Component ids for debugger application
