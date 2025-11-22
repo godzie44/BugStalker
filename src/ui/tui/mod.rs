@@ -235,7 +235,7 @@ impl TuiApplication {
         let exit_type;
         loop {
             match srv_exchanger.next_request() {
-                Some(Request::Exit) => {
+                Some(Request::Exit) | Some(Request::ExitSync) => {
                     exit_type = ExitType::Exit;
                     break;
                 }
