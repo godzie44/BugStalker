@@ -5,7 +5,7 @@ mod variable;
 
 use std::io::{BufRead, BufReader, Stdout};
 use std::path::Path;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
 use chumsky::Parser;
@@ -22,7 +22,6 @@ use dap::types::{
 };
 use itertools::Itertools;
 use logger::DapLogger;
-use nix::sys::signal::Signal::SIGKILL;
 
 use super::supervisor;
 use crate::debugger::DebuggerBuilder;
@@ -45,7 +44,6 @@ pub struct DapApplication {
 }
 
 struct Session {
-    pid: nix::unistd::Pid,
     debugger_client: ClientExchanger,
 }
 
@@ -125,25 +123,18 @@ impl DapApplication {
                     .and_then(|cwd| cwd.as_str())
                     .map(ToOwned::to_owned);
 
-                // let (command_sender, command_receiver) = mpsc::sync_channel(0);
-                let (launched_sender, launched_receiver) = mpsc::sync_channel(0);
+                let ready_barrier = Arc::new(std::sync::Barrier::new(2));
 
                 let (srv, client) = exchanger();
 
                 std::thread::spawn({
-                    let debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook> + Send + Sync> =
-                        self.debugger_builder.clone();
+                    let barrier = ready_barrier.clone();
+                    let debugger_builder = self.debugger_builder.clone();
                     let output = self.server.output();
 
                     move || {
-                        let result = debugger_thread(
-                            program,
-                            cwd,
-                            debugger_builder,
-                            output,
-                            launched_sender,
-                            srv,
-                        );
+                        let result =
+                            debugger_thread(program, cwd, debugger_builder, output, &barrier, srv);
 
                         if let Err(e) = result {
                             log::error!("{e}");
@@ -151,10 +142,9 @@ impl DapApplication {
                     }
                 });
 
-                let pid = launched_receiver.recv().unwrap();
+                ready_barrier.wait();
 
                 self.session = Some(Session {
-                    pid,
                     debugger_client: client,
                 });
 
@@ -381,10 +371,7 @@ impl DapApplication {
             }
             Command::Disconnect(_) => {
                 if let Some(session) = self.session.take() {
-                    let _ = nix::sys::signal::kill(session.pid, SIGKILL)
-                        .inspect_err(|e| log::error!("{e}"));
-
-                    session.debugger_client.send_exit();
+                    session.debugger_client.send_exit_sync();
 
                     self.server
                         .respond_success(req.seq, ResponseBody::Disconnect)?;
@@ -514,7 +501,7 @@ fn debugger_thread(
     cwd: Option<String>,
     debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook>>,
     output: Arc<Mutex<ServerOutput<Stdout>>>,
-    launched_sender: mpsc::SyncSender<nix::unistd::Pid>,
+    ready: &std::sync::Barrier,
     srv_exchanger: ServerExchanger,
 ) -> anyhow::Result<()> {
     let source = DebugeeSource::File {
@@ -527,7 +514,6 @@ fn debugger_thread(
     let (stderr_reader, stderr_writer) = os_pipe::pipe()?;
 
     let process = source.create_child(stdout_writer, stderr_writer)?;
-    let pid = process.pid();
 
     let mut debugger = (debugger_builder)()
         .with_hooks(DapHook::new(output.clone()))
@@ -565,11 +551,13 @@ fn debugger_thread(
         });
     }
 
-    launched_sender.send(pid)?;
+    ready.wait();
 
     loop {
         match srv_exchanger.next_request() {
-            Some(proto::Request::Exit) => {
+            Some(proto::Request::ExitSync) => {
+                std::mem::drop(debugger);
+                srv_exchanger.send_response(Box::new(()));
                 break;
             }
             Some(proto::Request::DebuggerSyncTask(task)) => {
@@ -581,11 +569,11 @@ fn debugger_thread(
                     srv_exchanger.send_async_response(e);
                 }
             }
-            Some(proto::Request::SwitchUi) => {
-                unreachable!("DAP application cannot be switched");
-            }
             None => {
                 break;
+            }
+            Some(_) => {
+                unreachable!("unexpected request");
             }
         }
     }
