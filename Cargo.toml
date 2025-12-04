@@ -78,6 +78,7 @@ chumsky = { version = "0.10.1", features = ["default"] }
 ariadne = "0.4.0"
 bit_field = "0.10.1"
 serde = { version = "1.0.164", features = ["derive"] }
+serde_json = "1.0"
 toml = "0.8.13"
 home = "0.5.9"
 which = "6.0.1"

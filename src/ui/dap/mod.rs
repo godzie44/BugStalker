@@ -7,6 +7,17 @@ use std::io::{BufRead, BufReader, Stdout};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use super::supervisor;
+use crate::debugger::DebuggerBuilder;
+use crate::debugger::variable::Identity;
+use crate::debugger::variable::dqe::{Dqe, Selector};
+use crate::debugger::variable::value::Value;
+use crate::ui::command::parser::expression::parser;
+use crate::ui::dap::hook::DapHook;
+use crate::ui::dap::server::DapServer;
+use crate::ui::dap::variable::ReferenceRegistry;
+use crate::ui::proto::{self, ClientExchanger, ServerExchanger, exchanger};
+use crate::ui::supervisor::DebugeeSource;
 use anyhow::anyhow;
 use chumsky::Parser;
 use dap::events::{Event, OutputEventBody};
@@ -22,18 +33,7 @@ use dap::types::{
 };
 use itertools::Itertools;
 use logger::DapLogger;
-
-use super::supervisor;
-use crate::debugger::DebuggerBuilder;
-use crate::debugger::variable::Identity;
-use crate::debugger::variable::dqe::{Dqe, Selector};
-use crate::debugger::variable::value::Value;
-use crate::ui::command::parser::expression::parser;
-use crate::ui::dap::hook::DapHook;
-use crate::ui::dap::server::DapServer;
-use crate::ui::dap::variable::ReferenceRegistry;
-use crate::ui::proto::{self, ClientExchanger, ServerExchanger, exchanger};
-use crate::ui::supervisor::DebugeeSource;
+use serde::Deserialize;
 
 pub struct DapApplication {
     debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook> + Send + Sync>,
@@ -100,7 +100,7 @@ impl DapApplication {
             }};
         }
 
-        match &req.command {
+        match req.command {
             Command::Initialize(_args) => {
                 self.server.respond_success(
                     req.seq,
@@ -110,6 +110,24 @@ impl DapApplication {
                         ..Default::default()
                     }),
                 )?;
+            }
+            Command::Attach(args) => {
+                #[derive(Deserialize, Debug)]
+                #[serde(rename_all = "camelCase")]
+                struct CustomAttachArgs {
+                    #[serde(alias = "pid")]
+                    process_id: u32,
+                }
+
+                let custom_args: CustomAttachArgs = serde_json::from_value(
+                    args.additional_data
+                        .ok_or(anyhow!("Additional data not found"))?,
+                )?;
+                let pid = custom_args.process_id;
+
+                log::info!("attach to: {pid}");
+
+                anyhow::bail!("Attach to process is not done yet");
             }
             Command::Launch(args) => {
                 let data = args
@@ -325,7 +343,7 @@ impl DapApplication {
                 )?;
             }
             Command::Variables(args) => {
-                self.handle_var_request(args, req.seq)?;
+                self.handle_var_request(&args, req.seq)?;
             }
             Command::Next(_args) => {
                 let session = session_or_fail!();
