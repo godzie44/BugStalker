@@ -132,14 +132,21 @@ impl DapApplication {
             Command::Launch(args) => {
                 let data = args
                     .additional_data
-                    .as_ref()
                     .ok_or_else(|| anyhow!("missing launch arguments"))?;
 
-                let program = data.get("program").unwrap().as_str().unwrap().to_owned();
-                let cwd = data
-                    .get("cwd")
-                    .and_then(|cwd| cwd.as_str())
-                    .map(ToOwned::to_owned);
+                #[derive(Deserialize, Debug)]
+                #[serde(rename_all = "camelCase")]
+                struct AdditionalData {
+                    program: String,
+                    cwd: Option<String>,
+                    args: Vec<String>,
+                }
+
+                let additional_data: AdditionalData = serde_json::from_value(data)?;
+
+                let program = additional_data.program;
+                let cwd = additional_data.cwd;
+                let args = additional_data.args;
 
                 let ready_barrier = Arc::new(std::sync::Barrier::new(2));
 
@@ -151,8 +158,15 @@ impl DapApplication {
                     let output = self.server.output();
 
                     move || {
-                        let result =
-                            debugger_thread(program, cwd, debugger_builder, output, &barrier, srv);
+                        let result = debugger_thread(
+                            program,
+                            cwd,
+                            args,
+                            debugger_builder,
+                            output,
+                            &barrier,
+                            srv,
+                        );
 
                         if let Err(e) = result {
                             log::error!("{e}");
@@ -517,6 +531,7 @@ impl DapApplication {
 fn debugger_thread(
     program: String,
     cwd: Option<String>,
+    args: Vec<String>,
     debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook>>,
     output: Arc<Mutex<ServerOutput<Stdout>>>,
     ready: &std::sync::Barrier,
@@ -524,7 +539,7 @@ fn debugger_thread(
 ) -> anyhow::Result<()> {
     let source = DebugeeSource::File {
         path: &program,
-        args: &[],
+        args: &args,
         cwd: cwd.as_deref().map(Path::new),
     };
 

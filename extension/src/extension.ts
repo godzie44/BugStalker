@@ -39,15 +39,21 @@ class DebugAdapterExecutableFactory
 		executable: vscode.DebugAdapterExecutable | undefined,
 	): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
 		console.log("Starting debug adapter", executable);
-		// TODO: This should run a pre-built binary instead of cargo
+
+		const config = session.configuration;
+		let inDebug = config?.debugMode;
+
+		let bin = inDebug ? "cargo" : "bs";
+        let args = inDebug ? ["run", "-q", "--", "--dap"] : ["--dap"];
+		let env = config?.env;
+		env["RUST_LOG"] = inDebug ? "info,bugstalker=debug" : "info,bugstalker=info";
+
 		return new vscode.DebugAdapterExecutable(
-			"cargo",
-			["run", "-q", "--", "--dap"],
+			bin,
+			args,
 			{
-				cwd: process.env.BUGSTALKER_DIR,
-				env: {
-					RUST_LOG: "info,bugstalker=debug",
-				},
+				cwd: config.cwd ?? session.workspaceFolder?.uri.fsPath,
+				env,
 			},
 		);
 	}

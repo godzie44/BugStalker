@@ -39,10 +39,24 @@
             ],
             "properties": {
               "program": {
-                "type": "string"
+                "type": "string",
+                "description": "Path to the program to debug."
+              },
+              "args": {
+                "type": [
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "description": "Program arguments.",
+                "default": []
               },
               "cwd": {
                 "type": "string"
+              },
+              "debugMode": {
+                "type": "bool"
               }
             }
           }
