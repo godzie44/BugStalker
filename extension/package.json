@@ -1,17 +1,44 @@
 {
   "name": "bugstalker",
   "displayName": "BugStalker",
-  "description": "",
+  "description": "Debugging Rust applications with BugStalker in Visual Studio Code",
+  "license": "MIT",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.98.0"
   },
+  "platforms": [
+      "linux"
+  ],
+  "architecture": {
+      "type": ["x64"]
+  },
+  "keywords": [
+    "rust",
+    "debug"
+  ],
+  "author": {
+    "name": "Konstantin Derevtsov",
+    "email": "godzie@yandex.ru"
+  },
+  "contributors": [
+    {
+      "name": "Hasan Mohsin",
+      "email": "hasan@hasali.dev"
+    }
+  ],
   "categories": [
     "Debuggers"
   ],
   "activationEvents": [
     "onDebug"
   ],
+  "repository": {
+    "url": "https://github.com/godzie44/BugStalker"
+  },
+  "bugs": {
+    "url": "https://github.com/godzie44/BugStalker/issues"
+  },
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
