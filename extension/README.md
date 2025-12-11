@@ -1,71 +1,57 @@
-# bugstalker README
+# BugStalker
 
-This is the README for your extension "bugstalker". After writing up a brief description, we recommend including the following sections.
+Debugging Rust applications with BugStalker in Visual Studio Code. For more information see [debugger page](https://github.com/godzie44/BugStalker).
+
+## Procuring the `bs` binary
+
+The extension requires the `bs` binary. This binary is not packaged with the VS Code extension. See the [installation](https://godzie44.github.io/BugStalker/docs/installation) page to install the binary.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+* **Rust-native**: Built in Rust specifically for Rust development, with a focus on simplicity
+* **Core debugging capabilities:**
+  * Breakpoints, step-by-step execution
+  * Signal handling
+  * Watchpoints
+* **Advanced runtime inspection:**
+  * Full multithreaded application support
+  * Data query expressions
+  * Deep Rust type system integration (collections, smart pointers, thread locals, etc.), not only for printing but also for interaction
+  * Variable rendering using core::fmt::Debug trait
+* **Flexible interfaces:**
+  * Switch between console and TUI modes at any time
+* **Async Rust support** including Tokio runtime inspection
+* **Extensible architecture:**
+  * Oracle extension mechanism
+  * Built-in tokio oracle (similar to tokio_console but requires no code modifications)
+* **And many more powerful features!**
 
-For example if there is an image subfolder under your extension project workspace:
+## Launching & Attaching to a debugee
 
-\!\[feature X\]\(images/feature-x.png\)
+Launching or attaching a debugee require you to create a [launch configuration](https://code.visualstudio.com/docs/debugtest/debugging#_launch-configurations). This file defines arguments that get passed to BS and the configuration settings control how the launch or attach happens.
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+### Launching a debugee
 
-## Requirements
+This will launch `/target/debug/my_app` with arguments one, two, and three and adds ENV1=ON to the environment:
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+```js
+{
+    "type": "bugstalker",
+    "request": "launch",
+    "name": "BugStalker",
+    "program": "${workspaceFolder}/target/debug/my_app",
+    "args": [ "one", "two", "three" ],
+    "env": {"ENV1": "ON"},
+    "preLaunchTask": "rust: cargo build",
+},
 
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+```
 
 **Enjoy!**
+
+## Системные требования
+- **ОС**: Linux (x86-64/AMD64)
+- **Архитектура**: 64-bit (x86-64)
+- **Диспетчер пакетов**: Cargo (Rust)
+- **Минимальная версия**: Rust 1.60+
+
