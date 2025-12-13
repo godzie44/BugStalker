@@ -15,7 +15,7 @@ use crate::debugger::variable::value::Value;
 use crate::ui::command::parser::expression::parser;
 use crate::ui::dap::hook::DapHook;
 use crate::ui::dap::server::DapServer;
-use crate::ui::dap::variable::ReferenceRegistry;
+use crate::ui::dap::variable::{Key, Var, VarRegistry};
 use crate::ui::proto::{self, ClientExchanger, ServerExchanger, exchanger};
 use crate::ui::supervisor::DebugeeSource;
 use anyhow::anyhow;
@@ -39,8 +39,7 @@ pub struct DapApplication {
     debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook> + Send + Sync>,
     server: DapServer,
     session: Option<Session>,
-
-    var_ref_registry: ReferenceRegistry,
+    var_registry: VarRegistry,
 }
 
 struct Session {
@@ -55,7 +54,7 @@ impl DapApplication {
             debugger_builder: Arc::new(debugger_builder),
             server: DapServer::new(),
             session: None,
-            var_ref_registry: ReferenceRegistry::default(),
+            var_registry: VarRegistry::default(),
         })
     }
 
@@ -324,6 +323,21 @@ impl DapApplication {
                 }
             }
             Command::Scopes(args) => {
+                let frame_var = Var {
+                    scope: variable::VarScope::Vars,
+                    frame: FrameInfo::unpack(args.frame_id),
+                    selector: variable::Selector::All,
+                };
+
+                let arg_var = Var {
+                    scope: variable::VarScope::Args,
+                    frame: FrameInfo::unpack(args.frame_id),
+                    selector: variable::Selector::All,
+                };
+
+                let fvk = self.var_registry.insert_unstable(frame_var);
+                let avk = self.var_registry.insert_unstable(arg_var);
+
                 self.server.respond_success(
                     req.seq,
                     ResponseBody::Scopes(ScopesResponse {
@@ -331,24 +345,14 @@ impl DapApplication {
                             Scope {
                                 name: "Args".to_owned(),
                                 presentation_hint: Some(ScopePresentationhint::Arguments),
-                                variables_reference: variable::VarRef {
-                                    scope: variable::VarScope::Args,
-                                    frame_info: args.frame_id as u32,
-                                    var_id: 0,
-                                }
-                                .decode(), // Can't use 0 as reference
+                                variables_reference: avk.as_var_ref(), // Can't use 0 as reference
                                 expensive: false,
                                 ..Default::default()
                             },
                             Scope {
                                 name: "Locals".to_owned(),
                                 presentation_hint: Some(ScopePresentationhint::Locals),
-                                variables_reference: variable::VarRef {
-                                    scope: variable::VarScope::Locals,
-                                    frame_info: args.frame_id as u32,
-                                    var_id: 0,
-                                }
-                                .decode(),
+                                variables_reference: fvk.as_var_ref(),
                                 expensive: false,
                                 ..Default::default()
                             },
@@ -428,95 +432,103 @@ impl DapApplication {
             return Ok(());
         };
 
-        let var_ref = variable::VarRef::encode(args.variables_reference as u64);
-        let frame_info = FrameInfo::unpack(var_ref.frame_info as i64);
+        let key = Key::from_var_ref(args.variables_reference);
+        let var = self.var_registry.get_var(key).clone();
 
-        let thread_id = frame_info.thread_id;
+        let thread_id = var.frame.thread_id;
         session
             .debugger_client
             .request_sync(move |debugger| debugger.set_thread_into_focus(thread_id as u32))??;
 
-        let frame_id = frame_info.frame_id;
+        let frame_id = var.frame.frame_id;
         session
             .debugger_client
             .request_sync(move |debugger| debugger.set_frame_into_focus(frame_id as u32))??;
 
         type VarReqResult = anyhow::Result<Vec<(Identity, Value)>>;
 
-        let variables = if var_ref.var_id == 0 {
-            let variables = if var_ref.scope == variable::VarScope::Args {
-                session
-                    .debugger_client
-                    .request_sync(|debugger| -> VarReqResult {
-                        Ok(debugger
-                            .read_argument(Dqe::Variable(Selector::Any))?
-                            .into_iter()
-                            .map(|v| v.into_identified_value())
-                            .collect_vec())
-                    })??
-            } else {
-                session
-                    .debugger_client
-                    .request_sync(|debugger| -> VarReqResult {
-                        Ok(debugger
-                            .read_variable(Dqe::Variable(Selector::Any))?
-                            .into_iter()
-                            .map(|v| v.into_identified_value())
-                            .collect_vec())
-                    })??
-            };
+        let variables = match var.selector {
+            variable::Selector::All => {
+                let variables = if var.scope == variable::VarScope::Args {
+                    session
+                        .debugger_client
+                        .request_sync(|debugger| -> VarReqResult {
+                            Ok(debugger
+                                .read_argument(Dqe::Variable(Selector::Any))?
+                                .into_iter()
+                                .map(|v| v.into_identified_value())
+                                .collect_vec())
+                        })??
+                } else {
+                    session
+                        .debugger_client
+                        .request_sync(|debugger| -> VarReqResult {
+                            Ok(debugger
+                                .read_variable(Dqe::Variable(Selector::Any))?
+                                .into_iter()
+                                .map(|v| v.into_identified_value())
+                                .collect_vec())
+                        })??
+                };
 
-            variables
-                .into_iter()
-                .filter_map(|(ident, val)| {
-                    let path = ident.name.as_deref().unwrap_or("");
-                    let name = ident.name.as_deref().unwrap_or("unknown");
+                variables
+                    .into_iter()
+                    .filter_map(|(ident, val)| {
+                        let path = ident.name.as_deref().unwrap_or("");
+                        let name = ident.name.as_deref().unwrap_or("unknown");
 
-                    variable::into_dap_var_repr(
-                        &mut self.var_ref_registry,
-                        var_ref,
-                        path,
-                        name,
-                        &val,
-                    )
-                })
-                .collect_vec()
-        } else {
-            let path = self.var_ref_registry.get_path(var_ref.var_id).to_string();
+                        variable::into_dap_var_repr(
+                            &mut self.var_registry,
+                            var.scope,
+                            var.frame,
+                            path,
+                            name,
+                            &val,
+                        )
+                    })
+                    .collect_vec()
+            }
+            variable::Selector::Dqe(dqe_string) => {
+                let dqe = parser()
+                    .parse(&dqe_string)
+                    .into_result()
+                    .map_err(|_| anyhow!("parse request DQE error"))?;
 
-            let dqe = parser()
-                .parse(&path)
-                .into_result()
-                .map_err(|_| anyhow!("parse request DQE error"))?;
+                let variables = if var.scope == variable::VarScope::Args {
+                    session
+                        .debugger_client
+                        .request_sync(|debugger| -> VarReqResult {
+                            Ok(debugger
+                                .read_argument(dqe)?
+                                .into_iter()
+                                .map(|v| v.into_identified_value())
+                                .collect_vec())
+                        })??
+                } else {
+                    session
+                        .debugger_client
+                        .request_sync(|debugger| -> VarReqResult {
+                            Ok(debugger
+                                .read_variable(dqe)?
+                                .into_iter()
+                                .map(|v| v.into_identified_value())
+                                .collect_vec())
+                        })??
+                };
 
-            let variables = if var_ref.scope == variable::VarScope::Args {
-                session
-                    .debugger_client
-                    .request_sync(|debugger| -> VarReqResult {
-                        Ok(debugger
-                            .read_argument(dqe)?
-                            .into_iter()
-                            .map(|v| v.into_identified_value())
-                            .collect_vec())
-                    })??
-            } else {
-                session
-                    .debugger_client
-                    .request_sync(|debugger| -> VarReqResult {
-                        Ok(debugger
-                            .read_variable(dqe)?
-                            .into_iter()
-                            .map(|v| v.into_identified_value())
-                            .collect_vec())
-                    })??
-            };
-
-            variables
-                .into_iter()
-                .flat_map(|(_, val)| {
-                    variable::expand_and_collect(&mut self.var_ref_registry, var_ref, &path, &val)
-                })
-                .collect_vec()
+                variables
+                    .into_iter()
+                    .flat_map(|(_, val)| {
+                        variable::expand_and_collect(
+                            &mut self.var_registry,
+                            var.scope,
+                            var.frame,
+                            &dqe_string,
+                            &val,
+                        )
+                    })
+                    .collect_vec()
+            }
         };
 
         self.server.respond_success(
