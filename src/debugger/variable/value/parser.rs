@@ -40,7 +40,8 @@ impl ValueModifiers {
         if ver >= Version((1, 80, 0)) {
             // not sure that value is tls, but some additional checks will be occurred on
             // a value type at parsing stage
-            this.tls = ident.name.as_deref() == Some("VAL");
+            this.tls = ident.name.as_deref() == Some("VAL")
+                || ident.name.as_deref() == Some("__RUST_STD_INTERNAL_VAL");
 
             // This condition protects against duplication of the constant tls variables
             if ident.namespace.contains(&["thread_local_const_init"])

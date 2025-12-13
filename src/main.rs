@@ -6,7 +6,7 @@ use bugstalker::ui;
 use bugstalker::ui::config::{Theme, UIConfig};
 use bugstalker::ui::supervisor::{DebugeeSource, Interface};
 use clap::error::ErrorKind;
-use clap::{CommandFactory, Parser, arg};
+use clap::{CommandFactory, Parser};
 use std::fmt::Display;
 use std::path::PathBuf;
 use std::process::exit;

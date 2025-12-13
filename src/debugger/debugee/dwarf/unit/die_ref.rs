@@ -14,7 +14,7 @@ use crate::debugger::error::Error::{
 };
 use crate::debugger::variable::ObjectBinaryRepr;
 use crate::debugger::variable::r#virtual::VirtualVariableDie;
-use crate::{debug_info_exists, ref_resolve_unit_call, weak_error};
+use crate::{debug_info_exists, weak_error};
 use gimli::{DW_TAG_lexical_block, DW_TAG_subprogram, Range, UnitOffset};
 use indexmap::IndexMap;
 use std::marker::PhantomData;
