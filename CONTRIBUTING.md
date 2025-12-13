@@ -47,6 +47,7 @@ For major features:
 - [ ] update `.github/workflows/ci.yml` by adding a new version for integration and functional tests
 - [ ] make sure the tests are not broken (in github ci too), correct test or sources if necessary
 - [ ] fix `cargo fmt` and `cargo clippy` if needed
+- [ ] update `rust-version` in Cargo.toml
 - [ ] add information about new version into website and `CHANGELOG.md`
 - [ ] create and submit a pool request
 - [ ] create a new release from master branch

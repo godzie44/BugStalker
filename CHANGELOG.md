@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 # [?.?.?] Unreleased
 
 ### Added
+
+- debugger: added support rustc 1.92
+
 ### Changed
 ### Fixed
 ### Deprecated

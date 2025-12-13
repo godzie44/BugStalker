@@ -2,7 +2,7 @@
 name = "bugstalker"
 version = "0.3.5"
 edition = "2024"
-rust-version = "1.91.0"
+rust-version = "1.92.0"
 license = "MIT"
 authors = ["Derevtsov Konstantin <godzie@yandex.ru>"]
 description = """

@@ -1020,8 +1020,11 @@ fn test_read_tls_variables() {
         .. (1 . 80) => {
             assert_idents!(tls_var_1 => "vars::THREAD_LOCAL_VAR_1::__getit::__KEY");
         },
-        (1 . 80) .. => {
+        (1 . 80) .. (1 . 92) => {
             assert_idents!(tls_var_1 => "vars::THREAD_LOCAL_VAR_1::{constant#0}::{closure#1}::VAL");
+        },
+        (1 . 92) .. => {
+            assert_idents!(tls_var_1 => "vars::THREAD_LOCAL_VAR_1::{constant#0}::{closure#1}::__RUST_STD_INTERNAL_VAL");
         }
     );
     assert_init_tls(tls_var_1.value(), "Cell<i32>", |inner| {
@@ -1039,8 +1042,11 @@ fn test_read_tls_variables() {
         .. (1 . 80) => {
             assert_idents!(tls_var_2 => "vars::THREAD_LOCAL_VAR_2::__getit::__KEY");
         },
-        (1 . 80) .. => {
+        (1 . 80) .. (1 . 92) => {
             assert_idents!(tls_var_2 => "vars::THREAD_LOCAL_VAR_2::{constant#0}::{closure#1}::VAL");
+        },
+        (1 . 92) .. => {
+            assert_idents!(tls_var_2 => "vars::THREAD_LOCAL_VAR_2::{constant#0}::{closure#1}::__RUST_STD_INTERNAL_VAL");
         }
     );
     assert_init_tls(tls_var_2.value(), "Cell<&str>", |inner| {
@@ -1118,8 +1124,11 @@ fn test_read_tls_const_variables() {
         .. (1 . 80) => {
             assert_idents!(const_tls => "vars::thread_local_const_init::CONSTANT_THREAD_LOCAL::__getit::VAL");
         },
-        (1 . 80) .. => {
+        (1 . 80) .. (1 . 92) => {
             assert_idents!(const_tls => "vars::thread_local_const_init::CONSTANT_THREAD_LOCAL::{constant#0}::{closure#0}::VAL");
+        },
+        (1 . 92) .. => {
+            assert_idents!(const_tls => "vars::thread_local_const_init::CONSTANT_THREAD_LOCAL::{constant#0}::{closure#0}::__RUST_STD_INTERNAL_VAL");
         }
     );
     assert_init_tls(const_tls.value(), "i32", |value| {

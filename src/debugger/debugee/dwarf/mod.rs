@@ -549,6 +549,14 @@ impl DebugInformation {
             if let Some(vars) = resolve_unit_call!(self.dwarf(), unit, locate_var_die, "VAL") {
                 vars.iter().for_each(&mut tls_collector);
             };
+            if let Some(vars) = resolve_unit_call!(
+                self.dwarf(),
+                unit,
+                locate_var_die,
+                "__RUST_STD_INTERNAL_VAL"
+            ) {
+                vars.iter().for_each(&mut tls_collector);
+            };
         }
 
         Ok(found)
