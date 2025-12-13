@@ -5,13 +5,18 @@ All notable changes to this project will be documented in this file.
 # [?.?.?] Unreleased
 
 ### Added
-
-- debugger: added support rustc 1.92
-
 ### Changed
 ### Fixed
 ### Deprecated
 ### Breaking changes
+
+---
+
+# [0.3.6] Dec 13 2025
+
+### Added
+
+- debugger: added support rustc 1.92
 
 ---
 
