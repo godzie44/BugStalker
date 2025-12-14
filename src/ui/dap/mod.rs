@@ -129,6 +129,8 @@ impl DapApplication {
                 anyhow::bail!("Attach to process is not done yet");
             }
             Command::Launch(args) => {
+                self.var_registry.release_unstable();
+
                 let data = args
                     .additional_data
                     .ok_or_else(|| anyhow!("missing launch arguments"))?;
@@ -365,6 +367,7 @@ impl DapApplication {
             }
             Command::Next(_args) => {
                 let session = session_or_fail!();
+                self.var_registry.release_unstable();
 
                 session
                     .debugger_client
@@ -374,6 +377,7 @@ impl DapApplication {
             }
             Command::StepIn(_args) => {
                 let session = session_or_fail!();
+                self.var_registry.release_unstable();
 
                 session
                     .debugger_client
@@ -383,6 +387,7 @@ impl DapApplication {
             }
             Command::StepOut(_args) => {
                 let session = session_or_fail!();
+                self.var_registry.release_unstable();
 
                 session
                     .debugger_client
@@ -393,6 +398,8 @@ impl DapApplication {
             }
             Command::Continue(_args) => {
                 let session = session_or_fail!();
+
+                self.var_registry.release_unstable();
 
                 session
                     .debugger_client
@@ -407,8 +414,8 @@ impl DapApplication {
             }
             Command::Disconnect(_) => {
                 if let Some(session) = self.session.take() {
+                    self.var_registry.release_unstable();
                     session.debugger_client.send_exit_sync();
-
                     self.server
                         .respond_success(req.seq, ResponseBody::Disconnect)?;
                 } else {
