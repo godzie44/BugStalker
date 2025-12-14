@@ -23,8 +23,8 @@ use chumsky::Parser;
 use dap::events::{Event, OutputEventBody};
 use dap::requests::{Command, Request, VariablesArguments};
 use dap::responses::{
-    ContinueResponse, ResponseBody, ScopesResponse, SetBreakpointsResponse, StackTraceResponse,
-    ThreadsResponse, VariablesResponse,
+    ContinueResponse, EvaluateResponse, ResponseBody, ScopesResponse, SetBreakpointsResponse,
+    StackTraceResponse, ThreadsResponse, VariablesResponse,
 };
 use dap::server::ServerOutput;
 use dap::types::{
@@ -364,6 +364,59 @@ impl DapApplication {
             }
             Command::Variables(args) => {
                 self.handle_var_request(&args, req.seq)?;
+            }
+            Command::Evaluate(args) => {
+                let session = session_or_fail!();
+
+                let ctx = args
+                    .context
+                    .unwrap_or(dap::types::EvaluateArgumentsContext::Watch);
+
+                match ctx {
+                    dap::types::EvaluateArgumentsContext::Variables
+                    | dap::types::EvaluateArgumentsContext::Watch => {
+                        let fi = if let Some(frame) = args.frame_id {
+                            FrameInfo::unpack(frame)
+                        } else {
+                            let (thread_num, frame_num) =
+                                session.debugger_client.request_sync(move |debugger| {
+                                    debugger.thread_state().map(|threads| {
+                                        let in_focus_thread = threads
+                                            .iter()
+                                            .find(|t| t.in_focus)
+                                            .expect("In focus thread should be found");
+                                        (
+                                            in_focus_thread.thread.number,
+                                            in_focus_thread.focus_frame.unwrap(),
+                                        )
+                                    })
+                                })??;
+                            FrameInfo {
+                                thread_id: thread_num as u16,
+                                frame_id: frame_num as u16,
+                            }
+                        };
+
+                        let var = Var {
+                            scope: variable::VarScope::Vars,
+                            frame: fi,
+                            selector: variable::Selector::Dqe(args.expression),
+                        };
+                        let id = self.var_registry.insert_stable(var);
+
+                        self.server.respond_success(
+                            req.seq,
+                            ResponseBody::Evaluate(EvaluateResponse {
+                                variables_reference: id.as_var_ref(),
+                                ..Default::default()
+                            }),
+                        )?;
+                    }
+                    _ => {
+                        log::warn!("unknown command: evaluate, context: {ctx:?}");
+                        self.server.respond_cancel(req.seq)?;
+                    }
+                }
             }
             Command::Next(_args) => {
                 let session = session_or_fail!();
