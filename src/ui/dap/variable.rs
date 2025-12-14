@@ -90,6 +90,10 @@ impl VarRegistry {
             &self.unstable[key.idx()]
         }
     }
+
+    pub fn release_unstable(&mut self) {
+        self.unstable.clear();
+    }
 }
 
 #[repr(u8)]
