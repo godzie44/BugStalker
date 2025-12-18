@@ -1,3 +1,26 @@
+use super::command::r#async::Command as AsyncCommand;
+use super::generic::trigger::TriggerRegistry;
+use crate::debugger::process::{Child, Installed};
+use crate::debugger::variable::dqe::{Dqe, Selector};
+use crate::debugger::{Debugger, DebuggerBuilder};
+use crate::ui::command::Command;
+use crate::ui::command::CommandError;
+use crate::ui::console::editor::{BSEditor, CommandCompleter};
+use crate::ui::console::hook::TerminalHook;
+use crate::ui::generic::command_handler::{CommandHandler, Completer, ProgramTaker, YesQuestion};
+use crate::ui::generic::file::FileView;
+use crate::ui::generic::help::*;
+use crate::ui::generic::print;
+use crate::ui::generic::print::ExternalPrinter;
+use crate::ui::generic::print::style::ErrorView;
+use crate::ui::generic::print::style::ImportantView;
+use crate::ui::generic::trigger::UserProgram;
+use crate::ui::supervisor;
+use crate::ui::{DebugeeOutReader, config};
+use crossterm::style::{Color, Stylize};
+use nix::sys::signal::{Signal, kill};
+use nix::unistd::Pid;
+use rustyline::error::ReadlineError;
 use std::io::{BufRead, BufReader};
 use std::process::exit;
 use std::rc::Rc;
@@ -6,72 +29,11 @@ use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, Mutex, Once, mpsc};
 use std::time::Duration;
 use std::{thread, vec};
-
-use crossterm::style::{Color, Stylize};
-use itertools::Itertools;
-use nix::sys::signal::{Signal, kill};
-use nix::unistd::Pid;
-use print::style::ImportantView;
-use rustyline::error::ReadlineError;
 use timeout_readwrite::TimeoutReader;
 
-use r#break::Command as BreakpointCommand;
-use debugger::Error;
-use trigger::TriggerRegistry;
-
-use super::command::r#async::AsyncCommandResult;
-use super::command::r#async::Command as AsyncCommand;
-use super::command::trigger::TriggerEvent;
-use crate::debugger;
-use crate::debugger::process::{Child, Installed};
-use crate::debugger::variable::dqe::{Dqe, Selector};
-use crate::debugger::{Debugger, DebuggerBuilder};
-use crate::ui::command::backtrace::Handler as BacktraceHandler;
-use crate::ui::command::r#break::ExecutionResult;
-use crate::ui::command::r#break::Handler as BreakpointHandler;
-use crate::ui::command::r#continue::Handler as ContinueHandler;
-use crate::ui::command::frame::ExecutionResult as FrameResult;
-use crate::ui::command::frame::Handler as FrameHandler;
-use crate::ui::command::memory::Handler as MemoryHandler;
-use crate::ui::command::print::Handler as PrintHandler;
-use crate::ui::command::register::Handler as RegisterHandler;
-use crate::ui::command::run::Handler as RunHandler;
-use crate::ui::command::sharedlib::Handler as SharedlibHandler;
-use crate::ui::command::source_code::{DisAsmHandler, FunctionLineRangeHandler};
-use crate::ui::command::symbol::Handler as SymbolHandler;
-use crate::ui::command::thread::ExecutionResult as ThreadResult;
-use crate::ui::command::watch::ExecutionResult as WatchpointExecutionResult;
-use crate::ui::command::watch::Handler as WatchpointHandler;
-use crate::ui::command::{Command, run};
-use crate::ui::command::{
-    CommandError, r#break, source_code, step_instruction, step_into, step_out, step_over,
-};
-use crate::ui::console::r#async::print_backtrace;
-use crate::ui::console::r#async::print_backtrace_full;
-use crate::ui::console::r#async::print_task_ex;
-use crate::ui::console::editor::{BSEditor, CommandCompleter};
-use crate::ui::console::file::FileView;
-use crate::ui::console::help::*;
-use crate::ui::console::hook::TerminalHook;
-use crate::ui::console::print::ExternalPrinter;
-use crate::ui::console::print::style::{
-    AddressView, AsmInstructionView, AsmOperandsView, ErrorView, FilePathView, FunctionNameView,
-    KeywordView,
-};
-use crate::ui::console::variable::render_variable;
-use crate::ui::short::Abbreviator;
-use crate::ui::{DebugeeOutReader, config};
-use crate::ui::{command, supervisor};
-use command::trigger::Command as UserCommandTarget;
-
-mod r#async;
-mod editor;
-pub mod file;
-mod help;
+pub mod cfg;
+pub mod editor;
 pub mod hook;
-pub mod print;
-mod trigger;
-mod variable;
 
 const WELCOME_TEXT: &str = r#"
 BugStalker greets
@@ -106,7 +68,7 @@ impl AppBuilder {
         let file_view = Rc::new(FileView::new());
         let trigger_reg = Rc::new(TriggerRegistry::default());
         let hook = TerminalHook::new(
-            ExternalPrinter::new(&mut editor)?,
+            ExternalPrinter::new_for_editor(&mut editor)?,
             file_view.clone(),
             move |pid| DEBUGEE_PID.store(pid.as_raw(), Ordering::Release),
             trigger_reg.clone(),
@@ -236,16 +198,17 @@ impl TerminalApplication {
             let cancel2 = cancel.clone();
 
             let stdout = TimeoutReader::new(self.debugee_out.clone(), Duration::from_millis(1));
-            let stdout_printer = ExternalPrinter::new(&mut self.editor)?;
+            let stdout_printer = ExternalPrinter::new_for_editor(&mut self.editor)?;
             thread::spawn(move || print_out!(stdout, "{}", stdout_printer, cancel1));
 
             let stderr = TimeoutReader::new(self.debugee_err.clone(), Duration::from_millis(1));
-            let stderr_printer = ExternalPrinter::new(&mut self.editor)?;
+            let stderr_printer = ExternalPrinter::new_for_editor(&mut self.editor)?;
             thread::spawn(move || print_out!(stderr, "\x1b[31m{}", stderr_printer, cancel2));
         };
 
         let (ready_to_next_command_tx, ready_to_next_command_rx) = mpsc::channel();
 
+        let helper = Helper::new(&self.debugger);
         let app_loop = AppLoop {
             debugger: self.debugger,
             file_view: self.file_view,
@@ -257,12 +220,12 @@ impl TerminalApplication {
                     .expect("helper must exists")
                     .completer,
             ),
-            printer: ExternalPrinter::new(&mut self.editor)?,
+            printer: ExternalPrinter::new_for_editor(&mut self.editor)?,
             debugee_out: self.debugee_out.clone(),
             debugee_err: self.debugee_err.clone(),
             cancel_output_flag: cancel,
             ready_to_next_command_tx,
-            helper: Default::default(),
+            helper,
             trigger_reg: self.trigger_reg,
         };
 
@@ -276,7 +239,7 @@ impl TerminalApplication {
             .expect("error setting Ctrl-C handler")
         });
 
-        let error_printer = ExternalPrinter::new(&mut self.editor)?;
+        let error_printer = ExternalPrinter::new_for_editor(&mut self.editor)?;
         let mut editor = self.editor;
         {
             let control_tx = self.user_act_tx.clone();
@@ -358,559 +321,147 @@ struct AppLoop {
 }
 
 impl AppLoop {
-    fn yes(&self, question: &str) -> bool {
-        self.printer.println(question);
-
-        loop {
-            _ = self.ready_to_next_command_tx.send(EditorMode::YesNo);
-            let act = self
-                .user_input_rx
-                .recv()
-                .expect("unexpected sender disconnect");
-            return match act {
-                UserAction::Cmd(cmd) => match cmd.to_lowercase().as_str() {
-                    "y" | "yes" => true,
-                    "n" | "no" => false,
-                    _ => continue,
-                },
-                UserAction::Terminate | UserAction::ChangeMode | UserAction::Nop => false,
-            };
+    fn run(mut self) -> anyhow::Result<supervisor::ControlFlow> {
+        struct ConsoleYes<'a> {
+            user_input_rx: &'a Receiver<UserAction>,
+            printer: &'a ExternalPrinter,
+            ready_to_next_command_tx: mpsc::Sender<EditorMode>,
         }
-    }
 
-    fn take_user_command_list(&self, help: &str) -> Result<trigger::UserProgram, CommandError> {
-        self.printer.println(help);
-        let mut result = vec![];
-        loop {
-            _ = self.ready_to_next_command_tx.send(EditorMode::UserProgram);
-            let act = self
-                .user_input_rx
-                .recv()
-                .expect("unexpected sender disconnect");
-            match act {
-                UserAction::Cmd(input) => {
-                    if input.as_str().trim() == "end" {
-                        break;
-                    }
+        impl YesQuestion for ConsoleYes<'_> {
+            fn yes(&self, question: &str) -> Result<bool, CommandError> {
+                self.printer.println(question);
 
-                    let cmd = Command::parse(&input)?;
-                    match cmd {
-                        Command::Print(_)
-                        | Command::PrintBacktrace(_)
-                        | Command::Frame(_)
-                        | Command::PrintSymbol(_)
-                        | Command::Memory(_)
-                        | Command::Register(_)
-                        | Command::Thread(_)
-                        | Command::SharedLib
-                        | Command::SourceCode(_)
-                        | Command::Oracle(_, _)
-                        | Command::Async(AsyncCommand::FullBacktrace)
-                        | Command::Async(AsyncCommand::ShortBacktrace)
-                        | Command::Async(AsyncCommand::CurrentTask(_)) => {
-                            result.push((cmd, input));
-                            continue;
+                loop {
+                    _ = self.ready_to_next_command_tx.send(EditorMode::YesNo);
+                    let act = self
+                        .user_input_rx
+                        .recv()
+                        .expect("unexpected sender disconnect");
+                    return match act {
+                        UserAction::Cmd(cmd) => match cmd.to_lowercase().as_str() {
+                            "y" | "yes" => Ok(true),
+                            "n" | "no" => Ok(false),
+                            _ => continue,
+                        },
+                        UserAction::Terminate | UserAction::ChangeMode | UserAction::Nop => {
+                            Ok(false)
                         }
-                        _ => {
+                    };
+                }
+            }
+        }
+
+        let yes = ConsoleYes {
+            user_input_rx: &self.user_input_rx,
+            printer: &self.printer,
+            ready_to_next_command_tx: self.ready_to_next_command_tx.clone(),
+        };
+
+        struct ConsoleCompleter {
+            completer: Arc<Mutex<CommandCompleter>>,
+        }
+
+        impl Completer for ConsoleCompleter {
+            fn update_completer_variables(&self, debugger: &Debugger) -> anyhow::Result<()> {
+                let vars = debugger.read_variable_names(Dqe::Variable(Selector::Any))?;
+                let args = debugger.read_argument_names(Dqe::Variable(Selector::Any))?;
+
+                let mut completer = self.completer.lock().unwrap();
+                completer.replace_local_var_hints(vars);
+                completer.replace_arg_hints(args);
+                Ok(())
+            }
+        }
+
+        let completer = ConsoleCompleter {
+            completer: self.completer.clone(),
+        };
+
+        struct ConsoleProgramTaker<'a> {
+            user_input_rx: &'a Receiver<UserAction>,
+            printer: &'a ExternalPrinter,
+            ready_to_next_command_tx: mpsc::Sender<EditorMode>,
+        }
+
+        impl ProgramTaker for ConsoleProgramTaker<'_> {
+            fn take_user_command_list(&self, help: &str) -> Result<UserProgram, CommandError> {
+                self.printer.println(help);
+                let mut result = vec![];
+                loop {
+                    _ = self.ready_to_next_command_tx.send(EditorMode::UserProgram);
+                    let act = self
+                        .user_input_rx
+                        .recv()
+                        .expect("unexpected sender disconnect");
+                    match act {
+                        UserAction::Cmd(input) => {
+                            if input.as_str().trim() == "end" {
+                                break;
+                            }
+
+                            let cmd = Command::parse(&input)?;
+                            match cmd {
+                                Command::Print(_)
+                                | Command::PrintBacktrace(_)
+                                | Command::Frame(_)
+                                | Command::PrintSymbol(_)
+                                | Command::Memory(_)
+                                | Command::Register(_)
+                                | Command::Thread(_)
+                                | Command::SharedLib
+                                | Command::SourceCode(_)
+                                | Command::Oracle(_, _)
+                                | Command::Async(AsyncCommand::FullBacktrace)
+                                | Command::Async(AsyncCommand::ShortBacktrace)
+                                | Command::Async(AsyncCommand::CurrentTask(_)) => {
+                                    result.push((cmd, input));
+                                    continue;
+                                }
+                                _ => {
+                                    self.printer
+                                        .println("unsupported command, try another one or `end`");
+                                    continue;
+                                }
+                            }
+                        }
+
+                        UserAction::Terminate | UserAction::ChangeMode | UserAction::Nop => {
                             self.printer
                                 .println("unsupported command, try another one or `end`");
                             continue;
                         }
-                    }
+                    };
                 }
 
-                UserAction::Terminate | UserAction::ChangeMode | UserAction::Nop => {
-                    self.printer
-                        .println("unsupported command, try another one or `end`");
-                    continue;
-                }
-            };
+                Ok(result)
+            }
         }
 
-        Ok(result)
-    }
+        let prog_taker = ConsoleProgramTaker {
+            user_input_rx: &self.user_input_rx,
+            printer: &self.printer,
+            ready_to_next_command_tx: self.ready_to_next_command_tx.clone(),
+        };
 
-    fn update_completer_variables(&self) -> anyhow::Result<()> {
-        let vars = self
-            .debugger
-            .read_variable_names(Dqe::Variable(Selector::Any))?;
-        let args = self
-            .debugger
-            .read_argument_names(Dqe::Variable(Selector::Any))?;
+        let mut handler = CommandHandler {
+            yes_handler: yes,
+            complete_handler: completer,
+            prog_taker,
+            trigger_reg: &self.trigger_reg,
+            debugger: &mut self.debugger,
+            printer: &self.printer,
+            file_view: &self.file_view,
+            helper: &self.helper,
+        };
 
-        let mut completer = self.completer.lock().unwrap();
-        completer.replace_local_var_hints(vars);
-        completer.replace_arg_hints(args);
-        Ok(())
-    }
-
-    fn handle_command_str(&mut self, cmd: &str) -> Result<(), CommandError> {
-        if cmd.is_empty() {
-            return Ok(());
-        }
-
-        self.handle_command(Command::parse(cmd)?)
-    }
-
-    fn handle_command(&mut self, cmd: Command) -> Result<(), CommandError> {
-        match cmd {
-            Command::Print(print_var_command) => PrintHandler::new(&self.debugger)
-                .handle(print_var_command)?
-                .into_iter()
-                .for_each(|var| {
-                    let string_to_render = match var {
-                        command::print::ReadVariableResult::PreRender(qr, val) => {
-                            render_variable(&qr, Some(&val))
-                        }
-                        command::print::ReadVariableResult::Raw(qr) => render_variable(&qr, None),
-                    }
-                    .unwrap_or(print::style::UNKNOWN_PLACEHOLDER.to_string());
-                    self.printer.println(string_to_render)
-                }),
-            Command::PrintBacktrace(cmd) => {
-                let bt = BacktraceHandler::new(&self.debugger).handle(cmd)?;
-                bt.into_iter().for_each(|thread| {
-                    let ip = thread
-                        .bt
-                        .as_ref()
-                        .and_then(|bt| bt.first().map(|f| f.ip.to_string()));
-
-                    self.printer.println(format!(
-                        "thread #{}, {} - {}",
-                        thread.thread.number,
-                        thread.thread.pid,
-                        AddressView::from(ip),
-                    ));
-
-                    let abbreviator = Abbreviator::new("/", "/..", 30);
-
-                    if let Some(bt) = thread.bt {
-                        for (frame_num, frame) in bt.into_iter().enumerate() {
-                            let fn_name = frame.func_name.clone().unwrap_or_default();
-
-                            let user_bt_end = fn_name == "main"
-                                //|| fn_name.contains("::main")
-                                || fn_name.contains("::thread_start");
-
-                            let place = frame.place;
-
-                            let file_and_line = place
-                                .map(|p| {
-                                    format!(
-                                        "at {}:{}",
-                                        FilePathView::from(
-                                            abbreviator.apply(&p.file.to_string_lossy())
-                                        ),
-                                        p.line_number
-                                    )
-                                })
-                                .unwrap_or_default();
-
-                            let mut frame_info = format!(
-                                "#{frame_num} {} - {} {}",
-                                AddressView::from(frame.ip),
-                                FunctionNameView::from(frame.func_name),
-                                file_and_line
-                            );
-                            if thread.focus_frame == Some(frame_num) {
-                                frame_info = frame_info.bold().to_string();
-                            }
-
-                            self.printer.println(frame_info);
-                            if user_bt_end {
-                                break;
-                            }
-                        }
-                    }
-                });
-            }
-            Command::Continue => {
-                ContinueHandler::new(&mut self.debugger).handle()?;
-                _ = self.update_completer_variables();
-            }
-            Command::Frame(cmd) => {
-                let result = FrameHandler::new(&mut self.debugger).handle(cmd)?;
-                match result {
-                    FrameResult::FrameInfo(frame) => {
-                        self.printer.println(format!(
-                            "frame #{} ({})",
-                            frame.num,
-                            FunctionNameView::from(frame.frame.func_name),
-                        ));
-                        let cfa = AddressView::from(frame.cfa);
-                        self.printer.println(format!("cfa: {cfa}"));
-                        let ret_addr = AddressView::from(frame.return_addr);
-                        self.printer.println(format!("return address: {ret_addr}"));
-                    }
-                    FrameResult::BroughtIntoFocus(num) => {
-                        self.printer.println(format!("switch to #{num}"));
-                    }
-                }
-            }
-            Command::Run => match RunHandler::new(&mut self.debugger).handle(run::Command::Start) {
-                Err(CommandError::Handle(Error::AlreadyRun)) => {
-                    if self.yes("Restart a program?") {
-                        RunHandler::new(&mut self.debugger).handle(run::Command::Restart)?
-                    }
-                }
-                Err(e) => return Err(e),
-                _ => {
-                    _ = self.update_completer_variables();
-                }
-            },
-            Command::StepInstruction => {
-                step_instruction::Handler::new(&mut self.debugger).handle()?;
-                _ = self.update_completer_variables();
-            }
-            Command::StepInto => {
-                step_into::Handler::new(&mut self.debugger).handle()?;
-                _ = self.update_completer_variables();
-            }
-            Command::StepOut => {
-                step_out::Handler::new(&mut self.debugger).handle()?;
-                _ = self.update_completer_variables();
-            }
-            Command::StepOver => {
-                step_over::Handler::new(&mut self.debugger).handle()?;
-                _ = self.update_completer_variables();
-            }
-            Command::Breakpoint(mut brkpt_cmd) => {
-                let print_bp = |action: &str, bp: &debugger::BreakpointView| match &bp.place {
-                    None => {
-                        self.printer.println(format!(
-                            "{action} {} at {}",
-                            bp.number,
-                            AddressView::from(bp.addr),
-                        ));
-                    }
-                    Some(place) => {
-                        self.printer.println(format!(
-                            "{action} {} at {}: {}:{} ",
-                            bp.number,
-                            AddressView::from(place.address),
-                            FilePathView::from(place.file.to_string_lossy()),
-                            place.line_number,
-                        ));
-                    }
-                };
-
-                loop {
-                    match BreakpointHandler::new(&mut self.debugger).handle(&brkpt_cmd) {
-                        Ok(r#break::ExecutionResult::New(brkpts)) => {
-                            brkpts.iter().for_each(|brkpt| {
-                                print_bp("New breakpoint", brkpt);
-                                self.trigger_reg.set_previous_brkpt(brkpt.number);
-                            });
-                        }
-                        Ok(r#break::ExecutionResult::Removed(brkpts)) => {
-                            brkpts.iter().for_each(|brkpt| {
-                                print_bp("Removed breakpoint", brkpt);
-                                self.trigger_reg
-                                    .remove(TriggerEvent::Breakpoint(brkpt.number));
-                            });
-                        }
-                        Ok(r#break::ExecutionResult::Dump(brkpts)) => brkpts
-                            .iter()
-                            .for_each(|brkpt| print_bp("- Breakpoint", brkpt)),
-                        Err(Error::NoSuitablePlace) => {
-                            if self.yes("Add deferred breakpoint for future shared library load?") {
-                                brkpt_cmd = BreakpointCommand::AddDeferred(
-                                    brkpt_cmd
-                                        .identity()
-                                        .expect("unreachable: deferred breakpoint must based on exists breakpoint"),
-                                );
-                                continue;
-                            }
-                        }
-                        Ok(ExecutionResult::AddDeferred) => {
-                            self.printer.println("Add deferred endpoint")
-                        }
-                        Err(e) => return Err(e.into()),
-                    }
-                    break;
-                }
-            }
-            Command::Watchpoint(cmd) => {
-                let print_wp = |prefix: &str, wp: debugger::WatchpointView| {
-                    let source_expr = wp
-                        .source_dqe
-                        .map(|dqe| format!(", expression: {dqe}"))
-                        .unwrap_or_default();
-                    let (addr, cond) = (
-                        AddressView::from(wp.address),
-                        KeywordView::from(wp.condition),
-                    );
-                    self.printer.println(format!(
-                        "{prefix} {} at {}, condition: {}, watch size: {}{source_expr}",
-                        wp.number, addr, cond, wp.size
-                    ))
-                };
-
-                let mut handler = WatchpointHandler::new(&mut self.debugger);
-                let res = handler.handle(cmd)?;
-                match res {
-                    WatchpointExecutionResult::New(wp) => {
-                        self.trigger_reg.set_previous_wp(wp.number);
-                        print_wp("New watchpoint", wp);
-                    }
-                    WatchpointExecutionResult::Removed(Some(wp)) => {
-                        self.trigger_reg.remove(TriggerEvent::Watchpoint(wp.number));
-                        print_wp("Removed watchpoint", wp);
-                    }
-                    WatchpointExecutionResult::Removed(_) => {
-                        self.printer.println("No watchpoint found")
-                    }
-                    WatchpointExecutionResult::Dump(wps) => {
-                        self.printer
-                            .println(format!("{}/4 active watchpoints:", wps.len()));
-                        for wp in wps {
-                            print_wp("- Watchpoint", wp)
-                        }
-                    }
-                }
-            }
-            Command::Memory(mem_cmd) => {
-                let read = MemoryHandler::new(&self.debugger).handle(mem_cmd)?;
-                for b in read {
-                    self.printer.print(format!("0x{b:X} "));
-                }
-                self.printer.println("");
-            }
-            Command::Register(reg_cmd) => {
-                let response = RegisterHandler::new(&self.debugger).handle(&reg_cmd)?;
-                response.iter().for_each(|register| {
-                    self.printer.println(format!(
-                        "{:10} {:#016X}",
-                        register.register_name, register.value
-                    ));
-                });
-            }
-            Command::Help { reason, command } => {
-                if let Some(reason) = reason {
-                    self.printer.println(reason);
-                }
-                self.printer.println(
-                    self.helper
-                        .help_for_command(&self.debugger, command.as_deref()),
-                );
-            }
-            Command::SkipInput => {}
-            Command::PrintSymbol(symbol) => {
-                let symbols = SymbolHandler::new(&self.debugger).handle(&symbol)?;
-                for symbol in symbols {
-                    self.printer.println(format!(
-                        "{} - {:?} {}",
-                        symbol.name,
-                        symbol.kind,
-                        AddressView::from(symbol.addr)
-                    ));
-                }
-            }
-            Command::Thread(cmd) => {
-                let result = command::thread::Handler::new(&mut self.debugger).handle(cmd)?;
-                match result {
-                    ThreadResult::List(mut list) => {
-                        list.sort_by(|t1, t2| t1.thread.number.cmp(&t2.thread.number));
-                        for thread in list {
-                            let current_frame = thread.bt.and_then(|mut bt| bt.drain(..).next());
-                            let ip = current_frame.as_ref().map(|f| f.ip.to_string());
-                            let func = current_frame.and_then(|f| f.func_name);
-
-                            let view = format!(
-                                "#{} thread id: {}, {} in {}",
-                                thread.thread.number,
-                                thread.thread.pid,
-                                AddressView::from(ip),
-                                FunctionNameView::from(func),
-                            );
-
-                            if thread.in_focus {
-                                self.printer.println(format!("{}", view.bold()))
-                            } else {
-                                self.printer.println(view)
-                            }
-                        }
-                    }
-                    ThreadResult::BroughtIntoFocus(thread) => self
-                        .printer
-                        .println(format!("Thread #{} brought into focus", thread.number)),
-                }
-            }
-            Command::SharedLib => {
-                let handler = SharedlibHandler::new(&self.debugger);
-                for lib in handler.handle() {
-                    let mb_range = lib
-                        .range
-                        .map(|range| format!("{} - {}", range.from, range.to));
-
-                    self.printer.println(format!(
-                        "{}  {}  {}",
-                        AddressView::from(mb_range),
-                        if !lib.has_debug_info { "*" } else { " " },
-                        FilePathView::from(lib.path.to_string_lossy())
-                    ))
-                }
-            }
-            Command::SourceCode(inner_cmd) => match inner_cmd {
-                source_code::Command::Range(bounds) => {
-                    let handler = FunctionLineRangeHandler::new(&self.debugger);
-                    let range = handler.handle()?;
-
-                    self.printer.println(format!(
-                        "{} at {}:{}",
-                        FunctionNameView::from(range.name),
-                        FilePathView::from(range.stop_place.file.to_string_lossy()),
-                        range.stop_place.line_number,
-                    ));
-
-                    self.printer.print(
-                        self.file_view
-                            .render_source(&range.stop_place, bounds)
-                            .map_err(CommandError::FileRender)?,
-                    );
-                }
-                source_code::Command::Function => {
-                    let handler = FunctionLineRangeHandler::new(&self.debugger);
-                    let range = handler.handle()?;
-
-                    self.printer.println(format!(
-                        "{} at {}:{}",
-                        FunctionNameView::from(range.name),
-                        FilePathView::from(range.stop_place.file.to_string_lossy()),
-                        range.stop_place.line_number,
-                    ));
-
-                    self.printer.print(
-                        self.file_view
-                            .render_source_range(range.file, range.start_line, range.end_line)
-                            .map_err(CommandError::FileRender)?,
-                    );
-                }
-                source_code::Command::Asm => {
-                    let handler = DisAsmHandler::new(&self.debugger);
-                    let assembly = handler.handle()?;
-                    self.printer.println(format!(
-                        "Assembler code for function {}",
-                        FunctionNameView::from(assembly.name)
-                    ));
-                    for ins in assembly.instructions {
-                        let instruction_view = format!(
-                            "{} {} {}",
-                            AddressView::from(ins.address),
-                            AsmInstructionView::from(ins.mnemonic),
-                            AsmOperandsView::from(ins.operands),
-                        );
-
-                        if ins.address == assembly.addr_in_focus {
-                            self.printer.println(format!("{}", instruction_view.bold()));
-                        } else {
-                            self.printer.println(instruction_view);
-                        }
-                    }
-                }
-            },
-            Command::Async(cmd) => {
-                let mut handler = command::r#async::Handler::new(&mut self.debugger);
-                let result: command::r#async::AsyncCommandResult = handler.handle(&cmd)?;
-
-                match result {
-                    AsyncCommandResult::ShortBacktrace(bt) => {
-                        print_backtrace(&bt, &self.printer);
-                    }
-                    AsyncCommandResult::FullBacktrace(bt) => {
-                        print_backtrace_full(&bt, &self.printer);
-                    }
-                    AsyncCommandResult::CurrentTask(bt, regex) => {
-                        print_task_ex(&bt, &self.printer, regex);
-                    }
-                    AsyncCommandResult::StepOver => {
-                        _ = self.update_completer_variables();
-                    }
-                    AsyncCommandResult::StepOut => {
-                        _ = self.update_completer_variables();
-                    }
-                }
-            }
-            Command::Trigger(cmd) => {
-                let event = match cmd {
-                    UserCommandTarget::AttachToPreviouslyCreated => {
-                        let Some(event) = self.trigger_reg.get_previous_event() else {
-                            self.printer.println(ErrorView::from(
-                                "No previously added watchpoints or breakpoints exist",
-                            ));
-                            return Ok(());
-                        };
-                        event
-                    }
-                    UserCommandTarget::AttachToDefined(event) => event,
-                    UserCommandTarget::Info => {
-                        self.printer.println(format!("{:<30}  Program", "Event"));
-
-                        self.trigger_reg.for_each_trigger(|event, program| {
-                            self.printer.println(format!(
-                                "{:<30}  {}",
-                                event.to_string(),
-                                KeywordView::from(program.iter().map(|(_, str)| str).join(", ")),
-                            ));
-                        });
-                        return Ok(());
-                    }
-                };
-
-                let help = match event {
-                    TriggerEvent::Breakpoint(num) => format!("Print the commands to be executed on breakpoint {num}"),
-                    TriggerEvent::Watchpoint(num) => format!("Print the commands to be executed on watchpoint {num}"),
-                    TriggerEvent::Any => "Print the commands to be executed on each breakpoint or watchpoint, and print 'end' for end".to_string(),
-                };
-
-                let commands = self.take_user_command_list(&help)?;
-                self.trigger_reg.add(event, commands);
-            }
-            Command::Call(call) => {
-                let mut handler = command::call::Handler::new(&mut self.debugger);
-                handler.handle(call)?;
-            }
-            Command::Oracle(name, subcmd) => match self.debugger.get_oracle(&name) {
-                None => self
-                    .printer
-                    .println(ErrorView::from("Oracle not found or not ready")),
-                Some(oracle) => oracle.print(&self.printer, subcmd.as_deref()),
-            },
-        }
-
-        Ok(())
-    }
-
-    fn handle_error(&self, error: CommandError) {
-        match error {
-            CommandError::Parsing(pretty_error) => {
-                self.printer.println(pretty_error);
-            }
-            CommandError::FileRender(_) => {
-                self.printer
-                    .println(ErrorView::from(format!("Render file error: {error:#}")));
-            }
-            CommandError::Handle(ref err) if err.is_fatal() => {
-                self.printer.println(ErrorView::from("Shutdown debugger"));
-                self.printer
-                    .println(ErrorView::from(format!("Fatal error: {error:#}")));
-                exit(1);
-            }
-            CommandError::Handle(_) => {
-                self.printer
-                    .println(ErrorView::from(format!("Error: {error:#}")));
-            }
-        }
-    }
-
-    fn run(mut self) -> anyhow::Result<supervisor::ControlFlow> {
         loop {
             if let Some(user_program) = self.trigger_reg.take_program() {
                 self.printer
                     .println(ImportantView::from("Related program found:"));
                 user_program.into_iter().for_each(|(cmd, _)| {
-                    if let Err(e) = self.handle_command(cmd) {
-                        self.handle_error(e);
+                    if let Err(e) = handler.handle_command(cmd) {
+                        Self::handle_error(&self.printer, e);
                     }
                 });
             };
@@ -923,8 +474,12 @@ impl AppLoop {
 
             match action {
                 UserAction::Cmd(command) => {
-                    if let Err(e) = self.handle_command_str(&command) {
-                        self.handle_error(e);
+                    if !command.is_empty() {
+                        if let Err(e) =
+                            Command::parse(&command).and_then(|cmd| handler.handle_command(cmd))
+                        {
+                            Self::handle_error(&self.printer, e);
+                        }
                     }
                 }
                 UserAction::Nop => {}
@@ -940,6 +495,25 @@ impl AppLoop {
                         supervisor::Application::TUI(app),
                     ));
                 }
+            }
+        }
+    }
+
+    fn handle_error(printer: &ExternalPrinter, error: CommandError) {
+        match error {
+            CommandError::Parsing(pretty_error) => {
+                printer.println(pretty_error);
+            }
+            CommandError::FileRender(_) => {
+                printer.println(ErrorView::from(format!("Render file error: {error:#}")));
+            }
+            CommandError::Handle(ref err) if err.is_fatal() => {
+                printer.println(ErrorView::from("Shutdown debugger"));
+                printer.println(ErrorView::from(format!("Fatal error: {error:#}")));
+                exit(1);
+            }
+            CommandError::Handle(_) => {
+                printer.println(ErrorView::from(format!("Error: {error:#}")));
             }
         }
     }

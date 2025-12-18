@@ -1,7 +1,7 @@
 use crate::debugger::{CreateTransparentBreakpointRequest, Debugger};
 use crate::oracle::builtin::nop::tui::NopComponent;
 use crate::oracle::{ConsolePlugin, Oracle, TuiPlugin};
-use crate::ui::console::print::ExternalPrinter;
+use crate::ui::generic::print::ExternalPrinter;
 use crate::ui::tui::Msg;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::KeyMap;
