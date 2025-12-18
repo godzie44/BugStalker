@@ -6,8 +6,8 @@ use crate::debugger::variable::value::{
 };
 use crate::debugger::{Debugger, Error};
 use crate::oracle::{ConsolePlugin, Oracle, TuiPlugin};
-use crate::ui::console::print::ExternalPrinter;
-use crate::ui::console::print::style::KeywordView;
+use crate::ui::generic::print::ExternalPrinter;
+use crate::ui::generic::print::style::KeywordView;
 use crate::ui::short::Abbreviator;
 use crate::ui::tui::Msg;
 use crate::ui::tui::app::port::UserEvent;

@@ -2,6 +2,7 @@ pub mod command;
 pub mod config;
 pub mod console;
 pub mod dap;
+pub mod generic;
 pub mod proto;
 pub mod short;
 pub mod supervisor;

@@ -7,7 +7,7 @@ pub mod builtin;
 
 use crate::debugger::CreateTransparentBreakpointRequest;
 use crate::debugger::Debugger;
-use crate::ui::console::print::ExternalPrinter;
+use crate::ui::generic::print::ExternalPrinter;
 use crate::ui::tui::Msg;
 use crate::ui::tui::app::port::UserEvent;
 use crate::ui::tui::config::KeyMap;
