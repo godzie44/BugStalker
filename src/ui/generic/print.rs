@@ -2,8 +2,9 @@ use crate::ui::console::editor::BSEditor;
 use rustyline::ExternalPrinter as RLExternalPrinter;
 use std::cell::RefCell;
 use std::fmt::Display;
+use std::rc::Rc;
 
-/// [`ExternalPrinter`] safe print messages to stdout
+/// [ExternalPrinter] safely prints messages to stdout or another destination.
 ///
 /// There is a problem with [`ExternalPrinter`] and integration tests, see [this issue](https://github.com/kkawakam/rustyline/issues/703).
 /// That's why in test environment external printer disabled.
@@ -15,16 +16,25 @@ unsafe impl Send for ExternalPrinter {}
 
 impl ExternalPrinter {
     #[cfg(not(feature = "int_test"))]
-    pub fn new(editor: &mut BSEditor) -> rustyline::Result<Self> {
+    pub fn new_for_editor(editor: &mut BSEditor) -> rustyline::Result<Self> {
         let external_p = editor.create_external_printer()?;
-        Ok(Self {
-            printer: Some(RefCell::new(Box::new(external_p))),
-        })
+
+        Ok(Self::new(Box::new(external_p)))
     }
 
     #[cfg(feature = "int_test")]
-    pub fn new(_editor: &mut BSEditor) -> rustyline::Result<Self> {
+    pub fn new_for_editor(_editor: &mut BSEditor) -> rustyline::Result<Self> {
         Ok(Self { printer: None })
+    }
+
+    pub fn new(p: Box<dyn RLExternalPrinter>) -> Self {
+        Self {
+            printer: Some(RefCell::new(p)),
+        }
+    }
+
+    pub fn take(self) -> Option<RefCell<Box<dyn RLExternalPrinter>>> {
+        self.printer
     }
 
     pub fn print(&self, msg: impl Display) {
@@ -119,4 +129,22 @@ pub mod style {
     view_struct!(AsyncTaskView, Color::Green);
     view_struct!(FutureFunctionView, Color::Yellow);
     view_struct!(FutureTypeView, Color::Magenta);
+}
+
+#[derive(Default)]
+pub struct InStringPrinter {
+    data: Rc<RefCell<String>>,
+}
+
+impl RLExternalPrinter for InStringPrinter {
+    fn print(&mut self, msg: String) -> rustyline::Result<()> {
+        *self.data.borrow_mut() += &msg;
+        Ok(())
+    }
+}
+
+impl InStringPrinter {
+    pub fn new(data: Rc<RefCell<String>>) -> Self {
+        Self { data: data }
+    }
 }
