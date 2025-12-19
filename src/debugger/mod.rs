@@ -30,6 +30,7 @@ pub use debugee::dwarf::unit::PlaceDescriptorOwned;
 /// Public unwind API backed by the internal DWARF unwinder (no libunwind feature gate).
 pub use debugee::dwarf::unwind;
 pub use debugee::tracee::Tracee;
+pub use debugee::tracer::StopReason;
 pub use error::Error;
 pub use watchpoint::WatchpointView;
 pub use watchpoint::WatchpointViewOwned;
@@ -39,7 +40,7 @@ use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};
 use crate::debugger::debugee::dwarf::DwarfUnwinder;
 use crate::debugger::debugee::dwarf::unwind::Backtrace;
-use crate::debugger::debugee::tracer::{StopReason, TraceContext};
+use crate::debugger::debugee::tracer::{TraceContext};
 use crate::debugger::debugee::{Debugee, ExecutionStatus, Location};
 use crate::debugger::error::Error::{
     FrameNotFound, Hook, ProcessNotStarted, Ptrace, RegisterNameNotFound, UnwindNoContext,
@@ -719,10 +720,35 @@ impl Debugger {
         self.start_debugee_inner(false, false)
     }
 
+    /// Start and execute debugee, returning a structured stop reason.
+    ///
+    /// This API is primarily intended for protocol adapters (e.g. DAP), where the UI needs
+    /// a machine-readable reason why the debugee stopped.
+    pub fn start_debugee_with_reason(&mut self) -> Result<StopReason, Error> {
+        // Reuse existing validation logic and then return the underlying stop reason.
+        match self.debugee.execution_status() {
+            ExecutionStatus::Unload => self.continue_execution(),
+            ExecutionStatus::InProgress | ExecutionStatus::Exited => Err(Error::AlreadyRun),
+        }
+    }
+
     /// Start and execute debugee. Restart if debugee already started.
     /// Return when debugee stopped or ends.
     pub fn start_debugee_force(&mut self) -> Result<(), Error> {
         self.start_debugee_inner(true, false)
+    }
+
+    /// Start and execute debugee (restart if already started), returning a structured stop reason.
+    pub fn start_debugee_force_with_reason(&mut self) -> Result<StopReason, Error> {
+        match self.debugee.execution_status() {
+            ExecutionStatus::Unload => self.continue_execution(),
+            ExecutionStatus::InProgress | ExecutionStatus::Exited => {
+                self.restart_debugee()?;
+                // restart_debugee itself continues execution until the next stop.
+                // If it returns successfully, we are already stopped; map this to a synthetic reason.
+                Ok(StopReason::DebugeeStart)
+            }
+        }
     }
 
     /// Dry start debugee. Return immediately.
@@ -739,6 +765,12 @@ impl Debugger {
         disable_when_not_stared!(self);
         self.continue_execution()?;
         Ok(())
+    }
+
+    /// Continue debugee execution and return a structured stop reason.
+    pub fn continue_debugee_with_reason(&mut self) -> Result<StopReason, Error> {
+        disable_when_not_stared!(self);
+        self.continue_execution()
     }
 
     /// Return list of symbols matching regular expression.

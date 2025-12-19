@@ -19,6 +19,11 @@ bench = false
 path = "src/main.rs"
 name = "bs"
 
+[[bin]]
+bench = false
+path = "src/bin/bs_dap.rs"
+name = "bs-dap"
+
 [profile.release]
 codegen-units = 1
 lto = true
