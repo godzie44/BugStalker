@@ -9,3 +9,7 @@
 
 # output of `nix build`
 result
+
+#misc
+*.bak
+/.vscode
