@@ -3,19 +3,28 @@ mod logger;
 mod server;
 mod variable;
 
+use std::cell::RefCell;
 use std::io::{BufRead, BufReader, Stdout};
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use super::supervisor;
-use crate::debugger::DebuggerBuilder;
 use crate::debugger::variable::Identity;
 use crate::debugger::variable::dqe::{Dqe, Selector};
 use crate::debugger::variable::value::Value;
+use crate::debugger::{Debugger, DebuggerBuilder};
+use crate::ui::command::CommandError;
 use crate::ui::command::parser::expression::parser;
 use crate::ui::dap::hook::DapHook;
 use crate::ui::dap::server::DapServer;
 use crate::ui::dap::variable::{Key, Var, VarRegistry};
+use crate::ui::generic::command_handler::{CommandHandler, Completer, ProgramTaker, YesQuestion};
+use crate::ui::generic::file::FileView;
+use crate::ui::generic::help::Helper;
+use crate::ui::generic::print::{ExternalPrinter, InStringPrinter};
+use crate::ui::generic::trigger;
+use crate::ui::generic::trigger::TriggerRegistry;
 use crate::ui::proto::{self, ClientExchanger, ServerExchanger, exchanger};
 use crate::ui::supervisor::DebugeeSource;
 use anyhow::anyhow;
@@ -39,6 +48,8 @@ pub struct DapApplication {
     debugger_builder: Arc<dyn Fn() -> DebuggerBuilder<DapHook> + Send + Sync>,
     server: DapServer,
     session: Option<Session>,
+    ui_helper: Arc<Helper>,
+
     var_registry: VarRegistry,
 }
 
@@ -54,6 +65,7 @@ impl DapApplication {
             debugger_builder: Arc::new(debugger_builder),
             server: DapServer::new(),
             session: None,
+            ui_helper: Arc::default(),
             var_registry: VarRegistry::default(),
         })
     }
@@ -408,6 +420,79 @@ impl DapApplication {
                             req.seq,
                             ResponseBody::Evaluate(EvaluateResponse {
                                 variables_reference: id.as_var_ref(),
+                                ..Default::default()
+                            }),
+                        )?;
+                    }
+                    dap::types::EvaluateArgumentsContext::Repl => {
+                        struct NopYes {}
+                        impl YesQuestion for NopYes {
+                            fn yes(&self, _: &str) -> Result<bool, CommandError> {
+                                Err(CommandError::Parsing("Unsupported".to_string()))
+                            }
+                        }
+                        let yh = NopYes {};
+
+                        struct NopCompleter;
+                        impl Completer for NopCompleter {
+                            fn update_completer_variables(
+                                &self,
+                                _: &Debugger,
+                            ) -> anyhow::Result<()> {
+                                Ok(())
+                            }
+                        }
+                        let ch = NopCompleter;
+
+                        struct NopProgramTaker;
+                        impl ProgramTaker for NopProgramTaker {
+                            fn take_user_command_list(
+                                &self,
+                                _: &str,
+                            ) -> Result<trigger::UserProgram, CommandError>
+                            {
+                                Err(CommandError::Parsing("Unsupported".to_string()))
+                            }
+                        }
+                        let upt = NopProgramTaker;
+
+                        let cmd = crate::ui::command::Command::parse(&args.expression)?;
+
+                        let helper = self.ui_helper.clone();
+                        let result = session.debugger_client.request_sync(
+                            move |debugger| -> anyhow::Result<String> {
+                                let trigger_reg = TriggerRegistry::default();
+                                let file_view = FileView::default();
+                                let data = Rc::new(RefCell::new(String::default()));
+                                let printer = ExternalPrinter::new(Box::new(InStringPrinter::new(
+                                    data.clone(),
+                                )));
+
+                                let mut handler = CommandHandler {
+                                    yes_handler: yh,
+                                    complete_handler: ch,
+                                    prog_taker: upt,
+                                    trigger_reg: &trigger_reg,
+                                    debugger: debugger,
+                                    printer: &printer,
+                                    file_view: &file_view,
+                                    helper: &helper,
+                                };
+                                handler.handle_command(cmd)?;
+
+                                Ok(data.borrow().to_string())
+                            },
+                        )??;
+                        fn strip_ansi_codes(s: &str) -> String {
+                            let re = regex::Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
+                            re.replace_all(s, "").to_string()
+                        }
+                        let result = strip_ansi_codes(&result);
+
+                        self.server.respond_success(
+                            req.seq,
+                            ResponseBody::Evaluate(EvaluateResponse {
+                                result,
                                 ..Default::default()
                             }),
                         )?;
