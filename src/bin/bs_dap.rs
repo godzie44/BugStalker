@@ -18,6 +18,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::fs::OpenOptions;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -26,11 +27,47 @@ struct Args {
 	#[clap(long, default_value = "127.0.0.1:4711")]
 	listen: String,
 
+	/// Exit after the first debug session ends (single-client mode).
+	#[clap(long)]
+	oneshot: bool,
+
+	/// Optional log file for adapter diagnostics (no output to stdout).
+	#[clap(long)]
+	log_file: Option<std::path::PathBuf>,
+
+	/// Trace DAP traffic (requests/responses/events) into the log file.
+	/// Requires --log-file.
+	#[clap(long)]
+	trace_dap: bool,
+
 	/// Discover a specific oracle (maybe more than one)
 	#[clap(short, long)]
 	oracle: Vec<String>,
 }
 
+
+/// Simple file-based tracer for adapter diagnostics.
+#[derive(Clone)]
+struct FileTracer {
+	file: Arc<Mutex<std::fs::File>>,
+}
+
+impl FileTracer {
+	fn new(path: &std::path::Path) -> anyhow::Result<Self> {
+		let file = OpenOptions::new()
+			.create(true)
+			.append(true)
+			.open(path)
+			.with_context(|| format!("open log file {}", path.display()))?;
+		Ok(Self { file: Arc::new(Mutex::new(file)) })
+	}
+
+	fn line(&self, text: &str) {
+		if let Ok(mut file) = self.file.lock() {
+			let _ = writeln!(file, "{text}");
+		}
+	}
+}
 /// DAP request envelope.
 #[derive(Debug, Deserialize)]
 struct DapRequest {
@@ -72,13 +109,15 @@ struct DapEvent<T: Serialize> {
 struct DapIo {
 	stream: TcpStream,
 	reader: BufReader<TcpStream>,
+	tracer: Option<FileTracer>,
+	trace: bool,
 }
 
 impl DapIo {
-	fn new(stream: TcpStream) -> anyhow::Result<Self> {
+	fn new(stream: TcpStream, tracer: Option<FileTracer>, trace: bool) -> anyhow::Result<Self> {
 		stream.set_nodelay(true)?;
 		let reader = BufReader::new(stream.try_clone()?);
-		Ok(Self { stream, reader })
+		Ok(Self { stream, reader, tracer, trace })
 	}
 
 	fn read_message(&mut self) -> anyhow::Result<Value> {
@@ -102,11 +141,25 @@ impl DapIo {
 		let mut buf = vec![0u8; len];
 		self.reader.read_exact(&mut buf)?;
 		let msg: Value = serde_json::from_slice(&buf)?;
+		if self.trace {
+			if let Some(tracer) = &self.tracer {
+				if let Ok(line) = serde_json::to_string(&msg) {
+					tracer.line(&format!("<- {line}"));
+				}
+			}
+		}
 		Ok(msg)
 	}
 
 	fn write_message<T: Serialize>(&mut self, v: &T) -> anyhow::Result<()> {
 		let payload = serde_json::to_vec(v)?;
+		if self.trace {
+			if let Some(tracer) = &self.tracer {
+				if let Ok(line) = serde_json::to_string(v) {
+					tracer.line(&format!("-> {line}"));
+				}
+			}
+		}
 		write!(self.stream, "Content-Length: {}\r\n\r\n", payload.len())?;
 		self.stream.write_all(&payload)?;
 		self.stream.flush()?;
@@ -864,15 +917,57 @@ fn main() -> anyhow::Result<()> {
 	let filter = logger.filter();
 	bugstalker::log::LOGGER_SWITCHER.switch(logger, filter);
 
-	bugstalker::debugger::rust::Environment::init(None);
 	let args = Args::parse();
+	// Ensure Rust environment is initialised for non-CLI frontend.
+	// This avoids panics in src/debugger/rust/mod.rs when core tries to access it.
+	bugstalker::debugger::rust::Environment::init(None);
 	let addr: SocketAddr = args.listen.parse().context("Invalid listen address")?;
 	let listener = TcpListener::bind(addr).with_context(|| format!("bind {addr}"))?;
 	info!(target: "dap", "bs-dap listening on {addr}");
 
-	// Single-client MVP: accept one connection, run session, then exit.
-	let (stream, peer) = listener.accept().context("accept")?;
-	info!(target: "dap", "DAP client connected: {peer}");
-	let io = DapIo::new(stream)?;
-	DebugSession::new(io).run(args.oracle)
+	let tracer = match &args.log_file {
+		Some(path) => Some(FileTracer::new(path)?),
+		None => None,
+	};
+	if args.trace_dap && tracer.is_none() {
+		warn!(target: "dap", "--trace-dap requires --log-file; tracing disabled");
+	}
+
+	// Server mode: accept multiple clients sequentially. One client == one debug session.
+	loop {
+		let (stream, peer) = match listener.accept() {
+			Ok(v) => v,
+			Err(err) => {
+				warn!(target: "dap", "accept failed: {err:#}");
+				continue;
+			}
+		};
+		info!(target: "dap", "DAP client connected: {peer}");
+		if let Some(t) = &tracer {
+			t.line(&format!("client connected: {peer}"));
+		}
+
+		let io = match DapIo::new(stream, tracer.clone(), args.trace_dap) {
+			Ok(v) => v,
+			Err(err) => {
+				warn!(target: "dap", "failed to init DAP I/O: {err:#}");
+				continue;
+			}
+		};
+
+		let res = DebugSession::new(io).run(args.oracle.clone());
+		if let Err(err) = res {
+			warn!(target: "dap", "session ended with error: {err:#}");
+			if let Some(t) = &tracer {
+				t.line(&format!("session error: {err:#}"));
+			}
+		} else if let Some(t) = &tracer {
+			t.line("session finished OK");
+		}
+
+		if args.oneshot {
+			break;
+		}
+	}
+	Ok(())
 }
