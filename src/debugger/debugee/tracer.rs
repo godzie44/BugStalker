@@ -156,6 +156,17 @@ impl Tracer {
         }
     }
 
+    /// Interrupt (pause) execution of the whole debugee process.
+    ///
+    /// This is a best-effort group-stop implemented via `PTRACE_INTERRUPT` for all running tracees.
+    /// The function does not return a `StopReason` because the stop is artificial from the debugger side.
+    pub fn pause(&mut self, tcx: TraceContext) -> Result<(), Error> {
+        // `Pid::from_raw(-1)` means: there is no already-stopped initiator thread.
+        self.group_stop_interrupt(tcx, Pid::from_raw(-1))?;
+        Ok(())
+    }
+
+
     fn group_stop_in_progress(&self) -> bool {
         self.group_stop_guard
     }
