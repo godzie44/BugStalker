@@ -512,7 +512,7 @@ impl DebugSession {
 	fn current_thread_id(&mut self) -> Option<i64> {
 		self.debugger
 			.as_ref()
-			.map(|d| d.exploration_ctx().pid_on_focus().as_raw() as i64)
+			.map(|d| d.ecx().pid_on_focus().as_raw() as i64)
 	}
 
 	fn refresh_threads(&mut self) -> anyhow::Result<Vec<Value>> {
