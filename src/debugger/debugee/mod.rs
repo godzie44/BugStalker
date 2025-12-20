@@ -325,6 +325,14 @@ impl Debugee {
         Ok(event)
     }
 
+    /// Interrupt (pause) execution of the whole debugee process.
+    ///
+    /// This performs a group-stop across all tracees using `PTRACE_INTERRUPT`.
+    pub fn pause(&mut self, tcx: TraceContext) -> Result<(), Error> {
+        self.tracer.pause(tcx)
+    }
+
+
     /// Update all debug information known by debugger. Fetch libraries from rendezvous structures.
     ///
     /// # Arguments
