@@ -757,6 +757,15 @@ impl Debugger {
         self.continue_execution()
     }
 
+    /// Interrupt (pause) execution of the whole debugee process.
+    ///
+    /// This is used by non-interactive frontends (e.g. DAP) to implement the `pause` request.
+    pub fn pause_debugee(&mut self) -> Result<(), Error> {
+        let active_bps = self.breakpoints.active_breakpoints();
+        self.debugee.pause(TraceContext::new(&active_bps, &self.watchpoints))
+    }
+
+
     /// Return list of symbols matching regular expression.
     ///
     /// # Arguments
