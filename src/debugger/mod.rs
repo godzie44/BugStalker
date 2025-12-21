@@ -40,7 +40,7 @@ use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};
 use crate::debugger::debugee::dwarf::DwarfUnwinder;
 use crate::debugger::debugee::dwarf::unwind::Backtrace;
-use crate::debugger::debugee::tracer::{TraceContext};
+use crate::debugger::debugee::tracer::TraceContext;
 use crate::debugger::debugee::{Debugee, ExecutionStatus, Location};
 use crate::debugger::error::Error::{
     FrameNotFound, Hook, ProcessNotStarted, Ptrace, RegisterNameNotFound, UnwindNoContext,
@@ -778,9 +778,9 @@ impl Debugger {
     /// This is used by non-interactive frontends (e.g. DAP) to implement the `pause` request.
     pub fn pause_debugee(&mut self) -> Result<(), Error> {
         let active_bps = self.breakpoints.active_breakpoints();
-        self.debugee.pause(TraceContext::new(&active_bps, &self.watchpoints))
+        self.debugee
+            .pause(TraceContext::new(&active_bps, &self.watchpoints))
     }
-
 
     /// Return list of symbols matching regular expression.
     ///
