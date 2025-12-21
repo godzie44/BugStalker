@@ -332,7 +332,6 @@ impl Debugee {
         self.tracer.pause(tcx)
     }
 
-
     /// Update all debug information known by debugger. Fetch libraries from rendezvous structures.
     ///
     /// # Arguments

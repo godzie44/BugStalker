@@ -166,7 +166,6 @@ impl Tracer {
         Ok(())
     }
 
-
     fn group_stop_in_progress(&self) -> bool {
         self.group_stop_guard
     }
