@@ -7,18 +7,20 @@ use anyhow::{Context, anyhow};
 use bugstalker::debugger;
 use bugstalker::debugger::process::Child;
 use bugstalker::oracle::builtin;
+use bugstalker::ui::command::parser::expression as bs_expr;
 use clap::Parser;
 use log::{info, warn};
 use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::fs::OpenOptions;
+use chumsky::Parser as _;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -80,8 +82,12 @@ struct DapRequest {
 }
 
 /// DAP response envelope.
+///
+/// Note: the DAP specification allows responses with no `body` field at all.
+/// Using a `serde_json::Value` keeps the envelope stable and avoids type
+/// inference issues around `None` bodies.
 #[derive(Debug, Serialize)]
-struct DapResponse<T: Serialize> {
+struct DapResponse {
 	seq: i64,
 	#[serde(rename = "type")]
 	r#type: &'static str,
@@ -91,18 +97,18 @@ struct DapResponse<T: Serialize> {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	message: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
-	body: Option<T>,
+	body: Option<Value>,
 }
 
 /// DAP event envelope.
 #[derive(Debug, Serialize)]
-struct DapEvent<T: Serialize> {
+struct DapEvent {
 	seq: i64,
 	#[serde(rename = "type")]
 	r#type: &'static str,
 	event: &'static str,
 	#[serde(skip_serializing_if = "Option::is_none")]
-	body: Option<T>,
+	body: Option<Value>,
 }
 
 /// Small helper for DAP framing.
@@ -188,6 +194,8 @@ struct DebugSession {
 	thread_cache: HashMap<i64, Pid>,
 	vars: VariablesStore,
 	events: Arc<Mutex<Vec<InternalEvent>>>,
+	terminated: bool,
+	exit_code: Option<i32>,
 }
 
 #[derive(Default)]
@@ -224,6 +232,8 @@ impl DebugSession {
 			thread_cache: HashMap::new(),
 			vars: VariablesStore::default(),
 			events: Arc::new(Mutex::new(Vec::new())),
+			terminated: false,
+			exit_code: None,
 		}
 	}
 
@@ -257,68 +267,89 @@ impl DebugSession {
 						"allThreadsStopped": true,
 						"description": description,
 					});
-					let ev = DapEvent::<Value> {
-						seq: self.next_seq(),
-						r#type: "event",
-						event: "stopped",
-						body: Some(body),
-					};
-					self.io.write_message(&ev)?;
+					self.send_event_raw("stopped", Some(body))?;
 				}
 				InternalEvent::Exited { code } => {
-					let ev = DapEvent::<Value> {
-						seq: self.next_seq(),
-						r#type: "event",
-						event: "exited",
-						body: Some(json!({"exitCode": code})),
-					};
-					self.io.write_message(&ev)?;
-					let ev = DapEvent::<Value> {
-						seq: self.next_seq(),
-						r#type: "event",
-						event: "terminated",
-						body: Some(json!({"restart": false})),
-					};
-					self.io.write_message(&ev)?;
+					// DAP expects `exited` (with exitCode) and `terminated` once.
+					// VS Code may trigger multiple exit-related paths (e.g. multiple stop reasons),
+					// so we de-duplicate here.
+					if !self.terminated {
+						self.terminated = true;
+						self.exit_code = Some(code);
+						self.send_event_body("exited", json!({"exitCode": code}))?;
+						// `terminated` body is optional; keep it minimal.
+						self.send_event("terminated")?;
+					}
 				}
 				InternalEvent::Output { category, output } => {
-					let ev = DapEvent::<Value> {
-						seq: self.next_seq(),
-						r#type: "event",
-						event: "output",
-						body: Some(json!({"category": category, "output": output})),
-					};
-					self.io.write_message(&ev)?;
+					self.send_event_body("output", json!({"category": category, "output": output}))?;
 				}
 			}
 		}
 		Ok(())
 	}
 
-	fn send_ok<T: Serialize>(&mut self, req: &DapRequest, body: Option<T>) -> anyhow::Result<()> {
+	// fn send_ok<T: Serialize>(&mut self, req: &DapRequest, body: Option<T>) -> anyhow::Result<()> {
+	// 	let rsp = DapResponse {
+	// 		seq: self.next_seq(),
+	// 		r#type: "response",
+	// 		request_seq: req.seq,
+	// 		success: true,
+	// 		command: req.command.clone(),
+	// 		message: None,
+	// 		body,
+	// 	};
+	// 	self.io.write_message(&rsp)
+	// }
+	fn send_success(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+		self.send_response_raw(req, true, None, None)
+	}
+
+	fn send_success_body<T: Serialize>(&mut self, req: &DapRequest, body: T) -> anyhow::Result<()> {
+		let body = serde_json::to_value(body)?;
+		self.send_response_raw(req, true, None, Some(body))
+ 	}
+
+	fn send_err(&mut self, req: &DapRequest, message: impl ToString) -> anyhow::Result<()> {
+		self.send_response_raw(req, false, Some(message.to_string()), None)
+	}
+
+	fn send_response_raw(
+		&mut self,
+		req: &DapRequest,
+		success: bool,
+		message: Option<String>,
+		body: Option<Value>,
+	) -> anyhow::Result<()> {
 		let rsp = DapResponse {
 			seq: self.next_seq(),
 			r#type: "response",
 			request_seq: req.seq,
-			success: true,
+			success,
 			command: req.command.clone(),
-			message: None,
+			message,
 			body,
 		};
 		self.io.write_message(&rsp)
 	}
 
-	fn send_err(&mut self, req: &DapRequest, message: impl ToString) -> anyhow::Result<()> {
-		let rsp = DapResponse::<Value> {
+	fn send_event(&mut self, name: &'static str) -> anyhow::Result<()> {
+		self.send_event_raw(name, None)
+	}
+
+	fn send_event_body<T: Serialize>(&mut self, name: &'static str, body: T) -> anyhow::Result<()> {
+		let body = serde_json::to_value(body)?;
+		self.send_event_raw(name, Some(body))
+	}
+
+	fn send_event_raw(&mut self, name: &'static str, body: Option<Value>) -> anyhow::Result<()> {
+		let ev = DapEvent {
 			seq: self.next_seq(),
-			r#type: "response",
-			request_seq: req.seq,
-			success: false,
-			command: req.command.clone(),
-			message: Some(message.to_string()),
-			body: None,
+			r#type: "event",
+			event: name,
+			body,
 		};
-		self.io.write_message(&rsp)
+		self.io.write_message(&ev)
 	}
 
 	fn handle_initialize(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -329,15 +360,11 @@ impl DebugSession {
 			"supportsRestartRequest": false,
 			"supportsSetVariable": false,
 			"supportsStepBack": false,
+			"supportsEvaluateForHovers": true,
+			"supportsPauseRequest": true,
 		});
-		self.send_ok(req, Some(body))?;
-		let ev = DapEvent::<Value> {
-			seq: self.next_seq(),
-			r#type: "event",
-			event: "initialized",
-			body: None,
-		};
-		self.io.write_message(&ev)
+		self.send_success_body(req, body)?;
+		self.send_event("initialized")
 	}
 
 	fn build_debugger(
@@ -440,8 +467,12 @@ impl DebugSession {
 			})
 			.unwrap_or_default();
 
+		// Reset session termination state for a new launch.
+		self.terminated = false;
+		self.exit_code = None;
+
 		self.build_debugger(program, &args, oracles)?;
-		self.send_ok(req, Some(json!({})))?;
+		self.send_success(req)?;
 		Ok(())
 	}
 
@@ -452,7 +483,7 @@ impl DebugSession {
 			.ok_or_else(|| anyhow!("configurationDone: debugger not initialized"))?;
 
 		let stop = dbg.start_debugee_with_reason().context("start debugee")?;
-		self.send_ok(req, Some(json!({})))?;
+		self.send_success(req)?;
 		self.emit_stop_reason(stop)?;
 		Ok(())
 	}
@@ -537,7 +568,7 @@ impl DebugSession {
 
 	fn handle_threads(&mut self, req: &DapRequest) -> anyhow::Result<()> {
 		let threads = self.refresh_threads()?;
-		self.send_ok(req, Some(json!({"threads": threads})))
+		self.send_success_body(req, json!({"threads": threads}))
 	}
 
 	fn handle_set_breakpoints(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -599,7 +630,7 @@ impl DebugSession {
 		}
 
 		self.breakpoints_by_source.insert(source_path, new_addrs);
-		self.send_ok(req, Some(json!({"breakpoints": rsp_bps})))
+		self.send_success_body(req, json!({"breakpoints": rsp_bps}))
 	}
 
 	fn handle_continue(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -608,8 +639,161 @@ impl DebugSession {
 			.as_mut()
 			.ok_or_else(|| anyhow!("continue: debugger not initialized"))?;
 		let stop = dbg.continue_debugee_with_reason().context("continue")?;
-		self.send_ok(req, Some(json!({"allThreadsContinued": true})))?;
+		self.send_success_body(req, json!({"allThreadsContinued": true}))?;
 		self.emit_stop_reason(stop)
+	}
+
+	fn handle_next(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+		let dbg = self
+			.debugger
+			.as_mut()
+			.ok_or_else(|| anyhow!("next: debugger not initialized"))?;
+		// Blocking step-over.
+		match dbg.step_over() {
+			Ok(()) => {
+				self.send_success_body(req, json!({"allThreadsContinued": true}))?;
+				let thread_id =self.current_thread_id();
+				self.enqueue_event(InternalEvent::Stopped {
+					reason: "step".to_string(),
+					thread_id: thread_id,
+					description: None,
+				});
+				self.drain_events()
+			}
+			Err(debugger::Error::ProcessExit(code)) => {
+				self.send_success_body(req, json!({"allThreadsContinued": true}))?;
+				self.enqueue_event(InternalEvent::Exited { code });
+				self.drain_events()
+			}
+			Err(e) => {
+				self.send_err(req, format!("next failed: {e}"))
+			}
+		}
+	}
+
+	fn handle_step_in(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+		let dbg = self
+			.debugger
+			.as_mut()
+			.ok_or_else(|| anyhow!("stepIn: debugger not initialized"))?;
+		match dbg.step_into() {
+			Ok(()) => {
+				self.send_success_body(req, json!({"allThreadsContinued": true}))?;
+				let thread_id =self.current_thread_id();
+				self.enqueue_event(InternalEvent::Stopped {
+					reason: "step".to_string(),
+					thread_id: thread_id,
+					description: None,
+				});
+				self.drain_events()
+			}
+			Err(debugger::Error::ProcessExit(code)) => {
+				self.send_success_body(req, json!({"allThreadsContinued": true}))?;
+				self.enqueue_event(InternalEvent::Exited { code });
+				self.drain_events()
+			}
+			Err(e) => self.send_err(req, format!("stepIn failed: {e}")),
+		}
+	}
+
+	fn handle_step_out(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+		let dbg = self
+			.debugger
+			.as_mut()
+			.ok_or_else(|| anyhow!("stepOut: debugger not initialized"))?;
+		match dbg.step_out() {
+			Ok(()) => {
+				self.send_success_body(req, json!({"allThreadsContinued": true}))?;
+				let thread_id =self.current_thread_id();
+				self.enqueue_event(InternalEvent::Stopped {
+					reason: "step".to_string(),
+					thread_id: thread_id,
+					description: None,
+				});
+				self.drain_events()
+			}
+			Err(debugger::Error::ProcessExit(code)) => {
+				self.send_success_body(req, json!({"allThreadsContinued": true}))?;
+				self.enqueue_event(InternalEvent::Exited { code });
+				self.drain_events()
+			}
+			Err(e) => self.send_err(req, format!("stepOut failed: {e}")),
+		}
+	}
+
+	fn handle_pause(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+		let dbg = match self.debugger.as_mut() {
+			None => {
+				self.send_err(req, "no active debug session")?;
+				return Ok(());
+			}
+			Some(dbg) => dbg,
+		};
+
+		// Pause should stop the debugee and then emit a `stopped` event.
+		match dbg.pause_debugee() {
+			Ok(()) => {
+				self.send_success(req)?;
+
+				let thread_id = self.current_thread_id();
+				self.enqueue_event(InternalEvent::Stopped {
+					reason: "pause".to_string(),
+					thread_id,
+					description: Some("Paused".to_string()),
+				});
+			}
+			Err(e) => {
+				self.send_err(req, &format!("pause failed: {e}"))?;
+			}
+		}
+
+		Ok(())
+	}
+
+	fn handle_evaluate(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+		let dbg = self
+			.debugger
+			.as_mut()
+			.ok_or_else(|| anyhow!("evaluate: debugger not initialized"))?;
+
+		let expression = req
+			.arguments
+			.get("expression")
+			.and_then(|v| v.as_str())
+			.ok_or_else(|| anyhow!("evaluate: missing arguments.expression"))?;
+
+		// Optional frameId: if provided, focus thread/frame so evaluation is stable.
+		if let Some(frame_id) = req.arguments.get("frameId").and_then(|v| v.as_i64()) {
+			let (thread_id, frame_num) = Self::decode_frame_id(frame_id);
+			let pid = self
+				.thread_cache
+				.get(&thread_id)
+				.copied()
+				.unwrap_or_else(|| Pid::from_raw(thread_id as i32));
+			let _ = dbg.set_thread_into_focus_by_pid(pid);
+			let _ = dbg.set_frame_into_focus(frame_num);
+		}
+
+		let dqe = bs_expr::parser()
+			.parse(expression)
+			.into_result()
+			.map_err(|e| anyhow!("evaluate parse error: {e:?}"))?;
+
+		let results = dbg.read_variable(dqe).context("evaluate read_variable")?;
+		if results.is_empty() {
+			return self.send_success_body(
+				req,
+				json!({"result": "<no result>", "variablesReference": 0}),
+			);
+		}
+		let (_id, val) = results.into_iter().next().unwrap().into_identified_value();
+		let child = value_children(&val);
+		let vars_ref = child.map(|c| self.vars.alloc(c)).unwrap_or(0);
+		let result_str = render_value_to_string(&val);
+		self.send_success_body(
+			req,
+			json!({"result": result_str, "variablesReference": vars_ref}),
+		)
 	}
 
 	fn handle_stack_trace(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -655,7 +839,7 @@ impl DebugSession {
 				"column": col.unwrap_or(0),
 			}));
 		}
-		self.send_ok(req, Some(json!({"stackFrames": frames, "totalFrames": frames.len()})))
+		self.send_success_body(req, json!({"stackFrames": frames, "totalFrames": frames.len()}))
 	}
 
 	fn decode_frame_id(frame_id: i64) -> (i64, u32) {
@@ -697,7 +881,7 @@ impl DebugSession {
 			json!({"name": "Arguments", "variablesReference": args_ref, "expensive": false}),
 		];
 
-		self.send_ok(req, Some(json!({"scopes": scopes})))
+		self.send_success_body(req, json!({"scopes": scopes}))
 	}
 
 	fn handle_variables(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -729,11 +913,11 @@ impl DebugSession {
 			}));
 		}
 
-		self.send_ok(req, Some(json!({"variables": out})))
+		self.send_success_body(req, json!({"variables": out}))
 	}
 
 	fn handle_disconnect(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-		self.send_ok(req, Some(json!({})))?;
+		self.send_success(req)?;
 		Ok(())
 	}
 
@@ -748,6 +932,11 @@ impl DebugSession {
 			"scopes" => self.handle_scopes(req)?,
 			"variables" => self.handle_variables(req)?,
 			"continue" => self.handle_continue(req)?,
+			"next" => self.handle_next(req)?,
+			"stepIn" => self.handle_step_in(req)?,
+			"stepOut" => self.handle_step_out(req)?,
+			"pause" => self.handle_pause(req)?,
+			"evaluate" => self.handle_evaluate(req)?,
 			"disconnect" => {
 				self.handle_disconnect(req)?;
 				return Ok(false);
