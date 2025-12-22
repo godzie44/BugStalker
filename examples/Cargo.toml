@@ -17,6 +17,7 @@ members = [
     "panic",
     "calculations",
     "calls",
+    "dap_cache_vars"
 ]
 
 exclude = [
