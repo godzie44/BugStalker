@@ -296,9 +296,17 @@ struct DebugSession {
     breakpoints_by_source: HashMap<String, Vec<debugger::address::Address>>,
     thread_cache: HashMap<i64, Pid>,
     vars: VariablesStore,
+    scope_cache: HashMap<(i64, u32, ScopeKind), i64>,
+    child_links: HashMap<(i64, usize), i64>,
     events: Arc<Mutex<Vec<InternalEvent>>>,
     terminated: bool,
     exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ScopeKind {
+    Locals,
+    Arguments,
 }
 
 #[derive(Default)]
@@ -322,6 +330,12 @@ impl VariablesStore {
         self.store.insert(key, vars);
         key
     }
+
+
+    fn clear(&mut self) {
+        self.next_ref = 1;
+        self.store.clear();
+    }
 }
 
 impl DebugSession {
@@ -335,6 +349,8 @@ impl DebugSession {
             breakpoints_by_source: HashMap::new(),
             thread_cache: HashMap::new(),
             vars: VariablesStore::default(),
+            scope_cache: HashMap::new(),
+            child_links: HashMap::new(),
             events: Arc::new(Mutex::new(Vec::new())),
             terminated: false,
             exit_code: None,
@@ -351,6 +367,20 @@ impl DebugSession {
         if let Ok(mut q) = self.events.lock() {
             q.push(ev);
         }
+    }
+
+
+    fn begin_stop_epoch(&mut self) {
+        self.vars.clear();
+        self.scope_cache.clear();
+        self.child_links.clear();
+    }
+
+    fn begin_running(&mut self) {
+        // Invalidate variable references when the program resumes.
+        self.vars.clear();
+        self.scope_cache.clear();
+        self.child_links.clear();
     }
 
     fn drain_events(&mut self) -> anyhow::Result<()> {
@@ -636,6 +666,8 @@ impl DebugSession {
             return Ok(());
         }
 
+        self.begin_stop_epoch();
+
         self.enqueue_event(InternalEvent::Stopped {
             reason,
             thread_id,
@@ -741,24 +773,32 @@ impl DebugSession {
     }
 
     fn handle_continue(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.begin_running();
+
         let dbg = self
             .debugger
             .as_mut()
             .ok_or_else(|| anyhow!("continue: debugger not initialized"))?;
+
         let stop = dbg.continue_debugee_with_reason().context("continue")?;
         self.send_success_body(req, json!({"allThreadsContinued": true}))?;
         self.emit_stop_reason(stop)
     }
 
     fn handle_next(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.begin_running();
+
         let dbg = self
             .debugger
             .as_mut()
             .ok_or_else(|| anyhow!("next: debugger not initialized"))?;
         // Blocking step-over.
+
         match dbg.step_over() {
             Ok(()) => {
                 self.send_success_body(req, json!({"allThreadsContinued": true}))?;
+                self.begin_stop_epoch();
+
                 let thread_id = self.current_thread_id();
                 self.enqueue_event(InternalEvent::Stopped {
                     reason: "step".to_string(),
@@ -777,13 +817,18 @@ impl DebugSession {
     }
 
     fn handle_step_in(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.begin_running();
+
         let dbg = self
             .debugger
             .as_mut()
             .ok_or_else(|| anyhow!("stepIn: debugger not initialized"))?;
+
         match dbg.step_into() {
             Ok(()) => {
                 self.send_success_body(req, json!({"allThreadsContinued": true}))?;
+                self.begin_stop_epoch();
+
                 let thread_id = self.current_thread_id();
                 self.enqueue_event(InternalEvent::Stopped {
                     reason: "step".to_string(),
@@ -802,13 +847,18 @@ impl DebugSession {
     }
 
     fn handle_step_out(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.begin_running();
+
         let dbg = self
             .debugger
             .as_mut()
             .ok_or_else(|| anyhow!("stepOut: debugger not initialized"))?;
+
         match dbg.step_out() {
             Ok(()) => {
                 self.send_success_body(req, json!({"allThreadsContinued": true}))?;
+                self.begin_stop_epoch();
+
                 let thread_id = self.current_thread_id();
                 self.enqueue_event(InternalEvent::Stopped {
                     reason: "step".to_string(),
@@ -839,6 +889,8 @@ impl DebugSession {
         match dbg.pause_debugee() {
             Ok(()) => {
                 self.send_success(req)?;
+
+                self.begin_stop_epoch();
 
                 let thread_id = self.current_thread_id();
                 self.enqueue_event(InternalEvent::Stopped {
@@ -978,10 +1030,23 @@ impl DebugSession {
         let _ = dbg.set_frame_into_focus(frame_num);
 
         // NOTE: avoid borrowing `self` mutably while `dbg` is borrowed.
+        let locals_ref = if let Some(r) = self.scope_cache.get(&(thread_id, frame_num, ScopeKind::Locals)).copied() {
+            r
+        } else {
         let locals = read_locals(dbg).unwrap_or_default();
+            let r = self.vars.alloc(locals);
+            self.scope_cache.insert((thread_id, frame_num, ScopeKind::Locals), r);
+            r
+        };
+
+        let args_ref = if let Some(r) = self.scope_cache.get(&(thread_id, frame_num, ScopeKind::Arguments)).copied() {
+            r
+        } else {
         let args = read_args(dbg).unwrap_or_default();
-        let locals_ref = self.vars.alloc(locals);
-        let args_ref = self.vars.alloc(args);
+            let r = self.vars.alloc(args);
+            self.scope_cache.insert((thread_id, frame_num, ScopeKind::Arguments), r);
+            r
+        };
 
         let scopes = vec![
             json!({"name": "Locals", "variablesReference": locals_ref, "expensive": false}),
@@ -1006,12 +1071,18 @@ impl DebugSession {
             .unwrap_or_default();
 
         let mut out = Vec::new();
-        for v in vars {
-            let child_ref = v
-                .child
-                .as_ref()
-                .map(|c| self.vars.alloc(c.clone()))
-                .unwrap_or(0);
+        for (index, v) in vars.into_iter().enumerate() {
+            let child_ref = if let Some(child) = v.child.as_ref() {
+                if let Some(r) = self.child_links.get(&(variables_reference, index)).copied() {
+                    r
+                } else {
+                    let r = self.vars.alloc(child.clone());
+                    self.child_links.insert((variables_reference, index), r);
+                    r
+                }
+            } else {
+                0
+            };
             out.push(json!({
                 "name": v.name,
                 "value": v.value,
