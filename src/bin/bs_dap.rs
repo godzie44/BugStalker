@@ -187,6 +187,7 @@ enum InternalEvent {
     Exited {
         code: i32,
     },
+    Terminated,
     Output {
         category: &'static str,
         output: String,
@@ -381,6 +382,12 @@ impl DebugSession {
                         self.exit_code = Some(code);
                         self.send_event_body("exited", json!({"exitCode": code}))?;
                         // `terminated` body is optional; keep it minimal.
+                        self.send_event("terminated")?;
+                    }
+                }
+                InternalEvent::Terminated => {
+                    if !self.terminated {
+                        self.terminated = true;
                         self.send_event("terminated")?;
                     }
                 }
@@ -1016,8 +1023,31 @@ impl DebugSession {
         self.send_success_body(req, json!({"variables": out}))
     }
 
-    fn handle_disconnect(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+    fn terminate_debuggee(&mut self) {
+        // Drop the debugger instance. For internally spawned debuggee this will SIGKILL and detach ptrace in Debugger::drop.
+        // For external debuggee it will detach.
+        let _ = self.debugger.take();
+        self.enqueue_event(InternalEvent::Terminated);
+    }
+
+    fn handle_terminate(&mut self, req: &DapRequest) -> anyhow::Result<()> {
         self.send_success(req)?;
+        self.terminate_debuggee();
+        self.drain_events()?;
+        Ok(())
+    }
+
+    fn handle_disconnect(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let terminate = req
+            .arguments
+            .get("terminateDebuggee")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        self.send_success(req)?;
+        if terminate {
+            self.terminate_debuggee();
+            self.drain_events()?;
+        }
         Ok(())
     }
 
@@ -1037,6 +1067,10 @@ impl DebugSession {
             "stepOut" => self.handle_step_out(req)?,
             "pause" => self.handle_pause(req)?,
             "evaluate" => self.handle_evaluate(req)?,
+            "terminate" => {
+                self.handle_terminate(req)?;
+                return Ok(false);
+            }
             "disconnect" => {
                 self.handle_disconnect(req)?;
                 return Ok(false);
