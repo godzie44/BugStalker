@@ -1,0 +1,10 @@
+[package]
+name = "dap_cache_vars"
+version = "0.0.0"
+edition = "2024"
+workspace = "./.."
+publish = false
+
+[[bin]]
+name = "dap_cache_vars"
+path = "src/main.rs"

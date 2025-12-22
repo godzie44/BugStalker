@@ -227,6 +227,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "dap_cache_vars"
+version = "0.0.0"
+
+[[package]]
 name = "deranged"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
