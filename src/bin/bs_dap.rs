@@ -316,11 +316,38 @@ struct VariablesStore {
 }
 
 #[derive(Clone)]
+struct WriteMeta {
+    addr: usize,
+    kind: ScalarKind,
+}
+
+#[derive(Clone, Copy)]
+enum ScalarKind {
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    Isize,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    Usize,
+    F32,
+    F64,
+    Bool,
+    Char,
+}
+
+#[derive(Clone)]
 struct VarItem {
     name: String,
     value: String,
     type_name: Option<String>,
     child: Option<Vec<VarItem>>,
+    write: Option<WriteMeta>,
 }
 
 impl VariablesStore {
@@ -329,6 +356,14 @@ impl VariablesStore {
         let key = self.next_ref;
         self.store.insert(key, vars);
         key
+    }
+
+    fn get(&self, key: i64) -> Option<&Vec<VarItem>> {
+        self.store.get(&key)
+    }
+
+    fn get_mut(&mut self, key: i64) -> Option<&mut Vec<VarItem>> {
+        self.store.get_mut(&key)
     }
 
     fn clear(&mut self) {
@@ -512,7 +547,7 @@ impl DebugSession {
             "supportsConfigurationDoneRequest": true,
             "supportsTerminateRequest": true,
             "supportsRestartRequest": false,
-            "supportsSetVariable": false,
+            "supportsSetVariable": true,
             "supportsStepBack": false,
             "supportsEvaluateForHovers": true,
             "supportsPauseRequest": true,
@@ -1127,6 +1162,65 @@ impl DebugSession {
         self.send_success_body(req, json!({"variables": out}))
     }
 
+    fn handle_set_variable(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let vars_ref = req
+            .arguments
+            .get("variablesReference")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| anyhow!("setVariable: missing arguments.variablesReference"))?;
+
+        let name = req
+            .arguments
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("setVariable: missing arguments.name"))?
+            .to_string();
+
+        let new_value = req
+            .arguments
+            .get("value")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("setVariable: missing arguments.value"))?
+            .to_string();
+
+        let dbg = self
+            .debugger
+            .as_ref()
+            .ok_or_else(|| anyhow!("setVariable: debugger not initialized"))?;
+
+        let (reply_value, reply_type) = {
+            let vars = self
+                .vars
+                .get_mut(vars_ref)
+                .ok_or_else(|| anyhow!("setVariable: unknown variablesReference={vars_ref}"))?;
+
+            let item = vars
+                .iter_mut()
+                .find(|v| v.name == name)
+                .ok_or_else(|| anyhow!("setVariable: variable '{name}' not found"))?;
+
+            let Some(write) = item.write.clone() else {
+                self.send_err(req, "setVariable: target variable is not writable (only scalar locals/args supported)".to_string())?;
+                return Ok(());
+            };
+
+            let bytes = parse_set_value(write.kind, &new_value)?;
+            write_bytes(dbg, write.addr, &bytes)?;
+
+            // Update cached presentation value for this stop epoch.
+            item.value = new_value.clone();
+            (item.value.clone(), item.type_name.clone())
+        };
+
+        self.send_success_body(
+            req,
+            json!({
+                "value": reply_value,
+                "type": reply_type,
+                "variablesReference": 0,
+            }),
+        )
+    }
     fn terminate_debuggee(&mut self) {
         // Drop the debugger instance. For internally spawned debuggee this will SIGKILL and detach ptrace in Debugger::drop.
         // For external debuggee it will detach.
@@ -1165,6 +1259,7 @@ impl DebugSession {
             "stackTrace" => self.handle_stack_trace(req)?,
             "scopes" => self.handle_scopes(req)?,
             "variables" => self.handle_variables(req)?,
+            "setVariable" => self.handle_set_variable(req)?,
             "continue" => self.handle_continue(req)?,
             "next" => self.handle_next(req)?,
             "stepIn" => self.handle_step_in(req)?,
@@ -1227,6 +1322,186 @@ fn render_value_to_string(v: &debugger::variable::value::Value) -> String {
     }
 }
 
+fn value_write_meta(v: &debugger::variable::value::Value) -> Option<WriteMeta> {
+    use debugger::variable::value::{SupportedScalar, Value as BsValue};
+
+    let addr = v.in_memory_location()?;
+    match v {
+        BsValue::Scalar(s) => match s.value.as_ref()? {
+            SupportedScalar::I8(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::I8,
+            }),
+            SupportedScalar::I16(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::I16,
+            }),
+            SupportedScalar::I32(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::I32,
+            }),
+            SupportedScalar::I64(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::I64,
+            }),
+            SupportedScalar::I128(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::I128,
+            }),
+            SupportedScalar::Isize(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::Isize,
+            }),
+            SupportedScalar::U8(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::U8,
+            }),
+            SupportedScalar::U16(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::U16,
+            }),
+            SupportedScalar::U32(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::U32,
+            }),
+            SupportedScalar::U64(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::U64,
+            }),
+            SupportedScalar::U128(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::U128,
+            }),
+            SupportedScalar::Usize(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::Usize,
+            }),
+            SupportedScalar::F32(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::F32,
+            }),
+            SupportedScalar::F64(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::F64,
+            }),
+            SupportedScalar::Bool(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::Bool,
+            }),
+            SupportedScalar::Char(_) => Some(WriteMeta {
+                addr,
+                kind: ScalarKind::Char,
+            }),
+            SupportedScalar::Empty() => None,
+        },
+        _ => None,
+    }
+}
+
+fn parse_set_value(kind: ScalarKind, input: &str) -> anyhow::Result<Vec<u8>> {
+    let s = input.trim();
+
+    fn parse_int_i128(s: &str) -> anyhow::Result<i128> {
+        if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+            i128::from_str_radix(hex, 16).context("hex i128 parse")
+        } else {
+            s.parse::<i128>().context("dec i128 parse")
+        }
+    }
+
+    fn parse_int_u128(s: &str) -> anyhow::Result<u128> {
+        if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+            u128::from_str_radix(hex, 16).context("hex u128 parse")
+        } else {
+            s.parse::<u128>().context("dec u128 parse")
+        }
+    }
+
+    match kind {
+        ScalarKind::I8 => Ok(vec![(parse_int_i128(s)? as i8) as u8]),
+        ScalarKind::U8 => Ok(vec![parse_int_u128(s)? as u8]),
+        ScalarKind::I16 => Ok((parse_int_i128(s)? as i16).to_le_bytes().to_vec()),
+        ScalarKind::U16 => Ok((parse_int_u128(s)? as u16).to_le_bytes().to_vec()),
+        ScalarKind::I32 => Ok((parse_int_i128(s)? as i32).to_le_bytes().to_vec()),
+        ScalarKind::U32 => Ok((parse_int_u128(s)? as u32).to_le_bytes().to_vec()),
+        ScalarKind::I64 => Ok((parse_int_i128(s)? as i64).to_le_bytes().to_vec()),
+        ScalarKind::U64 => Ok((parse_int_u128(s)? as u64).to_le_bytes().to_vec()),
+        ScalarKind::I128 => Ok(parse_int_i128(s)?.to_le_bytes().to_vec()),
+        ScalarKind::U128 => Ok(parse_int_u128(s)?.to_le_bytes().to_vec()),
+        ScalarKind::Isize => Ok((parse_int_i128(s)? as isize).to_le_bytes().to_vec()),
+        ScalarKind::Usize => Ok((parse_int_u128(s)? as usize).to_le_bytes().to_vec()),
+        ScalarKind::F32 => Ok(s
+            .parse::<f32>()
+            .context("f32 parse")?
+            .to_le_bytes()
+            .to_vec()),
+        ScalarKind::F64 => Ok(s
+            .parse::<f64>()
+            .context("f64 parse")?
+            .to_le_bytes()
+            .to_vec()),
+        ScalarKind::Bool => {
+            let b = match s {
+                "true" | "True" | "TRUE" => true,
+                "false" | "False" | "FALSE" => false,
+                "1" => true,
+                "0" => false,
+                _ => anyhow::bail!("bool parse: expected true/false/0/1, got '{s}'"),
+            };
+            Ok(vec![if b { 1 } else { 0 }])
+        }
+        ScalarKind::Char => {
+            // Accept: 'a' or 97 or 0x61. Stored as Rust char (u32).
+            if let Some(stripped) = s.strip_prefix('\'').and_then(|x| x.strip_suffix('\'')) {
+                let mut it = stripped.chars();
+                let ch = it.next().context("char parse: empty literal")?;
+                if it.next().is_some() {
+                    anyhow::bail!("char parse: expected single char literal");
+                }
+                let u = ch as u32;
+                Ok(u.to_le_bytes().to_vec())
+            } else {
+                let u = parse_int_u128(s)? as u32;
+                Ok(u.to_le_bytes().to_vec())
+            }
+        }
+    }
+}
+
+fn write_bytes(dbg: &debugger::Debugger, addr: usize, bytes: &[u8]) -> anyhow::Result<()> {
+    let word = std::mem::size_of::<usize>();
+    if bytes.is_empty() {
+        return Ok(());
+    }
+
+    let start = addr;
+    let end = addr + bytes.len();
+    let mut cur = start;
+
+    while cur < end {
+        let word_start = (cur / word) * word;
+        let word_end = word_start + word;
+        let chunk_from = std::cmp::max(cur, word_start);
+        let chunk_to = std::cmp::min(end, word_end);
+
+        let mut existing = dbg.read_memory(word_start, word).context("read_memory")?;
+        let src_off = chunk_from - start;
+        let dst_off = chunk_from - word_start;
+        existing[dst_off..dst_off + (chunk_to - chunk_from)]
+            .copy_from_slice(&bytes[src_off..src_off + (chunk_to - chunk_from)]);
+
+        let mut le = [0u8; std::mem::size_of::<usize>()];
+        le.copy_from_slice(&existing[..word]);
+        let value = usize::from_le_bytes(le);
+
+        dbg.write_memory(word_start as _, value as _)
+            .context("write_memory")?;
+
+        cur = word_end;
+    }
+
+    Ok(())
+}
 fn value_children(v: &debugger::variable::value::Value) -> Option<Vec<VarItem>> {
     use debugger::variable::render::{RenderValue, ValueLayout};
     let layout = v.value_layout()?;
@@ -1241,6 +1516,7 @@ fn value_children(v: &debugger::variable::value::Value) -> Option<Vec<VarItem>> 
                     value: render_value_to_string(val),
                     type_name: Some(val.r#type().to_string()),
                     child: value_children(val),
+                    write: value_write_meta(val),
                 });
             }
             Some(out)
@@ -1254,6 +1530,7 @@ fn value_children(v: &debugger::variable::value::Value) -> Option<Vec<VarItem>> 
                     value: render_value_to_string(val),
                     type_name: Some(val.r#type().to_string()),
                     child: value_children(val),
+                    write: value_write_meta(val),
                 });
             }
             Some(out)
@@ -1266,6 +1543,7 @@ fn value_children(v: &debugger::variable::value::Value) -> Option<Vec<VarItem>> 
                     value: render_value_to_string(val),
                     type_name: Some(val.r#type().to_string()),
                     child: value_children(val),
+                    write: value_write_meta(val),
                 });
             }
             Some(out)
@@ -1282,6 +1560,7 @@ fn value_children(v: &debugger::variable::value::Value) -> Option<Vec<VarItem>> 
                     ),
                     type_name: None,
                     child: None,
+                    write: None,
                 });
             }
             Some(out)
@@ -1302,6 +1581,7 @@ fn read_locals(dbg: &debugger::Debugger) -> anyhow::Result<Vec<VarItem>> {
             value: render_value_to_string(&val),
             type_name: Some(val.r#type().to_string()),
             child: value_children(&val),
+            write: value_write_meta(&val),
         });
     }
     Ok(out)
@@ -1320,6 +1600,7 @@ fn read_args(dbg: &debugger::Debugger) -> anyhow::Result<Vec<VarItem>> {
             value: render_value_to_string(&val),
             type_name: Some(val.r#type().to_string()),
             child: value_children(&val),
+            write: value_write_meta(&val),
         });
     }
     Ok(out)
