@@ -331,7 +331,6 @@ impl VariablesStore {
         key
     }
 
-
     fn clear(&mut self) {
         self.next_ref = 1;
         self.store.clear();
@@ -369,7 +368,6 @@ impl DebugSession {
         }
     }
 
-
     fn begin_stop_epoch(&mut self) {
         self.vars.clear();
         self.scope_cache.clear();
@@ -384,10 +382,50 @@ impl DebugSession {
     }
 
     fn drain_events(&mut self) -> anyhow::Result<()> {
+        // Drain queued internal events.
         let mut drained = Vec::new();
         if let Ok(mut q) = self.events.lock() {
             drained.append(&mut *q);
         }
+
+        // If we already terminated this session, ignore any late events (output/stopped etc.).
+        if self.terminated {
+            return Ok(());
+        }
+
+        // Lifecycle events must be deterministic and must dominate other event types.
+        // If `Exited` or `Terminated` is present in the queue, we send the corresponding
+        // DAP events once and ignore any other events from this drain batch.
+        let mut exit_code: Option<i32> = None;
+        let mut has_terminated = false;
+        for ev in &drained {
+            match ev {
+                InternalEvent::Exited { code } => {
+                    exit_code = Some(*code);
+                }
+                InternalEvent::Terminated => {
+                    has_terminated = true;
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(code) = exit_code {
+            // Natural process exit: exited -> terminated (exactly once).
+            self.terminated = true;
+            self.exit_code = Some(code);
+            self.send_event_body("exited", json!({ "exitCode": code }))?;
+            self.send_event("terminated")?;
+            return Ok(());
+        }
+
+        if has_terminated {
+            // User-initiated termination: terminated only (exactly once).
+            self.terminated = true;
+            self.send_event("terminated")?;
+            return Ok(());
+        }
+
         for ev in drained {
             match ev {
                 InternalEvent::Stopped {
@@ -403,28 +441,13 @@ impl DebugSession {
                     });
                     self.send_event_raw("stopped", Some(body))?;
                 }
-                InternalEvent::Exited { code } => {
-                    // DAP expects `exited` (with exitCode) and `terminated` once.
-                    // VS Code may trigger multiple exit-related paths (e.g. multiple stop reasons),
-                    // so we de-duplicate here.
-                    if !self.terminated {
-                        self.terminated = true;
-                        self.exit_code = Some(code);
-                        self.send_event_body("exited", json!({"exitCode": code}))?;
-                        // `terminated` body is optional; keep it minimal.
-                        self.send_event("terminated")?;
-                    }
-                }
-                InternalEvent::Terminated => {
-                    if !self.terminated {
-                        self.terminated = true;
-                        self.send_event("terminated")?;
-                    }
+                InternalEvent::Exited { .. } | InternalEvent::Terminated => {
+                    // Handled by the lifecycle pre-scan above.
                 }
                 InternalEvent::Output { category, output } => {
                     self.send_event_body(
                         "output",
-                        json!({"category": category, "output": output}),
+                        json!({ "category": category, "output": output }),
                     )?;
                 }
             }
@@ -1030,21 +1053,31 @@ impl DebugSession {
         let _ = dbg.set_frame_into_focus(frame_num);
 
         // NOTE: avoid borrowing `self` mutably while `dbg` is borrowed.
-        let locals_ref = if let Some(r) = self.scope_cache.get(&(thread_id, frame_num, ScopeKind::Locals)).copied() {
+        let locals_ref = if let Some(r) = self
+            .scope_cache
+            .get(&(thread_id, frame_num, ScopeKind::Locals))
+            .copied()
+        {
             r
         } else {
-        let locals = read_locals(dbg).unwrap_or_default();
+            let locals = read_locals(dbg).unwrap_or_default();
             let r = self.vars.alloc(locals);
-            self.scope_cache.insert((thread_id, frame_num, ScopeKind::Locals), r);
+            self.scope_cache
+                .insert((thread_id, frame_num, ScopeKind::Locals), r);
             r
         };
 
-        let args_ref = if let Some(r) = self.scope_cache.get(&(thread_id, frame_num, ScopeKind::Arguments)).copied() {
+        let args_ref = if let Some(r) = self
+            .scope_cache
+            .get(&(thread_id, frame_num, ScopeKind::Arguments))
+            .copied()
+        {
             r
         } else {
-        let args = read_args(dbg).unwrap_or_default();
+            let args = read_args(dbg).unwrap_or_default();
             let r = self.vars.alloc(args);
-            self.scope_cache.insert((thread_id, frame_num, ScopeKind::Arguments), r);
+            self.scope_cache
+                .insert((thread_id, frame_num, ScopeKind::Arguments), r);
             r
         };
 
