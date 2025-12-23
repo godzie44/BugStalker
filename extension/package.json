@@ -40,6 +40,7 @@
     "url": "https://github.com/godzie44/BugStalker/issues"
   },
   "main": "./out/extension.js",
+  "publisher": "BugStalker",
   "contributes": {
     "commands": [
       {

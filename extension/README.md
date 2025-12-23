@@ -4,7 +4,7 @@ Debugging Rust applications with BugStalker in Visual Studio Code. For more info
 
 ## Procuring the `bs` binary
 
-The extension requires the `bs` binary. This binary is not packaged with the VS Code extension. See the [installation](https://godzie44.github.io/BugStalker/docs/installation) page to install the binary.
+The extension requires the `bs` binary. This binary is not packaged with the VS Code extension. See the [installation](https://godzie44.github.io/BugStalker/docs/installation) page to install the binary (`cargo install bugstalker` is a simplest way).
 
 ## Features
 
@@ -49,9 +49,8 @@ This will launch `/target/debug/my_app` with arguments one, two, and three and a
 
 **Enjoy!**
 
-## Системные требования
-- **ОС**: Linux (x86-64/AMD64)
-- **Архитектура**: 64-bit (x86-64)
-- **Диспетчер пакетов**: Cargo (Rust)
-- **Минимальная версия**: Rust 1.60+
+## System requirements
+- **OS**: Linux (x86-64/AMD64)
+- **Arch**: 64-bit (x86-64)
+- **Other**: Cargo (Rust)
 
