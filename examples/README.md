@@ -86,6 +86,10 @@ This should be a single application that may compiled into binaries with differe
 
 Nested calls that trigger a SIGSEGV to validate DAP `exceptionInfo` source/stack trace reporting.
 
+### Dap_exception_filters
+
+Application that raises a signal or loops to validate DAP exception breakpoint filters.
+
 ### Dap_source_map
 
 Small application that includes a module under a `./nptl/` path to exercise DAP `source` request
