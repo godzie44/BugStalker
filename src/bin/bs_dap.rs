@@ -1531,18 +1531,28 @@ impl DebugSession {
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| anyhow!("source: missing source.path"))?;
 
-        // VSCode sometimes sends relative glibc paths like "./nptl/pthread_kill.c"
-        let try_paths = [
-            std::path::PathBuf::from(path),
-            std::path::PathBuf::from(path.trim_start_matches("./")),
-        ];
+        let read_source = |candidate: &str| -> Option<String> {
+            let normalized = SourceMap::norm_path(candidate);
+            // VSCode sometimes sends relative glibc paths like "./nptl/pthread_kill.c"
+            let try_paths = [
+                std::path::PathBuf::from(&normalized),
+                std::path::PathBuf::from(normalized.trim_start_matches("./")),
+            ];
 
-        let mut content: Option<String> = None;
-        for p in &try_paths {
-            if let Ok(data) = std::fs::read_to_string(p) {
-                content = Some(data);
-                break;
+            for p in &try_paths {
+                if let Ok(data) = std::fs::read_to_string(p) {
+                    return Some(data);
+                }
             }
+
+            None
+        };
+
+        let mapped_path = self.source_map.map_client_to_target(path);
+        let mut content = read_source(&mapped_path);
+        if content.is_none() {
+            let fallback_path = self.source_map.map_target_to_client(path);
+            content = read_source(&fallback_path);
         }
 
         let Some(content) = content else {
