@@ -317,6 +317,10 @@ struct LastStop {
     reason: String,
     description: Option<String>,
     signal: Option<i32>,
+    source_path: Option<String>,
+    line: Option<i64>,
+    column: Option<i64>,
+    stack_trace: Option<String>,
 }
 
 #[derive(Default)]
@@ -752,10 +756,56 @@ impl DebugSession {
 
         self.begin_stop_epoch();
 
+        let (source_path, line, column, stack_trace) = self
+            .debugger
+            .as_ref()
+            .and_then(|dbg| {
+                let pid = dbg.ecx().pid_on_focus();
+                let bt = dbg.backtrace(pid).unwrap_or_default();
+                if bt.is_empty() {
+                    return None;
+                }
+                let (source_path, line, column) = bt.first().and_then(|frame| {
+                    frame.place.as_ref().map(|place| {
+                        let path = place.file.to_string_lossy();
+                        let mapped = self.source_map.map_target_to_client(path.as_ref());
+                        (
+                            Some(mapped),
+                            Some(place.line_number as i64),
+                            Some(place.column_number as i64),
+                        )
+                    })
+                })?;
+                let stack_trace = bt
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, frame)| {
+                        let name = frame.func_name.as_deref().unwrap_or("<unknown>");
+                        if let Some(place) = frame.place.as_ref() {
+                            let path = place.file.to_string_lossy();
+                            let mapped = self.source_map.map_target_to_client(path.as_ref());
+                            format!(
+                                "#{idx} {name} ({mapped}:{}:{})",
+                                place.line_number, place.column_number
+                            )
+                        } else {
+                            format!("#{idx} {name} (<unknown>)")
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                Some((source_path, line, column, Some(stack_trace)))
+            })
+            .unwrap_or((None, None, None, None));
+
         self.last_stop = Some(LastStop {
             reason: reason.clone(),
             description: description.clone(),
             signal: None,
+            source_path,
+            line,
+            column,
+            stack_trace,
         });
 
         self.enqueue_event(InternalEvent::Stopped {
@@ -893,6 +943,10 @@ impl DebugSession {
                     reason: "pause".to_string(),
                     description: Some("Paused".to_string()),
                     signal: None,
+                    source_path: None,
+                    line: None,
+                    column: None,
+                    stack_trace: None,
                 });
 
                 let thread_id = self.current_thread_id();
@@ -1037,13 +1091,39 @@ impl DebugSession {
             last.reason.clone()
         };
 
+        let mut details = serde_json::Map::new();
+        if let Some(message) = last.description.clone() {
+            details.insert("message".to_string(), json!(message));
+        }
+        if let Some(source_path) = last.source_path.clone() {
+            details.insert("source".to_string(), json!({ "path": source_path }));
+            if let Some(line) = last.line {
+                details.insert("line".to_string(), json!(line));
+            }
+            if let Some(column) = last.column {
+                details.insert("column".to_string(), json!(column));
+            }
+            details.insert(
+                "stackTrace".to_string(),
+                json!(
+                    last.stack_trace
+                        .clone()
+                        .unwrap_or_else(|| "<unavailable>".to_string())
+                ),
+            );
+        } else {
+            details.insert(
+                "message".to_string(),
+                json!("Source information unavailable"),
+            );
+            details.insert("stackTrace".to_string(), json!("<unavailable>"));
+        }
+
         let body = json!({
             "exceptionId": exception_id,
             "description": description,
             "breakMode": "always",
-            "details": {
-                "message": last.description,
-            }
+            "details": details,
         });
 
         self.send_success_body(req, body)
