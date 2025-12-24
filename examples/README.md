@@ -81,3 +81,7 @@ Application with composite values for DAP `setVariable` testing.
 
 **TODO**
 This should be a single application that may compiled into binaries with different library versions. But, for now, looks like this is not possible.
+
+### Dap_exception_details
+
+Nested calls that trigger a SIGSEGV to validate DAP `exceptionInfo` source/stack trace reporting.
