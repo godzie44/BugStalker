@@ -5,10 +5,16 @@
 
 use anyhow::{Context, anyhow};
 use bugstalker::debugger;
+use bugstalker::debugger::address::RelocatedAddress;
 use bugstalker::debugger::process::{Child, Installed};
+use bugstalker::debugger::register::debug::{BreakCondition, BreakSize};
+use bugstalker::debugger::variable::dqe::Dqe;
 use bugstalker::oracle::{Oracle, builtin};
 use bugstalker::ui::command::parser::expression as bs_expr;
+use bugstalker::ui::command::parser::watchpoint_at_address;
+use bugstalker::ui::command::watch::WatchpointIdentity;
 use chumsky::Parser as _;
+use chumsky::prelude::end;
 use clap::Parser;
 use log::{info, warn};
 use nix::unistd::Pid;
@@ -296,6 +302,7 @@ struct DebugSession {
     session_mode: Option<SessionMode>,
     source_map: SourceMap,
     breakpoints_by_source: HashMap<String, Vec<debugger::address::Address>>,
+    data_breakpoints: HashMap<String, DataBreakpointRecord>,
     thread_cache: HashMap<i64, Pid>,
     vars: VariablesStore,
     scope_cache: HashMap<(i64, u32, ScopeKind), i64>,
@@ -381,6 +388,26 @@ struct VarItem {
     source: Option<debugger::variable::value::Value>,
 }
 
+#[derive(Clone)]
+enum DataBreakpointTarget {
+    Expr { expression: String, dqe: Dqe },
+    Address { addr: usize, size: u8 },
+}
+
+#[derive(Clone)]
+struct DataBreakpointRecord {
+    target: DataBreakpointTarget,
+}
+
+impl DataBreakpointTarget {
+    fn data_id(&self) -> String {
+        match self {
+            DataBreakpointTarget::Expr { expression, .. } => format!("expr:{expression}"),
+            DataBreakpointTarget::Address { addr, size } => format!("addr:0x{addr:x}:{size}"),
+        }
+    }
+}
+
 impl VariablesStore {
     fn alloc(&mut self, vars: Vec<VarItem>) -> i64 {
         self.next_ref += 1;
@@ -417,6 +444,7 @@ impl DebugSession {
             session_mode: None,
             source_map: SourceMap::default(),
             breakpoints_by_source: HashMap::new(),
+            data_breakpoints: HashMap::new(),
             thread_cache: HashMap::new(),
             vars: VariablesStore::default(),
             scope_cache: HashMap::new(),
@@ -470,6 +498,68 @@ impl DebugSession {
         self.vars.clear();
         self.scope_cache.clear();
         self.child_links.clear();
+    }
+
+    fn parse_data_breakpoint_expression(expr: &str) -> Result<DataBreakpointTarget, String> {
+        let trimmed = expr.trim();
+        if trimmed.is_empty() {
+            return Err("data breakpoint expression is empty".to_string());
+        }
+
+        if let Ok(WatchpointIdentity::Address(addr, size)) = watchpoint_at_address()
+            .then_ignore(end())
+            .parse(trimmed)
+            .into_result()
+        {
+            return Ok(DataBreakpointTarget::Address { addr, size });
+        }
+
+        let dqe = bs_expr::parser()
+            .parse(trimmed)
+            .into_result()
+            .map_err(|e| format!("data breakpoint parse error: {e:?}"))?;
+        Ok(DataBreakpointTarget::Expr {
+            expression: trimmed.to_string(),
+            dqe,
+        })
+    }
+
+    fn parse_data_breakpoint_id(data_id: &str) -> Result<DataBreakpointTarget, String> {
+        let trimmed = data_id.trim();
+        if let Some(expr) = trimmed.strip_prefix("expr:") {
+            return Self::parse_data_breakpoint_expression(expr);
+        }
+        if let Some(addr) = trimmed.strip_prefix("addr:") {
+            return Self::parse_data_breakpoint_expression(addr);
+        }
+        Self::parse_data_breakpoint_expression(trimmed)
+    }
+
+    fn parse_data_breakpoint_access_type(
+        access_type: Option<&str>,
+    ) -> Result<BreakCondition, String> {
+        match access_type {
+            None | Some("write") => Ok(BreakCondition::DataWrites),
+            Some("readWrite") => Ok(BreakCondition::DataReadsWrites),
+            Some("read") => Err("read accessType is not supported".to_string()),
+            Some(other) => Err(format!("unsupported accessType: {other}")),
+        }
+    }
+
+    fn clear_data_breakpoints(
+        dbg: &mut debugger::Debugger,
+        existing: HashMap<String, DataBreakpointRecord>,
+    ) {
+        for (_, record) in existing {
+            match record.target {
+                DataBreakpointTarget::Expr { dqe, .. } => {
+                    let _ = dbg.remove_watchpoint_by_expr(dqe);
+                }
+                DataBreakpointTarget::Address { addr, .. } => {
+                    let _ = dbg.remove_watchpoint_by_addr(RelocatedAddress::from(addr));
+                }
+            }
+        }
     }
 
     fn drain_events(&mut self) -> anyhow::Result<()> {
@@ -1393,6 +1483,129 @@ impl DebugSession {
         )
     }
 
+    fn handle_data_breakpoint_info(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let expression = req
+            .arguments
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("dataBreakpointInfo: missing arguments.name"))?;
+
+        match Self::parse_data_breakpoint_expression(expression) {
+            Ok(target) => {
+                let data_id = target.data_id();
+                self.send_success_body(
+                    req,
+                    json!({
+                        "dataId": data_id,
+                        "description": expression,
+                        "accessTypes": ["write", "readWrite"],
+                        "canPersist": false,
+                    }),
+                )
+            }
+            Err(err) => self.send_success_body(
+                req,
+                json!({
+                    "dataId": Value::Null,
+                    "description": err,
+                    "accessTypes": [],
+                    "canPersist": false,
+                }),
+            ),
+        }
+    }
+
+    fn handle_set_data_breakpoints(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let dbg = self
+            .debugger
+            .as_mut()
+            .ok_or_else(|| anyhow!("setDataBreakpoints: debugger not initialized"))?;
+
+        let bps = req
+            .arguments
+            .get("breakpoints")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let existing = std::mem::take(&mut self.data_breakpoints);
+        Self::clear_data_breakpoints(dbg, existing);
+
+        let mut new_map = HashMap::new();
+        let mut rsp_bps = Vec::new();
+
+        for bp in bps {
+            let Some(data_id) = bp.get("dataId").and_then(|v| v.as_str()) else {
+                rsp_bps.push(json!({
+                    "verified": false,
+                    "message": "setDataBreakpoints: missing dataId",
+                }));
+                continue;
+            };
+
+            let condition = match Self::parse_data_breakpoint_access_type(
+                bp.get("accessType").and_then(|v| v.as_str()),
+            ) {
+                Ok(cond) => cond,
+                Err(err) => {
+                    rsp_bps.push(json!({
+                        "verified": false,
+                        "message": format!("setDataBreakpoints: {err}"),
+                    }));
+                    continue;
+                }
+            };
+
+            let target = match Self::parse_data_breakpoint_id(data_id) {
+                Ok(target) => target,
+                Err(err) => {
+                    rsp_bps.push(json!({
+                        "verified": false,
+                        "message": format!("setDataBreakpoints: {err}"),
+                    }));
+                    continue;
+                }
+            };
+
+            let result: anyhow::Result<()> = (|| match &target {
+                DataBreakpointTarget::Expr { expression, dqe } => dbg
+                    .set_watchpoint_on_expr(expression, dqe.clone(), condition)
+                    .map(|_| ())
+                    .map_err(|err| anyhow!("setDataBreakpoints: {err}")),
+                DataBreakpointTarget::Address { addr, size } => {
+                    let break_size = BreakSize::try_from(*size)
+                        .map_err(|err| anyhow!("setDataBreakpoints: {err}"))?;
+                    dbg.set_watchpoint_on_memory(
+                        RelocatedAddress::from(*addr),
+                        break_size,
+                        condition,
+                        false,
+                    )
+                    .map(|_| ())
+                    .map_err(|err| anyhow!("setDataBreakpoints: {err}"))
+                }
+            })();
+
+            match result {
+                Ok(()) => {
+                    new_map.insert(data_id.to_string(), DataBreakpointRecord { target });
+                    rsp_bps.push(json!({
+                        "verified": true,
+                    }));
+                }
+                Err(err) => {
+                    rsp_bps.push(json!({
+                        "verified": false,
+                        "message": format!("{err}"),
+                    }));
+                }
+            }
+        }
+
+        self.data_breakpoints = new_map;
+        self.send_success_body(req, json!({"breakpoints": rsp_bps}))
+    }
+
     fn handle_stack_trace(&mut self, req: &DapRequest) -> anyhow::Result<()> {
         let dbg = self
             .debugger
@@ -1681,6 +1894,8 @@ impl DebugSession {
             "configurationDone" => self.handle_configuration_done(req)?,
             "setBreakpoints" => self.handle_set_breakpoints(req)?,
             "setExceptionBreakpoints" => self.handle_set_exception_breakpoints(req)?,
+            "dataBreakpointInfo" => self.handle_data_breakpoint_info(req)?,
+            "setDataBreakpoints" => self.handle_set_data_breakpoints(req)?,
             "exceptionInfo" => self.handle_exception_info(req)?,
             "threads" => self.handle_threads(req)?,
             "stackTrace" => self.handle_stack_trace(req)?,

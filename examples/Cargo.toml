@@ -23,6 +23,7 @@ members = [
     "dap_exception_filters",
     "dap_attach",
     "dap_set_variable",
+    "dap_data_breakpoints",
     "dap_source_map",
 ]
 
