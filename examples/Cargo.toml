@@ -19,6 +19,7 @@ members = [
     "calls",
     "dap_cache_vars",
     "dap_except_info",
+    "dap_set_variable",
 ]
 
 exclude = [

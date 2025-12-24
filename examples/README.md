@@ -75,5 +75,9 @@ Tokio application with timers. Useful for testing `async ...` commands.
 
 Just some code using for testing a `call` command.
 
+### Dap_set_variable
+
+Application with composite values for DAP `setVariable` testing.
+
 **TODO**
 This should be a single application that may compiled into binaries with different library versions. But, for now, looks like this is not possible.

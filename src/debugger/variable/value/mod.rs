@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 mod bfs;
 pub(super) mod parser;
+pub mod serialize;
 pub mod specialization;
 
 pub use crate::debugger::variable::value::specialization::SpecializedValue;

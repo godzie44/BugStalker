@@ -23,6 +23,7 @@ pub use debugee::FunctionRange;
 pub use debugee::RegionInfo;
 pub use debugee::ThreadSnapshot;
 pub use debugee::dwarf::Symbol;
+pub use debugee::dwarf::r#type::ComplexType;
 pub use debugee::dwarf::r#type::TypeDeclaration;
 pub use debugee::dwarf::unit::FunctionInfo;
 pub use debugee::dwarf::unit::PlaceDescriptor;
