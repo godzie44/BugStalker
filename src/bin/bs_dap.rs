@@ -5,8 +5,8 @@
 
 use anyhow::{Context, anyhow};
 use bugstalker::debugger;
-use bugstalker::debugger::process::Child;
-use bugstalker::oracle::builtin;
+use bugstalker::debugger::process::{Child, Installed};
+use bugstalker::oracle::{Oracle, builtin};
 use bugstalker::ui::command::parser::expression as bs_expr;
 use chumsky::Parser as _;
 use clap::Parser;
@@ -293,6 +293,7 @@ struct DebugSession {
     server_seq: i64,
     initialized: bool,
     debugger: Option<debugger::Debugger>,
+    session_mode: Option<SessionMode>,
     source_map: SourceMap,
     breakpoints_by_source: HashMap<String, Vec<debugger::address::Address>>,
     thread_cache: HashMap<i64, Pid>,
@@ -313,6 +314,12 @@ const EXCEPTION_FILTER_PROCESS: &str = "process";
 enum ScopeKind {
     Locals,
     Arguments,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionMode {
+    Launch,
+    Attach,
 }
 
 #[derive(Debug, Clone)]
@@ -407,6 +414,7 @@ impl DebugSession {
             server_seq: 1,
             initialized: false,
             debugger: None,
+            session_mode: None,
             source_map: SourceMap::default(),
             breakpoints_by_source: HashMap::new(),
             thread_cache: HashMap::new(),
@@ -589,10 +597,31 @@ impl DebugSession {
         self.io.write_message(&ev)
     }
 
+    fn attach_pid(arguments: &Value) -> anyhow::Result<Pid> {
+        let pid_value = arguments
+            .get("pid")
+            .or_else(|| arguments.get("processId"))
+            .ok_or_else(|| anyhow!("attach: missing arguments.pid/processId"))?;
+
+        let pid_raw = if let Some(pid) = pid_value.as_i64() {
+            pid
+        } else if let Some(pid_str) = pid_value.as_str() {
+            pid_str
+                .parse::<i64>()
+                .map_err(|_| anyhow!("attach: pid must be an integer"))?
+        } else {
+            return Err(anyhow!("attach: pid must be an integer"));
+        };
+
+        let pid = i32::try_from(pid_raw).map_err(|_| anyhow!("attach: pid out of range"))?;
+        Ok(Pid::from_raw(pid))
+    }
+
     fn handle_initialize(&mut self, req: &DapRequest) -> anyhow::Result<()> {
         self.initialized = true;
         let body = json!({
             "supportsConfigurationDoneRequest": true,
+            "supportsAttachRequest": true,
             "supportsTerminateRequest": true,
             "supportsRestartRequest": false,
             "supportsSetVariable": true,
@@ -640,7 +669,44 @@ impl DebugSession {
             .install()
             .context("Initial process instantiation")?;
 
-        let oracles = oracles
+        self.build_debugger_from_process(process, stdout_reader, stderr_reader, oracles)
+    }
+
+    fn build_attached_debugger(&mut self, pid: Pid, oracles: &[String]) -> anyhow::Result<()> {
+        let (stdout_reader, stdout_writer) = os_pipe::pipe().unwrap();
+        let (stderr_reader, stderr_writer) = os_pipe::pipe().unwrap();
+        let oracles = self.resolve_oracles(oracles);
+        let dbg = debugger::DebuggerBuilder::<debugger::NopHook>::new()
+            .with_oracles(oracles)
+            .build_attached(pid, stdout_writer, stderr_writer)
+            .context("Attach external process")?;
+
+        self.debugger = Some(dbg);
+        self.start_output_forwarding(stdout_reader, stderr_reader);
+        Ok(())
+    }
+
+    fn build_debugger_from_process(
+        &mut self,
+        process: Child<Installed>,
+        stdout_reader: os_pipe::PipeReader,
+        stderr_reader: os_pipe::PipeReader,
+        oracles: &[String],
+    ) -> anyhow::Result<()> {
+        let oracles = self.resolve_oracles(oracles);
+
+        let dbg = debugger::DebuggerBuilder::<debugger::NopHook>::new()
+            .with_oracles(oracles)
+            .build(process)
+            .context("Build debugger")?;
+        self.debugger = Some(dbg);
+
+        self.start_output_forwarding(stdout_reader, stderr_reader);
+        Ok(())
+    }
+
+    fn resolve_oracles(&self, oracles: &[String]) -> Vec<Arc<dyn Oracle>> {
+        oracles
             .iter()
             .filter_map(|ora_name| {
                 if let Some(oracle) = builtin::make_builtin(ora_name) {
@@ -651,14 +717,14 @@ impl DebugSession {
                     None
                 }
             })
-            .collect();
+            .collect()
+    }
 
-        let dbg = debugger::DebuggerBuilder::<debugger::NopHook>::new()
-            .with_oracles(oracles)
-            .build(process)
-            .context("Build debugger")?;
-        self.debugger = Some(dbg);
-
+    fn start_output_forwarding(
+        &self,
+        stdout_reader: os_pipe::PipeReader,
+        stderr_reader: os_pipe::PipeReader,
+    ) {
         // Start stdout/stderr forwarding.
         let evq = self.events.clone();
         thread::spawn(move || {
@@ -701,8 +767,6 @@ impl DebugSession {
                 }
             }
         });
-
-        Ok(())
     }
 
     fn handle_launch(&mut self, req: &DapRequest, oracles: &[String]) -> anyhow::Result<()> {
@@ -727,8 +791,22 @@ impl DebugSession {
         // Reset session termination state for a new launch.
         self.terminated = false;
         self.exit_code = None;
+        self.session_mode = Some(SessionMode::Launch);
 
         self.build_debugger(program, &args, oracles)?;
+        self.send_success(req)?;
+        Ok(())
+    }
+
+    fn handle_attach(&mut self, req: &DapRequest, oracles: &[String]) -> anyhow::Result<()> {
+        let pid = Self::attach_pid(&req.arguments)?;
+
+        self.source_map = SourceMap::from_launch_args(&req.arguments);
+        self.terminated = false;
+        self.exit_code = None;
+        self.session_mode = Some(SessionMode::Attach);
+
+        self.build_attached_debugger(pid, oracles)?;
         self.send_success(req)?;
         Ok(())
     }
@@ -738,6 +816,12 @@ impl DebugSession {
             .debugger
             .as_mut()
             .ok_or_else(|| anyhow!("configurationDone: debugger not initialized"))?;
+
+        if self.session_mode == Some(SessionMode::Attach) {
+            self.send_success(req)?;
+            self.emit_attached_stop()?;
+            return Ok(());
+        }
 
         let stop = dbg.start_debugee_with_reason().context("start debugee")?;
         self.send_success(req)?;
@@ -871,6 +955,77 @@ impl DebugSession {
 
         self.enqueue_event(InternalEvent::Stopped {
             reason,
+            thread_id,
+            description,
+        });
+        self.drain_events()?;
+        Ok(())
+    }
+
+    fn emit_attached_stop(&mut self) -> anyhow::Result<()> {
+        self.begin_stop_epoch();
+
+        let pid_info = self
+            .debugger
+            .as_ref()
+            .map(|dbg| dbg.process().pid().as_raw());
+        let description = pid_info.map(|pid| format!("Attached to process {pid}"));
+
+        let (source_path, line, column, stack_trace) = self
+            .debugger
+            .as_ref()
+            .and_then(|dbg| {
+                let pid = dbg.ecx().pid_on_focus();
+                let bt = dbg.backtrace(pid).unwrap_or_default();
+                if bt.is_empty() {
+                    return None;
+                }
+                let (source_path, line, column) = bt.first().and_then(|frame| {
+                    frame.place.as_ref().map(|place| {
+                        let path = place.file.to_string_lossy();
+                        let mapped = self.source_map.map_target_to_client(path.as_ref());
+                        (
+                            Some(mapped),
+                            Some(place.line_number as i64),
+                            Some(place.column_number as i64),
+                        )
+                    })
+                })?;
+                let stack_trace = bt
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, frame)| {
+                        let name = frame.func_name.as_deref().unwrap_or("<unknown>");
+                        if let Some(place) = frame.place.as_ref() {
+                            let path = place.file.to_string_lossy();
+                            let mapped = self.source_map.map_target_to_client(path.as_ref());
+                            format!(
+                                "#{idx} {name} ({mapped}:{}:{})",
+                                place.line_number, place.column_number
+                            )
+                        } else {
+                            format!("#{idx} {name} (<unknown>)")
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                Some((source_path, line, column, Some(stack_trace)))
+            })
+            .unwrap_or((None, None, None, None));
+
+        self.last_stop = Some(LastStop {
+            reason: "pause".to_string(),
+            description: description.clone(),
+            signal: None,
+            source_path,
+            line,
+            column,
+            stack_trace,
+        });
+
+        let thread_id = self.current_thread_id();
+        self.enqueue_event(InternalEvent::Stopped {
+            reason: "pause".to_string(),
             thread_id,
             description,
         });
@@ -1512,6 +1667,8 @@ impl DebugSession {
         if terminate {
             self.terminate_debuggee();
             self.drain_events()?;
+        } else if let Some(mut dbg) = self.debugger.take() {
+            dbg.detach().context("detach debuggee")?;
         }
         Ok(())
     }
@@ -1520,6 +1677,7 @@ impl DebugSession {
         match req.command.as_str() {
             "initialize" => self.handle_initialize(req)?,
             "launch" => self.handle_launch(req, oracles)?,
+            "attach" => self.handle_attach(req, oracles)?,
             "configurationDone" => self.handle_configuration_done(req)?,
             "setBreakpoints" => self.handle_set_breakpoints(req)?,
             "setExceptionBreakpoints" => self.handle_set_exception_breakpoints(req)?,
