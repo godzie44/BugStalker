@@ -65,6 +65,7 @@ use nix::sys::signal::{SIGKILL, Signal};
 use nix::sys::wait::{WaitStatus, waitpid};
 use nix::unistd::Pid;
 use object::Object;
+use os_pipe::PipeWriter;
 use regex::Regex;
 use std::ffi::c_long;
 use std::path::{Path, PathBuf};
@@ -343,6 +344,23 @@ impl<H: EventHook + 'static> DebuggerBuilder<H> {
             Debugger::new(process, NopHook {}, self.oracles)
         }
     }
+
+    /// Create a debugger attached to a running process.
+    ///
+    /// # Arguments
+    ///
+    /// * `pid`: debugee process id
+    /// * `stdout`: stdout pipe for future restarts
+    /// * `stderr`: stderr pipe for future restarts
+    pub fn build_attached(
+        self,
+        pid: Pid,
+        stdout: PipeWriter,
+        stderr: PipeWriter,
+    ) -> Result<Debugger, Error> {
+        let process = Child::from_external(pid, stdout, stderr)?;
+        self.build(process)
+    }
 }
 
 /// Main structure of bug-stalker, control debugee state and provides application functionality.
@@ -361,6 +379,8 @@ pub struct Debugger {
     expl_context: ExplorationContext,
     /// Map of name -> (oracle, installed flag) pairs.
     oracles: IndexMap<&'static str, (Arc<dyn Oracle>, bool)>,
+    /// Detach flag to skip destructive cleanup on drop.
+    detached: bool,
 }
 
 impl Debugger {
@@ -403,6 +423,7 @@ impl Debugger {
                 .into_iter()
                 .map(|oracle| (oracle.name(), (oracle, false)))
                 .collect(),
+            detached: false,
         })
     }
 
@@ -436,6 +457,35 @@ impl Debugger {
 
     pub fn process(&self) -> &Child<Installed> {
         &self.process
+    }
+
+    pub fn detach(&mut self) -> Result<(), Error> {
+        if self.detached {
+            return Ok(());
+        }
+
+        _ = self.breakpoints.disable_all_breakpoints(&self.debugee);
+        self.watchpoints
+            .clear_all(self.debugee.tracee_ctl(), &mut self.breakpoints);
+
+        let current_tids: Vec<Pid> = self
+            .debugee
+            .tracee_ctl()
+            .tracee_iter()
+            .map(|t| t.pid)
+            .collect();
+
+        if !current_tids.is_empty() {
+            current_tids
+                .iter()
+                .try_for_each(|tid| sys::ptrace::detach(*tid, None).map_err(Ptrace))?;
+
+            signal::kill(self.debugee.tracee_ctl().proc_pid(), Signal::SIGCONT)
+                .map_err(|e| Syscall("kill", e))?;
+        }
+
+        self.detached = true;
+        Ok(())
     }
 
     pub fn set_hook(&mut self, hooks: impl EventHook + 'static) {
@@ -1133,6 +1183,9 @@ impl Debugger {
 
 impl Drop for Debugger {
     fn drop(&mut self) {
+        if self.detached {
+            return;
+        }
         if self.process.is_external() {
             _ = self.breakpoints.disable_all_breakpoints(&self.debugee);
             // drain all watchpoints before terminating the process

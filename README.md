@@ -75,6 +75,43 @@
 
 See [installation page](https://godzie44.github.io/BugStalker/docs/installation)
 
+## Debug Adapter Protocol (VSCode)
+
+Run the DAP server:
+
+```shell
+bs-dap --listen 127.0.0.1:4711
+```
+
+Example `.vscode/launch.json`:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "BugStalker: Launch",
+      "type": "bugstalker",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/my_app",
+      "args": ["--flag", "value"],
+      "debugServer": 4711
+    },
+    {
+      "name": "BugStalker: Attach",
+      "type": "bugstalker",
+      "request": "attach",
+      "pid": 12345,
+      "terminateDebuggee": false,
+      "debugServer": 4711
+    }
+  ]
+}
+```
+
+The attach configuration keeps the target process alive on disconnect when
+`terminateDebuggee` is `false`.
+
 
 ## Contributing
 
