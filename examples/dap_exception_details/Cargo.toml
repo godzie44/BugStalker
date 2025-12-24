@@ -1,0 +1,12 @@
+[package]
+name = "dap_exception_details"
+version = "0.0.0"
+edition = "2024"
+workspace = "./.."
+publish = false
+
+[[bin]]
+name = "dap_exception_details"
+path = "src/main.rs"
+
+[dependencies]
