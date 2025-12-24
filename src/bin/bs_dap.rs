@@ -301,12 +301,21 @@ struct DebugSession {
     events: Arc<Mutex<Vec<InternalEvent>>>,
     terminated: bool,
     exit_code: Option<i32>,
+    exception_filters: Vec<String>,
+    last_stop: Option<LastStop>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum ScopeKind {
     Locals,
     Arguments,
+}
+
+#[derive(Debug, Clone)]
+struct LastStop {
+    reason: String,
+    description: Option<String>,
+    signal: Option<i32>,
 }
 
 #[derive(Default)]
@@ -388,6 +397,8 @@ impl DebugSession {
             events: Arc::new(Mutex::new(Vec::new())),
             terminated: false,
             exit_code: None,
+            exception_filters: Vec::new(),
+            last_stop: None,
         }
     }
 
@@ -551,6 +562,8 @@ impl DebugSession {
             "supportsStepBack": false,
             "supportsEvaluateForHovers": true,
             "supportsPauseRequest": true,
+            "supportsExceptionBreakpoints": true,
+            "supportsExceptionInfoRequest": true,
         });
         self.send_success_body(req, body)?;
         self.send_event("initialized")
@@ -719,12 +732,19 @@ impl DebugSession {
         };
 
         if let Some(code) = exited {
+            self.last_stop = None;
             self.enqueue_event(InternalEvent::Exited { code });
             self.drain_events()?;
             return Ok(());
         }
 
         self.begin_stop_epoch();
+
+        self.last_stop = Some(LastStop {
+            reason: reason.clone(),
+            description: description.clone(),
+            signal: None,
+        });
 
         self.enqueue_event(InternalEvent::Stopped {
             reason,
@@ -857,6 +877,12 @@ impl DebugSession {
                 self.send_success_body(req, json!({"allThreadsContinued": true}))?;
                 self.begin_stop_epoch();
 
+                self.last_stop = Some(LastStop {
+                    reason: "pause".to_string(),
+                    description: Some("Paused".to_string()),
+                    signal: None,
+                });
+
                 let thread_id = self.current_thread_id();
                 self.enqueue_event(InternalEvent::Stopped {
                     reason: "step".to_string(),
@@ -963,6 +989,52 @@ impl DebugSession {
         }
 
         Ok(())
+    }
+
+    fn handle_set_exception_breakpoints(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let filters = req
+            .arguments
+            .get("filters")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|it| it.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            })
+            .unwrap_or_default();
+
+        self.exception_filters = filters;
+        self.send_success(req)
+    }
+
+    fn handle_exception_info(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        // The DAP spec allows exceptionInfo to be requested for the currently stopped thread.
+        // We expose whatever we know about the last stop reason.
+        let Some(last) = self.last_stop.clone() else {
+            return self.send_err(req, "exceptionInfo: no stopped state");
+        };
+
+        let mut description = last.description.clone();
+        if description.is_none() {
+            description = Some(last.reason.clone());
+        }
+
+        let exception_id = if let Some(sig) = last.signal {
+            format!("signal {}", sig)
+        } else {
+            last.reason.clone()
+        };
+
+        let body = json!({
+            "exceptionId": exception_id,
+            "description": description,
+            "breakMode": "always",
+            "details": {
+                "message": last.description,
+            }
+        });
+
+        self.send_success_body(req, body)
     }
 
     fn handle_evaluate(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -1133,8 +1205,7 @@ impl DebugSession {
 
         let vars = self
             .vars
-            .store
-            .get(&variables_reference)
+            .get(variables_reference)
             .cloned()
             .unwrap_or_default();
 
@@ -1221,6 +1292,7 @@ impl DebugSession {
             }),
         )
     }
+
     fn terminate_debuggee(&mut self) {
         // Drop the debugger instance. For internally spawned debuggee this will SIGKILL and detach ptrace in Debugger::drop.
         // For external debuggee it will detach.
@@ -1255,6 +1327,8 @@ impl DebugSession {
             "launch" => self.handle_launch(req, oracles)?,
             "configurationDone" => self.handle_configuration_done(req)?,
             "setBreakpoints" => self.handle_set_breakpoints(req)?,
+            "setExceptionBreakpoints" => self.handle_set_exception_breakpoints(req)?,
+            "exceptionInfo" => self.handle_exception_info(req)?,
             "threads" => self.handle_threads(req)?,
             "stackTrace" => self.handle_stack_trace(req)?,
             "scopes" => self.handle_scopes(req)?,
@@ -1273,6 +1347,10 @@ impl DebugSession {
             "disconnect" => {
                 self.handle_disconnect(req)?;
                 return Ok(false);
+            }
+            "source" => {
+                self.handle_source(req)?;
+                return Ok(true);
             }
             other => {
                 self.send_err(req, format!("Unsupported DAP command: {other}"))?;
@@ -1301,6 +1379,55 @@ impl DebugSession {
             }
         }
         Ok(())
+    }
+
+    fn handle_source(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("source: arguments must be object"))?;
+
+        let source_obj = args
+            .get("source")
+            .and_then(serde_json::Value::as_object)
+            .ok_or_else(|| anyhow!("source: missing source object"))?;
+
+        let path = source_obj
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| anyhow!("source: missing source.path"))?;
+
+        // VSCode sometimes sends relative glibc paths like "./nptl/pthread_kill.c"
+        let try_paths = [
+            std::path::PathBuf::from(path),
+            std::path::PathBuf::from(path.trim_start_matches("./")),
+        ];
+
+        let mut content: Option<String> = None;
+        for p in &try_paths {
+            if let Ok(data) = std::fs::read_to_string(p) {
+                content = Some(data);
+                break;
+            }
+        }
+
+        let Some(content) = content else {
+            return self.send_err(
+                req,
+                format!(
+                    "Could not load source '{}': file not found on adapter host",
+                    path
+                ),
+            );
+        };
+
+        self.send_success_body(
+            req,
+            serde_json::json!({
+                "content": content,
+                "mimeType": "text/x-c"
+            }),
+        )
     }
 }
 
@@ -1502,6 +1629,7 @@ fn write_bytes(dbg: &debugger::Debugger, addr: usize, bytes: &[u8]) -> anyhow::R
 
     Ok(())
 }
+
 fn value_children(v: &debugger::variable::value::Value) -> Option<Vec<VarItem>> {
     use debugger::variable::render::{RenderValue, ValueLayout};
     let layout = v.value_layout()?;
