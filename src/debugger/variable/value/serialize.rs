@@ -267,6 +267,14 @@ fn serialize_value_inner(
     path: &str,
     offsets: &mut Vec<WriteOffset>,
 ) -> Result<Vec<u8>, SerializeError> {
+    let mut ctx = SerializeContext {
+        input,
+        type_graph,
+        type_id,
+        runtime_value,
+        path,
+        offsets,
+    };
     let decl = type_graph
         .types
         .get(&type_id)
@@ -274,33 +282,13 @@ fn serialize_value_inner(
     match decl {
         TypeDeclaration::Scalar(scalar) => serialize_scalar_value(input, scalar),
         TypeDeclaration::Pointer { .. } => serialize_pointer_value(input),
-        TypeDeclaration::Array(array) => {
-            serialize_array_value(input, type_graph, array, runtime_value, path, offsets)
-        }
+        TypeDeclaration::Array(array) => serialize_array_value(&mut ctx, array),
         TypeDeclaration::Structure {
             byte_size, members, ..
-        } => serialize_struct_value(
-            input,
-            type_graph,
-            type_id,
-            *byte_size,
-            members,
-            runtime_value,
-            path,
-            offsets,
-        ),
+        } => serialize_struct_value(&mut ctx, *byte_size, members),
         TypeDeclaration::Union {
             byte_size, members, ..
-        } => serialize_union_value(
-            input,
-            type_graph,
-            type_id,
-            *byte_size,
-            members,
-            runtime_value,
-            path,
-            offsets,
-        ),
+        } => serialize_union_value(&mut ctx, *byte_size, members),
         TypeDeclaration::CStyleEnum {
             byte_size,
             discr_type,
@@ -312,23 +300,22 @@ fn serialize_value_inner(
             discr_type,
             enumerators,
             ..
-        } => serialize_rust_enum_value(
-            input,
-            type_graph,
-            type_id,
-            *byte_size,
-            discr_type.as_deref(),
-            enumerators,
-            runtime_value,
-            path,
-            offsets,
-        ),
+        } => serialize_rust_enum_value(&mut ctx, *byte_size, discr_type.as_deref(), enumerators),
         TypeDeclaration::Subroutine { .. } => serialize_pointer_value(input),
         TypeDeclaration::ModifiedType { inner, .. } => {
             let inner = inner.ok_or(SerializeError::UnknownType)?;
             serialize_value_inner(input, type_graph, inner, runtime_value, path, offsets)
         }
     }
+}
+
+struct SerializeContext<'a> {
+    input: &'a InputValue,
+    type_graph: &'a ComplexType,
+    type_id: TypeId,
+    runtime_value: Option<&'a Value>,
+    path: &'a str,
+    offsets: &'a mut Vec<WriteOffset>,
 }
 
 fn serialize_scalar_value(
@@ -458,23 +445,18 @@ fn serialize_pointer_value(input: &InputValue) -> Result<Vec<u8>, SerializeError
 }
 
 fn serialize_struct_value(
-    input: &InputValue,
-    type_graph: &ComplexType,
-    type_id: TypeId,
+    ctx: &mut SerializeContext<'_>,
     byte_size: Option<u64>,
     members: &[StructureMember],
-    runtime_value: Option<&Value>,
-    path: &str,
-    offsets: &mut Vec<WriteOffset>,
 ) -> Result<Vec<u8>, SerializeError> {
-    let size = byte_size.ok_or(SerializeError::UnknownTypeSize(type_id))?;
+    let size = byte_size.ok_or(SerializeError::UnknownTypeSize(ctx.type_id))?;
     let mut buffer = vec![0u8; size as usize];
 
-    let input_map = match input {
+    let input_map = match ctx.input {
         InputValue::Object(map) => Some(map),
         _ => None,
     };
-    let input_array = match input {
+    let input_array = match ctx.input {
         InputValue::Array(items) => Some(items),
         _ => None,
     };
@@ -491,16 +473,16 @@ fn serialize_struct_value(
         };
 
         let member_type = member.type_ref.ok_or(SerializeError::UnknownType)?;
-        let member_runtime = runtime_member(runtime_value, member.name.as_deref(), index);
+        let member_runtime = runtime_member(ctx.runtime_value, member.name.as_deref(), index);
         let member_bytes = serialize_value_inner(
             member_input,
-            type_graph,
+            ctx.type_graph,
             member_type,
             member_runtime,
-            &format!("{path}{}", member_path_suffix(member, index)),
-            offsets,
+            &format!("{}{}", ctx.path, member_path_suffix(member, index)),
+            ctx.offsets,
         )?;
-        let offset = member_offset(member, runtime_value, index)
+        let offset = member_offset(member, ctx.runtime_value, index)
             .ok_or_else(|| SerializeError::MemberOffsetMissing(member_name(member, index)))?;
         let end = offset + member_bytes.len();
         if end > buffer.len() {
@@ -510,8 +492,8 @@ fn serialize_struct_value(
             });
         }
         buffer[offset..end].copy_from_slice(&member_bytes);
-        offsets.push(WriteOffset {
-            path: format!("{path}{}", member_path_suffix(member, index)),
+        ctx.offsets.push(WriteOffset {
+            path: format!("{}{}", ctx.path, member_path_suffix(member, index)),
             offset,
             size: member_bytes.len(),
         });
@@ -521,18 +503,13 @@ fn serialize_struct_value(
 }
 
 fn serialize_union_value(
-    input: &InputValue,
-    type_graph: &ComplexType,
-    type_id: TypeId,
+    ctx: &mut SerializeContext<'_>,
     byte_size: Option<u64>,
     members: &[StructureMember],
-    runtime_value: Option<&Value>,
-    path: &str,
-    offsets: &mut Vec<WriteOffset>,
 ) -> Result<Vec<u8>, SerializeError> {
-    let size = byte_size.ok_or(SerializeError::UnknownTypeSize(type_id))?;
+    let size = byte_size.ok_or(SerializeError::UnknownTypeSize(ctx.type_id))?;
     let mut buffer = vec![0u8; size as usize];
-    let (member_idx, member_input) = match input {
+    let (member_idx, member_input) = match ctx.input {
         InputValue::Object(map) => {
             let (name, value) = map
                 .iter()
@@ -558,16 +535,16 @@ fn serialize_union_value(
     };
     let member = &members[member_idx];
     let member_type = member.type_ref.ok_or(SerializeError::UnknownType)?;
-    let member_runtime = runtime_member(runtime_value, member.name.as_deref(), member_idx);
+    let member_runtime = runtime_member(ctx.runtime_value, member.name.as_deref(), member_idx);
     let member_bytes = serialize_value_inner(
         member_input,
-        type_graph,
+        ctx.type_graph,
         member_type,
         member_runtime,
-        &format!("{path}{}", member_path_suffix(member, member_idx)),
-        offsets,
+        &format!("{}{}", ctx.path, member_path_suffix(member, member_idx)),
+        ctx.offsets,
     )?;
-    let offset = member_offset(member, runtime_value, member_idx)
+    let offset = member_offset(member, ctx.runtime_value, member_idx)
         .ok_or_else(|| SerializeError::MemberOffsetMissing(member_name(member, member_idx)))?;
     let end = offset + member_bytes.len();
     if end > buffer.len() {
@@ -577,8 +554,8 @@ fn serialize_union_value(
         });
     }
     buffer[offset..end].copy_from_slice(&member_bytes);
-    offsets.push(WriteOffset {
-        path: format!("{path}{}", member_path_suffix(member, member_idx)),
+    ctx.offsets.push(WriteOffset {
+        path: format!("{}{}", ctx.path, member_path_suffix(member, member_idx)),
         offset,
         size: member_bytes.len(),
     });
@@ -586,14 +563,10 @@ fn serialize_union_value(
 }
 
 fn serialize_array_value(
-    input: &InputValue,
-    type_graph: &ComplexType,
+    ctx: &mut SerializeContext<'_>,
     array: &ArrayType,
-    runtime_value: Option<&Value>,
-    path: &str,
-    offsets: &mut Vec<WriteOffset>,
 ) -> Result<Vec<u8>, SerializeError> {
-    let items = match input {
+    let items = match ctx.input {
         InputValue::Array(items) => items,
         _ => {
             return Err(SerializeError::UnexpectedInput(
@@ -607,14 +580,14 @@ fn serialize_array_value(
     let mut buf = Vec::new();
     let mut element_size = None;
     for (idx, item) in items.iter().enumerate() {
-        let runtime_item = runtime_array_item(runtime_value, idx);
+        let runtime_item = runtime_array_item(ctx.runtime_value, idx);
         let bytes = serialize_value_inner(
             item,
-            type_graph,
+            ctx.type_graph,
             element_type,
             runtime_item,
-            &format!("{path}[{idx}]"),
-            offsets,
+            &format!("{}[{idx}]", ctx.path),
+            ctx.offsets,
         )?;
         let size = bytes.len();
         if let Some(existing) = element_size {
@@ -628,8 +601,8 @@ fn serialize_array_value(
             element_size = Some(size);
         }
         buf.extend_from_slice(&bytes);
-        offsets.push(WriteOffset {
-            path: format!("{path}[{idx}]"),
+        ctx.offsets.push(WriteOffset {
+            path: format!("{}[{idx}]", ctx.path),
             offset: idx * size,
             size,
         });
@@ -703,20 +676,15 @@ fn serialize_c_enum_value(
 }
 
 fn serialize_rust_enum_value(
-    input: &InputValue,
-    type_graph: &ComplexType,
-    type_id: TypeId,
+    ctx: &mut SerializeContext<'_>,
     byte_size: Option<u64>,
     discr_member: Option<&StructureMember>,
     enumerators: &std::collections::HashMap<Option<i64>, StructureMember>,
-    runtime_value: Option<&Value>,
-    path: &str,
-    offsets: &mut Vec<WriteOffset>,
 ) -> Result<Vec<u8>, SerializeError> {
-    let size = byte_size.ok_or(SerializeError::UnknownTypeSize(type_id))?;
+    let size = byte_size.ok_or(SerializeError::UnknownTypeSize(ctx.type_id))?;
     let mut buffer = vec![0u8; size as usize];
 
-    let (variant_name, payload) = match input {
+    let (variant_name, payload) = match ctx.input {
         InputValue::EnumVariant { name, payload } => (name.clone(), payload.as_deref()),
         InputValue::Scalar(name) => (name.clone(), None),
         _ => {
@@ -738,13 +706,13 @@ fn serialize_rust_enum_value(
             .ok_or(SerializeError::EnumDiscriminantMissing)?;
         let discr_bytes = serialize_value_inner(
             &InputValue::Scalar(discr_value.to_string()),
-            type_graph,
+            ctx.type_graph,
             discr_type,
             None,
-            path,
-            offsets,
+            ctx.path,
+            ctx.offsets,
         )?;
-        let offset = member_offset(discr_member, runtime_value, 0)
+        let offset = member_offset(discr_member, ctx.runtime_value, 0)
             .ok_or_else(|| SerializeError::MemberOffsetMissing("discriminant".to_string()))?;
         let end = offset + discr_bytes.len();
         if end > buffer.len() {
@@ -754,8 +722,8 @@ fn serialize_rust_enum_value(
             });
         }
         buffer[offset..end].copy_from_slice(&discr_bytes);
-        offsets.push(WriteOffset {
-            path: format!("{path}.discriminant"),
+        ctx.offsets.push(WriteOffset {
+            path: format!("{}.discriminant", ctx.path),
             offset,
             size: discr_bytes.len(),
         });
@@ -765,13 +733,13 @@ fn serialize_rust_enum_value(
         let payload = payload.ok_or_else(|| SerializeError::MissingField(variant_name.clone()))?;
         let payload_bytes = serialize_value_inner(
             payload,
-            type_graph,
+            ctx.type_graph,
             variant_type,
-            runtime_member(runtime_value, variant_member.name.as_deref(), 0),
-            &format!("{path}.{}", variant_name),
-            offsets,
+            runtime_member(ctx.runtime_value, variant_member.name.as_deref(), 0),
+            &format!("{}.{}", ctx.path, variant_name),
+            ctx.offsets,
         )?;
-        let offset = member_offset(variant_member, runtime_value, 0)
+        let offset = member_offset(variant_member, ctx.runtime_value, 0)
             .ok_or_else(|| SerializeError::MemberOffsetMissing(format!("enum::{variant_name}")))?;
         let end = offset + payload_bytes.len();
         if end > buffer.len() {
@@ -781,8 +749,8 @@ fn serialize_rust_enum_value(
             });
         }
         buffer[offset..end].copy_from_slice(&payload_bytes);
-        offsets.push(WriteOffset {
-            path: format!("{path}.{}", variant_name),
+        ctx.offsets.push(WriteOffset {
+            path: format!("{}.{}", ctx.path, variant_name),
             offset,
             size: payload_bytes.len(),
         });
@@ -843,7 +811,7 @@ fn runtime_member<'a>(
     }
 }
 
-fn runtime_array_item<'a>(runtime_value: Option<&'a Value>, index: usize) -> Option<&'a Value> {
+fn runtime_array_item(runtime_value: Option<&Value>, index: usize) -> Option<&Value> {
     let Value::Array(array) = runtime_value? else {
         return None;
     };
