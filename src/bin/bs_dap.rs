@@ -306,6 +306,9 @@ struct DebugSession {
     last_stop: Option<LastStop>,
 }
 
+const EXCEPTION_FILTER_SIGNAL: &str = "signal";
+const EXCEPTION_FILTER_PROCESS: &str = "process";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum ScopeKind {
     Locals,
@@ -413,7 +416,10 @@ impl DebugSession {
             events: Arc::new(Mutex::new(Vec::new())),
             terminated: false,
             exit_code: None,
-            exception_filters: Vec::new(),
+            exception_filters: vec![
+                EXCEPTION_FILTER_SIGNAL.to_string(),
+                EXCEPTION_FILTER_PROCESS.to_string(),
+            ],
             last_stop: None,
         }
     }
@@ -422,6 +428,21 @@ impl DebugSession {
         let s = self.server_seq;
         self.server_seq += 1;
         s
+    }
+
+    fn exception_filter_for_stop(stop: &debugger::StopReason) -> Option<&'static str> {
+        match stop {
+            debugger::StopReason::SignalStop(_, _) => Some(EXCEPTION_FILTER_SIGNAL),
+            debugger::StopReason::NoSuchProcess(_) => Some(EXCEPTION_FILTER_PROCESS),
+            _ => None,
+        }
+    }
+
+    fn should_stop_on_exception(&self, stop: &debugger::StopReason) -> bool {
+        let Some(filter) = Self::exception_filter_for_stop(stop) else {
+            return true;
+        };
+        self.exception_filters.iter().any(|value| value == filter)
     }
 
     fn enqueue_event(&self, ev: InternalEvent) {
@@ -580,6 +601,20 @@ impl DebugSession {
             "supportsPauseRequest": true,
             "supportsExceptionBreakpoints": true,
             "supportsExceptionInfoRequest": true,
+            "exceptionBreakpointFilters": [
+                {
+                    "filter": EXCEPTION_FILTER_SIGNAL,
+                    "label": "Signals",
+                    "default": true,
+                    "description": "Stop on debuggee signals.",
+                },
+                {
+                    "filter": EXCEPTION_FILTER_PROCESS,
+                    "label": "Process",
+                    "default": true,
+                    "description": "Stop when the debuggee process disappears.",
+                },
+            ],
         });
         self.send_success_body(req, body)?;
         self.send_event("initialized")
@@ -711,14 +746,32 @@ impl DebugSession {
     }
 
     fn emit_stop_reason(&mut self, stop: debugger::StopReason) -> anyhow::Result<()> {
-        let (reason, thread_id, description, exited) = match stop {
-            debugger::StopReason::DebugeeExit(code) => {
-                ("exited".to_string(), None, None, Some(code))
-            }
+        let mut stop = stop;
+        while !self.should_stop_on_exception(&stop) {
+            let dbg = self
+                .debugger
+                .as_mut()
+                .ok_or_else(|| anyhow!("continue: debugger not initialized"))?;
+            stop = dbg
+                .continue_debugee_with_reason()
+                .context("continue after exception filter")?;
+        }
+
+        let (reason, thread_id, description, exited, last_reason, signal) = match stop {
+            debugger::StopReason::DebugeeExit(code) => (
+                "exited".to_string(),
+                None,
+                None,
+                Some(code),
+                "exited".to_string(),
+                None,
+            ),
             debugger::StopReason::DebugeeStart => (
                 "entry".to_string(),
                 self.current_thread_id(),
                 Some("Debugee started".to_string()),
+                None,
+                "entry".to_string(),
                 None,
             ),
             debugger::StopReason::Breakpoint(pid, _) => (
@@ -726,23 +779,31 @@ impl DebugSession {
                 Some(pid.as_raw() as i64),
                 None,
                 None,
+                "breakpoint".to_string(),
+                None,
             ),
             debugger::StopReason::Watchpoint(pid, _, _) => (
                 "data breakpoint".to_string(),
                 Some(pid.as_raw() as i64),
                 None,
                 None,
+                "data breakpoint".to_string(),
+                None,
             ),
             debugger::StopReason::SignalStop(pid, sign) => (
-                "signal".to_string(),
+                "exception".to_string(),
                 Some(pid.as_raw() as i64),
                 Some(format!("Signal: {sign:?}")),
                 None,
+                EXCEPTION_FILTER_SIGNAL.to_string(),
+                Some(sign as i32),
             ),
             debugger::StopReason::NoSuchProcess(pid) => (
                 "exception".to_string(),
                 Some(pid.as_raw() as i64),
                 Some("No such process".to_string()),
+                None,
+                EXCEPTION_FILTER_PROCESS.to_string(),
                 None,
             ),
         };
@@ -799,9 +860,9 @@ impl DebugSession {
             .unwrap_or((None, None, None, None));
 
         self.last_stop = Some(LastStop {
-            reason: reason.clone(),
+            reason: last_reason,
             description: description.clone(),
-            signal: None,
+            signal,
             source_path,
             line,
             column,
