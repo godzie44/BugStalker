@@ -24,6 +24,43 @@ To attach to a running process by its PID:
 bs -p 123
 ```
 
+## Debug Adapter Protocol (VSCode)
+
+Start the DAP server:
+
+```shell
+bs-dap --listen 127.0.0.1:4711
+```
+
+Example `.vscode/launch.json` configuration:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "BugStalker: Launch",
+      "type": "bugstalker",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/my_app",
+      "args": ["--flag", "value"],
+      "debugServer": 4711
+    },
+    {
+      "name": "BugStalker: Attach",
+      "type": "bugstalker",
+      "request": "attach",
+      "pid": 12345,
+      "terminateDebuggee": false,
+      "debugServer": 4711
+    }
+  ]
+}
+```
+
+When `terminateDebuggee` is `false`, the debuggee keeps running after the DAP
+client disconnects.
+
 ## Getting Help
 
 Print `help` to view all available commands.
