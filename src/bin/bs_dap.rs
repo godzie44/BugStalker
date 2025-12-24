@@ -19,6 +19,7 @@ use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -325,9 +326,15 @@ struct VariablesStore {
 }
 
 #[derive(Clone)]
-struct WriteMeta {
-    addr: usize,
-    kind: ScalarKind,
+enum WriteMeta {
+    Scalar {
+        addr: usize,
+        kind: ScalarKind,
+    },
+    Composite {
+        addr: usize,
+        type_graph: Rc<debugger::ComplexType>,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -357,6 +364,7 @@ struct VarItem {
     type_name: Option<String>,
     child: Option<Vec<VarItem>>,
     write: Option<WriteMeta>,
+    source: Option<debugger::variable::value::Value>,
 }
 
 impl VariablesStore {
@@ -373,6 +381,10 @@ impl VariablesStore {
 
     fn get_mut(&mut self, key: i64) -> Option<&mut Vec<VarItem>> {
         self.store.get_mut(&key)
+    }
+
+    fn remove(&mut self, key: i64) -> Option<Vec<VarItem>> {
+        self.store.remove(&key)
     }
 
     fn clear(&mut self) {
@@ -1073,8 +1085,10 @@ impl DebugSession {
                 json!({"result": "<no result>", "variablesReference": 0}),
             );
         }
-        let (_id, val) = results.into_iter().next().unwrap().into_identified_value();
-        let child = value_children(&val);
+        let result = results.into_iter().next().unwrap();
+        let type_graph = Rc::new(result.type_graph().clone());
+        let (_id, val) = result.into_identified_value();
+        let child = value_children(&val, type_graph);
         let vars_ref = child.map(|c| self.vars.alloc(c)).unwrap_or(0);
         let result_str = render_value_to_string(&val);
         self.send_success_body(
@@ -1259,29 +1273,69 @@ impl DebugSession {
             .as_ref()
             .ok_or_else(|| anyhow!("setVariable: debugger not initialized"))?;
 
+        let mut child_ref_to_remove = None;
         let (reply_value, reply_type) = {
             let vars = self
                 .vars
                 .get_mut(vars_ref)
                 .ok_or_else(|| anyhow!("setVariable: unknown variablesReference={vars_ref}"))?;
 
-            let item = vars
+            let (index, item) = vars
                 .iter_mut()
-                .find(|v| v.name == name)
+                .enumerate()
+                .find(|(_, v)| v.name == name)
                 .ok_or_else(|| anyhow!("setVariable: variable '{name}' not found"))?;
 
             let Some(write) = item.write.clone() else {
-                self.send_err(req, "setVariable: target variable is not writable (only scalar locals/args supported)".to_string())?;
+                self.send_err(
+                    req,
+                    "setVariable: target variable is not writable".to_string(),
+                )?;
                 return Ok(());
             };
 
-            let bytes = parse_set_value(write.kind, &new_value)?;
-            write_bytes(dbg, write.addr, &bytes)?;
+            match write {
+                WriteMeta::Scalar { addr, kind } => {
+                    let bytes = parse_set_value(kind, &new_value)?;
+                    write_bytes(dbg, addr, &bytes)?;
+                }
+                WriteMeta::Composite { addr, type_graph } => {
+                    let Some(source) = item.source.as_ref() else {
+                        self.send_err(
+                            req,
+                            "setVariable: target variable is missing source value".to_string(),
+                        )?;
+                        return Ok(());
+                    };
+                    let Some(type_id) = source.type_id() else {
+                        self.send_err(
+                            req,
+                            "setVariable: target variable has no type id".to_string(),
+                        )?;
+                        return Ok(());
+                    };
+                    let serialized = debugger::variable::value::serialize::serialize_dap_value(
+                        &new_value,
+                        &type_graph,
+                        type_id,
+                        Some(source),
+                    )
+                    .map_err(|err| anyhow!("setVariable: {err}"))?;
+                    write_bytes(dbg, addr, &serialized.bytes)?;
+                    item.child = None;
+                    if let Some(child_ref) = self.child_links.remove(&(vars_ref, index)) {
+                        child_ref_to_remove = Some(child_ref);
+                    }
+                }
+            }
 
             // Update cached presentation value for this stop epoch.
             item.value = new_value.clone();
             (item.value.clone(), item.type_name.clone())
         };
+        if let Some(child_ref) = child_ref_to_remove {
+            self.vars.remove(child_ref);
+        }
 
         self.send_success_body(
             req,
@@ -1449,79 +1503,84 @@ fn render_value_to_string(v: &debugger::variable::value::Value) -> String {
     }
 }
 
-fn value_write_meta(v: &debugger::variable::value::Value) -> Option<WriteMeta> {
+fn value_write_meta(
+    v: &debugger::variable::value::Value,
+    type_graph: Rc<debugger::ComplexType>,
+) -> Option<WriteMeta> {
     use debugger::variable::value::{SupportedScalar, Value as BsValue};
 
     let addr = v.in_memory_location()?;
     match v {
         BsValue::Scalar(s) => match s.value.as_ref()? {
-            SupportedScalar::I8(_) => Some(WriteMeta {
+            SupportedScalar::I8(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::I8,
             }),
-            SupportedScalar::I16(_) => Some(WriteMeta {
+            SupportedScalar::I16(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::I16,
             }),
-            SupportedScalar::I32(_) => Some(WriteMeta {
+            SupportedScalar::I32(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::I32,
             }),
-            SupportedScalar::I64(_) => Some(WriteMeta {
+            SupportedScalar::I64(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::I64,
             }),
-            SupportedScalar::I128(_) => Some(WriteMeta {
+            SupportedScalar::I128(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::I128,
             }),
-            SupportedScalar::Isize(_) => Some(WriteMeta {
+            SupportedScalar::Isize(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::Isize,
             }),
-            SupportedScalar::U8(_) => Some(WriteMeta {
+            SupportedScalar::U8(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::U8,
             }),
-            SupportedScalar::U16(_) => Some(WriteMeta {
+            SupportedScalar::U16(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::U16,
             }),
-            SupportedScalar::U32(_) => Some(WriteMeta {
+            SupportedScalar::U32(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::U32,
             }),
-            SupportedScalar::U64(_) => Some(WriteMeta {
+            SupportedScalar::U64(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::U64,
             }),
-            SupportedScalar::U128(_) => Some(WriteMeta {
+            SupportedScalar::U128(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::U128,
             }),
-            SupportedScalar::Usize(_) => Some(WriteMeta {
+            SupportedScalar::Usize(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::Usize,
             }),
-            SupportedScalar::F32(_) => Some(WriteMeta {
+            SupportedScalar::F32(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::F32,
             }),
-            SupportedScalar::F64(_) => Some(WriteMeta {
+            SupportedScalar::F64(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::F64,
             }),
-            SupportedScalar::Bool(_) => Some(WriteMeta {
+            SupportedScalar::Bool(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::Bool,
             }),
-            SupportedScalar::Char(_) => Some(WriteMeta {
+            SupportedScalar::Char(_) => Some(WriteMeta::Scalar {
                 addr,
                 kind: ScalarKind::Char,
             }),
             SupportedScalar::Empty() => None,
         },
-        _ => None,
+        _ => v
+            .type_id()
+            .map(|_| WriteMeta::Composite { addr, type_graph }),
     }
 }
 
@@ -1587,6 +1646,9 @@ fn parse_set_value(kind: ScalarKind, input: &str) -> anyhow::Result<Vec<u8>> {
                 }
                 let u = ch as u32;
                 Ok(u.to_le_bytes().to_vec())
+            } else if s.chars().count() == 1 {
+                let u = s.chars().next().unwrap() as u32;
+                Ok(u.to_le_bytes().to_vec())
             } else {
                 let u = parse_int_u128(s)? as u32;
                 Ok(u.to_le_bytes().to_vec())
@@ -1630,7 +1692,10 @@ fn write_bytes(dbg: &debugger::Debugger, addr: usize, bytes: &[u8]) -> anyhow::R
     Ok(())
 }
 
-fn value_children(v: &debugger::variable::value::Value) -> Option<Vec<VarItem>> {
+fn value_children(
+    v: &debugger::variable::value::Value,
+    type_graph: Rc<debugger::ComplexType>,
+) -> Option<Vec<VarItem>> {
     use debugger::variable::render::{RenderValue, ValueLayout};
     let layout = v.value_layout()?;
     match layout {
@@ -1643,8 +1708,9 @@ fn value_children(v: &debugger::variable::value::Value) -> Option<Vec<VarItem>> 
                     name: field_name,
                     value: render_value_to_string(val),
                     type_name: Some(val.r#type().to_string()),
-                    child: value_children(val),
-                    write: value_write_meta(val),
+                    child: value_children(val, type_graph.clone()),
+                    write: value_write_meta(val, type_graph.clone()),
+                    source: Some(val.clone()),
                 });
             }
             Some(out)
@@ -1657,8 +1723,9 @@ fn value_children(v: &debugger::variable::value::Value) -> Option<Vec<VarItem>> 
                     name: format!("[{}]", it.index),
                     value: render_value_to_string(val),
                     type_name: Some(val.r#type().to_string()),
-                    child: value_children(val),
-                    write: value_write_meta(val),
+                    child: value_children(val, type_graph.clone()),
+                    write: value_write_meta(val, type_graph.clone()),
+                    source: Some(val.clone()),
                 });
             }
             Some(out)
@@ -1670,8 +1737,9 @@ fn value_children(v: &debugger::variable::value::Value) -> Option<Vec<VarItem>> 
                     name: format!("[{i}]"),
                     value: render_value_to_string(val),
                     type_name: Some(val.r#type().to_string()),
-                    child: value_children(val),
-                    write: value_write_meta(val),
+                    child: value_children(val, type_graph.clone()),
+                    write: value_write_meta(val, type_graph.clone()),
+                    source: Some(val.clone()),
                 });
             }
             Some(out)
@@ -1689,6 +1757,7 @@ fn value_children(v: &debugger::variable::value::Value) -> Option<Vec<VarItem>> 
                     type_name: None,
                     child: None,
                     write: None,
+                    source: None,
                 });
             }
             Some(out)
@@ -1702,14 +1771,16 @@ fn read_locals(dbg: &debugger::Debugger) -> anyhow::Result<Vec<VarItem>> {
     let locals = dbg.read_local_variables()?;
     let mut out = Vec::new();
     for r in locals {
+        let type_graph = Rc::new(r.type_graph().clone());
         let (id, val) = r.into_identified_value();
         let name = id.to_string();
         out.push(VarItem {
             name,
             value: render_value_to_string(&val),
             type_name: Some(val.r#type().to_string()),
-            child: value_children(&val),
-            write: value_write_meta(&val),
+            child: value_children(&val, type_graph.clone()),
+            write: value_write_meta(&val, type_graph.clone()),
+            source: Some(val.clone()),
         });
     }
     Ok(out)
@@ -1721,14 +1792,16 @@ fn read_args(dbg: &debugger::Debugger) -> anyhow::Result<Vec<VarItem>> {
     let args = dbg.read_argument(Dqe::Variable(Selector::Any))?;
     let mut out = Vec::new();
     for r in args {
+        let type_graph = Rc::new(r.type_graph().clone());
         let (id, val) = r.into_identified_value();
         let name = id.to_string();
         out.push(VarItem {
             name,
             value: render_value_to_string(&val),
             type_name: Some(val.r#type().to_string()),
-            child: value_children(&val),
-            write: value_write_meta(&val),
+            child: value_children(&val, type_graph.clone()),
+            write: value_write_meta(&val, type_graph.clone()),
+            source: Some(val.clone()),
         });
     }
     Ok(out)
