@@ -21,6 +21,7 @@ members = [
     "dap_except_info",
     "dap_exception_details",
     "dap_set_variable",
+    "dap_source_map",
 ]
 
 exclude = [

@@ -85,3 +85,8 @@ This should be a single application that may compiled into binaries with differe
 ### Dap_exception_details
 
 Nested calls that trigger a SIGSEGV to validate DAP `exceptionInfo` source/stack trace reporting.
+
+### Dap_source_map
+
+Small application that includes a module under a `./nptl/` path to exercise DAP `source` request
+path mapping and normalization fallback logic.
