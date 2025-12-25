@@ -46,6 +46,10 @@ class DebugAdapterExecutableFactory
 		let bin = inDebug ? "cargo" : "bs";
         let args = inDebug ? ["run", "-q", "--", "--dap"] : ["--dap"];
 		let env = config?.env;
+		if (!env) {
+			env = {};
+		}
+
 		env["RUST_LOG"] = inDebug ? "info,bugstalker=debug" : "info,bugstalker=info";
 
 		return new vscode.DebugAdapterExecutable(
