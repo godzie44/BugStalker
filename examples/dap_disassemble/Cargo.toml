@@ -1,0 +1,13 @@
+[package]
+name = "dap_disassemble"
+version = "0.0.0"
+edition = "2024"
+workspace = "./.."
+publish = false
+
+[dependencies]
+libc = "0.2"
+
+[[bin]]
+name = "dap_disassemble"
+path = "src/main.rs"
