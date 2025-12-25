@@ -2,8 +2,8 @@ use crate::debugger::r#async::AsyncBacktrace;
 use crate::debugger::r#async::AsyncFnFutureState;
 use crate::debugger::r#async::Future;
 use crate::debugger::r#async::TaskBacktrace;
-use crate::ui::console::print::ExternalPrinter;
-use crate::ui::console::print::style::{
+use crate::ui::generic::print::ExternalPrinter;
+use crate::ui::generic::print::style::{
     AsyncTaskView, ErrorView, FutureFunctionView, FutureTypeView,
 };
 use crossterm::style::Stylize;

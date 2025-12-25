@@ -1,3 +1,4 @@
+/// Utilities for communication between the debugger thread and UI threads
 use crate::debugger::Debugger;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -7,6 +8,7 @@ type DebuggerAsyncTask = dyn FnOnce(&mut Debugger) -> anyhow::Result<()> + Send;
 
 pub enum Request {
     Exit,
+    ExitSync,
     SwitchUi,
     DebuggerSyncTask(Box<DebuggerSyncTask>),
     DebuggerAsyncTask(Box<DebuggerAsyncTask>),
@@ -103,6 +105,11 @@ impl ClientExchanger {
 
     pub fn send_exit(&self) {
         _ = self.requests.send(Request::Exit);
+    }
+
+    pub fn send_exit_sync(&self) {
+        _ = self.requests.send(Request::ExitSync);
+        _ = self.responses.recv().unwrap();
     }
 
     pub fn send_switch_ui(&self) {

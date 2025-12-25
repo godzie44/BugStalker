@@ -5,6 +5,7 @@ use crate::ui::command;
 use crate::ui::command::r#break::BreakpointIdentity;
 use crate::ui::command::watch::WatchpointIdentity;
 use crate::ui::command::{CommandError, r#break, run, watch};
+use crate::ui::proto::ClientExchanger;
 use crate::ui::tui::app::port::{
     AsyncResponsesPort, DebuggerEventQueue, DebuggerEventsPort, LoggerPort, OutputPort, UserEvent,
 };
@@ -20,7 +21,6 @@ use crate::ui::tui::components::source::Source;
 use crate::ui::tui::components::status::Status;
 use crate::ui::tui::components::threads::Threads;
 use crate::ui::tui::components::variables::Variables;
-use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::logger::TuiLogLine;
 use crate::ui::tui::utils::tab;
 use crate::ui::tui::utils::tab::TabWindow;

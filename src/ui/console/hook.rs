@@ -1,15 +1,15 @@
+use super::super::generic::trigger::TriggerRegistry;
 use super::print::style::AsyncTaskView;
-use super::trigger::TriggerRegistry;
-use super::variable::render_value;
 use crate::debugger::PlaceDescriptor;
 use crate::debugger::address::RelocatedAddress;
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::value::Value;
 use crate::debugger::{EventHook, FunctionInfo};
 use crate::ui::command;
-use crate::ui::console::file::FileView;
-use crate::ui::console::print::ExternalPrinter;
-use crate::ui::console::print::style::{AddressView, FilePathView, FunctionNameView, KeywordView};
+use crate::ui::generic::file::FileView;
+use crate::ui::generic::print::ExternalPrinter;
+use crate::ui::generic::print::style::{AddressView, FilePathView, FunctionNameView, KeywordView};
+use crate::ui::generic::variable::render_value;
 use crate::version;
 use crossterm::style::Stylize;
 use log::warn;
@@ -56,6 +56,7 @@ impl EventHook for TerminalHook {
         num: u32,
         mb_place: Option<PlaceDescriptor>,
         mb_func: Option<&FunctionInfo>,
+        _: Option<u32>,
     ) -> anyhow::Result<()> {
         let msg = format!("Hit breakpoint {num} at {}:", AddressView::from(pc));
         if let Some(place) = mb_place {
@@ -139,6 +140,7 @@ impl EventHook for TerminalHook {
         _: RelocatedAddress,
         mb_place: Option<PlaceDescriptor>,
         mb_func: Option<&FunctionInfo>,
+        _: Option<u32>,
     ) -> anyhow::Result<()> {
         if let Some(place) = mb_place {
             if self.context.borrow().prev_func.as_ref() != mb_func {

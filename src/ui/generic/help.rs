@@ -379,7 +379,16 @@ pub struct Helper {
 }
 
 impl Helper {
-    pub fn help_for_command(&mut self, debugger: &Debugger, command: Option<&str>) -> &str {
+    pub fn new(debugger: &Debugger) -> Self {
+        let mut help = HELP_ORACLE.to_string();
+        let oracles = debugger.all_oracles();
+        oracles.for_each(|oracle| help = format!("{help}{}\n", oracle.help()));
+        Self {
+            oracle_help: Some(help),
+        }
+    }
+
+    pub fn help_for_command(&self, command: Option<&str>) -> &str {
         match command {
             None => HELP,
             Some("dqe") => DQE_DESCRIPTION,
@@ -413,12 +422,7 @@ impl Helper {
             Some(parser::ASYNC_COMMAND) => HELP_ASYNC,
             Some(parser::TRIGGER_COMMAND) => HELP_TRIGGER,
             Some(parser::CALL_COMMAND) => HELP_CALL,
-            Some(parser::ORACLE_COMMAND) => self.oracle_help.get_or_insert_with(|| {
-                let mut help = HELP_ORACLE.to_string();
-                let oracles = debugger.all_oracles();
-                oracles.for_each(|oracle| help = format!("{help}{}\n", oracle.help()));
-                help
-            }),
+            Some(parser::ORACLE_COMMAND) => &self.oracle_help.as_deref().unwrap_or(HELP_ORACLE),
             Some("tui") => HELP_TUI,
             Some("q") | Some("quit") => HELP_QUIT,
             _ => "unknown command",
