@@ -19,6 +19,7 @@ members = [
     "calls",
     "dap_cache_vars",
     "dap_except_info",
+    "dap_disassemble",
     "dap_exception_details",
     "dap_exception_filters",
     "dap_attach",

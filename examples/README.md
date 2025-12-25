@@ -98,3 +98,8 @@ Application that prints its PID and keeps running for DAP attach testing.
 
 Small application that includes a module under a `./nptl/` path to exercise DAP `source` request
 path mapping and normalization fallback logic.
+
+### Dap_disassemble
+
+Application that raises `SIGSTOP` after some arithmetic work to test DAP `disassemble` and
+`sourceReference` handling for frames without source information.
