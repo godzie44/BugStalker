@@ -13,6 +13,7 @@ use bugstalker::oracle::{Oracle, builtin};
 use bugstalker::ui::command::parser::expression as bs_expr;
 use bugstalker::ui::command::parser::watchpoint_at_address;
 use bugstalker::ui::command::watch::WatchpointIdentity;
+use capstone::prelude::*;
 use chumsky::Parser as _;
 use chumsky::prelude::end;
 use clap::Parser;
@@ -307,6 +308,9 @@ struct DebugSession {
     vars: VariablesStore,
     scope_cache: HashMap<(i64, u32, ScopeKind), i64>,
     child_links: HashMap<(i64, usize), i64>,
+    disasm_cache_by_addr: HashMap<usize, DisasmSource>,
+    disasm_cache_by_reference: HashMap<i64, DisasmSource>,
+    next_source_reference: i64,
     events: Arc<Mutex<Vec<InternalEvent>>>,
     terminated: bool,
     exit_code: Option<i32>,
@@ -338,6 +342,13 @@ struct LastStop {
     line: Option<i64>,
     column: Option<i64>,
     stack_trace: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct DisasmSource {
+    reference: i64,
+    name: String,
+    content: String,
 }
 
 #[derive(Default)]
@@ -449,6 +460,9 @@ impl DebugSession {
             vars: VariablesStore::default(),
             scope_cache: HashMap::new(),
             child_links: HashMap::new(),
+            disasm_cache_by_addr: HashMap::new(),
+            disasm_cache_by_reference: HashMap::new(),
+            next_source_reference: 1,
             events: Arc::new(Mutex::new(Vec::new())),
             terminated: false,
             exit_code: None,
@@ -718,6 +732,7 @@ impl DebugSession {
             "supportsStepBack": false,
             "supportsEvaluateForHovers": true,
             "supportsPauseRequest": true,
+            "supportsDisassembleRequest": true,
             "supportsExceptionBreakpoints": true,
             "supportsExceptionInfoRequest": true,
             "exceptionBreakpointFilters": [
@@ -1607,10 +1622,6 @@ impl DebugSession {
     }
 
     fn handle_stack_trace(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        let dbg = self
-            .debugger
-            .as_ref()
-            .ok_or_else(|| anyhow!("stackTrace: debugger not initialized"))?;
         let thread_id = req
             .arguments
             .get("threadId")
@@ -1623,23 +1634,43 @@ impl DebugSession {
             .copied()
             .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
 
-        let bt = dbg.backtrace(pid).unwrap_or_default();
+        let bt = self
+            .debugger
+            .as_ref()
+            .ok_or_else(|| anyhow!("stackTrace: debugger not initialized"))?
+            .backtrace(pid)
+            .unwrap_or_default();
         let mut frames = Vec::new();
         for (i, f) in bt.iter().enumerate() {
-            let (path, line, col) = match f.place.as_ref() {
+            let (path, line, col, source_reference) = match f.place.as_ref() {
                 Some(p) => (
                     Some(p.file.to_string_lossy().to_string()),
                     Some(p.line_number as i64),
                     Some(p.column_number as i64),
+                    None,
                 ),
-                None => (None, None, None),
+                None => {
+                    let addr = f.ip.as_usize();
+                    let disasm = self.disasm_source_for_address(addr)?;
+                    (None, Some(1), Some(1), Some(disasm.reference))
+                }
             };
             let name = f.func_name.as_deref().unwrap_or("<unknown>").to_string();
             let frame_id = (thread_id << 16) | (i as i64);
-            let source = path.map(|p| {
-                let p = self.source_map.map_target_to_client(&p);
-                json!({"path": p})
-            });
+            let source = if let Some(path) = path {
+                let p = self.source_map.map_target_to_client(&path);
+                Some(json!({"path": p}))
+            } else if let Some(source_reference) = source_reference {
+                let addr = f.ip.as_usize();
+                let name = self
+                    .disasm_cache_by_addr
+                    .get(&addr)
+                    .map(|entry| entry.name.clone())
+                    .unwrap_or_else(|| format!("disasm @ 0x{addr:x}"));
+                Some(json!({"name": name, "sourceReference": source_reference}))
+            } else {
+                None
+            };
             frames.push(json!({
                 "id": frame_id,
                 "name": name,
@@ -1908,6 +1939,7 @@ impl DebugSession {
             "stepOut" => self.handle_step_out(req)?,
             "pause" => self.handle_pause(req)?,
             "evaluate" => self.handle_evaluate(req)?,
+            "disassemble" => self.handle_disassemble(req)?,
             "terminate" => {
                 self.handle_terminate(req)?;
                 return Ok(false);
@@ -1955,11 +1987,40 @@ impl DebugSession {
             .as_object()
             .ok_or_else(|| anyhow!("source: arguments must be object"))?;
 
-        let source_obj = args
-            .get("source")
-            .and_then(serde_json::Value::as_object)
-            .ok_or_else(|| anyhow!("source: missing source object"))?;
+        let source_obj = args.get("source").and_then(serde_json::Value::as_object);
 
+        let source_reference = args
+            .get("sourceReference")
+            .and_then(serde_json::Value::as_i64)
+            .or_else(|| {
+                source_obj
+                    .and_then(|obj| obj.get("sourceReference"))
+                    .and_then(serde_json::Value::as_i64)
+            })
+            .filter(|value| *value > 0);
+
+        if let Some(source_reference) = source_reference {
+            if let Some(disasm) = self.disasm_cache_by_reference.get(&source_reference) {
+                return self.send_success_body(
+                    req,
+                    serde_json::json!({
+                        "content": disasm.content,
+                        "mimeType": "text/x-asm"
+                    }),
+                );
+            }
+            return self.send_success_body(
+                req,
+                serde_json::json!({
+                    "content": format!(
+                        "No cached disassembly found for sourceReference {source_reference}."
+                    ),
+                    "mimeType": "text/plain"
+                }),
+            );
+        }
+
+        let source_obj = source_obj.ok_or_else(|| anyhow!("source: missing source object"))?;
         let path = source_obj
             .get("path")
             .and_then(serde_json::Value::as_str)
@@ -2007,6 +2068,175 @@ impl DebugSession {
             }),
         )
     }
+
+    fn handle_disassemble(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let dbg = self
+            .debugger
+            .as_ref()
+            .ok_or_else(|| anyhow!("disassemble: debugger not initialized"))?;
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("disassemble: arguments must be object"))?;
+
+        let memory_reference = args
+            .get("memoryReference")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| anyhow!("disassemble: missing arguments.memoryReference"))?;
+
+        let instruction_count = args
+            .get("instructionCount")
+            .and_then(serde_json::Value::as_i64)
+            .ok_or_else(|| anyhow!("disassemble: missing arguments.instructionCount"))?;
+        if instruction_count <= 0 {
+            return self.send_err(
+                req,
+                "disassemble: instructionCount must be positive".to_string(),
+            );
+        }
+
+        let offset = args
+            .get("offset")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
+
+        let instruction_offset = args
+            .get("instructionOffset")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
+
+        let base_addr = parse_memory_reference(memory_reference)
+            .context("disassemble: invalid memoryReference")?;
+        let start = offset
+            .checked_add(base_addr as i64)
+            .ok_or_else(|| anyhow!("disassemble: address overflow"))?;
+        if start < 0 {
+            return self.send_err(req, "disassemble: start address is negative".to_string());
+        }
+        let anchor_addr = start as usize;
+        let back_instructions = instruction_offset.unsigned_abs() as usize;
+        let max_len = 16usize;
+        let start_addr = anchor_addr.saturating_sub(back_instructions.saturating_mul(max_len));
+        let disasm_count = instruction_count as usize + back_instructions + 16;
+        let instructions = disassemble_from_address(dbg, start_addr, disasm_count)?;
+        let anchor_index = instructions
+            .iter()
+            .position(|ins| ins.address as usize >= anchor_addr)
+            .unwrap_or(instructions.len());
+        let start_index = if instruction_offset >= 0 {
+            anchor_index.saturating_add(instruction_offset as usize)
+        } else {
+            anchor_index.saturating_sub(back_instructions)
+        };
+
+        let instructions = instructions
+            .into_iter()
+            .skip(start_index)
+            .take(instruction_count as usize)
+            .map(|ins| {
+                json!({
+                    "address": format!("0x{:x}", ins.address),
+                    "instructionBytes": ins.bytes_hex,
+                    "instruction": ins.text,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        self.send_success_body(req, json!({ "instructions": instructions }))
+    }
+
+    fn disasm_source_for_address(&mut self, addr: usize) -> anyhow::Result<DisasmSource> {
+        if let Some(existing) = self.disasm_cache_by_addr.get(&addr) {
+            return Ok(existing.clone());
+        }
+
+        let dbg = self
+            .debugger
+            .as_ref()
+            .ok_or_else(|| anyhow!("disassemble: debugger not initialized"))?;
+        let instructions = disassemble_from_address(dbg, addr, 64)?;
+        let content = if instructions.is_empty() {
+            format!("No disassembly available at 0x{addr:x}.")
+        } else {
+            instructions
+                .iter()
+                .map(|ins| format!("0x{:x}: {}", ins.address, ins.text))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let reference = self.next_source_reference;
+        self.next_source_reference += 1;
+        let name = format!("disasm @ 0x{addr:x}");
+        let entry = DisasmSource {
+            reference,
+            name,
+            content,
+        };
+        self.disasm_cache_by_addr.insert(addr, entry.clone());
+        self.disasm_cache_by_reference
+            .insert(reference, entry.clone());
+        Ok(entry)
+    }
+}
+
+struct DisasmInstruction {
+    address: u64,
+    bytes_hex: String,
+    text: String,
+}
+
+fn disassemble_from_address(
+    dbg: &debugger::Debugger,
+    addr: usize,
+    instruction_count: usize,
+) -> anyhow::Result<Vec<DisasmInstruction>> {
+    let cs = Capstone::new()
+        .x86()
+        .mode(arch::x86::ArchMode::Mode64)
+        .syntax(arch::x86::ArchSyntax::Att)
+        .build()
+        .map_err(|err| anyhow!("disassemble: init capstone: {err}"))?;
+    let max_len = 16usize;
+    let read_len = instruction_count.saturating_mul(max_len).max(max_len);
+    let bytes = dbg
+        .read_memory(addr, read_len)
+        .context("disassemble: read_memory")?;
+    let insns = cs
+        .disasm_all(&bytes, addr as u64)
+        .map_err(|err| anyhow!("disassemble: disasm_all: {err}"))?;
+
+    let mut out = Vec::new();
+    for insn in insns.iter().take(instruction_count) {
+        let mnemonic: &str = insn.mnemonic().unwrap_or("<unknown>");
+        let op_str = insn.op_str().unwrap_or("");
+        let text = if op_str.is_empty() {
+            mnemonic.to_string()
+        } else {
+            format!("{mnemonic} {op_str}")
+        };
+        let bytes_hex = insn
+            .bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join("");
+        out.push(DisasmInstruction {
+            address: insn.address(),
+            bytes_hex,
+            text,
+        });
+    }
+    Ok(out)
+}
+
+fn parse_memory_reference(reference: &str) -> anyhow::Result<usize> {
+    let trimmed = reference.trim();
+    let value = if let Some(hex) = trimmed.strip_prefix("0x") {
+        usize::from_str_radix(hex, 16).context("parse hex memory reference")?
+    } else {
+        trimmed.parse::<usize>().context("parse memory reference")?
+    };
+    Ok(value)
 }
 
 fn render_value_to_string(v: &debugger::variable::value::Value) -> String {
