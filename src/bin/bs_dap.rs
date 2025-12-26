@@ -22,7 +22,7 @@ use log::{info, warn};
 use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -193,6 +193,29 @@ enum InternalEvent {
         thread_id: Option<i64>,
         description: Option<String>,
     },
+    Continued {
+        thread_id: Option<i64>,
+        all_threads_continued: bool,
+    },
+    Thread {
+        reason: &'static str,
+        thread_id: i64,
+    },
+    Breakpoint {
+        reason: &'static str,
+        breakpoint: Value,
+    },
+    Module {
+        reason: &'static str,
+        module: Value,
+    },
+    LoadedSource {
+        reason: &'static str,
+        source: Value,
+    },
+    Process {
+        body: Value,
+    },
     Exited {
         code: i32,
     },
@@ -303,11 +326,12 @@ struct DebugSession {
     debugger: Option<debugger::Debugger>,
     session_mode: Option<SessionMode>,
     source_map: SourceMap,
-    breakpoints_by_source: HashMap<String, Vec<debugger::address::Address>>,
-    function_breakpoints: Vec<debugger::address::Address>,
-    instruction_breakpoints: Vec<debugger::address::Address>,
+    breakpoints_by_source: HashMap<String, Vec<BreakpointRecord>>,
+    function_breakpoints: Vec<BreakpointRecord>,
+    instruction_breakpoints: Vec<BreakpointRecord>,
     data_breakpoints: HashMap<String, DataBreakpointRecord>,
     thread_cache: HashMap<i64, Pid>,
+    next_breakpoint_id: i64,
     vars: VariablesStore,
     scope_cache: HashMap<(i64, u32, ScopeKind), i64>,
     child_links: HashMap<(i64, usize), i64>,
@@ -319,6 +343,7 @@ struct DebugSession {
     exit_code: Option<i32>,
     exception_filters: Vec<String>,
     last_stop: Option<LastStop>,
+    module_info: Option<ModuleInfo>,
 }
 
 const EXCEPTION_FILTER_SIGNAL: &str = "signal";
@@ -352,6 +377,18 @@ struct DisasmSource {
     reference: i64,
     name: String,
     content: String,
+}
+
+#[derive(Debug, Clone)]
+struct BreakpointRecord {
+    id: i64,
+    addresses: Vec<debugger::address::Address>,
+}
+
+#[derive(Debug, Clone)]
+struct ModuleInfo {
+    module: Value,
+    source: Value,
 }
 
 #[derive(Default)]
@@ -411,6 +448,7 @@ enum DataBreakpointTarget {
 #[derive(Clone)]
 struct DataBreakpointRecord {
     target: DataBreakpointTarget,
+    id: i64,
 }
 
 impl DataBreakpointTarget {
@@ -462,6 +500,7 @@ impl DebugSession {
             instruction_breakpoints: Vec::new(),
             data_breakpoints: HashMap::new(),
             thread_cache: HashMap::new(),
+            next_breakpoint_id: 1,
             vars: VariablesStore::default(),
             scope_cache: HashMap::new(),
             child_links: HashMap::new(),
@@ -476,6 +515,7 @@ impl DebugSession {
                 EXCEPTION_FILTER_PROCESS.to_string(),
             ],
             last_stop: None,
+            module_info: None,
         }
     }
 
@@ -577,20 +617,112 @@ impl DebugSession {
         usize::try_from(addr).context("memoryReference out of range")
     }
 
-    fn clear_data_breakpoints(
-        dbg: &mut debugger::Debugger,
-        existing: HashMap<String, DataBreakpointRecord>,
-    ) {
-        for (_, record) in existing {
-            match record.target {
-                DataBreakpointTarget::Expr { dqe, .. } => {
-                    let _ = dbg.remove_watchpoint_by_expr(dqe);
-                }
-                DataBreakpointTarget::Address { addr, .. } => {
-                    let _ = dbg.remove_watchpoint_by_addr(RelocatedAddress::from(addr));
-                }
-            }
+    fn enqueue_thread_event(&self, reason: &'static str, thread_id: i64) {
+        self.enqueue_event(InternalEvent::Thread { reason, thread_id });
+    }
+
+    fn emit_process_start(&mut self) -> anyhow::Result<()> {
+        let dbg = self
+            .debugger
+            .as_ref()
+            .ok_or_else(|| anyhow!("process event: debugger not initialized"))?;
+        let process = dbg.process();
+        let program = process.program();
+        let name = Path::new(program)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(program)
+            .to_string();
+        let pid = process.pid().as_raw() as i64;
+        let start_method = match self.session_mode {
+            Some(SessionMode::Attach) => "attach",
+            _ => "launch",
+        };
+        let process_body = json!({
+            "name": name,
+            "systemProcessId": pid,
+            "isLocalProcess": true,
+            "startMethod": start_method,
+        });
+        self.enqueue_event(InternalEvent::Process { body: process_body });
+
+        let module_id = pid.to_string();
+        let module = json!({
+            "id": module_id,
+            "name": name,
+            "path": program,
+            "isOptimized": false,
+            "isUserCode": true,
+        });
+        let source = json!({
+            "name": name,
+            "path": program,
+        });
+        self.module_info = Some(ModuleInfo {
+            module: module.clone(),
+            source: source.clone(),
+        });
+        self.enqueue_event(InternalEvent::Module {
+            reason: "new",
+            module,
+        });
+        self.enqueue_event(InternalEvent::LoadedSource {
+            reason: "new",
+            source,
+        });
+        Ok(())
+    }
+
+    fn emit_process_end(&mut self) -> anyhow::Result<()> {
+        if let Some(info) = self.module_info.take() {
+            self.send_event_body(
+                "module",
+                json!({ "reason": "removed", "module": info.module }),
+            )?;
+            self.send_event_body(
+                "loadedSource",
+                json!({ "reason": "removed", "source": info.source }),
+            )?;
         }
+        let thread_ids: Vec<i64> = self.thread_cache.keys().copied().collect();
+        for thread_id in thread_ids {
+            self.send_event_body(
+                "thread",
+                json!({ "reason": "exited", "threadId": thread_id }),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn refresh_threads_with_events(&mut self) -> anyhow::Result<Vec<Value>> {
+        let dbg = self
+            .debugger
+            .as_ref()
+            .ok_or_else(|| anyhow!("threads: debugger not initialized"))?;
+
+        let threads = dbg.thread_state().unwrap_or_default();
+        let existing_ids: HashSet<i64> = self.thread_cache.keys().copied().collect();
+        let mut new_ids = HashSet::new();
+        let mut new_cache = HashMap::new();
+        let mut out = Vec::new();
+        for t in threads {
+            let id = t.thread.pid.as_raw() as i64;
+            new_ids.insert(id);
+            new_cache.insert(id, t.thread.pid);
+            out.push(json!({
+                "id": id,
+                "name": format!("thread#{} ({})", t.thread.number, t.thread.pid),
+            }));
+        }
+
+        for id in new_ids.difference(&existing_ids) {
+            self.enqueue_thread_event("started", *id);
+        }
+        for id in existing_ids.difference(&new_ids) {
+            self.enqueue_thread_event("exited", *id);
+        }
+        self.thread_cache = new_cache;
+        Ok(out)
     }
 
     fn drain_events(&mut self) -> anyhow::Result<()> {
@@ -624,6 +756,7 @@ impl DebugSession {
 
         if let Some(code) = exit_code {
             // Natural process exit: exited -> terminated (exactly once).
+            self.emit_process_end()?;
             self.terminated = true;
             self.exit_code = Some(code);
             self.send_event_body("exited", json!({ "exitCode": code }))?;
@@ -633,6 +766,7 @@ impl DebugSession {
 
         if has_terminated {
             // User-initiated termination: terminated only (exactly once).
+            self.emit_process_end()?;
             self.terminated = true;
             self.send_event("terminated")?;
             return Ok(());
@@ -652,6 +786,61 @@ impl DebugSession {
                         "description": description,
                     });
                     self.send_event_raw("stopped", Some(body))?;
+                }
+                InternalEvent::Continued {
+                    thread_id,
+                    all_threads_continued,
+                } => {
+                    let body = if let Some(thread_id) = thread_id {
+                        json!({
+                            "threadId": thread_id,
+                            "allThreadsContinued": all_threads_continued,
+                        })
+                    } else {
+                        json!({
+                            "allThreadsContinued": all_threads_continued,
+                        })
+                    };
+                    self.send_event_raw("continued", Some(body))?;
+                }
+                InternalEvent::Thread { reason, thread_id } => {
+                    self.send_event_body(
+                        "thread",
+                        json!({
+                            "reason": reason,
+                            "threadId": thread_id,
+                        }),
+                    )?;
+                }
+                InternalEvent::Breakpoint { reason, breakpoint } => {
+                    self.send_event_body(
+                        "breakpoint",
+                        json!({
+                            "reason": reason,
+                            "breakpoint": breakpoint,
+                        }),
+                    )?;
+                }
+                InternalEvent::Module { reason, module } => {
+                    self.send_event_body(
+                        "module",
+                        json!({
+                            "reason": reason,
+                            "module": module,
+                        }),
+                    )?;
+                }
+                InternalEvent::LoadedSource { reason, source } => {
+                    self.send_event_body(
+                        "loadedSource",
+                        json!({
+                            "reason": reason,
+                            "source": source,
+                        }),
+                    )?;
+                }
+                InternalEvent::Process { body } => {
+                    self.send_event_body("process", body)?;
                 }
                 InternalEvent::Exited { .. } | InternalEvent::Terminated => {
                     // Handled by the lifecycle pre-scan above.
@@ -754,6 +943,8 @@ impl DebugSession {
             "supportsInstructionBreakpoints": true,
             "supportsReadMemoryRequest": true,
             "supportsWriteMemoryRequest": true,
+            "supportsModulesRequest": true,
+            "supportsLoadedSourcesRequest": true,
             "supportsExceptionBreakpoints": true,
             "supportsExceptionInfoRequest": true,
             "exceptionBreakpointFilters": [
@@ -920,6 +1111,7 @@ impl DebugSession {
         self.session_mode = Some(SessionMode::Launch);
 
         self.build_debugger(program, &args, oracles)?;
+        self.emit_process_start()?;
         self.send_success(req)?;
         Ok(())
     }
@@ -933,6 +1125,7 @@ impl DebugSession {
         self.session_mode = Some(SessionMode::Attach);
 
         self.build_attached_debugger(pid, oracles)?;
+        self.emit_process_start()?;
         self.send_success(req)?;
         Ok(())
     }
@@ -1026,6 +1219,7 @@ impl DebugSession {
         }
 
         self.begin_stop_epoch();
+        let _ = self.refresh_threads_with_events();
 
         let (source_path, line, column, stack_trace) = self
             .debugger
@@ -1090,6 +1284,7 @@ impl DebugSession {
 
     fn emit_attached_stop(&mut self) -> anyhow::Result<()> {
         self.begin_stop_epoch();
+        let _ = self.refresh_threads_with_events();
 
         let pid_info = self
             .debugger
@@ -1166,23 +1361,7 @@ impl DebugSession {
     }
 
     fn refresh_threads(&mut self) -> anyhow::Result<Vec<Value>> {
-        let dbg = self
-            .debugger
-            .as_ref()
-            .ok_or_else(|| anyhow!("threads: debugger not initialized"))?;
-
-        let threads = dbg.thread_state().unwrap_or_default();
-        self.thread_cache.clear();
-        let mut out = Vec::new();
-        for t in threads {
-            let id = t.thread.pid.as_raw() as i64;
-            self.thread_cache.insert(id, t.thread.pid);
-            out.push(json!({
-                "id": id,
-                "name": format!("thread#{} ({})", t.thread.number, t.thread.pid),
-            }));
-        }
-        Ok(out)
+        self.refresh_threads_with_events()
     }
 
     fn handle_threads(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -1191,12 +1370,7 @@ impl DebugSession {
     }
 
     fn handle_set_breakpoints(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        let dbg = self
-            .debugger
-            .as_mut()
-            .ok_or_else(|| anyhow!("setBreakpoints: debugger not initialized"))?;
-
-        let source_path = req
+        let client_source_path = req
             .arguments
             .get("source")
             .and_then(|s| s.get("path"))
@@ -1204,17 +1378,15 @@ impl DebugSession {
             .ok_or_else(|| anyhow!("setBreakpoints: missing arguments.source.path"))?
             .to_string();
 
-        let source_path = self.source_map.map_client_to_target(&source_path);
+        let source_path = self.source_map.map_client_to_target(&client_source_path);
 
-        // Remove previous breakpoints for this source.
-        if let Some(prev) = self.breakpoints_by_source.remove(&source_path) {
-            for addr in prev {
-                let _ = dbg.remove_breakpoint(addr);
-            }
-        }
-
-        let mut new_addrs = Vec::new();
+        let prev = self
+            .breakpoints_by_source
+            .remove(&source_path)
+            .unwrap_or_default();
+        let mut new_breakpoints = Vec::new();
         let mut rsp_bps = Vec::new();
+        let mut pending_events = Vec::new();
         let bps = req
             .arguments
             .get("breakpoints")
@@ -1222,48 +1394,94 @@ impl DebugSession {
             .cloned()
             .unwrap_or_default();
 
-        for bp in bps {
-            let line = bp.get("line").and_then(|v| v.as_i64()).unwrap_or(1) as u64;
-            let mut views = dbg.set_breakpoint_at_line(&source_path, line);
-            if views.is_err() {
-                // fallback: try basename, helps when debug info stores only file name
-                if let Some(base) = Path::new(&source_path).file_name().and_then(|s| s.to_str()) {
-                    views = dbg.set_breakpoint_at_line(base, line);
+        let mut next_id = self.next_breakpoint_id;
+        {
+            let dbg = self
+                .debugger
+                .as_mut()
+                .ok_or_else(|| anyhow!("setBreakpoints: debugger not initialized"))?;
+
+            for record in prev {
+                for addr in record.addresses {
+                    let _ = dbg.remove_breakpoint(addr);
                 }
+                pending_events.push(InternalEvent::Breakpoint {
+                    reason: "removed",
+                    breakpoint: json!({ "id": record.id }),
+                });
             }
 
-            match views {
-                Ok(mut v) if !v.is_empty() => {
-                    let first = v.remove(0);
-                    new_addrs.push(first.addr);
-                    rsp_bps.push(json!({
-                        "verified": true,
-                        "line": line,
-                    }));
+            for bp in bps {
+                let line = bp.get("line").and_then(|v| v.as_i64()).unwrap_or(1) as u64;
+                let mut views = dbg.set_breakpoint_at_line(&source_path, line);
+                if views.is_err() {
+                    // fallback: try basename, helps when debug info stores only file name
+                    if let Some(base) = Path::new(&source_path).file_name().and_then(|s| s.to_str())
+                    {
+                        views = dbg.set_breakpoint_at_line(base, line);
+                    }
                 }
-                _ => {
-                    rsp_bps.push(json!({
-                        "verified": false,
-                        "line": line,
-                    }));
+
+                let mut alloc_id = || {
+                    let id = next_id;
+                    next_id += 1;
+                    id
+                };
+
+                match views {
+                    Ok(mut v) if !v.is_empty() => {
+                        let first = v.remove(0);
+                        let id = alloc_id();
+                        let dap_bp = json!({
+                            "id": id,
+                            "verified": true,
+                            "line": line,
+                            "source": { "path": client_source_path },
+                        });
+                        new_breakpoints.push(BreakpointRecord {
+                            id,
+                            addresses: vec![first.addr],
+                        });
+                        rsp_bps.push(dap_bp.clone());
+                        pending_events.push(InternalEvent::Breakpoint {
+                            reason: "changed",
+                            breakpoint: dap_bp,
+                        });
+                    }
+                    _ => {
+                        let id = alloc_id();
+                        let dap_bp = json!({
+                            "id": id,
+                            "verified": false,
+                            "line": line,
+                            "source": { "path": client_source_path },
+                        });
+                        new_breakpoints.push(BreakpointRecord {
+                            id,
+                            addresses: Vec::new(),
+                        });
+                        rsp_bps.push(dap_bp.clone());
+                        pending_events.push(InternalEvent::Breakpoint {
+                            reason: "changed",
+                            breakpoint: dap_bp,
+                        });
+                    }
                 }
             }
         }
+        self.next_breakpoint_id = next_id;
 
-        self.breakpoints_by_source.insert(source_path, new_addrs);
-        self.send_success_body(req, json!({"breakpoints": rsp_bps}))
+        self.breakpoints_by_source
+            .insert(source_path, new_breakpoints);
+        for event in pending_events {
+            self.enqueue_event(event);
+        }
+        self.send_success_body(req, json!({"breakpoints": rsp_bps}))?;
+        self.drain_events()
     }
 
     fn handle_set_function_breakpoints(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        let dbg = self
-            .debugger
-            .as_mut()
-            .ok_or_else(|| anyhow!("setFunctionBreakpoints: debugger not initialized"))?;
-
-        for addr in self.function_breakpoints.drain(..) {
-            let _ = dbg.remove_breakpoint(addr);
-        }
-
+        let prev = std::mem::take(&mut self.function_breakpoints);
         let bps = req
             .arguments
             .get("breakpoints")
@@ -1272,52 +1490,117 @@ impl DebugSession {
             .unwrap_or_default();
 
         let mut rsp_bps = Vec::new();
-        for bp in bps {
-            let Some(name) = bp.get("name").and_then(|v| v.as_str()) else {
-                rsp_bps.push(json!({
-                    "verified": false,
-                    "message": "setFunctionBreakpoints: missing breakpoint name",
-                }));
-                continue;
+        let mut new_breakpoints = Vec::new();
+        let mut pending_events = Vec::new();
+        let mut next_id = self.next_breakpoint_id;
+        {
+            let dbg = self
+                .debugger
+                .as_mut()
+                .ok_or_else(|| anyhow!("setFunctionBreakpoints: debugger not initialized"))?;
+
+            for record in prev {
+                for addr in record.addresses {
+                    let _ = dbg.remove_breakpoint(addr);
+                }
+                pending_events.push(InternalEvent::Breakpoint {
+                    reason: "removed",
+                    breakpoint: json!({ "id": record.id }),
+                });
+            }
+
+            let mut alloc_id = || {
+                let id = next_id;
+                next_id += 1;
+                id
             };
 
-            match dbg.set_breakpoint_at_fn(name) {
-                Ok(views) if !views.is_empty() => {
-                    for view in &views {
-                        self.function_breakpoints.push(view.addr);
+            for bp in bps {
+                let Some(name) = bp.get("name").and_then(|v| v.as_str()) else {
+                    let id = alloc_id();
+                    let dap_bp = json!({
+                        "id": id,
+                        "verified": false,
+                        "message": "setFunctionBreakpoints: missing breakpoint name",
+                    });
+                    new_breakpoints.push(BreakpointRecord {
+                        id,
+                        addresses: Vec::new(),
+                    });
+                    rsp_bps.push(dap_bp.clone());
+                    pending_events.push(InternalEvent::Breakpoint {
+                        reason: "changed",
+                        breakpoint: dap_bp,
+                    });
+                    continue;
+                };
+
+                match dbg.set_breakpoint_at_fn(name) {
+                    Ok(views) if !views.is_empty() => {
+                        let id = alloc_id();
+                        let dap_bp = json!({
+                            "id": id,
+                            "verified": true,
+                        });
+                        new_breakpoints.push(BreakpointRecord {
+                            id,
+                            addresses: views.iter().map(|view| view.addr).collect(),
+                        });
+                        rsp_bps.push(dap_bp.clone());
+                        pending_events.push(InternalEvent::Breakpoint {
+                            reason: "changed",
+                            breakpoint: dap_bp,
+                        });
                     }
-                    rsp_bps.push(json!({
-                        "verified": true,
-                    }));
-                }
-                Ok(_) => {
-                    rsp_bps.push(json!({
-                        "verified": false,
-                        "message": "setFunctionBreakpoints: no matching symbols",
-                    }));
-                }
-                Err(err) => {
-                    rsp_bps.push(json!({
-                        "verified": false,
-                        "message": format!("setFunctionBreakpoints: {err}"),
-                    }));
+                    Ok(_) => {
+                        let id = alloc_id();
+                        let dap_bp = json!({
+                            "id": id,
+                            "verified": false,
+                            "message": "setFunctionBreakpoints: no matching symbols",
+                        });
+                        new_breakpoints.push(BreakpointRecord {
+                            id,
+                            addresses: Vec::new(),
+                        });
+                        rsp_bps.push(dap_bp.clone());
+                        pending_events.push(InternalEvent::Breakpoint {
+                            reason: "changed",
+                            breakpoint: dap_bp,
+                        });
+                    }
+                    Err(err) => {
+                        let id = alloc_id();
+                        let dap_bp = json!({
+                            "id": id,
+                            "verified": false,
+                            "message": format!("setFunctionBreakpoints: {err}"),
+                        });
+                        new_breakpoints.push(BreakpointRecord {
+                            id,
+                            addresses: Vec::new(),
+                        });
+                        rsp_bps.push(dap_bp.clone());
+                        pending_events.push(InternalEvent::Breakpoint {
+                            reason: "changed",
+                            breakpoint: dap_bp,
+                        });
+                    }
                 }
             }
         }
+        self.next_breakpoint_id = next_id;
+        self.function_breakpoints = new_breakpoints;
+        for event in pending_events {
+            self.enqueue_event(event);
+        }
 
-        self.send_success_body(req, json!({"breakpoints": rsp_bps}))
+        self.send_success_body(req, json!({"breakpoints": rsp_bps}))?;
+        self.drain_events()
     }
 
     fn handle_set_instruction_breakpoints(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        let dbg = self
-            .debugger
-            .as_mut()
-            .ok_or_else(|| anyhow!("setInstructionBreakpoints: debugger not initialized"))?;
-
-        for addr in self.instruction_breakpoints.drain(..) {
-            let _ = dbg.remove_breakpoint(addr);
-        }
-
+        let prev = std::mem::take(&mut self.instruction_breakpoints);
         let bps = req
             .arguments
             .get("breakpoints")
@@ -1326,45 +1609,121 @@ impl DebugSession {
             .unwrap_or_default();
 
         let mut rsp_bps = Vec::new();
-        for bp in bps {
-            let Some(reference) = bp.get("instructionReference").and_then(|v| v.as_str()) else {
-                rsp_bps.push(json!({
-                    "verified": false,
-                    "message": "setInstructionBreakpoints: missing instructionReference",
-                }));
-                continue;
+        let mut new_breakpoints = Vec::new();
+        let mut pending_events = Vec::new();
+        let mut next_id = self.next_breakpoint_id;
+        {
+            let dbg = self
+                .debugger
+                .as_mut()
+                .ok_or_else(|| anyhow!("setInstructionBreakpoints: debugger not initialized"))?;
+
+            for record in prev {
+                for addr in record.addresses {
+                    let _ = dbg.remove_breakpoint(addr);
+                }
+                pending_events.push(InternalEvent::Breakpoint {
+                    reason: "removed",
+                    breakpoint: json!({ "id": record.id }),
+                });
+            }
+
+            let mut alloc_id = || {
+                let id = next_id;
+                next_id += 1;
+                id
             };
 
-            let offset = bp.get("offset").and_then(|v| v.as_i64()).unwrap_or(0);
-            let addr = match Self::parse_memory_reference_with_offset(reference, offset) {
-                Ok(addr) => addr,
-                Err(err) => {
-                    rsp_bps.push(json!({
+            for bp in bps {
+                let Some(reference) = bp.get("instructionReference").and_then(|v| v.as_str())
+                else {
+                    let id = alloc_id();
+                    let dap_bp = json!({
+                        "id": id,
                         "verified": false,
-                        "message": format!("setInstructionBreakpoints: {err}"),
-                    }));
+                        "message": "setInstructionBreakpoints: missing instructionReference",
+                    });
+                    new_breakpoints.push(BreakpointRecord {
+                        id,
+                        addresses: Vec::new(),
+                    });
+                    rsp_bps.push(dap_bp.clone());
+                    pending_events.push(InternalEvent::Breakpoint {
+                        reason: "changed",
+                        breakpoint: dap_bp,
+                    });
                     continue;
-                }
-            };
+                };
 
-            match dbg.set_breakpoint_at_addr(RelocatedAddress::from(addr)) {
-                Ok(view) => {
-                    self.instruction_breakpoints.push(view.addr);
-                    rsp_bps.push(json!({
-                        "verified": true,
-                        "instructionReference": format!("0x{addr:x}"),
-                    }));
-                }
-                Err(err) => {
-                    rsp_bps.push(json!({
-                        "verified": false,
-                        "message": format!("setInstructionBreakpoints: {err}"),
-                    }));
+                let offset = bp.get("offset").and_then(|v| v.as_i64()).unwrap_or(0);
+                let addr = match Self::parse_memory_reference_with_offset(reference, offset) {
+                    Ok(addr) => addr,
+                    Err(err) => {
+                        let id = alloc_id();
+                        let dap_bp = json!({
+                            "id": id,
+                            "verified": false,
+                            "message": format!("setInstructionBreakpoints: {err}"),
+                        });
+                        new_breakpoints.push(BreakpointRecord {
+                            id,
+                            addresses: Vec::new(),
+                        });
+                        rsp_bps.push(dap_bp.clone());
+                        pending_events.push(InternalEvent::Breakpoint {
+                            reason: "changed",
+                            breakpoint: dap_bp,
+                        });
+                        continue;
+                    }
+                };
+
+                match dbg.set_breakpoint_at_addr(RelocatedAddress::from(addr)) {
+                    Ok(view) => {
+                        let id = alloc_id();
+                        let dap_bp = json!({
+                            "id": id,
+                            "verified": true,
+                            "instructionReference": format!("0x{addr:x}"),
+                        });
+                        new_breakpoints.push(BreakpointRecord {
+                            id,
+                            addresses: vec![view.addr],
+                        });
+                        rsp_bps.push(dap_bp.clone());
+                        pending_events.push(InternalEvent::Breakpoint {
+                            reason: "changed",
+                            breakpoint: dap_bp,
+                        });
+                    }
+                    Err(err) => {
+                        let id = alloc_id();
+                        let dap_bp = json!({
+                            "id": id,
+                            "verified": false,
+                            "message": format!("setInstructionBreakpoints: {err}"),
+                        });
+                        new_breakpoints.push(BreakpointRecord {
+                            id,
+                            addresses: Vec::new(),
+                        });
+                        rsp_bps.push(dap_bp.clone());
+                        pending_events.push(InternalEvent::Breakpoint {
+                            reason: "changed",
+                            breakpoint: dap_bp,
+                        });
+                    }
                 }
             }
         }
+        self.next_breakpoint_id = next_id;
+        self.instruction_breakpoints = new_breakpoints;
+        for event in pending_events {
+            self.enqueue_event(event);
+        }
 
-        self.send_success_body(req, json!({"breakpoints": rsp_bps}))
+        self.send_success_body(req, json!({"breakpoints": rsp_bps}))?;
+        self.drain_events()
     }
 
     fn handle_continue(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -1376,6 +1735,11 @@ impl DebugSession {
             .ok_or_else(|| anyhow!("continue: debugger not initialized"))?;
 
         let stop = dbg.continue_debugee_with_reason().context("continue")?;
+        let thread_id = self.current_thread_id();
+        self.enqueue_event(InternalEvent::Continued {
+            thread_id,
+            all_threads_continued: true,
+        });
         self.send_success_body(req, json!({"allThreadsContinued": true}))?;
         self.emit_stop_reason(stop)
     }
@@ -1391,6 +1755,11 @@ impl DebugSession {
 
         match dbg.step_over() {
             Ok(()) => {
+                let thread_id = self.current_thread_id();
+                self.enqueue_event(InternalEvent::Continued {
+                    thread_id,
+                    all_threads_continued: true,
+                });
                 self.send_success_body(req, json!({"allThreadsContinued": true}))?;
                 self.begin_stop_epoch();
 
@@ -1413,6 +1782,11 @@ impl DebugSession {
                 self.drain_events()
             }
             Err(debugger::Error::ProcessExit(code)) => {
+                let thread_id = self.current_thread_id();
+                self.enqueue_event(InternalEvent::Continued {
+                    thread_id,
+                    all_threads_continued: true,
+                });
                 self.send_success_body(req, json!({"allThreadsContinued": true}))?;
                 self.enqueue_event(InternalEvent::Exited { code });
                 self.drain_events()
@@ -1431,6 +1805,11 @@ impl DebugSession {
 
         match dbg.step_into() {
             Ok(()) => {
+                let thread_id = self.current_thread_id();
+                self.enqueue_event(InternalEvent::Continued {
+                    thread_id,
+                    all_threads_continued: true,
+                });
                 self.send_success_body(req, json!({"allThreadsContinued": true}))?;
                 self.begin_stop_epoch();
 
@@ -1443,6 +1822,11 @@ impl DebugSession {
                 self.drain_events()
             }
             Err(debugger::Error::ProcessExit(code)) => {
+                let thread_id = self.current_thread_id();
+                self.enqueue_event(InternalEvent::Continued {
+                    thread_id,
+                    all_threads_continued: true,
+                });
                 self.send_success_body(req, json!({"allThreadsContinued": true}))?;
                 self.enqueue_event(InternalEvent::Exited { code });
                 self.drain_events()
@@ -1461,6 +1845,11 @@ impl DebugSession {
 
         match dbg.step_out() {
             Ok(()) => {
+                let thread_id = self.current_thread_id();
+                self.enqueue_event(InternalEvent::Continued {
+                    thread_id,
+                    all_threads_continued: true,
+                });
                 self.send_success_body(req, json!({"allThreadsContinued": true}))?;
                 self.begin_stop_epoch();
 
@@ -1473,6 +1862,11 @@ impl DebugSession {
                 self.drain_events()
             }
             Err(debugger::Error::ProcessExit(code)) => {
+                let thread_id = self.current_thread_id();
+                self.enqueue_event(InternalEvent::Continued {
+                    thread_id,
+                    all_threads_continued: true,
+                });
                 self.send_success_body(req, json!({"allThreadsContinued": true}))?;
                 self.enqueue_event(InternalEvent::Exited { code });
                 self.drain_events()
@@ -1556,11 +1950,22 @@ impl DebugSession {
     }
 
     fn handle_loaded_sources(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        self.send_success_body(req, json!({ "sources": [] }))
+        let sources = self
+            .module_info
+            .as_ref()
+            .map(|info| vec![info.source.clone()])
+            .unwrap_or_default();
+        self.send_success_body(req, json!({ "sources": sources }))
     }
 
     fn handle_modules(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        self.send_success_body(req, json!({ "modules": [], "totalModules": 0 }))
+        let modules = self
+            .module_info
+            .as_ref()
+            .map(|info| vec![info.module.clone()])
+            .unwrap_or_default();
+        let total = modules.len();
+        self.send_success_body(req, json!({ "modules": modules, "totalModules": total }))
     }
 
     fn handle_read_memory(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -1814,11 +2219,6 @@ impl DebugSession {
     }
 
     fn handle_set_data_breakpoints(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        let dbg = self
-            .debugger
-            .as_mut()
-            .ok_or_else(|| anyhow!("setDataBreakpoints: debugger not initialized"))?;
-
         let bps = req
             .arguments
             .get("breakpoints")
@@ -1827,81 +2227,148 @@ impl DebugSession {
             .unwrap_or_default();
 
         let existing = std::mem::take(&mut self.data_breakpoints);
-        Self::clear_data_breakpoints(dbg, existing);
-
         let mut new_map = HashMap::new();
         let mut rsp_bps = Vec::new();
+        let mut pending_events = Vec::new();
+        let mut next_id = self.next_breakpoint_id;
+        {
+            let dbg = self
+                .debugger
+                .as_mut()
+                .ok_or_else(|| anyhow!("setDataBreakpoints: debugger not initialized"))?;
 
-        for bp in bps {
-            let Some(data_id) = bp.get("dataId").and_then(|v| v.as_str()) else {
-                rsp_bps.push(json!({
-                    "verified": false,
-                    "message": "setDataBreakpoints: missing dataId",
-                }));
-                continue;
+            for (_, record) in existing {
+                match record.target {
+                    DataBreakpointTarget::Expr { dqe, .. } => {
+                        let _ = dbg.remove_watchpoint_by_expr(dqe);
+                    }
+                    DataBreakpointTarget::Address { addr, .. } => {
+                        let _ = dbg.remove_watchpoint_by_addr(RelocatedAddress::from(addr));
+                    }
+                }
+                pending_events.push(InternalEvent::Breakpoint {
+                    reason: "removed",
+                    breakpoint: json!({ "id": record.id }),
+                });
+            }
+
+            let mut alloc_id = || {
+                let id = next_id;
+                next_id += 1;
+                id
             };
 
-            let condition = match Self::parse_data_breakpoint_access_type(
-                bp.get("accessType").and_then(|v| v.as_str()),
-            ) {
-                Ok(cond) => cond,
-                Err(err) => {
-                    rsp_bps.push(json!({
+            for bp in bps {
+                let Some(data_id) = bp.get("dataId").and_then(|v| v.as_str()) else {
+                    let id = alloc_id();
+                    let dap_bp = json!({
+                        "id": id,
                         "verified": false,
-                        "message": format!("setDataBreakpoints: {err}"),
-                    }));
+                        "message": "setDataBreakpoints: missing dataId",
+                    });
+                    rsp_bps.push(dap_bp.clone());
+                    pending_events.push(InternalEvent::Breakpoint {
+                        reason: "changed",
+                        breakpoint: dap_bp,
+                    });
                     continue;
-                }
-            };
+                };
 
-            let target = match Self::parse_data_breakpoint_id(data_id) {
-                Ok(target) => target,
-                Err(err) => {
-                    rsp_bps.push(json!({
-                        "verified": false,
-                        "message": format!("setDataBreakpoints: {err}"),
-                    }));
-                    continue;
-                }
-            };
+                let condition = match Self::parse_data_breakpoint_access_type(
+                    bp.get("accessType").and_then(|v| v.as_str()),
+                ) {
+                    Ok(cond) => cond,
+                    Err(err) => {
+                        let id = alloc_id();
+                        let dap_bp = json!({
+                            "id": id,
+                            "verified": false,
+                            "message": format!("setDataBreakpoints: {err}"),
+                        });
+                        rsp_bps.push(dap_bp.clone());
+                        pending_events.push(InternalEvent::Breakpoint {
+                            reason: "changed",
+                            breakpoint: dap_bp,
+                        });
+                        continue;
+                    }
+                };
 
-            let result: anyhow::Result<()> = (|| match &target {
-                DataBreakpointTarget::Expr { expression, dqe } => dbg
-                    .set_watchpoint_on_expr(expression, dqe.clone(), condition)
-                    .map(|_| ())
-                    .map_err(|err| anyhow!("setDataBreakpoints: {err}")),
-                DataBreakpointTarget::Address { addr, size } => {
-                    let break_size = BreakSize::try_from(*size)
-                        .map_err(|err| anyhow!("setDataBreakpoints: {err}"))?;
-                    dbg.set_watchpoint_on_memory(
-                        RelocatedAddress::from(*addr),
-                        break_size,
-                        condition,
-                        false,
-                    )
-                    .map(|_| ())
-                    .map_err(|err| anyhow!("setDataBreakpoints: {err}"))
-                }
-            })();
+                let target = match Self::parse_data_breakpoint_id(data_id) {
+                    Ok(target) => target,
+                    Err(err) => {
+                        let id = alloc_id();
+                        let dap_bp = json!({
+                            "id": id,
+                            "verified": false,
+                            "message": format!("setDataBreakpoints: {err}"),
+                        });
+                        rsp_bps.push(dap_bp.clone());
+                        pending_events.push(InternalEvent::Breakpoint {
+                            reason: "changed",
+                            breakpoint: dap_bp,
+                        });
+                        continue;
+                    }
+                };
 
-            match result {
-                Ok(()) => {
-                    new_map.insert(data_id.to_string(), DataBreakpointRecord { target });
-                    rsp_bps.push(json!({
-                        "verified": true,
-                    }));
-                }
-                Err(err) => {
-                    rsp_bps.push(json!({
-                        "verified": false,
-                        "message": format!("{err}"),
-                    }));
+                let result: anyhow::Result<()> = (|| match &target {
+                    DataBreakpointTarget::Expr { expression, dqe } => dbg
+                        .set_watchpoint_on_expr(expression, dqe.clone(), condition)
+                        .map(|_| ())
+                        .map_err(|err| anyhow!("setDataBreakpoints: {err}")),
+                    DataBreakpointTarget::Address { addr, size } => {
+                        let break_size = BreakSize::try_from(*size)
+                            .map_err(|err| anyhow!("setDataBreakpoints: {err}"))?;
+                        dbg.set_watchpoint_on_memory(
+                            RelocatedAddress::from(*addr),
+                            break_size,
+                            condition,
+                            false,
+                        )
+                        .map(|_| ())
+                        .map_err(|err| anyhow!("setDataBreakpoints: {err}"))
+                    }
+                })();
+
+                match result {
+                    Ok(()) => {
+                        let id = alloc_id();
+                        let dap_bp = json!({
+                            "id": id,
+                            "verified": true,
+                        });
+                        new_map.insert(data_id.to_string(), DataBreakpointRecord { target, id });
+                        rsp_bps.push(dap_bp.clone());
+                        pending_events.push(InternalEvent::Breakpoint {
+                            reason: "changed",
+                            breakpoint: dap_bp,
+                        });
+                    }
+                    Err(err) => {
+                        let id = alloc_id();
+                        let dap_bp = json!({
+                            "id": id,
+                            "verified": false,
+                            "message": format!("{err}"),
+                        });
+                        rsp_bps.push(dap_bp.clone());
+                        pending_events.push(InternalEvent::Breakpoint {
+                            reason: "changed",
+                            breakpoint: dap_bp,
+                        });
+                    }
                 }
             }
         }
+        self.next_breakpoint_id = next_id;
 
         self.data_breakpoints = new_map;
-        self.send_success_body(req, json!({"breakpoints": rsp_bps}))
+        for event in pending_events {
+            self.enqueue_event(event);
+        }
+        self.send_success_body(req, json!({"breakpoints": rsp_bps}))?;
+        self.drain_events()
     }
 
     fn handle_stack_trace(&mut self, req: &DapRequest) -> anyhow::Result<()> {
