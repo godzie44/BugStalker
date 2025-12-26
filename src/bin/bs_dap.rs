@@ -4,6 +4,7 @@
 //! Intended as a building block for IDE integrations (VSCode, etc.).
 
 use anyhow::{Context, anyhow};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_ENGINE};
 use bugstalker::debugger;
 use bugstalker::debugger::address::RelocatedAddress;
 use bugstalker::debugger::process::{Child, Installed};
@@ -303,6 +304,8 @@ struct DebugSession {
     session_mode: Option<SessionMode>,
     source_map: SourceMap,
     breakpoints_by_source: HashMap<String, Vec<debugger::address::Address>>,
+    function_breakpoints: Vec<debugger::address::Address>,
+    instruction_breakpoints: Vec<debugger::address::Address>,
     data_breakpoints: HashMap<String, DataBreakpointRecord>,
     thread_cache: HashMap<i64, Pid>,
     vars: VariablesStore,
@@ -455,6 +458,8 @@ impl DebugSession {
             session_mode: None,
             source_map: SourceMap::default(),
             breakpoints_by_source: HashMap::new(),
+            function_breakpoints: Vec::new(),
+            instruction_breakpoints: Vec::new(),
             data_breakpoints: HashMap::new(),
             thread_cache: HashMap::new(),
             vars: VariablesStore::default(),
@@ -558,6 +563,18 @@ impl DebugSession {
             Some("read") => Err("read accessType is not supported".to_string()),
             Some(other) => Err(format!("unsupported accessType: {other}")),
         }
+    }
+
+    fn parse_memory_reference_with_offset(reference: &str, offset: i64) -> anyhow::Result<usize> {
+        let base = parse_memory_reference(reference)?;
+        let base_i64 = i64::try_from(base).context("memoryReference out of range")?;
+        let addr = base_i64
+            .checked_add(offset)
+            .ok_or_else(|| anyhow!("memoryReference + offset overflow"))?;
+        if addr < 0 {
+            anyhow::bail!("memoryReference + offset is negative");
+        }
+        usize::try_from(addr).context("memoryReference out of range")
     }
 
     fn clear_data_breakpoints(
@@ -727,12 +744,16 @@ impl DebugSession {
             "supportsConfigurationDoneRequest": true,
             "supportsAttachRequest": true,
             "supportsTerminateRequest": true,
-            "supportsRestartRequest": false,
+            "supportsRestartRequest": true,
             "supportsSetVariable": true,
             "supportsStepBack": false,
             "supportsEvaluateForHovers": true,
             "supportsPauseRequest": true,
             "supportsDisassembleRequest": true,
+            "supportsFunctionBreakpoints": true,
+            "supportsInstructionBreakpoints": true,
+            "supportsReadMemoryRequest": true,
+            "supportsWriteMemoryRequest": true,
             "supportsExceptionBreakpoints": true,
             "supportsExceptionInfoRequest": true,
             "exceptionBreakpointFilters": [
@@ -1233,6 +1254,119 @@ impl DebugSession {
         self.send_success_body(req, json!({"breakpoints": rsp_bps}))
     }
 
+    fn handle_set_function_breakpoints(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let dbg = self
+            .debugger
+            .as_mut()
+            .ok_or_else(|| anyhow!("setFunctionBreakpoints: debugger not initialized"))?;
+
+        for addr in self.function_breakpoints.drain(..) {
+            let _ = dbg.remove_breakpoint(addr);
+        }
+
+        let bps = req
+            .arguments
+            .get("breakpoints")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let mut rsp_bps = Vec::new();
+        for bp in bps {
+            let Some(name) = bp.get("name").and_then(|v| v.as_str()) else {
+                rsp_bps.push(json!({
+                    "verified": false,
+                    "message": "setFunctionBreakpoints: missing breakpoint name",
+                }));
+                continue;
+            };
+
+            match dbg.set_breakpoint_at_fn(name) {
+                Ok(views) if !views.is_empty() => {
+                    for view in &views {
+                        self.function_breakpoints.push(view.addr);
+                    }
+                    rsp_bps.push(json!({
+                        "verified": true,
+                    }));
+                }
+                Ok(_) => {
+                    rsp_bps.push(json!({
+                        "verified": false,
+                        "message": "setFunctionBreakpoints: no matching symbols",
+                    }));
+                }
+                Err(err) => {
+                    rsp_bps.push(json!({
+                        "verified": false,
+                        "message": format!("setFunctionBreakpoints: {err}"),
+                    }));
+                }
+            }
+        }
+
+        self.send_success_body(req, json!({"breakpoints": rsp_bps}))
+    }
+
+    fn handle_set_instruction_breakpoints(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let dbg = self
+            .debugger
+            .as_mut()
+            .ok_or_else(|| anyhow!("setInstructionBreakpoints: debugger not initialized"))?;
+
+        for addr in self.instruction_breakpoints.drain(..) {
+            let _ = dbg.remove_breakpoint(addr);
+        }
+
+        let bps = req
+            .arguments
+            .get("breakpoints")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let mut rsp_bps = Vec::new();
+        for bp in bps {
+            let Some(reference) = bp.get("instructionReference").and_then(|v| v.as_str()) else {
+                rsp_bps.push(json!({
+                    "verified": false,
+                    "message": "setInstructionBreakpoints: missing instructionReference",
+                }));
+                continue;
+            };
+
+            let offset = bp.get("offset").and_then(|v| v.as_i64()).unwrap_or(0);
+            let addr = match Self::parse_memory_reference_with_offset(reference, offset) {
+                Ok(addr) => addr,
+                Err(err) => {
+                    rsp_bps.push(json!({
+                        "verified": false,
+                        "message": format!("setInstructionBreakpoints: {err}"),
+                    }));
+                    continue;
+                }
+            };
+
+            match dbg.set_breakpoint_at_addr(RelocatedAddress::from(addr)) {
+                Ok(view) => {
+                    self.instruction_breakpoints.push(view.addr);
+                    rsp_bps.push(json!({
+                        "verified": true,
+                        "instructionReference": format!("0x{addr:x}"),
+                    }));
+                }
+                Err(err) => {
+                    rsp_bps.push(json!({
+                        "verified": false,
+                        "message": format!("setInstructionBreakpoints: {err}"),
+                    }));
+                }
+            }
+        }
+
+        self.send_success_body(req, json!({"breakpoints": rsp_bps}))
+    }
+
     fn handle_continue(&mut self, req: &DapRequest) -> anyhow::Result<()> {
         self.begin_running();
 
@@ -1376,6 +1510,155 @@ impl DebugSession {
         }
 
         Ok(())
+    }
+
+    fn handle_restart(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        if self.session_mode != Some(SessionMode::Launch) {
+            return self.send_err(req, "restart is only supported for launch sessions");
+        }
+
+        self.begin_running();
+
+        let dbg = self
+            .debugger
+            .as_mut()
+            .ok_or_else(|| anyhow!("restart: debugger not initialized"))?;
+
+        let stop = dbg
+            .start_debugee_force_with_reason()
+            .context("restart debugee")?;
+        self.send_success(req)?;
+        self.emit_stop_reason(stop)
+    }
+
+    fn handle_restart_frame(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_err(req, "restartFrame is not supported")
+    }
+
+    fn handle_goto_targets(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_err(req, "gotoTargets is not supported")
+    }
+
+    fn handle_goto(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_err(req, "goto is not supported")
+    }
+
+    fn handle_step_back(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_err(req, "stepBack is not supported")
+    }
+
+    fn handle_reverse_continue(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_err(req, "reverseContinue is not supported")
+    }
+
+    fn handle_completions(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_success_body(req, json!({ "targets": [] }))
+    }
+
+    fn handle_loaded_sources(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_success_body(req, json!({ "sources": [] }))
+    }
+
+    fn handle_modules(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_success_body(req, json!({ "modules": [], "totalModules": 0 }))
+    }
+
+    fn handle_read_memory(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let dbg = self
+            .debugger
+            .as_ref()
+            .ok_or_else(|| anyhow!("readMemory: debugger not initialized"))?;
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("readMemory: arguments must be object"))?;
+
+        let memory_reference = args
+            .get("memoryReference")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| anyhow!("readMemory: missing arguments.memoryReference"))?;
+        let count = args
+            .get("count")
+            .and_then(serde_json::Value::as_i64)
+            .ok_or_else(|| anyhow!("readMemory: missing arguments.count"))?;
+        if count < 0 {
+            return self.send_err(req, "readMemory: count must be non-negative");
+        }
+
+        let offset = args
+            .get("offset")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
+
+        let addr = Self::parse_memory_reference_with_offset(memory_reference, offset)
+            .context("readMemory: invalid memoryReference")?;
+        let bytes = dbg
+            .read_memory(addr, count as usize)
+            .context("readMemory: read_memory")?;
+        let data = BASE64_ENGINE.encode(bytes);
+        self.send_success_body(
+            req,
+            json!({
+                "address": format!("0x{addr:x}"),
+                "data": data,
+            }),
+        )
+    }
+
+    fn handle_write_memory(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let dbg = self
+            .debugger
+            .as_ref()
+            .ok_or_else(|| anyhow!("writeMemory: debugger not initialized"))?;
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("writeMemory: arguments must be object"))?;
+
+        let memory_reference = args
+            .get("memoryReference")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| anyhow!("writeMemory: missing arguments.memoryReference"))?;
+        let data = args
+            .get("data")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| anyhow!("writeMemory: missing arguments.data"))?;
+        let offset = args
+            .get("offset")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
+
+        let addr = Self::parse_memory_reference_with_offset(memory_reference, offset)
+            .context("writeMemory: invalid memoryReference")?;
+        let bytes = BASE64_ENGINE
+            .decode(data)
+            .map_err(|err| anyhow!("writeMemory: base64 decode failed: {err}"))?;
+        write_bytes(dbg, addr, &bytes).context("writeMemory: write_bytes")?;
+        self.send_success_body(req, json!({ "bytesWritten": bytes.len() }))
+    }
+
+    fn handle_set_expression(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_err(req, "setExpression is not supported")
+    }
+
+    fn handle_step_in_targets(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_success_body(req, json!({ "targets": [] }))
+    }
+
+    fn handle_breakpoint_locations(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_success_body(req, json!({ "breakpoints": [] }))
+    }
+
+    fn handle_terminate_threads(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_err(req, "terminateThreads is not supported")
+    }
+
+    fn handle_cancel(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_success(req)
+    }
+
+    fn handle_run_in_terminal(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_err(req, "runInTerminal is not supported by the adapter")
     }
 
     fn handle_set_exception_breakpoints(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -1924,9 +2207,12 @@ impl DebugSession {
             "attach" => self.handle_attach(req, oracles)?,
             "configurationDone" => self.handle_configuration_done(req)?,
             "setBreakpoints" => self.handle_set_breakpoints(req)?,
+            "setFunctionBreakpoints" => self.handle_set_function_breakpoints(req)?,
+            "setInstructionBreakpoints" => self.handle_set_instruction_breakpoints(req)?,
             "setExceptionBreakpoints" => self.handle_set_exception_breakpoints(req)?,
             "dataBreakpointInfo" => self.handle_data_breakpoint_info(req)?,
             "setDataBreakpoints" => self.handle_set_data_breakpoints(req)?,
+            "breakpointLocations" => self.handle_breakpoint_locations(req)?,
             "exceptionInfo" => self.handle_exception_info(req)?,
             "threads" => self.handle_threads(req)?,
             "stackTrace" => self.handle_stack_trace(req)?,
@@ -1934,16 +2220,32 @@ impl DebugSession {
             "variables" => self.handle_variables(req)?,
             "setVariable" => self.handle_set_variable(req)?,
             "continue" => self.handle_continue(req)?,
+            "restart" => self.handle_restart(req)?,
+            "restartFrame" => self.handle_restart_frame(req)?,
             "next" => self.handle_next(req)?,
             "stepIn" => self.handle_step_in(req)?,
+            "stepInTargets" => self.handle_step_in_targets(req)?,
             "stepOut" => self.handle_step_out(req)?,
+            "stepBack" => self.handle_step_back(req)?,
+            "reverseContinue" => self.handle_reverse_continue(req)?,
             "pause" => self.handle_pause(req)?,
+            "gotoTargets" => self.handle_goto_targets(req)?,
+            "goto" => self.handle_goto(req)?,
             "evaluate" => self.handle_evaluate(req)?,
+            "setExpression" => self.handle_set_expression(req)?,
+            "completions" => self.handle_completions(req)?,
+            "loadedSources" => self.handle_loaded_sources(req)?,
+            "modules" => self.handle_modules(req)?,
+            "readMemory" => self.handle_read_memory(req)?,
+            "writeMemory" => self.handle_write_memory(req)?,
             "disassemble" => self.handle_disassemble(req)?,
             "terminate" => {
                 self.handle_terminate(req)?;
                 return Ok(false);
             }
+            "terminateThreads" => self.handle_terminate_threads(req)?,
+            "cancel" => self.handle_cancel(req)?,
+            "runInTerminal" => self.handle_run_in_terminal(req)?,
             "disconnect" => {
                 self.handle_disconnect(req)?;
                 return Ok(false);
