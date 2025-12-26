@@ -10,6 +10,7 @@ use bugstalker::debugger::address::RelocatedAddress;
 use bugstalker::debugger::process::{Child, Installed};
 use bugstalker::debugger::register::debug::{BreakCondition, BreakSize};
 use bugstalker::debugger::variable::dqe::Dqe;
+use bugstalker::debugger::variable::render::RenderValue;
 use bugstalker::oracle::{Oracle, builtin};
 use bugstalker::ui::command::parser::expression as bs_expr;
 use bugstalker::ui::command::parser::watchpoint_at_address;
@@ -19,6 +20,7 @@ use chumsky::Parser as _;
 use chumsky::prelude::end;
 use clap::Parser;
 use log::{info, warn};
+use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -27,6 +29,7 @@ use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
+use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -559,6 +562,94 @@ impl DebugSession {
         self.child_links.clear();
     }
 
+    fn active_breakpoint_addresses(&self) -> HashSet<debugger::address::Address> {
+        let mut out = HashSet::new();
+        for records in self.breakpoints_by_source.values() {
+            for record in records {
+                out.extend(record.addresses.iter().copied());
+            }
+        }
+        for record in &self.function_breakpoints {
+            out.extend(record.addresses.iter().copied());
+        }
+        for record in &self.instruction_breakpoints {
+            out.extend(record.addresses.iter().copied());
+        }
+        out
+    }
+
+    fn current_stop_snapshot(&self) -> (Option<String>, Option<i64>, Option<i64>, Option<String>) {
+        self.debugger
+            .as_ref()
+            .and_then(|dbg| {
+                let pid = dbg.ecx().pid_on_focus();
+                let bt = dbg.backtrace(pid).unwrap_or_default();
+                if bt.is_empty() {
+                    return None;
+                }
+                let (source_path, line, column) = bt.first().and_then(|frame| {
+                    frame.place.as_ref().map(|place| {
+                        let path = place.file.to_string_lossy();
+                        let mapped = self.source_map.map_target_to_client(path.as_ref());
+                        (
+                            Some(mapped),
+                            Some(place.line_number as i64),
+                            Some(place.column_number as i64),
+                        )
+                    })
+                })?;
+                let stack_trace = bt
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, frame)| {
+                        let name = frame.func_name.as_deref().unwrap_or("<unknown>");
+                        if let Some(place) = frame.place.as_ref() {
+                            let path = place.file.to_string_lossy();
+                            let mapped = self.source_map.map_target_to_client(path.as_ref());
+                            format!(
+                                "#{idx} {name} ({mapped}:{}:{})",
+                                place.line_number, place.column_number
+                            )
+                        } else {
+                            format!("#{idx} {name} (<unknown>)")
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                Some((source_path, line, column, Some(stack_trace)))
+            })
+            .unwrap_or((None, None, None, None))
+    }
+
+    fn emit_manual_stop(
+        &mut self,
+        reason: &str,
+        description: Option<String>,
+    ) -> anyhow::Result<()> {
+        self.begin_stop_epoch();
+        let _ = self.refresh_threads_with_events();
+
+        let (source_path, line, column, stack_trace) = self.current_stop_snapshot();
+
+        self.last_stop = Some(LastStop {
+            reason: reason.to_string(),
+            description: description.clone(),
+            signal: None,
+            source_path,
+            line,
+            column,
+            stack_trace,
+        });
+
+        let thread_id = self.current_thread_id();
+        self.enqueue_event(InternalEvent::Stopped {
+            reason: reason.to_string(),
+            thread_id,
+            description,
+        });
+        self.drain_events()
+    }
+
     fn parse_data_breakpoint_expression(expr: &str) -> Result<DataBreakpointTarget, String> {
         let trimmed = expr.trim();
         if trimmed.is_empty() {
@@ -934,15 +1025,15 @@ impl DebugSession {
             "supportsAttachRequest": true,
             "supportsTerminateRequest": true,
             "supportsRestartRequest": true,
-            "supportsRestartFrame": false,
-            "supportsTerminateThreadsRequest": false,
+            "supportsRestartFrame": true,
+            "supportsTerminateThreadsRequest": true,
             "supportsCancelRequest": true,
             "supportsSetVariable": true,
-            "supportsSetExpression": false,
+            "supportsSetExpression": true,
             "supportsStepBack": false,
             "supportsReverseContinue": false,
             "supportsStepInTargetsRequest": true,
-            "supportsGotoTargetsRequest": false,
+            "supportsGotoTargetsRequest": true,
             "supportsCompletionsRequest": true,
             "supportsBreakpointLocationsRequest": true,
             "supportsEvaluateForHovers": true,
@@ -959,7 +1050,7 @@ impl DebugSession {
             "supportsWriteMemoryRequest": true,
             "supportsModulesRequest": true,
             "supportsLoadedSourcesRequest": true,
-            "supportsRunInTerminalRequest": false,
+            "supportsRunInTerminalRequest": true,
             "supportsExceptionBreakpoints": true,
             "supportsExceptionInfoRequest": true,
             "exceptionBreakpointFilters": [
@@ -1941,23 +2032,176 @@ impl DebugSession {
     }
 
     fn handle_restart_frame(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        self.send_err(req, "restartFrame is not supported")
+        let dbg = self
+            .debugger
+            .as_mut()
+            .ok_or_else(|| anyhow!("restartFrame: debugger not initialized"))?;
+
+        let frame_id = req
+            .arguments
+            .get("frameId")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| anyhow!("restartFrame: missing arguments.frameId"))?;
+        let (thread_id, frame_num) = Self::decode_frame_id(frame_id);
+        if frame_num != 0 {
+            return self.send_err(req, "restartFrame: only the top frame (0) can be restarted");
+        }
+
+        let pid = self
+            .thread_cache
+            .get(&thread_id)
+            .copied()
+            .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
+        let _ = dbg.set_thread_into_focus_by_pid(pid);
+
+        let bt = dbg.backtrace(pid).unwrap_or_default();
+        let frame = bt
+            .get(frame_num as usize)
+            .ok_or_else(|| anyhow!("restartFrame: frame {frame_num} not found"))?;
+        let Some(start_ip) = frame.fn_start_ip else {
+            return self.send_err(req, "restartFrame: function start address is unavailable");
+        };
+
+        dbg.set_register_value("rip", start_ip.as_u64())
+            .context("restartFrame: set rip")?;
+        let _ = dbg.set_frame_into_focus(0);
+
+        self.send_success(req)?;
+        self.emit_manual_stop("restart", None)
     }
 
     fn handle_goto_targets(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        self.send_err(req, "gotoTargets is not supported")
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("gotoTargets: arguments must be object"))?;
+        let source_path = args
+            .get("source")
+            .and_then(|v| v.get("path"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("gotoTargets: missing arguments.source.path"))?;
+        let line = args
+            .get("line")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| anyhow!("gotoTargets: missing arguments.line"))?;
+        let column = args.get("column").and_then(|v| v.as_i64()).unwrap_or(1);
+
+        let target_path = self.source_map.map_client_to_target(source_path);
+        let existing_breakpoints = self.active_breakpoint_addresses();
+        let dbg = self
+            .debugger
+            .as_mut()
+            .ok_or_else(|| anyhow!("gotoTargets: debugger not initialized"))?;
+        let mut views = dbg.set_breakpoint_at_line(&target_path, line as u64);
+        if views.is_err() {
+            if let Some(base) = Path::new(&target_path).file_name().and_then(|s| s.to_str()) {
+                views = dbg.set_breakpoint_at_line(base, line as u64);
+            }
+        }
+
+        let (targets, remove_addrs) = match views {
+            Ok(views) => {
+                let mut targets = Vec::new();
+                let mut remove_addrs = Vec::new();
+                for view in &views {
+                    let relocated = match view.addr {
+                        debugger::address::Address::Relocated(addr) => addr,
+                        debugger::address::Address::Global(addr) => {
+                            debugger::address::RelocatedAddress::from(u64::from(addr))
+                        }
+                    };
+                    let address = relocated.as_u64();
+                    let target_id = i64::try_from(address)
+                        .map_err(|_| anyhow!("gotoTargets: target address out of range"))?;
+
+                    let (line_out, col_out, label) = if let Some(place) = view.place.as_ref() {
+                        let mapped = self
+                            .source_map
+                            .map_target_to_client(place.file.to_string_lossy().as_ref());
+                        (
+                            place.line_number as i64,
+                            place.column_number as i64,
+                            format!("{mapped}:{}", place.line_number),
+                        )
+                    } else {
+                        (line, column, format!("0x{address:x}"))
+                    };
+
+                    targets.push(json!({
+                        "id": target_id,
+                        "label": label,
+                        "line": line_out,
+                        "column": col_out,
+                        "instructionPointerReference": format!("0x{address:x}"),
+                    }));
+                }
+
+                for view in &views {
+                    if !existing_breakpoints.contains(&view.addr) {
+                        remove_addrs.push(view.addr);
+                    }
+                }
+
+                (targets, remove_addrs)
+            }
+            Err(_) => (Vec::new(), Vec::new()),
+        };
+
+        for addr in remove_addrs {
+            let _ = dbg.remove_breakpoint(addr);
+        }
+
+        self.send_success_body(req, json!({ "targets": targets }))
     }
 
     fn handle_goto(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        self.send_err(req, "goto is not supported")
+        let dbg = self
+            .debugger
+            .as_mut()
+            .ok_or_else(|| anyhow!("goto: debugger not initialized"))?;
+
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("goto: arguments must be object"))?;
+        let addr = if let Some(target_id) = args.get("targetId").and_then(|v| v.as_i64()) {
+            let addr = u64::try_from(target_id).map_err(|_| anyhow!("goto: targetId invalid"))?;
+            addr as usize
+        } else if let Some(reference) = args.get("instructionReference").and_then(|v| v.as_str()) {
+            Self::parse_memory_reference_with_offset(reference, 0)?
+        } else {
+            return self.send_err(req, "goto: missing arguments.targetId");
+        };
+
+        if let Some(thread_id) = args.get("threadId").and_then(|v| v.as_i64()) {
+            let pid = self
+                .thread_cache
+                .get(&thread_id)
+                .copied()
+                .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
+            let _ = dbg.set_thread_into_focus_by_pid(pid);
+        }
+
+        dbg.set_register_value("rip", addr as u64)
+            .context("goto: set rip")?;
+        let _ = dbg.set_frame_into_focus(0);
+
+        self.send_success(req)?;
+        self.emit_manual_stop("goto", None)
     }
 
     fn handle_step_back(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        self.send_err(req, "stepBack is not supported")
+        self.send_err(
+            req,
+            "stepBack: reverse execution is not supported by the current engine",
+        )
     }
 
     fn handle_reverse_continue(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        self.send_err(req, "reverseContinue is not supported")
+        self.send_err(
+            req,
+            "reverseContinue: reverse execution is not supported by the current engine",
+        )
     }
 
     fn handle_completions(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -2058,7 +2302,92 @@ impl DebugSession {
     }
 
     fn handle_set_expression(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        self.send_err(req, "setExpression is not supported")
+        let dbg = self
+            .debugger
+            .as_mut()
+            .ok_or_else(|| anyhow!("setExpression: debugger not initialized"))?;
+
+        let expression = req
+            .arguments
+            .get("expression")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("setExpression: missing arguments.expression"))?;
+        let new_value = req
+            .arguments
+            .get("value")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("setExpression: missing arguments.value"))?;
+
+        if let Some(frame_id) = req.arguments.get("frameId").and_then(|v| v.as_i64()) {
+            let (thread_id, frame_num) = Self::decode_frame_id(frame_id);
+            let pid = self
+                .thread_cache
+                .get(&thread_id)
+                .copied()
+                .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
+            let _ = dbg.set_thread_into_focus_by_pid(pid);
+            let _ = dbg.set_frame_into_focus(frame_num);
+        }
+
+        let dqe = bs_expr::parser()
+            .parse(expression)
+            .into_result()
+            .map_err(|e| anyhow!("setExpression parse error: {e:?}"))?;
+        let results = dbg
+            .read_variable(dqe.clone())
+            .context("setExpression read_variable")?;
+        let result = results
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("setExpression: expression produced no results"))?;
+        let type_graph = Rc::new(result.type_graph().clone());
+        let (_id, value) = result.into_identified_value();
+
+        let Some(write_meta) = value_write_meta(&value, type_graph.clone()) else {
+            return self.send_err(req, "setExpression: expression is not writable");
+        };
+
+        match write_meta {
+            WriteMeta::Scalar { addr, kind } => {
+                let bytes = parse_set_value(kind, new_value)?;
+                write_bytes(dbg, addr, &bytes)?;
+            }
+            WriteMeta::Composite { addr, type_graph } => {
+                let Some(type_id) = value.type_id() else {
+                    return self.send_err(req, "setExpression: expression has no type id");
+                };
+                let serialized = debugger::variable::value::serialize::serialize_dap_value(
+                    new_value,
+                    &type_graph,
+                    type_id,
+                    Some(&value),
+                )
+                .map_err(|err| anyhow!("setExpression: {err}"))?;
+                write_bytes(dbg, addr, &serialized.bytes)?;
+            }
+        }
+
+        let refreshed = dbg
+            .read_variable(dqe)
+            .context("setExpression read_variable (refresh)")?;
+        let response = if let Some(updated) = refreshed.into_iter().next() {
+            let type_graph = Rc::new(updated.type_graph().clone());
+            let (_id, val) = updated.into_identified_value();
+            let child = value_children(&val, type_graph);
+            let vars_ref = child.map(|c| self.vars.alloc(c)).unwrap_or(0);
+            json!({
+                "value": render_value_to_string(&val),
+                "type": val.r#type().name_fmt(),
+                "variablesReference": vars_ref,
+            })
+        } else {
+            json!({
+                "value": new_value,
+                "variablesReference": 0,
+            })
+        };
+
+        self.send_success_body(req, response)
     }
 
     fn handle_step_in_targets(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -2070,7 +2399,35 @@ impl DebugSession {
     }
 
     fn handle_terminate_threads(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        self.send_err(req, "terminateThreads is not supported")
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("terminateThreads: arguments must be object"))?;
+        let thread_ids = args
+            .get("threadIds")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        if thread_ids.is_empty() {
+            self.send_success(req)?;
+            self.terminate_debuggee();
+            self.drain_events()?;
+            return Ok(());
+        }
+
+        for thread_id in thread_ids {
+            let Some(thread_id) = thread_id.as_i64() else {
+                return self.send_err(req, "terminateThreads: threadIds must be integers");
+            };
+            let pid = Pid::from_raw(thread_id as i32);
+            signal::kill(pid, Signal::SIGTERM)
+                .map_err(|err| anyhow!("terminateThreads: failed to signal {pid}: {err}"))?;
+        }
+
+        self.send_success(req)?;
+        let _ = self.refresh_threads_with_events();
+        self.drain_events()
     }
 
     fn handle_cancel(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -2078,7 +2435,57 @@ impl DebugSession {
     }
 
     fn handle_run_in_terminal(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        self.send_err(req, "runInTerminal is not supported by the adapter")
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("runInTerminal: arguments must be object"))?;
+        let argv = args
+            .get("args")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| anyhow!("runInTerminal: missing arguments.args"))?;
+        if argv.is_empty() {
+            return self.send_err(req, "runInTerminal: args must not be empty");
+        }
+
+        let program = argv
+            .first()
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("runInTerminal: args[0] must be a string"))?;
+        let mut command = Command::new(program);
+        let mut iter = argv.iter();
+        iter.next();
+        for arg in iter {
+            let Some(arg) = arg.as_str() else {
+                return self.send_err(req, "runInTerminal: args must be strings");
+            };
+            command.arg(arg);
+        }
+
+        if let Some(cwd) = args.get("cwd").and_then(|v| v.as_str()) {
+            command.current_dir(cwd);
+        }
+        if let Some(env) = args.get("env").and_then(|v| v.as_object()) {
+            for (key, value) in env {
+                let Some(value) = value.as_str() else {
+                    return self.send_err(req, "runInTerminal: env values must be strings");
+                };
+                command.env(key, value);
+            }
+        }
+
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
+        let child = command.spawn().context("runInTerminal: spawn failed")?;
+        let pid = child.id();
+
+        self.send_success_body(
+            req,
+            json!({
+                "processId": pid,
+            }),
+        )
     }
 
     fn handle_set_exception_breakpoints(&mut self, req: &DapRequest) -> anyhow::Result<()> {
