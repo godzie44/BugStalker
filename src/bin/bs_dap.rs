@@ -2093,10 +2093,10 @@ impl DebugSession {
             .as_mut()
             .ok_or_else(|| anyhow!("gotoTargets: debugger not initialized"))?;
         let mut views = dbg.set_breakpoint_at_line(&target_path, line as u64);
-        if views.is_err() {
-            if let Some(base) = Path::new(&target_path).file_name().and_then(|s| s.to_str()) {
-                views = dbg.set_breakpoint_at_line(base, line as u64);
-            }
+        if views.is_err()
+            && let Some(base) = Path::new(&target_path).file_name().and_then(|s| s.to_str())
+        {
+            views = dbg.set_breakpoint_at_line(base, line as u64);
         }
 
         let (targets, remove_addrs) = match views {
