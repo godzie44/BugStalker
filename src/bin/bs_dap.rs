@@ -694,7 +694,7 @@ impl DebugSession {
         for records in self.breakpoints_by_source.values_mut() {
             if let Some(record) = records
                 .iter_mut()
-                .find(|record| record.addresses.iter().any(|a| *a == addr))
+                .find(|record| record.addresses.contains(&addr))
             {
                 return Some(f(record));
             }
@@ -702,14 +702,14 @@ impl DebugSession {
         if let Some(record) = self
             .function_breakpoints
             .iter_mut()
-            .find(|record| record.addresses.iter().any(|a| *a == addr))
+            .find(|record| record.addresses.contains(&addr))
         {
             return Some(f(record));
         }
         if let Some(record) = self
             .instruction_breakpoints
             .iter_mut()
-            .find(|record| record.addresses.iter().any(|a| *a == addr))
+            .find(|record| record.addresses.contains(&addr))
         {
             return Some(f(record));
         }
@@ -1596,17 +1596,17 @@ impl DebugSession {
                     .context("continue after exception filter")?;
             }
 
-            if let debugger::StopReason::Breakpoint(pid, addr) = stop {
-                if self.should_skip_breakpoint(pid, addr)? {
-                    let dbg = self
-                        .debugger
-                        .as_mut()
-                        .ok_or_else(|| anyhow!("continue: debugger not initialized"))?;
-                    stop = dbg
-                        .continue_debugee_with_reason()
-                        .context("continue after breakpoint filter")?;
-                    continue;
-                }
+            if let debugger::StopReason::Breakpoint(pid, addr) = stop
+                && self.should_skip_breakpoint(pid, addr)?
+            {
+                let dbg = self
+                    .debugger
+                    .as_mut()
+                    .ok_or_else(|| anyhow!("continue: debugger not initialized"))?;
+                stop = dbg
+                    .continue_debugee_with_reason()
+                    .context("continue after breakpoint filter")?;
+                continue;
             }
             break;
         }
