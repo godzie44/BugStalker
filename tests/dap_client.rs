@@ -143,6 +143,34 @@ impl DapClient {
         }
     }
 
+    pub fn read_event_with_timeout(&mut self, timeout: Duration) -> anyhow::Result<Option<Value>> {
+        if let Some(event) = self.pending_events.pop_front() {
+            return Ok(Some(event));
+        }
+        let deadline = Instant::now() + timeout;
+        loop {
+            if Instant::now() >= deadline {
+                return Ok(None);
+            }
+            match self.read_message_with_deadline(deadline) {
+                Ok(msg) => {
+                    if msg.get("type").and_then(Value::as_str) == Some("event") {
+                        return Ok(Some(msg));
+                    }
+                }
+                Err(err) => {
+                    let msg = err.to_string();
+                    if msg.contains("Timed out waiting for DAP header")
+                        || msg.contains("Timed out waiting for DAP body")
+                    {
+                        return Ok(None);
+                    }
+                    return Err(err);
+                }
+            }
+        }
+    }
+
     pub fn wait_for_event(&mut self, name: &str) -> anyhow::Result<Value> {
         loop {
             let event = self.read_event()?;
@@ -154,6 +182,10 @@ impl DapClient {
 
     fn read_message(&mut self) -> anyhow::Result<Value> {
         let deadline = Instant::now() + MESSAGE_TIMEOUT;
+        self.read_message_with_deadline(deadline)
+    }
+
+    fn read_message_with_deadline(&mut self, deadline: Instant) -> anyhow::Result<Value> {
         let mut content_length = None;
         loop {
             let mut line = String::new();
