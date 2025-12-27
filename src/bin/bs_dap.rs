@@ -9,7 +9,7 @@ use bugstalker::debugger;
 use bugstalker::debugger::address::{GlobalAddress, RelocatedAddress};
 use bugstalker::debugger::process::{Child, Installed};
 use bugstalker::debugger::register::debug::{BreakCondition, BreakSize};
-use bugstalker::debugger::variable::dqe::Dqe;
+use bugstalker::debugger::variable::dqe::{Dqe, Literal};
 use bugstalker::debugger::variable::render::RenderValue;
 use bugstalker::oracle::{Oracle, builtin};
 use bugstalker::ui::command::parser::expression as bs_expr;
@@ -387,6 +387,87 @@ struct DisasmSource {
 struct BreakpointRecord {
     id: i64,
     addresses: Vec<debugger::address::Address>,
+    condition: Option<String>,
+    hit_condition: Option<HitCondition>,
+    log_message: Option<String>,
+    hit_count: u64,
+}
+
+#[derive(Debug, Clone)]
+enum HitCondition {
+    Exact(u64),
+    GreaterOrEqual(u64),
+    Greater(u64),
+    Less(u64),
+    LessOrEqual(u64),
+    Invalid(String),
+}
+
+impl HitCondition {
+    fn parse(input: &str) -> Self {
+        let trimmed = input.trim();
+        let parse_num = |s: &str| s.trim().parse::<u64>();
+        if let Some(rest) = trimmed.strip_prefix(">=") {
+            return parse_num(rest)
+                .map(Self::GreaterOrEqual)
+                .unwrap_or_else(|_| Self::Invalid(trimmed.to_string()));
+        }
+        if let Some(rest) = trimmed.strip_prefix("<=") {
+            return parse_num(rest)
+                .map(Self::LessOrEqual)
+                .unwrap_or_else(|_| Self::Invalid(trimmed.to_string()));
+        }
+        if let Some(rest) = trimmed.strip_prefix("==") {
+            return parse_num(rest)
+                .map(Self::Exact)
+                .unwrap_or_else(|_| Self::Invalid(trimmed.to_string()));
+        }
+        if let Some(rest) = trimmed.strip_prefix('=') {
+            return parse_num(rest)
+                .map(Self::Exact)
+                .unwrap_or_else(|_| Self::Invalid(trimmed.to_string()));
+        }
+        if let Some(rest) = trimmed.strip_prefix('>') {
+            return parse_num(rest)
+                .map(Self::Greater)
+                .unwrap_or_else(|_| Self::Invalid(trimmed.to_string()));
+        }
+        if let Some(rest) = trimmed.strip_prefix('<') {
+            return parse_num(rest)
+                .map(Self::Less)
+                .unwrap_or_else(|_| Self::Invalid(trimmed.to_string()));
+        }
+        parse_num(trimmed)
+            .map(Self::Exact)
+            .unwrap_or_else(|_| Self::Invalid(trimmed.to_string()))
+    }
+
+    fn matches(&self, hits: u64) -> bool {
+        match self {
+            HitCondition::Exact(expected) => hits == *expected,
+            HitCondition::GreaterOrEqual(expected) => hits >= *expected,
+            HitCondition::Greater(expected) => hits > *expected,
+            HitCondition::Less(expected) => hits < *expected,
+            HitCondition::LessOrEqual(expected) => hits <= *expected,
+            HitCondition::Invalid(_) => true,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BreakpointOptions {
+    condition: Option<String>,
+    hit_condition: Option<HitCondition>,
+    log_message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct BreakpointHitInfo {
+    id: i64,
+    condition: Option<String>,
+    hit_condition: Option<HitCondition>,
+    log_message: Option<String>,
+    hit_count: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -577,6 +658,194 @@ impl DebugSession {
             out.extend(record.addresses.iter().copied());
         }
         out
+    }
+
+    fn parse_breakpoint_options(bp: &Value) -> BreakpointOptions {
+        let condition = bp
+            .get("condition")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string);
+        let hit_condition = bp
+            .get("hitCondition")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(HitCondition::parse);
+        let log_message = bp
+            .get("logMessage")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string);
+        BreakpointOptions {
+            condition,
+            hit_condition,
+            log_message,
+        }
+    }
+
+    fn with_breakpoint_record_mut<T>(
+        &mut self,
+        addr: debugger::address::Address,
+        f: impl FnOnce(&mut BreakpointRecord) -> T,
+    ) -> Option<T> {
+        for records in self.breakpoints_by_source.values_mut() {
+            if let Some(record) = records
+                .iter_mut()
+                .find(|record| record.addresses.iter().any(|a| *a == addr))
+            {
+                return Some(f(record));
+            }
+        }
+        if let Some(record) = self
+            .function_breakpoints
+            .iter_mut()
+            .find(|record| record.addresses.iter().any(|a| *a == addr))
+        {
+            return Some(f(record));
+        }
+        if let Some(record) = self
+            .instruction_breakpoints
+            .iter_mut()
+            .find(|record| record.addresses.iter().any(|a| *a == addr))
+        {
+            return Some(f(record));
+        }
+        None
+    }
+
+    fn record_breakpoint_hit(
+        &mut self,
+        addr: debugger::address::Address,
+    ) -> Option<BreakpointHitInfo> {
+        self.with_breakpoint_record_mut(addr, |record| {
+            record.hit_count = record.hit_count.saturating_add(1);
+            BreakpointHitInfo {
+                id: record.id,
+                condition: record.condition.clone(),
+                hit_condition: record.hit_condition.clone(),
+                log_message: record.log_message.clone(),
+                hit_count: record.hit_count,
+            }
+        })
+    }
+
+    fn literal_truthy(literal: &Literal) -> bool {
+        match literal {
+            Literal::String(value) => !value.is_empty(),
+            Literal::Int(value) => *value != 0,
+            Literal::Float(value) => *value != 0.0,
+            Literal::Address(value) => *value != 0,
+            Literal::Bool(value) => *value,
+            Literal::EnumVariant(_, _) => true,
+            Literal::Array(items) => !items.is_empty(),
+            Literal::AssocArray(items) => !items.is_empty(),
+        }
+    }
+
+    fn value_truthy(value: &debugger::variable::value::Value) -> bool {
+        if let Some(literal) = value.as_literal() {
+            return Self::literal_truthy(&literal);
+        }
+        let rendered = render_value_to_string(value);
+        if rendered == "<unavailable>" {
+            return false;
+        }
+        let trimmed = rendered.trim();
+        !(trimmed.is_empty()
+            || trimmed == "0"
+            || trimmed == "0x0"
+            || trimmed == "false"
+            || trimmed == "False")
+    }
+
+    fn evaluate_condition_expression(&mut self, expr: &str) -> anyhow::Result<bool> {
+        let trimmed = expr.trim();
+        if trimmed.is_empty() {
+            return Ok(true);
+        }
+        if let Ok(literal) = bs_expr::literal()
+            .then_ignore(end())
+            .parse(trimmed)
+            .into_result()
+        {
+            return Ok(Self::literal_truthy(&literal));
+        }
+        let dqe = bs_expr::parser()
+            .parse(trimmed)
+            .into_result()
+            .map_err(|e| anyhow!("condition parse error: {e:?}"))?;
+        let dbg = self
+            .debugger
+            .as_mut()
+            .ok_or_else(|| anyhow!("evaluate condition: debugger not initialized"))?;
+        let results = dbg
+            .read_variable(dqe)
+            .context("evaluate condition read_variable")?;
+        let Some(result) = results.into_iter().next() else {
+            return Ok(false);
+        };
+        let (_id, value) = result.into_identified_value();
+        Ok(Self::value_truthy(&value))
+    }
+
+    fn evaluate_expression_string(&mut self, expr: &str) -> anyhow::Result<String> {
+        let trimmed = expr.trim();
+        if trimmed.is_empty() {
+            return Ok(String::new());
+        }
+        if let Ok(literal) = bs_expr::literal()
+            .then_ignore(end())
+            .parse(trimmed)
+            .into_result()
+        {
+            return Ok(literal.to_string());
+        }
+        let dqe = bs_expr::parser()
+            .parse(trimmed)
+            .into_result()
+            .map_err(|e| anyhow!("log point parse error: {e:?}"))?;
+        let dbg = self
+            .debugger
+            .as_mut()
+            .ok_or_else(|| anyhow!("log point: debugger not initialized"))?;
+        let results = dbg.read_variable(dqe).context("log point read_variable")?;
+        if results.is_empty() {
+            return Ok("<no result>".to_string());
+        }
+        let result = results.into_iter().next().unwrap();
+        let (_id, val) = result.into_identified_value();
+        Ok(render_value_to_string(&val))
+    }
+
+    fn format_log_message(&mut self, template: &str) -> anyhow::Result<String> {
+        let mut output = String::new();
+        let mut chars = template.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '{' {
+                let mut expr = String::new();
+                while let Some(&next) = chars.peek() {
+                    chars.next();
+                    if next == '}' {
+                        break;
+                    }
+                    expr.push(next);
+                }
+                if expr.is_empty() {
+                    output.push_str("{}");
+                } else {
+                    match self.evaluate_expression_string(expr.trim()) {
+                        Ok(val) => output.push_str(&val),
+                        Err(err) => output.push_str(&format!("<error: {err}>")),
+                    }
+                }
+            } else {
+                output.push(ch);
+            }
+        }
+        Ok(output)
     }
 
     fn current_stop_snapshot(&self) -> (Option<String>, Option<i64>, Option<i64>, Option<String>) {
@@ -1044,9 +1313,9 @@ impl DebugSession {
             "supportsFunctionBreakpoints": true,
             "supportsInstructionBreakpoints": true,
             "supportsDataBreakpoints": true,
-            "supportsConditionalBreakpoints": false,
-            "supportsHitConditionalBreakpoints": false,
-            "supportsLogPoints": false,
+            "supportsConditionalBreakpoints": true,
+            "supportsHitConditionalBreakpoints": true,
+            "supportsLogPoints": true,
             "supportsReadMemoryRequest": true,
             "supportsWriteMemoryRequest": true,
             "supportsModulesRequest": true,
@@ -1255,16 +1524,91 @@ impl DebugSession {
         Ok(())
     }
 
-    fn emit_stop_reason(&mut self, stop: debugger::StopReason) -> anyhow::Result<()> {
-        let mut stop = stop;
-        while !self.should_stop_on_exception(&stop) {
+    fn should_skip_breakpoint(&mut self, pid: Pid, addr: RelocatedAddress) -> anyhow::Result<bool> {
+        let Some(hit) = self.record_breakpoint_hit(debugger::address::Address::Relocated(addr))
+        else {
+            return Ok(false);
+        };
+
+        {
             let dbg = self
                 .debugger
                 .as_mut()
-                .ok_or_else(|| anyhow!("continue: debugger not initialized"))?;
-            stop = dbg
-                .continue_debugee_with_reason()
-                .context("continue after exception filter")?;
+                .ok_or_else(|| anyhow!("breakpoint: debugger not initialized"))?;
+            let _ = dbg.set_thread_into_focus_by_pid(pid);
+        }
+
+        if let Some(condition) = hit.condition.as_deref() {
+            match self.evaluate_condition_expression(condition) {
+                Ok(false) => return Ok(true),
+                Ok(true) => {}
+                Err(err) => {
+                    let output = format!("Breakpoint {} condition error: {err}\n", hit.id);
+                    self.enqueue_event(InternalEvent::Output {
+                        category: "console",
+                        output,
+                    });
+                    self.drain_events()?;
+                    return Ok(false);
+                }
+            }
+        }
+
+        if let Some(hit_condition) = &hit.hit_condition {
+            if let HitCondition::Invalid(raw) = hit_condition {
+                let output = format!("Breakpoint {} hitCondition invalid: {raw}\n", hit.id);
+                self.enqueue_event(InternalEvent::Output {
+                    category: "console",
+                    output,
+                });
+                self.drain_events()?;
+            } else if !hit_condition.matches(hit.hit_count) {
+                return Ok(true);
+            }
+        }
+
+        if let Some(log_message) = hit.log_message.as_deref() {
+            let mut output = self.format_log_message(log_message)?;
+            if !output.ends_with('\n') {
+                output.push('\n');
+            }
+            self.enqueue_event(InternalEvent::Output {
+                category: "console",
+                output,
+            });
+            self.drain_events()?;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    fn emit_stop_reason(&mut self, stop: debugger::StopReason) -> anyhow::Result<()> {
+        let mut stop = stop;
+        loop {
+            while !self.should_stop_on_exception(&stop) {
+                let dbg = self
+                    .debugger
+                    .as_mut()
+                    .ok_or_else(|| anyhow!("continue: debugger not initialized"))?;
+                stop = dbg
+                    .continue_debugee_with_reason()
+                    .context("continue after exception filter")?;
+            }
+
+            if let debugger::StopReason::Breakpoint(pid, addr) = stop {
+                if self.should_skip_breakpoint(pid, addr)? {
+                    let dbg = self
+                        .debugger
+                        .as_mut()
+                        .ok_or_else(|| anyhow!("continue: debugger not initialized"))?;
+                    stop = dbg
+                        .continue_debugee_with_reason()
+                        .context("continue after breakpoint filter")?;
+                    continue;
+                }
+            }
+            break;
         }
 
         let (reason, thread_id, description, exited, last_reason, signal) = match stop {
@@ -1520,6 +1864,7 @@ impl DebugSession {
 
             for bp in bps {
                 let line = bp.get("line").and_then(|v| v.as_i64()).unwrap_or(1) as u64;
+                let options = Self::parse_breakpoint_options(&bp);
                 let mut views = dbg.set_breakpoint_at_line(&source_path, line);
                 if views.is_err() {
                     // fallback: try basename, helps when debug info stores only file name
@@ -1548,6 +1893,10 @@ impl DebugSession {
                         new_breakpoints.push(BreakpointRecord {
                             id,
                             addresses: vec![first.addr],
+                            condition: options.condition,
+                            hit_condition: options.hit_condition,
+                            log_message: options.log_message,
+                            hit_count: 0,
                         });
                         rsp_bps.push(dap_bp.clone());
                         pending_events.push(InternalEvent::Breakpoint {
@@ -1566,6 +1915,10 @@ impl DebugSession {
                         new_breakpoints.push(BreakpointRecord {
                             id,
                             addresses: Vec::new(),
+                            condition: options.condition,
+                            hit_condition: options.hit_condition,
+                            log_message: options.log_message,
+                            hit_count: 0,
                         });
                         rsp_bps.push(dap_bp.clone());
                         pending_events.push(InternalEvent::Breakpoint {
@@ -1623,6 +1976,7 @@ impl DebugSession {
             };
 
             for bp in bps {
+                let options = Self::parse_breakpoint_options(&bp);
                 let Some(name) = bp.get("name").and_then(|v| v.as_str()) else {
                     let id = alloc_id();
                     let dap_bp = json!({
@@ -1633,6 +1987,10 @@ impl DebugSession {
                     new_breakpoints.push(BreakpointRecord {
                         id,
                         addresses: Vec::new(),
+                        condition: options.condition,
+                        hit_condition: options.hit_condition,
+                        log_message: options.log_message,
+                        hit_count: 0,
                     });
                     rsp_bps.push(dap_bp.clone());
                     pending_events.push(InternalEvent::Breakpoint {
@@ -1652,6 +2010,10 @@ impl DebugSession {
                         new_breakpoints.push(BreakpointRecord {
                             id,
                             addresses: views.iter().map(|view| view.addr).collect(),
+                            condition: options.condition,
+                            hit_condition: options.hit_condition,
+                            log_message: options.log_message,
+                            hit_count: 0,
                         });
                         rsp_bps.push(dap_bp.clone());
                         pending_events.push(InternalEvent::Breakpoint {
@@ -1669,6 +2031,10 @@ impl DebugSession {
                         new_breakpoints.push(BreakpointRecord {
                             id,
                             addresses: Vec::new(),
+                            condition: options.condition,
+                            hit_condition: options.hit_condition,
+                            log_message: options.log_message,
+                            hit_count: 0,
                         });
                         rsp_bps.push(dap_bp.clone());
                         pending_events.push(InternalEvent::Breakpoint {
@@ -1686,6 +2052,10 @@ impl DebugSession {
                         new_breakpoints.push(BreakpointRecord {
                             id,
                             addresses: Vec::new(),
+                            condition: options.condition,
+                            hit_condition: options.hit_condition,
+                            log_message: options.log_message,
+                            hit_count: 0,
                         });
                         rsp_bps.push(dap_bp.clone());
                         pending_events.push(InternalEvent::Breakpoint {
@@ -1742,6 +2112,7 @@ impl DebugSession {
             };
 
             for bp in bps {
+                let options = Self::parse_breakpoint_options(&bp);
                 let Some(reference) = bp.get("instructionReference").and_then(|v| v.as_str())
                 else {
                     let id = alloc_id();
@@ -1753,6 +2124,10 @@ impl DebugSession {
                     new_breakpoints.push(BreakpointRecord {
                         id,
                         addresses: Vec::new(),
+                        condition: options.condition,
+                        hit_condition: options.hit_condition,
+                        log_message: options.log_message,
+                        hit_count: 0,
                     });
                     rsp_bps.push(dap_bp.clone());
                     pending_events.push(InternalEvent::Breakpoint {
@@ -1775,6 +2150,10 @@ impl DebugSession {
                         new_breakpoints.push(BreakpointRecord {
                             id,
                             addresses: Vec::new(),
+                            condition: options.condition,
+                            hit_condition: options.hit_condition,
+                            log_message: options.log_message,
+                            hit_count: 0,
                         });
                         rsp_bps.push(dap_bp.clone());
                         pending_events.push(InternalEvent::Breakpoint {
@@ -1796,6 +2175,10 @@ impl DebugSession {
                         new_breakpoints.push(BreakpointRecord {
                             id,
                             addresses: vec![view.addr],
+                            condition: options.condition,
+                            hit_condition: options.hit_condition,
+                            log_message: options.log_message,
+                            hit_count: 0,
                         });
                         rsp_bps.push(dap_bp.clone());
                         pending_events.push(InternalEvent::Breakpoint {
@@ -1813,6 +2196,10 @@ impl DebugSession {
                         new_breakpoints.push(BreakpointRecord {
                             id,
                             addresses: Vec::new(),
+                            condition: options.condition,
+                            hit_condition: options.hit_condition,
+                            log_message: options.log_message,
+                            hit_count: 0,
                         });
                         rsp_bps.push(dap_bp.clone());
                         pending_events.push(InternalEvent::Breakpoint {
