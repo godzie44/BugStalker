@@ -266,7 +266,6 @@ dependencies = [
  "tuirealm",
  "typed-arena",
  "unicode-width 0.1.14",
- "unwind",
  "uuid",
  "walkdir",
  "which 6.0.1",
@@ -872,33 +871,6 @@ name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
-
-[[package]]
-name = "foreign-types"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d737d9aa519fb7b749cbc3b962edcf310a8dd1f4b67c91c4f83975dbdd17d965"
-dependencies = [
- "foreign-types-macros",
- "foreign-types-shared",
-]
-
-[[package]]
-name = "foreign-types-macros"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8469d0d40519bc608ec6863f1cc88f3f1deee15913f2f3b3e573d81ed38cccc"
-dependencies = [
- "proc-macro2 1.0.92",
- "quote 1.0.36",
- "syn 1.0.99",
-]
-
-[[package]]
-name = "foreign-types-shared"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "futures"
@@ -2582,27 +2554,6 @@ name = "unicode-xid"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc72304796d0818e357ead4e000d19c9c174ab23dc11093ac919054d20a6a7fc"
-
-[[package]]
-name = "unwind"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38290439f8459ba56c4bf15fc776463f495fefc4f0112f87a1a075540441b083"
-dependencies = [
- "foreign-types",
- "libc",
- "unwind-sys",
-]
-
-[[package]]
-name = "unwind-sys"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7a81ba64bc45243d442e9bb2a362f303df152b5078c56ce4a0dc7d813c8df91"
-dependencies = [
- "libc",
- "pkg-config",
-]
 
 [[package]]
 name = "utf8parse"
