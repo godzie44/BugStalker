@@ -2380,18 +2380,18 @@ impl DebugSession {
     fn handle_continue(&mut self, req: &DapRequest) -> anyhow::Result<()> {
         self.begin_running();
 
-        let dbg = self
-            .debugger
-            .as_mut()
-            .ok_or_else(|| anyhow!("continue: debugger not initialized"))?;
-
-        let stop = dbg.continue_debugee_with_reason().context("continue")?;
         let thread_id = self.current_thread_id();
         self.enqueue_event(InternalEvent::Continued {
             thread_id,
             all_threads_continued: true,
         });
         self.send_success_body(req, json!({"allThreadsContinued": true}))?;
+        self.drain_events()?;
+        let dbg = self
+            .debugger
+            .as_mut()
+            .ok_or_else(|| anyhow!("continue: debugger not initialized"))?;
+        let stop = dbg.continue_debugee_with_reason().context("continue")?;
         self.emit_stop_reason(stop)
     }
 
