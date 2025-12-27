@@ -42,7 +42,6 @@ ouroboros = "0.18.0"
 typed-arena = "2.0.1"
 fallible-iterator = "0.3.0"
 itertools = "0.12.1"
-unwind = { version = "0.4.2", features = ["ptrace"], optional = true }
 rustc-demangle = "0.1.21"
 thiserror = "1.0.37"
 bytes = "1.2.1"
@@ -89,7 +88,5 @@ serial_test = "3.0.0"
 
 [features]
 default = []
-# libunwind future deprecated for now, builtin unwinder used instead
-libunwind = ["unwind"]
 nightly = []
 int_test = ["nightly"]
