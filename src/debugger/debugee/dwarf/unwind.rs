@@ -61,13 +61,8 @@ pub type Backtrace = Vec<FrameSpan>;
 /// * `debugee`: debugee instance
 /// * `pid`: thread for unwinding
 pub fn unwind(debugee: &Debugee, pid: Pid) -> Result<Backtrace, Error> {
-    #[cfg(not(feature = "libunwind"))]
-    {
-        let unwinder = DwarfUnwinder::new(debugee);
-        unwinder.unwind(pid)
-    }
-    #[cfg(feature = "libunwind")]
-    libunwind::unwind(debugee, pid)
+    let unwinder = DwarfUnwinder::new(debugee);
+    unwinder.unwind(pid)
 }
 
 /// Restore registers at chosen frame.
@@ -85,13 +80,8 @@ pub fn restore_registers_at_frame(
     registers: &mut DwarfRegisterMap,
     frame_num: u32,
 ) -> Result<(), Error> {
-    #[cfg(not(feature = "libunwind"))]
-    {
-        let unwinder = DwarfUnwinder::new(debugee);
-        unwinder.restore_registers_at_frame(pid, registers, frame_num)
-    }
-    #[cfg(feature = "libunwind")]
-    libunwind::restore_registers_at_frame(pid, registers, frame_num)
+    let unwinder = DwarfUnwinder::new(debugee);
+    unwinder.restore_registers_at_frame(pid, registers, frame_num)
 }
 
 /// Return return address for thread current program counter.
@@ -102,13 +92,8 @@ pub fn restore_registers_at_frame(
 /// * `pid`: thread for unwinding
 #[allow(unused)]
 pub fn return_addr(debugee: &Debugee, pid: Pid) -> Result<Option<RelocatedAddress>, Error> {
-    #[cfg(not(feature = "libunwind"))]
-    {
-        let unwinder = DwarfUnwinder::new(debugee);
-        unwinder.return_address(pid)
-    }
-    #[cfg(feature = "libunwind")]
-    libunwind::return_addr(pid)
+    let unwinder = DwarfUnwinder::new(debugee);
+    unwinder.return_address(pid)
 }
 
 /// UnwindContext (or ucx) contains information for unwinding single frame.  
@@ -440,103 +425,5 @@ impl<'a> DwarfUnwinder<'a> {
             DwarfRegisterMap::from(RegisterMap::current(ecx.pid_on_focus())?),
             ecx,
         )
-    }
-}
-
-#[cfg(feature = "libunwind")]
-#[deprecated(
-    since = "0.3.4",
-    note = "libunwind deprecated, use new unwinder `DwarfUnwinder`"
-)]
-mod libunwind {
-    use crate::debugger::address::RelocatedAddress;
-    use crate::debugger::debugee::Debugee;
-    use crate::debugger::error::Error;
-    use crate::debugger::register::DwarfRegisterMap;
-    use crate::debugger::unwind::{Backtrace, FrameSpan};
-    use nix::unistd::Pid;
-    use unwind::{Accessors, AddressSpace, Byteorder, Cursor, PTraceState, RegNum};
-
-    /// Unwind thread stack and returns backtrace.
-    ///
-    /// # Arguments
-    ///
-    /// * `pid`: thread for unwinding.
-    pub(super) fn unwind(debugee: &Debugee, pid: Pid) -> Result<Backtrace, Error> {
-        let state = PTraceState::new(pid.as_raw() as u32)?;
-        let address_space = AddressSpace::new(Accessors::ptrace(), Byteorder::DEFAULT)?;
-        let mut cursor = Cursor::remote(&address_space, &state)?;
-        let mut backtrace = vec![];
-
-        loop {
-            let ip = cursor.register(RegNum::IP)?;
-            match (cursor.procedure_info(), cursor.procedure_name()) {
-                (Ok(ref info), Ok(ref name)) if ip == info.start_ip() + name.offset() => {
-                    let fn_name = format!("{:#}", rustc_demangle::demangle(name.name()));
-
-                    backtrace.push(FrameSpan::new(
-                        debugee,
-                        ip.into(),
-                        Some(fn_name),
-                        Some(info.start_ip().into()),
-                    )?);
-                }
-                _ => {
-                    backtrace.push(FrameSpan::new(debugee, ip.into(), None, None)?);
-                }
-            }
-
-            if !cursor.step()? {
-                break;
-            }
-        }
-
-        Ok(backtrace)
-    }
-
-    /// Returns return address for stopped thread.
-    ///
-    /// # Arguments
-    ///
-    /// * `pid`: pid of stopped thread.
-    pub(super) fn return_addr(pid: Pid) -> Result<Option<RelocatedAddress>, Error> {
-        let state = PTraceState::new(pid.as_raw() as u32)?;
-        let address_space = AddressSpace::new(Accessors::ptrace(), Byteorder::DEFAULT)?;
-        let mut cursor = Cursor::remote(&address_space, &state)?;
-
-        if !cursor.step()? {
-            return Ok(None);
-        }
-
-        Ok(Some(RelocatedAddress::from(cursor.register(RegNum::IP)?)))
-    }
-
-    pub(super) fn restore_registers_at_frame(
-        pid: Pid,
-        registers: &mut DwarfRegisterMap,
-        frame_num: u32,
-    ) -> Result<(), Error> {
-        if frame_num == 0 {
-            return Ok(());
-        }
-
-        let state = PTraceState::new(pid.as_raw() as u32)?;
-        let address_space = AddressSpace::new(Accessors::ptrace(), Byteorder::DEFAULT)?;
-        let mut cursor = Cursor::remote(&address_space, &state)?;
-
-        for _ in 0..frame_num {
-            if !cursor.step()? {
-                return Ok(());
-            }
-        }
-
-        if let Ok(ip) = cursor.register(RegNum::IP) {
-            registers.update(gimli::Register(16), ip);
-        }
-        if let Ok(sp) = cursor.register(RegNum::SP) {
-            registers.update(gimli::Register(7), sp);
-        }
-
-        Ok(())
     }
 }
