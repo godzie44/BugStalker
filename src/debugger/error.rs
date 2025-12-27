@@ -110,10 +110,6 @@ pub enum Error {
     #[error("unwind: too deep frame number")]
     UnwindTooDeepFrame,
 
-    #[cfg(feature = "libunwind")]
-    #[error("libunwind error: {0}")]
-    LibUnwind(#[from] unwind::Error),
-
     // --------------------------------- dwarf errors ----------------------------------------------
     #[error("dwarf expression evaluation: eval option `{0}` required")]
     EvalOptionRequired(&'static str),
@@ -212,8 +208,6 @@ impl Error {
             Error::VariableParsing(_) => false,
             Error::UnwindNoContext => false,
             Error::UnwindTooDeepFrame => false,
-            #[cfg(feature = "libunwind")]
-            Error::LibUnwind(_) => false,
             Error::EvalOptionRequired(_) => false,
             Error::EvalUnsupportedRequire(_) => false,
             Error::NoFBA => false,
