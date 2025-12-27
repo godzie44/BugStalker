@@ -1174,6 +1174,49 @@ impl Debugger {
             .disasm(self.ecx(), &self.breakpoints.active_breakpoints())
     }
 
+    /// Resolve function name and source place for a global address.
+    pub fn resolve_function_at_pc(
+        &self,
+        pc: GlobalAddress,
+    ) -> Result<Option<(String, Option<PlaceDescriptorOwned>)>, Error> {
+        disable_when_not_stared!(self);
+        for dwarf in self.debugee.debug_info_all() {
+            if let Ok(Some((_func, info))) = dwarf.find_function_by_pc(pc) {
+                let name = info
+                    .full_name()
+                    .or_else(|| info.name.clone())
+                    .or_else(|| info.linkage_name.clone())
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                let place = dwarf.find_place_from_pc(pc)?.map(|p| p.to_owned());
+                return Ok(Some((name, place)));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Return all breakpoint-capable places for a file line range.
+    pub fn breakpoint_places_for_file_range(
+        &self,
+        file_tpl: &str,
+        start_line: u64,
+        end_line: u64,
+    ) -> Result<Vec<PlaceDescriptorOwned>, Error> {
+        let (start_line, end_line) = if start_line <= end_line {
+            (start_line, end_line)
+        } else {
+            (end_line, start_line)
+        };
+        let mut out = Vec::new();
+        for dwarf in self.debugee.debug_info_all() {
+            if !dwarf.has_debug_info() {
+                continue;
+            }
+            let places = dwarf.find_places_in_line_range(file_tpl, start_line, end_line)?;
+            out.extend(places.into_iter().map(|p| p.to_owned()));
+        }
+        Ok(out)
+    }
+
     /// Return two place descriptors, at the start and at the end of the current function.
     pub fn current_function_range(&self) -> Result<FunctionRange<'_>, Error> {
         disable_when_not_stared!(self);
