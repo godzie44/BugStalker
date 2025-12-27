@@ -28,11 +28,13 @@ fn assert_response(response: &Value, command: &str, request_seq: i64, success: b
         assert!(response.get("seq").and_then(Value::as_i64).is_some());
         return true;
     }
-    if success {
-        if let Some(message) = response.get("message").and_then(Value::as_str) {
-            if message.contains("ENOSYS") || message.contains("Function not implemented") {
-                return false;
-            }
+    if success && let Some(message) = response.get("message").and_then(Value::as_str) {
+        if message.contains("ENOSYS")
+            || message.contains("Function not implemented")
+            || message.contains("EPERM")
+            || message.contains("Operation not permitted")
+        {
+            return false;
         }
     }
     assert_eq!(got_success, Some(success), "response: {response}");
@@ -864,9 +866,10 @@ fn test_disassemble_request() -> anyhow::Result<()> {
         .as_str()
         .unwrap_or("0x0");
 
-    let seq = session
-        .client
-        .send_request("disassemble", json!({ "memoryReference": instruction }))?;
+    let seq = session.client.send_request(
+        "disassemble",
+        json!({ "memoryReference": instruction, "instructionCount": 16 }),
+    )?;
     let response = session.client.read_response(seq)?;
     ensure_response!(session, &response, "disassemble", seq, true);
     assert!(response["body"]["instructions"].is_array());
