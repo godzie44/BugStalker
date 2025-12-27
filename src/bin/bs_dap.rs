@@ -6,7 +6,7 @@
 use anyhow::{Context, anyhow};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_ENGINE};
 use bugstalker::debugger;
-use bugstalker::debugger::address::RelocatedAddress;
+use bugstalker::debugger::address::{GlobalAddress, RelocatedAddress};
 use bugstalker::debugger::process::{Child, Installed};
 use bugstalker::debugger::register::debug::{BreakCondition, BreakSize};
 use bugstalker::debugger::variable::dqe::Dqe;
@@ -22,6 +22,7 @@ use clap::Parser;
 use log::{info, warn};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
+use regex::escape as regex_escape;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -2205,7 +2206,76 @@ impl DebugSession {
     }
 
     fn handle_completions(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        self.send_success_body(req, json!({ "targets": [] }))
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("completions: arguments must be object (possibly empty)"))?;
+        let text = args
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let column = args.get("column").and_then(|v| v.as_i64());
+        let (prefix, start_column, prefix_len) = completion_prefix(text, column);
+
+        let mut targets = Vec::new();
+        let mut seen = HashSet::new();
+
+        let Some(dbg) = self.debugger.as_mut() else {
+            return self.send_success_body(req, json!({ "targets": targets }));
+        };
+
+        if let Some(frame_id) = args.get("frameId").and_then(|v| v.as_i64()) {
+            let (thread_id, frame_num) = Self::decode_frame_id(frame_id);
+            let pid = self
+                .thread_cache
+                .get(&thread_id)
+                .copied()
+                .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
+            let _ = dbg.set_thread_into_focus_by_pid(pid);
+            let _ = dbg.set_frame_into_focus(frame_num);
+        }
+
+        let mut push_item = |label: String| {
+            if !seen.insert(label.clone()) {
+                return;
+            }
+            let mut item = json!({
+                "label": label,
+            });
+            if prefix_len > 0 {
+                item["text"] = item["label"].clone();
+                item["start"] = json!(start_column);
+                item["length"] = json!(prefix_len);
+            }
+            targets.push(item);
+        };
+
+        if let Ok(locals) = read_locals(dbg) {
+            for v in locals {
+                if prefix.is_empty() || v.name.starts_with(&prefix) {
+                    push_item(v.name);
+                }
+            }
+        }
+
+        if let Ok(args_vars) = read_args(dbg) {
+            for v in args_vars {
+                if prefix.is_empty() || v.name.starts_with(&prefix) {
+                    push_item(v.name);
+                }
+            }
+        }
+
+        if !prefix.is_empty() {
+            let regex = format!("^{}", regex_escape(&prefix));
+            if let Ok(symbols) = dbg.get_symbols(&regex) {
+                for sym in symbols {
+                    push_item(sym.name.to_string());
+                }
+            }
+        }
+
+        self.send_success_body(req, json!({ "targets": targets }))
     }
 
     fn handle_loaded_sources(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -2391,11 +2461,170 @@ impl DebugSession {
     }
 
     fn handle_step_in_targets(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        self.send_success_body(req, json!({ "targets": [] }))
+        let dbg = self
+            .debugger
+            .as_mut()
+            .ok_or_else(|| anyhow!("stepInTargets: debugger not initialized"))?;
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("stepInTargets: arguments must be object"))?;
+
+        if let Some(frame_id) = args.get("frameId").and_then(|v| v.as_i64()) {
+            let (thread_id, frame_num) = Self::decode_frame_id(frame_id);
+            let pid = self
+                .thread_cache
+                .get(&thread_id)
+                .copied()
+                .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
+            let _ = dbg.set_thread_into_focus_by_pid(pid);
+            let _ = dbg.set_frame_into_focus(frame_num);
+        }
+
+        let asm = dbg.disasm().context("stepInTargets: disasm")?;
+        let mut targets = Vec::new();
+        let mut seen = HashSet::new();
+
+        for ins in asm.instructions {
+            let mnemonic = ins.mnemonic.as_deref().unwrap_or("");
+            if !mnemonic.starts_with("call") {
+                continue;
+            }
+            let operands = ins.operands.as_deref().unwrap_or("");
+            let Some(target_addr) = parse_call_target_addr(operands) else {
+                continue;
+            };
+            if !seen.insert(target_addr) {
+                continue;
+            }
+
+            let mut label = format!("0x{target_addr:x}");
+            let mut line = None;
+            let mut column = None;
+
+            if let Ok(Some((name, place))) =
+                dbg.resolve_function_at_pc(GlobalAddress::from(target_addr))
+            {
+                label = name;
+                if let Some(place) = place {
+                    line = Some(place.line_number as i64);
+                    column = Some(place.column_number as i64);
+                }
+            }
+
+            let id = i64::try_from(target_addr).unwrap_or(i64::MAX);
+            let mut target = json!({ "id": id, "label": label });
+            if let Some(line) = line {
+                target["line"] = json!(line);
+            }
+            if let Some(column) = column {
+                target["column"] = json!(column);
+            }
+            targets.push(target);
+        }
+
+        self.send_success_body(req, json!({ "targets": targets }))
     }
 
     fn handle_breakpoint_locations(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        self.send_success_body(req, json!({ "breakpoints": [] }))
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("breakpointLocations: arguments must be object"))?;
+
+        let dbg = self
+            .debugger
+            .as_ref()
+            .ok_or_else(|| anyhow!("breakpointLocations: debugger not initialized"))?;
+
+        if let Some(source) = args.get("source") {
+            let source_path = source
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("breakpointLocations: missing source.path"))?;
+            let line = args
+                .get("line")
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| anyhow!("breakpointLocations: missing line"))?;
+            let end_line = args.get("endLine").and_then(|v| v.as_i64()).unwrap_or(line);
+
+            let column = args.get("column").and_then(|v| v.as_i64());
+            let end_column = args.get("endColumn").and_then(|v| v.as_i64()).or(column);
+
+            let target_path = self.source_map.map_client_to_target(source_path);
+            let mut places =
+                dbg.breakpoint_places_for_file_range(&target_path, line as u64, end_line as u64)?;
+            if places.is_empty()
+                && let Some(base) = Path::new(&target_path).file_name().and_then(|s| s.to_str())
+            {
+                places =
+                    dbg.breakpoint_places_for_file_range(base, line as u64, end_line as u64)?;
+            }
+
+            let mut breakpoints = Vec::new();
+            let mut seen = HashSet::new();
+            for place in places {
+                let place_column = place.column_number as i64;
+                if let Some(column) = column {
+                    let end_column = end_column.unwrap_or(column);
+                    if place_column < column || place_column > end_column {
+                        continue;
+                    }
+                }
+                let key = (place.line_number, place.column_number, place.address);
+                if !seen.insert(key) {
+                    continue;
+                }
+                breakpoints.push(json!({
+                    "line": place.line_number as i64,
+                    "column": place.column_number as i64,
+                }));
+            }
+
+            return self.send_success_body(req, json!({ "breakpoints": breakpoints }));
+        }
+
+        if let Some(reference) = args.get("instructionReference").and_then(|v| v.as_str()) {
+            let offset = args.get("offset").and_then(|v| v.as_i64()).unwrap_or(0);
+            let end_offset = args.get("endOffset").and_then(|v| v.as_i64());
+            let start_addr = Self::parse_memory_reference_with_offset(reference, offset)?;
+
+            let mut breakpoints = Vec::new();
+            let mut seen = HashSet::new();
+            if let Some(end_offset) = end_offset {
+                let end_addr = Self::parse_memory_reference_with_offset(reference, end_offset)?;
+                if end_addr < start_addr {
+                    return self.send_err(req, "breakpointLocations: endOffset is before offset");
+                }
+                let end_exclusive = end_addr.saturating_add(1);
+                let instructions = disassemble_from_range(dbg, start_addr, end_exclusive)?;
+                for ins in instructions {
+                    if !seen.insert(ins.address) {
+                        continue;
+                    }
+                    breakpoints.push(json!({
+                        "instructionReference": format!("0x{:x}", ins.address),
+                    }));
+                }
+            } else {
+                let instructions = disassemble_from_address(dbg, start_addr, 1)?;
+                for ins in instructions {
+                    if !seen.insert(ins.address) {
+                        continue;
+                    }
+                    breakpoints.push(json!({
+                        "instructionReference": format!("0x{:x}", ins.address),
+                    }));
+                }
+            }
+
+            return self.send_success_body(req, json!({ "breakpoints": breakpoints }));
+        }
+
+        self.send_err(
+            req,
+            "breakpointLocations: missing source or instructionReference",
+        )
     }
 
     fn handle_terminate_threads(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -3376,6 +3605,38 @@ struct DisasmInstruction {
     text: String,
 }
 
+fn completion_prefix(text: &str, column: Option<i64>) -> (String, i64, i64) {
+    let chars: Vec<char> = text.chars().collect();
+    let max_col = chars.len() as i64 + 1;
+    let column = column.unwrap_or(max_col).clamp(1, max_col);
+    let end_idx = (column - 1) as usize;
+    let mut start_idx = end_idx;
+    while start_idx > 0 {
+        let c = chars[start_idx - 1];
+        if c.is_ascii_alphanumeric() || c == '_' || c == ':' {
+            start_idx -= 1;
+        } else {
+            break;
+        }
+    }
+    let prefix: String = chars[start_idx..end_idx].iter().collect();
+    let length = (end_idx - start_idx) as i64;
+    let start_column = start_idx as i64 + 1;
+    (prefix, start_column, length)
+}
+
+fn parse_call_target_addr(operands: &str) -> Option<u64> {
+    let idx = operands.find("0x")?;
+    let hex = operands[idx + 2..]
+        .chars()
+        .take_while(|c| c.is_ascii_hexdigit())
+        .collect::<String>();
+    if hex.is_empty() {
+        return None;
+    }
+    u64::from_str_radix(&hex, 16).ok()
+}
+
 fn disassemble_from_address(
     dbg: &debugger::Debugger,
     addr: usize,
@@ -3398,6 +3659,54 @@ fn disassemble_from_address(
 
     let mut out = Vec::new();
     for insn in insns.iter().take(instruction_count) {
+        let mnemonic: &str = insn.mnemonic().unwrap_or("<unknown>");
+        let op_str = insn.op_str().unwrap_or("");
+        let text = if op_str.is_empty() {
+            mnemonic.to_string()
+        } else {
+            format!("{mnemonic} {op_str}")
+        };
+        let bytes_hex = insn
+            .bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join("");
+        out.push(DisasmInstruction {
+            address: insn.address(),
+            bytes_hex,
+            text,
+        });
+    }
+    Ok(out)
+}
+
+fn disassemble_from_range(
+    dbg: &debugger::Debugger,
+    start_addr: usize,
+    end_addr: usize,
+) -> anyhow::Result<Vec<DisasmInstruction>> {
+    if end_addr <= start_addr {
+        return Ok(Vec::new());
+    }
+    let len = end_addr - start_addr;
+    let max_len = 0x10000usize;
+    let read_len = len.min(max_len);
+    let cs = Capstone::new()
+        .x86()
+        .mode(arch::x86::ArchMode::Mode64)
+        .syntax(arch::x86::ArchSyntax::Att)
+        .build()
+        .map_err(|err| anyhow!("disassemble: init capstone: {err}"))?;
+    let bytes = dbg
+        .read_memory(start_addr, read_len)
+        .context("disassemble: read_memory")?;
+    let insns = cs
+        .disasm_all(&bytes, start_addr as u64)
+        .map_err(|err| anyhow!("disassemble: disasm_all: {err}"))?;
+
+    let mut out = Vec::new();
+    for insn in insns.iter() {
         let mnemonic: &str = insn.mnemonic().unwrap_or("<unknown>");
         let op_str = insn.op_str().unwrap_or("");
         let text = if op_str.is_empty() {
