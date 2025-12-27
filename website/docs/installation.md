@@ -14,26 +14,7 @@ cargo install bugstalker
 
 That's all, the `bs` command is available now!
 
-<details>
-  <summary>Use `libunwind`</summary>
-
-By default, BS uses a built-in unwinder, but you can use `libunwind` instead.
-Note that this may be risky because `libunwind` support in BS is deprecated.
-
-First, check if the necessary dependencies
-(`pkg-config` and `libunwind-dev`) are installed:
-
-For example, on Ubuntu/Debian:
-
-```shell
-apt install pkg-config libunwind-dev
-```
-Now install the debugger:
-
-```shell
-cargo install bugstalker --features libunwind
-```
-</details>
+Note: BS uses a built-in unwinder by default.
 
 ## Distro Packages
 
