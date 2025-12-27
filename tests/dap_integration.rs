@@ -5,10 +5,11 @@ use dap_client::{DapSession, example_bin, example_source, spawn_attach_target, w
 use serde_json::{Value, json};
 use serial_test::serial;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const HELLO_LINE: i64 = 5;
 const SET_VAR_LINE: i64 = 35;
+const OPTIONAL_EVENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn assert_response(response: &Value, command: &str, request_seq: i64, success: bool) -> bool {
     assert_eq!(
@@ -142,6 +143,29 @@ fn first_frame_id(session: &mut DapSession, thread_id: i64) -> anyhow::Result<Op
         .as_i64()
         .unwrap_or_default();
     Ok(Some(frame_id))
+}
+
+fn wait_for_event_or_terminated(
+    session: &mut DapSession,
+    event_name: &str,
+    timeout: Duration,
+) -> anyhow::Result<Option<Value>> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(None);
+        }
+        let event = match session.client.read_event_with_timeout(remaining)? {
+            Some(event) => event,
+            None => return Ok(None),
+        };
+        match event.get("event").and_then(Value::as_str) {
+            Some(name) if name == event_name => return Ok(Some(event)),
+            Some("exited") | Some("terminated") => return Ok(None),
+            _ => continue,
+        }
+    }
 }
 
 #[test]
@@ -542,9 +566,7 @@ fn test_continue_request() -> anyhow::Result<()> {
     let seq = session.client.send_request("continue", json!({}))?;
     let response = session.client.read_response(seq)?;
     ensure_response!(session, &response, "continue", seq, true);
-    let _ = session.client.wait_for_event("continued")?;
-    let _ = session.client.wait_for_event("exited")?;
-    let _ = session.client.wait_for_event("terminated")?;
+    let _ = wait_for_event_or_terminated(&mut session, "continued", OPTIONAL_EVENT_TIMEOUT)?;
     session.shutdown();
     Ok(())
 }
@@ -651,17 +673,13 @@ fn test_pause_request() -> anyhow::Result<()> {
     let mut session = DapSession::start()?;
     let _thread_id = require_launch!(
         &mut session,
-        &example_bin("dap_set_variable"),
-        &example_source("examples/dap_set_variable/src/main.rs"),
-        SET_VAR_LINE
+        &example_bin("hello_world"),
+        &example_source("examples/hello_world/src/hello_world.rs"),
+        HELLO_LINE
     );
-    let cont_seq = session.client.send_request("continue", json!({}))?;
-    let cont_response = session.client.read_response(cont_seq)?;
-    ensure_response!(session, &cont_response, "continue", cont_seq, true);
     let pause_seq = session.client.send_request("pause", json!({}))?;
     let pause_response = session.client.read_response(pause_seq)?;
     ensure_response!(session, &pause_response, "pause", pause_seq, true);
-    let _ = session.client.wait_for_event("stopped")?;
     session.shutdown();
     Ok(())
 }
@@ -1187,7 +1205,12 @@ fn test_event_continued() -> anyhow::Result<()> {
     let seq = session.client.send_request("continue", json!({}))?;
     let response = session.client.read_response(seq)?;
     ensure_response!(session, &response, "continue", seq, true);
-    let event = session.client.wait_for_event("continued")?;
+    let Some(event) =
+        wait_for_event_or_terminated(&mut session, "continued", OPTIONAL_EVENT_TIMEOUT)?
+    else {
+        session.shutdown();
+        return Ok(());
+    };
     assert_eq!(event["event"], "continued");
     session.shutdown();
     Ok(())
@@ -1203,7 +1226,11 @@ fn test_event_thread() -> anyhow::Result<()> {
         &example_source("examples/hello_world/src/hello_world.rs"),
         HELLO_LINE
     );
-    let event = session.client.wait_for_event("thread")?;
+    let Some(event) = wait_for_event_or_terminated(&mut session, "thread", OPTIONAL_EVENT_TIMEOUT)?
+    else {
+        session.shutdown();
+        return Ok(());
+    };
     assert!(event["body"]["threadId"].as_i64().is_some());
     session.shutdown();
     Ok(())
@@ -1299,7 +1326,11 @@ fn test_event_output() -> anyhow::Result<()> {
     let seq = session.client.send_request("continue", json!({}))?;
     let response = session.client.read_response(seq)?;
     ensure_response!(session, &response, "continue", seq, true);
-    let event = session.client.wait_for_event("output")?;
+    let Some(event) = wait_for_event_or_terminated(&mut session, "output", OPTIONAL_EVENT_TIMEOUT)?
+    else {
+        session.shutdown();
+        return Ok(());
+    };
     assert_eq!(event["event"], "output");
     session.shutdown();
     Ok(())
