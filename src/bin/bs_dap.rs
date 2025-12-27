@@ -228,6 +228,27 @@ enum InternalEvent {
         category: &'static str,
         output: String,
     },
+    ProgressStart {
+        progress_id: String,
+        title: String,
+        message: Option<String>,
+        percentage: Option<u32>,
+    },
+    ProgressUpdate {
+        progress_id: String,
+        message: Option<String>,
+        percentage: Option<u32>,
+    },
+    ProgressEnd {
+        progress_id: String,
+        message: Option<String>,
+    },
+    Invalidated {
+        areas: Vec<String>,
+    },
+    Capabilities {
+        capabilities: Value,
+    },
 }
 
 #[derive(Debug, Default, Clone)]
@@ -343,6 +364,7 @@ struct DebugSession {
     disasm_cache_by_reference: HashMap<i64, DisasmSource>,
     next_source_reference: i64,
     events: Arc<Mutex<Vec<InternalEvent>>>,
+    next_progress_id: u64,
     terminated: bool,
     exit_code: Option<i32>,
     exception_filters: Vec<String>,
@@ -593,6 +615,7 @@ impl DebugSession {
             disasm_cache_by_reference: HashMap::new(),
             next_source_reference: 1,
             events: Arc::new(Mutex::new(Vec::new())),
+            next_progress_id: 1,
             terminated: false,
             exit_code: None,
             exception_filters: vec![
@@ -608,6 +631,12 @@ impl DebugSession {
         let s = self.server_seq;
         self.server_seq += 1;
         s
+    }
+
+    fn next_progress_id(&mut self) -> String {
+        let id = self.next_progress_id;
+        self.next_progress_id = self.next_progress_id.saturating_add(1);
+        format!("bs-progress-{id}")
     }
 
     fn exception_filter_for_stop(stop: &debugger::StopReason) -> Option<&'static str> {
@@ -629,6 +658,50 @@ impl DebugSession {
         if let Ok(mut q) = self.events.lock() {
             q.push(ev);
         }
+    }
+
+    fn enqueue_progress_start(
+        &mut self,
+        title: impl Into<String>,
+        message: Option<String>,
+        percentage: Option<u32>,
+    ) -> String {
+        let progress_id = self.next_progress_id();
+        self.enqueue_event(InternalEvent::ProgressStart {
+            progress_id: progress_id.clone(),
+            title: title.into(),
+            message,
+            percentage,
+        });
+        progress_id
+    }
+
+    fn enqueue_progress_update(
+        &self,
+        progress_id: String,
+        message: Option<String>,
+        percentage: Option<u32>,
+    ) {
+        self.enqueue_event(InternalEvent::ProgressUpdate {
+            progress_id,
+            message,
+            percentage,
+        });
+    }
+
+    fn enqueue_progress_end(&self, progress_id: String, message: Option<String>) {
+        self.enqueue_event(InternalEvent::ProgressEnd {
+            progress_id,
+            message,
+        });
+    }
+
+    fn enqueue_invalidated(&self, areas: Vec<String>) {
+        self.enqueue_event(InternalEvent::Invalidated { areas });
+    }
+
+    fn enqueue_capabilities(&self, capabilities: Value) {
+        self.enqueue_event(InternalEvent::Capabilities { capabilities });
     }
 
     fn begin_stop_epoch(&mut self) {
@@ -1212,6 +1285,62 @@ impl DebugSession {
                         json!({ "category": category, "output": output }),
                     )?;
                 }
+                InternalEvent::ProgressStart {
+                    progress_id,
+                    title,
+                    message,
+                    percentage,
+                } => {
+                    let mut body = json!({
+                        "progressId": progress_id,
+                        "title": title,
+                    });
+                    if let Some(message) = message {
+                        body["message"] = json!(message);
+                    }
+                    if let Some(percentage) = percentage {
+                        body["percentage"] = json!(percentage);
+                    }
+                    self.send_event_body("progressStart", body)?;
+                }
+                InternalEvent::ProgressUpdate {
+                    progress_id,
+                    message,
+                    percentage,
+                } => {
+                    let mut body = json!({
+                        "progressId": progress_id,
+                    });
+                    if let Some(message) = message {
+                        body["message"] = json!(message);
+                    }
+                    if let Some(percentage) = percentage {
+                        body["percentage"] = json!(percentage);
+                    }
+                    self.send_event_body("progressUpdate", body)?;
+                }
+                InternalEvent::ProgressEnd {
+                    progress_id,
+                    message,
+                } => {
+                    let mut body = json!({
+                        "progressId": progress_id,
+                    });
+                    if let Some(message) = message {
+                        body["message"] = json!(message);
+                    }
+                    self.send_event_body("progressEnd", body)?;
+                }
+                InternalEvent::Invalidated { areas } => {
+                    let mut body = json!({});
+                    if !areas.is_empty() {
+                        body["areas"] = json!(areas);
+                    }
+                    self.send_event_body("invalidated", body)?;
+                }
+                InternalEvent::Capabilities { capabilities } => {
+                    self.send_event_body("capabilities", json!({ "capabilities": capabilities }))?;
+                }
             }
         }
         Ok(())
@@ -1486,9 +1615,23 @@ impl DebugSession {
         self.exit_code = None;
         self.session_mode = Some(SessionMode::Launch);
 
+        let progress_id = self.enqueue_progress_start(
+            "Launching debuggee",
+            Some("Initializing debugger".to_string()),
+            Some(0),
+        );
+        self.enqueue_capabilities(json!({ "supportsRestartRequest": true }));
+        self.drain_events()?;
         self.build_debugger(program, &args, oracles)?;
         self.emit_process_start()?;
+        self.enqueue_progress_update(
+            progress_id.clone(),
+            Some("Debugger initialized".to_string()),
+            Some(50),
+        );
+        self.enqueue_progress_end(progress_id, Some("Launch complete".to_string()));
         self.send_success(req)?;
+        self.drain_events()?;
         Ok(())
     }
 
@@ -1500,9 +1643,23 @@ impl DebugSession {
         self.exit_code = None;
         self.session_mode = Some(SessionMode::Attach);
 
+        let progress_id = self.enqueue_progress_start(
+            "Attaching debuggee",
+            Some("Initializing debugger".to_string()),
+            Some(0),
+        );
+        self.enqueue_capabilities(json!({ "supportsRestartRequest": false }));
+        self.drain_events()?;
         self.build_attached_debugger(pid, oracles)?;
         self.emit_process_start()?;
+        self.enqueue_progress_update(
+            progress_id.clone(),
+            Some("Debugger attached".to_string()),
+            Some(50),
+        );
+        self.enqueue_progress_end(progress_id, Some("Attach complete".to_string()));
         self.send_success(req)?;
+        self.drain_events()?;
         Ok(())
     }
 
@@ -2607,21 +2764,6 @@ impl DebugSession {
         let mut targets = Vec::new();
         let mut seen = HashSet::new();
 
-        let Some(dbg) = self.debugger.as_mut() else {
-            return self.send_success_body(req, json!({ "targets": targets }));
-        };
-
-        if let Some(frame_id) = args.get("frameId").and_then(|v| v.as_i64()) {
-            let (thread_id, frame_num) = Self::decode_frame_id(frame_id);
-            let pid = self
-                .thread_cache
-                .get(&thread_id)
-                .copied()
-                .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
-            let _ = dbg.set_thread_into_focus_by_pid(pid);
-            let _ = dbg.set_frame_into_focus(frame_num);
-        }
-
         let mut push_item = |label: String| {
             if !seen.insert(label.clone()) {
                 return;
@@ -2637,29 +2779,85 @@ impl DebugSession {
             targets.push(item);
         };
 
-        if let Ok(locals) = read_locals(dbg) {
-            for v in locals {
-                if prefix.is_empty() || v.name.starts_with(&prefix) {
-                    push_item(v.name);
+        {
+            let Some(dbg) = self.debugger.as_mut() else {
+                return self.send_success_body(req, json!({ "targets": targets }));
+            };
+
+            if let Some(frame_id) = args.get("frameId").and_then(|v| v.as_i64()) {
+                let (thread_id, frame_num) = Self::decode_frame_id(frame_id);
+                let pid = self
+                    .thread_cache
+                    .get(&thread_id)
+                    .copied()
+                    .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
+                let _ = dbg.set_thread_into_focus_by_pid(pid);
+                let _ = dbg.set_frame_into_focus(frame_num);
+            }
+
+            if let Ok(locals) = read_locals(dbg) {
+                for v in locals {
+                    if prefix.is_empty() || v.name.starts_with(&prefix) {
+                        push_item(v.name);
+                    }
                 }
             }
-        }
 
-        if let Ok(args_vars) = read_args(dbg) {
-            for v in args_vars {
-                if prefix.is_empty() || v.name.starts_with(&prefix) {
-                    push_item(v.name);
+            if let Ok(args_vars) = read_args(dbg) {
+                for v in args_vars {
+                    if prefix.is_empty() || v.name.starts_with(&prefix) {
+                        push_item(v.name);
+                    }
                 }
             }
         }
 
         if !prefix.is_empty() {
             let regex = format!("^{}", regex_escape(&prefix));
-            if let Ok(symbols) = dbg.get_symbols(&regex) {
-                for sym in symbols {
-                    push_item(sym.name.to_string());
+            let progress_id = self.enqueue_progress_start(
+                "Indexing symbols",
+                Some(format!("Searching for '{prefix}'")),
+                Some(0),
+            );
+            self.drain_events()?;
+            let (symbol_names, symbol_count) = {
+                let symbols_result = self
+                    .debugger
+                    .as_mut()
+                    .and_then(|dbg| dbg.get_symbols(&regex).ok());
+                match symbols_result {
+                    Some(symbols) => (
+                        Some(
+                            symbols
+                                .iter()
+                                .map(|sym| sym.name.to_string())
+                                .collect::<Vec<_>>(),
+                        ),
+                        Some(symbols.len()),
+                    ),
+                    None => (None, None),
+                }
+            };
+            if let Some(names) = symbol_names {
+                for name in names {
+                    push_item(name);
                 }
             }
+            if let Some(count) = symbol_count {
+                self.enqueue_progress_update(
+                    progress_id.clone(),
+                    Some(format!("Found {} symbols", count)),
+                    Some(50),
+                );
+            } else {
+                self.enqueue_progress_update(
+                    progress_id.clone(),
+                    Some("Symbol search failed".to_string()),
+                    Some(50),
+                );
+            }
+            self.enqueue_progress_end(progress_id, Some("Symbol search complete".to_string()));
+            self.drain_events()?;
         }
 
         self.send_success_body(req, json!({ "targets": targets }))
@@ -2755,7 +2953,9 @@ impl DebugSession {
             .decode(data)
             .map_err(|err| anyhow!("writeMemory: base64 decode failed: {err}"))?;
         write_bytes(dbg, addr, &bytes).context("writeMemory: write_bytes")?;
-        self.send_success_body(req, json!({ "bytesWritten": bytes.len() }))
+        self.send_success_body(req, json!({ "bytesWritten": bytes.len() }))?;
+        self.enqueue_invalidated(vec!["memory".to_string()]);
+        self.drain_events()
     }
 
     fn handle_set_expression(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -2844,7 +3044,13 @@ impl DebugSession {
             })
         };
 
-        self.send_success_body(req, response)
+        self.send_success_body(req, response)?;
+        self.enqueue_invalidated(vec![
+            "variables".to_string(),
+            "stack".to_string(),
+            "memory".to_string(),
+        ]);
+        self.drain_events()
     }
 
     fn handle_step_in_targets(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -3672,7 +3878,13 @@ impl DebugSession {
                 "type": reply_type,
                 "variablesReference": 0,
             }),
-        )
+        )?;
+        self.enqueue_invalidated(vec![
+            "variables".to_string(),
+            "stack".to_string(),
+            "memory".to_string(),
+        ]);
+        self.drain_events()
     }
 
     fn terminate_debuggee(&mut self) {
