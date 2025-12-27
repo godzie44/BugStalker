@@ -121,7 +121,7 @@ impl<'a> RequirementsResolver<'a> {
             .enumerate()
             .find(|(_, frame)| frame.fn_start_ip == Some(entry_pc_rel))
             .map(|(num, _)| -> Result<DwarfRegisterMap, Error> {
-                // try to use libunwind if frame determined
+                // try to use the built-in unwinder if the frame is determined
                 let mut registers = RegisterMap::current(ecx.pid_on_focus())?.into();
                 self.debugee.restore_registers_at_frame(
                     ecx.pid_on_focus(),
@@ -131,7 +131,7 @@ impl<'a> RequirementsResolver<'a> {
                 Ok(registers)
             })
             .unwrap_or_else(|| {
-                // use dwarf unwinder as a fallback
+                // fall back to the DWARF unwinder if needed
                 let unwinder = DwarfUnwinder::new(self.debugee);
                 let location = debugee::Location {
                     pid: ecx.pid_on_focus(),
