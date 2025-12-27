@@ -13,6 +13,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(5);
 const CONNECT_RETRY_DELAY: Duration = Duration::from_millis(50);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+const MESSAGE_TIMEOUT: Duration = Duration::from_secs(15);
 
 static BUILD_FIXTURES: OnceLock<Mutex<Option<Result<(), String>>>> = OnceLock::new();
 
@@ -152,10 +153,25 @@ impl DapClient {
     }
 
     fn read_message(&mut self) -> anyhow::Result<Value> {
+        let deadline = Instant::now() + MESSAGE_TIMEOUT;
         let mut content_length = None;
         loop {
             let mut line = String::new();
-            let read_n = self.reader.read_line(&mut line)?;
+            let read_n = loop {
+                match self.reader.read_line(&mut line) {
+                    Ok(n) => break n,
+                    Err(err)
+                        if err.kind() == std::io::ErrorKind::WouldBlock
+                            || err.kind() == std::io::ErrorKind::TimedOut =>
+                    {
+                        if Instant::now() > deadline {
+                            return Err(anyhow!("Timed out waiting for DAP header"));
+                        }
+                        continue;
+                    }
+                    Err(err) => return Err(err.into()),
+                }
+            };
             if read_n == 0 {
                 return Err(anyhow!("DAP connection closed"));
             }
@@ -170,9 +186,34 @@ impl DapClient {
 
         let len = content_length.ok_or_else(|| anyhow!("Missing Content-Length"))?;
         let mut buf = vec![0u8; len];
-        self.reader.read_exact(&mut buf)?;
+        self.read_exact_with_deadline(&mut buf, deadline)?;
         let msg = serde_json::from_slice(&buf)?;
         Ok(msg)
+    }
+
+    fn read_exact_with_deadline(
+        &mut self,
+        buf: &mut [u8],
+        deadline: Instant,
+    ) -> anyhow::Result<()> {
+        let mut offset = 0;
+        while offset < buf.len() {
+            match self.reader.read(&mut buf[offset..]) {
+                Ok(0) => return Err(anyhow!("DAP connection closed")),
+                Ok(n) => offset += n,
+                Err(err)
+                    if err.kind() == std::io::ErrorKind::WouldBlock
+                        || err.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    if Instant::now() > deadline {
+                        return Err(anyhow!("Timed out waiting for DAP body"));
+                    }
+                    continue;
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+        Ok(())
     }
 
     fn write_message(&mut self, message: &Value) -> anyhow::Result<()> {
