@@ -284,9 +284,6 @@ impl<'a> DwarfUnwinder<'a> {
             DwarfRegisterMap::from(RegisterMap::current(ecx.pid_on_focus())?),
             &ecx,
         )?;
-        let Some(mut ucx) = mb_ucx else {
-            return Ok(vec![]);
-        };
 
         let function = self
             .debugee
@@ -309,6 +306,9 @@ impl<'a> DwarfUnwinder<'a> {
             function.and_then(|(_, info)| info.full_name()),
             fn_start_at,
         )?];
+        let Some(mut ucx) = mb_ucx else {
+            return Ok(bt);
+        };
 
         // start unwind
         while let Some(return_addr) = ucx.return_address() {
