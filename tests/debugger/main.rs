@@ -7,6 +7,7 @@ mod signal;
 mod steps;
 mod symbol;
 mod tokio;
+mod unwind;
 mod variables;
 mod watchpoint;
 
@@ -49,6 +50,7 @@ const SLEEPER_APP: &str = "./examples/target/debug/sleeper";
 const FIZZBUZZ_APP: &str = "./examples/target/debug/fizzbuzz";
 const CALCULATIONS_APP: &str = "./examples/target/debug/calculations";
 const TOKIO_TICKER_APP: &str = "./examples/target/debug/tokioticker";
+const CALLS_APP: &str = "./examples/target/debug/calls";
 
 #[test]
 #[serial]
@@ -136,9 +138,12 @@ fn test_registers() {
     let pc = debugger.ecx().location().pc;
     let frame = debugger.frame_info().unwrap();
     let registers = debugger.current_thread_registers_at_pc(pc).unwrap();
+    let ip_register = Register::Rip
+        .dwarf_register()
+        .expect("instruction pointer register must map to dwarf register");
     assert_eq!(
         u64::from(frame.return_addr.unwrap()),
-        registers.value(gimli::Register(16)).unwrap()
+        registers.value(ip_register).unwrap()
     );
 
     drop(debugger);

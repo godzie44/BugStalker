@@ -1,5 +1,6 @@
 use crate::debugger::error::Error;
 use crate::debugger::error::Error::{Ptrace, RegisterNotFound};
+use gimli::Register as DwarfRegister;
 use nix::libc::user_regs_struct;
 use nix::sys;
 use nix::unistd::Pid;
@@ -38,6 +39,41 @@ pub enum Register {
     Ss,
     Ds,
     Es,
+}
+
+impl Register {
+    pub fn dwarf_register(self) -> Option<DwarfRegister> {
+        let register = match self {
+            Register::Rax => 0,
+            Register::Rdx => 1,
+            Register::Rcx => 2,
+            Register::Rbx => 3,
+            Register::Rsi => 4,
+            Register::Rdi => 5,
+            Register::Rbp => 6,
+            Register::Rsp => 7,
+            Register::R8 => 8,
+            Register::R9 => 9,
+            Register::R10 => 10,
+            Register::R11 => 11,
+            Register::R12 => 12,
+            Register::R13 => 13,
+            Register::R14 => 14,
+            Register::R15 => 15,
+            Register::Rip => 16,
+            Register::Eflags => 49,
+            Register::Es => 50,
+            Register::Cs => 51,
+            Register::Ss => 52,
+            Register::Ds => 53,
+            Register::Fs => 54,
+            Register::Gs => 55,
+            Register::FsBase => 58,
+            Register::GsBase => 59,
+            Register::OrigRax => return None,
+        };
+        Some(DwarfRegister(register))
+    }
 }
 
 impl From<gimli::Register> for Register {
