@@ -6,7 +6,7 @@ use crate::debugger::error::Error;
 use crate::debugger::error::Error::{
     TypeBinaryRepr, UnitNotFound, UnwindNoContext, UnwindTooDeepFrame,
 };
-use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
+use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::utils::TryGetOrInsert;
 use crate::debugger::{ExplorationContext, PlaceDescriptorOwned};
 use crate::{debugger, resolve_unit_call, weak_error};
@@ -213,7 +213,10 @@ impl<'a> UnwindContext<'a> {
         ecx: &ExplorationContext,
     ) -> Result<Option<Self>, Error> {
         let mut next_frame_registers: DwarfRegisterMap = previous_ucx.registers;
-        next_frame_registers.update(gimli::Register(7), previous_ucx.cfa.into());
+        let sp_register = Register::Rsp
+            .dwarf_register()
+            .expect("stack pointer register must map to dwarf register");
+        next_frame_registers.update(sp_register, previous_ucx.cfa.into());
         UnwindContext::new(previous_ucx.debugee, next_frame_registers, ecx)
     }
 
@@ -376,11 +379,18 @@ impl<'a> DwarfUnwinder<'a> {
             unwind_ucx = UnwindContext::next(unwind_ucx, &ecx)?.ok_or(UnwindNoContext)?;
         }
 
-        if let Ok(ip) = unwind_ucx.registers().value(gimli::Register(16)) {
-            registers.update(gimli::Register(16), ip);
+        let ip_register = Register::Rip
+            .dwarf_register()
+            .expect("instruction pointer register must map to dwarf register");
+        let sp_register = Register::Rsp
+            .dwarf_register()
+            .expect("stack pointer register must map to dwarf register");
+
+        if let Ok(ip) = unwind_ucx.registers().value(ip_register) {
+            registers.update(ip_register, ip);
         }
-        if let Ok(sp) = unwind_ucx.registers().value(gimli::Register(7)) {
-            registers.update(gimli::Register(7), sp);
+        if let Ok(sp) = unwind_ucx.registers().value(sp_register) {
+            registers.update(sp_register, sp);
         }
 
         Ok(())
