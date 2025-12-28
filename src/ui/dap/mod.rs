@@ -152,6 +152,7 @@ impl DapApplication {
                 struct AdditionalData {
                     program: String,
                     cwd: Option<String>,
+                    #[serde(default)]
                     args: Vec<String>,
                 }
 
