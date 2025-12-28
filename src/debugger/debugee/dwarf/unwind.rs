@@ -150,10 +150,7 @@ impl<'a> UnwindContext<'a> {
             .filter_map(|(register, rule)| {
                 let value = match rule {
                     RegisterRule::Undefined => return None,
-                    RegisterRule::SameValue => {
-                        let register_map = weak_error!(RegisterMap::current(ecx.pid_on_focus()))?;
-                        weak_error!(DwarfRegisterMap::from(register_map).value(*register))?
-                    }
+                    RegisterRule::SameValue => weak_error!(registers_snap.value(*register))?,
                     RegisterRule::Offset(offset) => {
                         let addr = cfa.offset(*offset as isize);
 
