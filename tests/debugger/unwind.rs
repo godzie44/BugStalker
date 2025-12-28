@@ -26,6 +26,7 @@ fn build_debug_frame_only_binary() -> PathBuf {
 
         void outer(void) {
             inner(42);
+            __builtin_trap();
         }
 
         int main(void) {
@@ -116,7 +117,6 @@ fn test_unwind_uses_debug_frame_when_eh_frame_missing() {
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
     let mut debugger = builder.build(process).unwrap();
 
-    debugger.set_breakpoint_at_fn("outer").unwrap();
     debugger.start_debugee().unwrap();
 
     let backtrace = debugger.backtrace(debugee_pid).unwrap();
