@@ -337,6 +337,20 @@ impl DwarfRegisterMap {
     pub fn update(&mut self, register: gimli::Register, value: u64) {
         self.0[register.0 as usize] = Some(value);
     }
+
+    /// Update current registers from another map, preserving existing values
+    /// when the incoming map has no value.
+    ///
+    /// # Arguments
+    ///
+    /// * `other`: map that provides new register values.
+    pub fn update_from(&mut self, other: &Self) {
+        for (idx, value) in other.0.iter().enumerate() {
+            if let Some(value) = value {
+                self.0[idx] = Some(*value);
+            }
+        }
+    }
 }
 
 /// Mapping dwarf registers to machine registers.
