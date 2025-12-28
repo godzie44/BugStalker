@@ -505,6 +505,9 @@ impl Debugee {
 
     /// Unwind debugee thread stack and return a backtrace.
     ///
+    /// This wrapper is a stable public entry point and delegates to the
+    /// internal [`DwarfUnwinder`] implementation (no `libunwind` feature gate).
+    ///
     /// # Arguments
     ///
     /// * `pid`: thread for unwinding
@@ -513,6 +516,8 @@ impl Debugee {
     }
 
     /// Restore registers at chosen frame.
+    ///
+    /// Delegates to the internal [`DwarfUnwinder`] implementation.
     ///
     /// # Arguments
     ///
@@ -530,6 +535,8 @@ impl Debugee {
     }
 
     /// Return a current frame return address for current thread.
+    ///
+    /// Delegates to the internal [`DwarfUnwinder`] implementation.
     ///
     /// # Arguments
     ///
