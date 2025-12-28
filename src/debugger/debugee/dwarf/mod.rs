@@ -28,7 +28,7 @@ use crate::{muted_error, resolve_unit_call, version_switch, weak_error};
 use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;
 use gimli::{
-    BaseAddresses, CfaRule, DebugAddr, DebugInfoOffset, DebugPubTypes, Dwarf, EhFrame,
+    BaseAddresses, CfaRule, DebugAddr, DebugFrame, DebugInfoOffset, DebugPubTypes, Dwarf, EhFrame,
     LocationLists, Range, Reader, RunTimeEndian, Section, UnitOffset, UnwindContext, UnwindSection,
     UnwindTableRow,
 };
@@ -53,6 +53,7 @@ pub struct DebugInformation<R: gimli::Reader = EndianArcSlice> {
     file: PathBuf,
     inner: Dwarf<R>,
     eh_frame: EhFrame<R>,
+    debug_frame: Option<DebugFrame<R>>,
     bases: BaseAddresses,
     units: Option<Vec<BsUnit>>,
     symbol_table: Option<SymbolTab>,
@@ -85,6 +86,7 @@ impl Clone for DebugInformation {
                 abbreviations_cache: Default::default(),
             },
             eh_frame: self.eh_frame.clone(),
+            debug_frame: self.debug_frame.clone(),
             bases: self.bases.clone(),
             units: self
                 .units
@@ -745,6 +747,13 @@ impl DebugInformationBuilder {
             };
 
         let dwarf = loader::load_par(debug_info_file, endian)?;
+        let debug_frame = if debug_info_file.section_by_name(".debug_frame").is_some() {
+            Some(DebugFrame::load(|id| -> Result<EndianArcSlice, Error> {
+                loader::load_section(id, debug_info_file, endian)
+            })?)
+        } else {
+            None
+        };
         let symbol_table = SymbolTab::new(debug_info_file);
 
         // let mb_pub_names_sect = muted_error!(DebugPubNames::load(|id| {
@@ -793,6 +802,7 @@ impl DebugInformationBuilder {
                 file: obj_path.to_path_buf(),
                 inner: dwarf,
                 eh_frame,
+                debug_frame,
                 bases,
                 units: None,
                 symbol_table,
@@ -828,6 +838,7 @@ impl DebugInformationBuilder {
             file: obj_path.to_path_buf(),
             inner: dwarf,
             eh_frame,
+            debug_frame,
             bases,
             units: Some(units),
             symbol_table,
