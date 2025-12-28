@@ -4,6 +4,63 @@ use crate::{assert_no_proc, prepare_debugee_process};
 use bugstalker::debugger::DebuggerBuilder;
 use bugstalker::debugger::variable::render::{RenderValue, ValueLayout};
 use serial_test::serial;
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn build_debug_frame_only_binary() -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be available")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("bugstalker-debug-frame-{nonce}"));
+    fs::create_dir_all(&dir).expect("failed to create temp build directory");
+
+    let source = r#"
+        #include <stdio.h>
+
+        static void inner(int value) {
+            printf("%d\n", value);
+        }
+
+        void outer(void) {
+            inner(42);
+        }
+
+        int main(void) {
+            outer();
+            return 0;
+        }
+    "#;
+
+    let source_path = dir.join("debug_frame_only.c");
+    fs::write(&source_path, source).expect("failed to write C source");
+
+    let binary_path = dir.join("debug_frame_only");
+    let status = Command::new("cc")
+        .arg("-g")
+        .arg("-fno-asynchronous-unwind-tables")
+        .arg("-fno-unwind-tables")
+        .arg("-o")
+        .arg(&binary_path)
+        .arg(&source_path)
+        .status()
+        .expect("failed to execute C compiler");
+    assert!(status.success(), "C compiler returned non-zero status");
+
+    let status = Command::new("objcopy")
+        .arg("--remove-section")
+        .arg(".eh_frame")
+        .arg("--remove-section")
+        .arg(".eh_frame_hdr")
+        .arg(&binary_path)
+        .status()
+        .expect("failed to execute objcopy");
+    assert!(status.success(), "objcopy returned non-zero status");
+
+    binary_path
+}
 
 #[test]
 #[serial]
@@ -39,6 +96,34 @@ fn test_unwind_restores_registers_for_caller_frame() {
         ValueLayout::PreRendered(rendered) => assert_eq!(rendered.as_ref(), "101"),
         layout => panic!("unexpected arg2 layout: {layout:?}"),
     }
+
+    drop(debugger);
+    assert_no_proc!(debugee_pid);
+}
+
+#[test]
+#[serial]
+fn test_unwind_uses_debug_frame_when_eh_frame_missing() {
+    let binary_path = build_debug_frame_only_binary();
+    let binary_str = binary_path
+        .to_str()
+        .expect("binary path should be valid utf-8")
+        .to_string();
+    let process = prepare_debugee_process(binary_str.as_str(), &[]);
+    let debugee_pid = process.pid();
+
+    let info = TestInfo::default();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
+
+    debugger.set_breakpoint_at_fn("outer").unwrap();
+    debugger.start_debugee().unwrap();
+
+    let backtrace = debugger.backtrace(debugee_pid).unwrap();
+    assert!(
+        !backtrace.is_empty(),
+        "backtrace should be available from .debug_frame"
+    );
 
     drop(debugger);
     assert_no_proc!(debugee_pid);

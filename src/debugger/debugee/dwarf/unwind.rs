@@ -10,7 +10,7 @@ use crate::debugger::register::{DwarfRegisterMap, Register, RegisterMap};
 use crate::debugger::utils::TryGetOrInsert;
 use crate::debugger::{ExplorationContext, PlaceDescriptorOwned};
 use crate::{debugger, resolve_unit_call, weak_error};
-use gimli::{EhFrame, FrameDescriptionEntry, RegisterRule, UnwindSection};
+use gimli::{DebugFrame, EhFrame, FrameDescriptionEntry, RegisterRule, UnwindSection};
 use nix::unistd::Pid;
 use std::mem;
 
@@ -114,25 +114,44 @@ impl<'a> UnwindContext<'a> {
         let dwarf = &debugee.debug_info(ecx.location().pc)?;
         let mut next_registers = registers.clone();
         let registers_snap = registers;
-        let fde = match dwarf.eh_frame.fde_for_address(
+        let mut ucx = Box::new(gimli::UnwindContext::new());
+        let (fde, row) = match dwarf.eh_frame.fde_for_address(
             &dwarf.bases,
             ecx.location().global_pc.into(),
             EhFrame::cie_from_offset,
         ) {
-            Ok(fde) => fde,
+            Ok(fde) => {
+                let row = fde.unwind_info_for_address(
+                    &dwarf.eh_frame,
+                    &dwarf.bases,
+                    &mut ucx,
+                    ecx.location().global_pc.into(),
+                )?;
+                (fde, row)
+            }
             Err(gimli::Error::NoUnwindInfoForAddress) => {
-                return Ok(None);
+                let Some(debug_frame) = dwarf.debug_frame.as_ref() else {
+                    return Ok(None);
+                };
+                let fde = match debug_frame.fde_for_address(
+                    &dwarf.bases,
+                    ecx.location().global_pc.into(),
+                    DebugFrame::cie_from_offset,
+                ) {
+                    Ok(fde) => fde,
+                    Err(gimli::Error::NoUnwindInfoForAddress) => return Ok(None),
+                    Err(e) => return Err(e.into()),
+                };
+                let row = fde.unwind_info_for_address(
+                    debug_frame,
+                    &dwarf.bases,
+                    &mut ucx,
+                    ecx.location().global_pc.into(),
+                )?;
+                (fde, row)
             }
             Err(e) => return Err(e.into()),
         };
-
-        let mut ucx = Box::new(gimli::UnwindContext::new());
-        let row = fde.unwind_info_for_address(
-            &dwarf.eh_frame,
-            &dwarf.bases,
-            &mut ucx,
-            ecx.location().global_pc.into(),
-        )?;
         let cfa = dwarf.evaluate_cfa(debugee, &registers_snap, row, ecx)?;
 
         let mut lazy_evaluator = None;
