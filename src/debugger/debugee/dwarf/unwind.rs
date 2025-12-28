@@ -395,19 +395,8 @@ impl<'a> DwarfUnwinder<'a> {
             unwind_ucx = UnwindContext::next(unwind_ucx, &ecx)?.ok_or(UnwindNoContext)?;
         }
 
-        let ip_register = Register::Rip
-            .dwarf_register()
-            .expect("instruction pointer register must map to dwarf register");
-        let sp_register = Register::Rsp
-            .dwarf_register()
-            .expect("stack pointer register must map to dwarf register");
-
-        if let Ok(ip) = unwind_ucx.registers().value(ip_register) {
-            registers.update(ip_register, ip);
-        }
-        if let Ok(sp) = unwind_ucx.registers().value(sp_register) {
-            registers.update(sp_register, sp);
-        }
+        let unwind_registers = unwind_ucx.registers();
+        registers.update_from(&unwind_registers);
 
         Ok(())
     }
