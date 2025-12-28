@@ -1,7 +1,6 @@
 { lib
 , rustPlatform
 , pkg-config
-, libunwind
 }:
 let
   cargoToml = builtins.fromTOML (builtins.readFile ../Cargo.toml);
@@ -15,8 +14,6 @@ rustPlatform.buildRustPackage {
   };
 
   cargoLock.lockFile = ../Cargo.lock;
-
-  buildInputs = [ libunwind ];
 
   nativeBuildInputs = [ pkg-config ];
 
