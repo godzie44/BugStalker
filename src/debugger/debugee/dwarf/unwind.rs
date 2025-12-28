@@ -11,7 +11,9 @@ use crate::debugger::utils::TryGetOrInsert;
 use crate::debugger::{ExplorationContext, PlaceDescriptorOwned};
 use crate::{debugger, resolve_unit_call, weak_error};
 use gimli::{DebugFrame, EhFrame, FrameDescriptionEntry, RegisterRule, UnwindSection};
+use log::warn;
 use nix::unistd::Pid;
+use std::collections::HashSet;
 use std::mem;
 
 /// Unique frame identifier. It is just an address of the first instruction in function.
@@ -272,6 +274,8 @@ impl<'a> DwarfUnwinder<'a> {
     ///
     /// * pid: thread for unwinding
     pub fn unwind(&self, pid: Pid) -> Result<Backtrace, Error> {
+        const MAX_UNWIND_DEPTH: usize = 512;
+
         let frame_0_location = self
             .debugee
             .tracee_ctl()
@@ -306,14 +310,27 @@ impl<'a> DwarfUnwinder<'a> {
             function.and_then(|(_, info)| info.full_name()),
             fn_start_at,
         )?];
+        let mut visited_ips = HashSet::new();
+        visited_ips.insert(frame_0_location.pc);
         let Some(mut ucx) = mb_ucx else {
             return Ok(bt);
         };
 
         // start unwind
         while let Some(return_addr) = ucx.return_address() {
-            let prev_loc = bt.last().expect("backtrace len > 0");
-            if prev_loc.ip == return_addr {
+            if bt.len() >= MAX_UNWIND_DEPTH {
+                warn!(
+                    target: "debugger",
+                    "unwind depth limit {MAX_UNWIND_DEPTH} reached, stopping at {return_addr}"
+                );
+                break;
+            }
+
+            if !visited_ips.insert(return_addr) {
+                warn!(
+                    target: "debugger",
+                    "unwind detected repeated return address {return_addr}, stopping"
+                );
                 break;
             }
 
