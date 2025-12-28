@@ -27,6 +27,7 @@ pub use debugee::dwarf::r#type::TypeDeclaration;
 pub use debugee::dwarf::unit::FunctionInfo;
 pub use debugee::dwarf::unit::PlaceDescriptor;
 pub use debugee::dwarf::unit::PlaceDescriptorOwned;
+/// Public unwind API backed by the internal DWARF unwinder (no libunwind feature gate).
 pub use debugee::dwarf::unwind;
 pub use debugee::tracee::Tracee;
 pub use error::Error;
