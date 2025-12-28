@@ -46,7 +46,7 @@ impl Key {
     }
 
     pub fn idx(&self) -> usize {
-        (self.inner & (u32::MAX as usize)) as usize
+        self.inner & (u32::MAX as usize)
     }
 }
 
