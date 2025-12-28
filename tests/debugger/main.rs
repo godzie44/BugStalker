@@ -132,7 +132,7 @@ fn test_registers() {
     assert_eq!(info.line.take(), Some(5));
 
     // there is only info about return address (dwarf reg 16) in .debug_info section
-    // so assert it with libunwind provided address
+    // so assert it with the built-in unwinder provided address
     let pc = debugger.ecx().location().pc;
     let frame = debugger.frame_info().unwrap();
     let registers = debugger.current_thread_registers_at_pc(pc).unwrap();
