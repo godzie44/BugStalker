@@ -422,7 +422,7 @@ impl Helper {
             Some(parser::ASYNC_COMMAND) => HELP_ASYNC,
             Some(parser::TRIGGER_COMMAND) => HELP_TRIGGER,
             Some(parser::CALL_COMMAND) => HELP_CALL,
-            Some(parser::ORACLE_COMMAND) => &self.oracle_help.as_deref().unwrap_or(HELP_ORACLE),
+            Some(parser::ORACLE_COMMAND) => self.oracle_help.as_deref().unwrap_or(HELP_ORACLE),
             Some("tui") => HELP_TUI,
             Some("q") | Some("quit") => HELP_QUIT,
             _ => "unknown command",

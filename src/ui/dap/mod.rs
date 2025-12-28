@@ -474,7 +474,7 @@ impl DapApplication {
                                     complete_handler: ch,
                                     prog_taker: upt,
                                     trigger_reg: &trigger_reg,
-                                    debugger: debugger,
+                                    debugger,
                                     printer: &printer,
                                     file_view: &file_view,
                                     helper: &helper,

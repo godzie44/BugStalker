@@ -71,7 +71,7 @@ pub struct CommandHandler<'a, Y: YesQuestion, C: Completer, U: ProgramTaker> {
 impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> {
     pub fn handle_command(&mut self, cmd: Command) -> Result<(), CommandError> {
         match cmd {
-            Command::Print(print_var_command) => PrintHandler::new(&mut self.debugger)
+            Command::Print(print_var_command) => PrintHandler::new(self.debugger)
                 .handle(print_var_command)?
                 .into_iter()
                 .for_each(|var| {
@@ -85,7 +85,7 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
                     self.printer.println(string_to_render)
                 }),
             Command::PrintBacktrace(cmd) => {
-                let bt = BacktraceHandler::new(&mut self.debugger).handle(cmd)?;
+                let bt = BacktraceHandler::new(self.debugger).handle(cmd)?;
                 bt.into_iter().for_each(|thread| {
                     let ip = thread
                         .bt
@@ -142,13 +142,13 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
                 });
             }
             Command::Continue => {
-                ContinueHandler::new(&mut self.debugger).handle()?;
+                ContinueHandler::new(self.debugger).handle()?;
                 _ = self
                     .complete_handler
-                    .update_completer_variables(&self.debugger);
+                    .update_completer_variables(self.debugger);
             }
             Command::Frame(cmd) => {
-                let result = FrameHandler::new(&mut self.debugger).handle(cmd)?;
+                let result = FrameHandler::new(self.debugger).handle(cmd)?;
                 match result {
                     FrameResult::FrameInfo(frame) => {
                         self.printer.println(format!(
@@ -166,42 +166,42 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
                     }
                 }
             }
-            Command::Run => match RunHandler::new(&mut self.debugger).handle(run::Command::Start) {
+            Command::Run => match RunHandler::new(self.debugger).handle(run::Command::Start) {
                 Err(CommandError::Handle(Error::AlreadyRun)) => {
                     if self.yes_handler.yes("Restart a program?")? {
-                        RunHandler::new(&mut self.debugger).handle(run::Command::Restart)?
+                        RunHandler::new(self.debugger).handle(run::Command::Restart)?
                     }
                 }
                 Err(e) => return Err(e),
                 _ => {
                     _ = self
                         .complete_handler
-                        .update_completer_variables(&self.debugger);
+                        .update_completer_variables(self.debugger);
                 }
             },
             Command::StepInstruction => {
-                step_instruction::Handler::new(&mut self.debugger).handle()?;
+                step_instruction::Handler::new(self.debugger).handle()?;
                 _ = self
                     .complete_handler
-                    .update_completer_variables(&self.debugger);
+                    .update_completer_variables(self.debugger);
             }
             Command::StepInto => {
-                step_into::Handler::new(&mut self.debugger).handle()?;
+                step_into::Handler::new(self.debugger).handle()?;
                 _ = self
                     .complete_handler
-                    .update_completer_variables(&self.debugger);
+                    .update_completer_variables(self.debugger);
             }
             Command::StepOut => {
-                step_out::Handler::new(&mut self.debugger).handle()?;
+                step_out::Handler::new(self.debugger).handle()?;
                 _ = self
                     .complete_handler
-                    .update_completer_variables(&self.debugger);
+                    .update_completer_variables(self.debugger);
             }
             Command::StepOver => {
-                step_over::Handler::new(&mut self.debugger).handle()?;
+                step_over::Handler::new(self.debugger).handle()?;
                 _ = self
                     .complete_handler
-                    .update_completer_variables(&self.debugger);
+                    .update_completer_variables(self.debugger);
             }
             Command::Breakpoint(mut brkpt_cmd) => {
                 let print_bp = |action: &str, bp: &debugger::BreakpointView| match &bp.place {
@@ -224,7 +224,7 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
                 };
 
                 loop {
-                    match BreakpointHandler::new(&mut self.debugger).handle(&brkpt_cmd) {
+                    match BreakpointHandler::new(self.debugger).handle(&brkpt_cmd) {
                         Ok(r#break::ExecutionResult::New(brkpts)) => {
                             brkpts.iter().for_each(|brkpt| {
                                 print_bp("New breakpoint", brkpt);
@@ -278,7 +278,7 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
                     ))
                 };
 
-                let mut handler = WatchpointHandler::new(&mut self.debugger);
+                let mut handler = WatchpointHandler::new(self.debugger);
                 let res = handler.handle(cmd)?;
                 match res {
                     WatchpointExecutionResult::New(wp) => {
@@ -302,14 +302,14 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
                 }
             }
             Command::Memory(mem_cmd) => {
-                let read = MemoryHandler::new(&mut self.debugger).handle(mem_cmd)?;
+                let read = MemoryHandler::new(self.debugger).handle(mem_cmd)?;
                 for b in read {
                     self.printer.print(format!("0x{b:X} "));
                 }
                 self.printer.println("");
             }
             Command::Register(reg_cmd) => {
-                let response = RegisterHandler::new(&mut self.debugger).handle(&reg_cmd)?;
+                let response = RegisterHandler::new(self.debugger).handle(&reg_cmd)?;
                 response.iter().for_each(|register| {
                     self.printer.println(format!(
                         "{:10} {:#016X}",
@@ -326,7 +326,7 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
             }
             Command::SkipInput => {}
             Command::PrintSymbol(symbol) => {
-                let symbols = SymbolHandler::new(&mut self.debugger).handle(&symbol)?;
+                let symbols = SymbolHandler::new(self.debugger).handle(&symbol)?;
                 for symbol in symbols {
                     self.printer.println(format!(
                         "{} - {:?} {}",
@@ -337,7 +337,7 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
                 }
             }
             Command::Thread(cmd) => {
-                let result = command::thread::Handler::new(&mut self.debugger).handle(cmd)?;
+                let result = command::thread::Handler::new(self.debugger).handle(cmd)?;
                 match result {
                     ThreadResult::List(mut list) => {
                         list.sort_by(|t1, t2| t1.thread.number.cmp(&t2.thread.number));
@@ -367,7 +367,7 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
                 }
             }
             Command::SharedLib => {
-                let handler = SharedlibHandler::new(&mut self.debugger);
+                let handler = SharedlibHandler::new(self.debugger);
                 for lib in handler.handle() {
                     let mb_range = lib
                         .range
@@ -383,7 +383,7 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
             }
             Command::SourceCode(inner_cmd) => match inner_cmd {
                 source_code::Command::Range(bounds) => {
-                    let handler = FunctionLineRangeHandler::new(&mut self.debugger);
+                    let handler = FunctionLineRangeHandler::new(self.debugger);
                     let range = handler.handle()?;
 
                     self.printer.println(format!(
@@ -400,7 +400,7 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
                     );
                 }
                 source_code::Command::Function => {
-                    let handler = FunctionLineRangeHandler::new(&mut self.debugger);
+                    let handler = FunctionLineRangeHandler::new(self.debugger);
                     let range = handler.handle()?;
 
                     self.printer.println(format!(
@@ -417,7 +417,7 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
                     );
                 }
                 source_code::Command::Asm => {
-                    let handler = DisAsmHandler::new(&mut self.debugger);
+                    let handler = DisAsmHandler::new(self.debugger);
                     let assembly = handler.handle()?;
                     self.printer.println(format!(
                         "Assembler code for function {}",
@@ -440,7 +440,7 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
                 }
             },
             Command::Async(cmd) => {
-                let mut handler = command::r#async::Handler::new(&mut self.debugger);
+                let mut handler = command::r#async::Handler::new(self.debugger);
                 let result: command::r#async::AsyncCommandResult = handler.handle(&cmd)?;
 
                 match result {
@@ -456,12 +456,12 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
                     AsyncCommandResult::StepOver => {
                         _ = self
                             .complete_handler
-                            .update_completer_variables(&self.debugger);
+                            .update_completer_variables(self.debugger);
                     }
                     AsyncCommandResult::StepOut => {
                         _ = self
                             .complete_handler
-                            .update_completer_variables(&self.debugger);
+                            .update_completer_variables(self.debugger);
                     }
                 }
             }
@@ -501,7 +501,7 @@ impl<Y: YesQuestion, C: Completer, U: ProgramTaker> CommandHandler<'_, Y, C, U> 
                 self.trigger_reg.add(event, commands);
             }
             Command::Call(call) => {
-                let mut handler = command::call::Handler::new(&mut self.debugger);
+                let mut handler = command::call::Handler::new(self.debugger);
                 handler.handle(call)?;
             }
             Command::Oracle(name, subcmd) => match self.debugger.get_oracle(&name) {

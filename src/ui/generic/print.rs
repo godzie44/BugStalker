@@ -145,6 +145,6 @@ impl RLExternalPrinter for InStringPrinter {
 
 impl InStringPrinter {
     pub fn new(data: Rc<RefCell<String>>) -> Self {
-        Self { data: data }
+        Self { data }
     }
 }
