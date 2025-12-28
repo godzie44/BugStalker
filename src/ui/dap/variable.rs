@@ -82,8 +82,6 @@ impl VarRegistry {
     }
 
     pub fn get_var(&self, key: Key) -> &Var {
-        log::info!("got key: {}", key.inner);
-        log::info!("is_stable: {}", key.is_stable());
         if key.is_stable() {
             &self.stable[key.idx()]
         } else {
@@ -124,8 +122,6 @@ pub fn expand_and_collect(
     path: &str,
     value: &Value,
 ) -> Vec<Variable> {
-    log::info!("collect_expand_variables: {path}");
-
     let Some(layout) = value.value_layout() else {
         return vec![];
     };
