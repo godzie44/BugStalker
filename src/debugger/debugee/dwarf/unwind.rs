@@ -146,6 +146,20 @@ impl<'a> UnwindContext<'a> {
             Ok(evaluator)
         };
 
+        let read_register_value = |addr: RelocatedAddress| -> Option<u64> {
+            let bytes = weak_error!(debugger::read_memory_by_pid(
+                ecx.pid_on_focus(),
+                addr.into(),
+                mem::size_of::<usize>()
+            ))?;
+            let value = usize::from_ne_bytes(weak_error!(
+                bytes
+                    .try_into()
+                    .map_err(|data: Vec<u8>| TypeBinaryRepr("usize", data.into_boxed_slice()))
+            )?);
+            Some(value as u64)
+        };
+
         row.registers()
             .filter_map(|(register, rule)| {
                 let value = match rule {
@@ -153,15 +167,7 @@ impl<'a> UnwindContext<'a> {
                     RegisterRule::SameValue => weak_error!(registers_snap.value(*register))?,
                     RegisterRule::Offset(offset) => {
                         let addr = cfa.offset(*offset as isize);
-
-                        let bytes = weak_error!(debugger::read_memory_by_pid(
-                            ecx.pid_on_focus(),
-                            addr.into(),
-                            mem::size_of::<u64>()
-                        ))?;
-                        u64::from_ne_bytes(weak_error!(bytes.try_into().map_err(
-                            |data: Vec<u8>| TypeBinaryRepr("u64", data.into_boxed_slice())
-                        ))?)
+                        read_register_value(addr)?
                     }
                     RegisterRule::ValOffset(offset) => cfa.offset(*offset as isize).into(),
                     RegisterRule::Register(reg) => weak_error!(registers_snap.value(*reg))?,
@@ -172,20 +178,14 @@ impl<'a> UnwindContext<'a> {
                         let addr = weak_error!(
                             expr_result.into_scalar::<usize>(AddressKind::MemoryAddress)
                         )?;
-                        let bytes = weak_error!(debugger::read_memory_by_pid(
-                            ecx.pid_on_focus(),
-                            addr,
-                            mem::size_of::<u64>()
-                        ))?;
-                        u64::from_ne_bytes(weak_error!(bytes.try_into().map_err(
-                            |data: Vec<u8>| TypeBinaryRepr("u64", data.into_boxed_slice())
-                        ))?)
+                        read_register_value(RelocatedAddress::from(addr))?
                     }
                     RegisterRule::ValExpression(expr) => {
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
                         let expr_result = weak_error!(evaluator.evaluate(ecx, expr.clone()))?;
-                        weak_error!(expr_result.into_scalar::<u64>(AddressKind::MemoryAddress))?
+                        weak_error!(expr_result.into_scalar::<usize>(AddressKind::MemoryAddress))?
+                            as u64
                     }
                     RegisterRule::Architectural => return None,
                     RegisterRule::Constant(val) => *val,
