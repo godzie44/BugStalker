@@ -1,4 +1,4 @@
-/// Generic UI components
+//! Generic UI components
 
 /// Render async primitives
 pub mod r#async;

@@ -474,12 +474,11 @@ impl AppLoop {
 
             match action {
                 UserAction::Cmd(command) => {
-                    if !command.is_empty() {
-                        if let Err(e) =
+                    if !command.is_empty()
+                        && let Err(e) =
                             Command::parse(&command).and_then(|cmd| handler.handle_command(cmd))
-                        {
-                            Self::handle_error(&self.printer, e);
-                        }
+                    {
+                        Self::handle_error(&self.printer, e);
                     }
                 }
                 UserAction::Nop => {}
