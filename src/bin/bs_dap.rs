@@ -2587,6 +2587,9 @@ impl DebugSession {
             .get("frameId")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| anyhow!("restartFrame: missing arguments.frameId"))?;
+        if frame_id < 0 {
+            return self.send_err(req, "restartFrame: frameId must be non-negative");
+        }
         let (thread_id, frame_num) = Self::decode_frame_id(frame_id);
         if frame_num != 0 {
             return self.send_err(req, "restartFrame: only the top frame (0) can be restarted");
@@ -2625,11 +2628,23 @@ impl DebugSession {
             .and_then(|v| v.get("path"))
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("gotoTargets: missing arguments.source.path"))?;
+        if source_path.is_empty() {
+            return self.send_err(req, "gotoTargets: source.path must not be empty");
+        }
         let line = args
             .get("line")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| anyhow!("gotoTargets: missing arguments.line"))?;
+        if line < 1 {
+            return self.send_err(req, "gotoTargets: line must be >= 1");
+        }
+        if args.get("column").is_some() && args.get("column").and_then(|v| v.as_i64()).is_none() {
+            return self.send_err(req, "gotoTargets: column must be an integer");
+        }
         let column = args.get("column").and_then(|v| v.as_i64()).unwrap_or(1);
+        if column < 1 {
+            return self.send_err(req, "gotoTargets: column must be >= 1");
+        }
 
         let target_path = self.source_map.map_client_to_target(source_path);
         let existing_breakpoints = self.active_breakpoint_addresses();
@@ -2709,21 +2724,48 @@ impl DebugSession {
             .arguments
             .as_object()
             .ok_or_else(|| anyhow!("goto: arguments must be object"))?;
+        if args.get("targetId").is_some() && args.get("targetId").and_then(|v| v.as_i64()).is_none()
+        {
+            return self.send_err(req, "goto: targetId must be an integer");
+        }
+        if args.get("instructionReference").is_some()
+            && args
+                .get("instructionReference")
+                .and_then(|v| v.as_str())
+                .is_none()
+        {
+            return self.send_err(req, "goto: instructionReference must be a string");
+        }
+        if args.get("threadId").is_some() && args.get("threadId").and_then(|v| v.as_i64()).is_none()
+        {
+            return self.send_err(req, "goto: threadId must be an integer");
+        }
         let addr = if let Some(target_id) = args.get("targetId").and_then(|v| v.as_i64()) {
+            if target_id < 0 {
+                return self.send_err(req, "goto: targetId must be non-negative");
+            }
             let addr = u64::try_from(target_id).map_err(|_| anyhow!("goto: targetId invalid"))?;
             addr as usize
         } else if let Some(reference) = args.get("instructionReference").and_then(|v| v.as_str()) {
+            if reference.is_empty() {
+                return self.send_err(req, "goto: instructionReference must not be empty");
+            }
             Self::parse_memory_reference_with_offset(reference, 0)?
         } else {
             return self.send_err(req, "goto: missing arguments.targetId");
         };
 
         if let Some(thread_id) = args.get("threadId").and_then(|v| v.as_i64()) {
+            if thread_id < 0 {
+                return self.send_err(req, "goto: threadId must be non-negative");
+            }
+            let pid_value =
+                i32::try_from(thread_id).map_err(|_| anyhow!("goto: threadId out of range"))?;
             let pid = self
                 .thread_cache
                 .get(&thread_id)
                 .copied()
-                .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
+                .unwrap_or_else(|| Pid::from_raw(pid_value));
             let _ = dbg.set_thread_into_focus_by_pid(pid);
         }
 
@@ -2736,6 +2778,22 @@ impl DebugSession {
     }
 
     fn handle_step_back(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("stepBack: arguments must be object"))?;
+        if args.get("threadId").is_some() && args.get("threadId").and_then(|v| v.as_i64()).is_none()
+        {
+            return self.send_err(req, "stepBack: threadId must be an integer");
+        }
+        let thread_id = args
+            .get("threadId")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| anyhow!("stepBack: missing arguments.threadId"))?;
+        if thread_id < 0 {
+            return self.send_err(req, "stepBack: threadId must be non-negative");
+        }
+        let _ = i32::try_from(thread_id).map_err(|_| anyhow!("stepBack: threadId out of range"))?;
         self.send_err(
             req,
             "stepBack: reverse execution is not supported by the current engine",
@@ -2743,6 +2801,23 @@ impl DebugSession {
     }
 
     fn handle_reverse_continue(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("reverseContinue: arguments must be object"))?;
+        if args.get("threadId").is_some() && args.get("threadId").and_then(|v| v.as_i64()).is_none()
+        {
+            return self.send_err(req, "reverseContinue: threadId must be an integer");
+        }
+        let thread_id = args
+            .get("threadId")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| anyhow!("reverseContinue: missing arguments.threadId"))?;
+        if thread_id < 0 {
+            return self.send_err(req, "reverseContinue: threadId must be non-negative");
+        }
+        let _ = i32::try_from(thread_id)
+            .map_err(|_| anyhow!("reverseContinue: threadId out of range"))?;
         self.send_err(
             req,
             "reverseContinue: reverse execution is not supported by the current engine",
@@ -2756,9 +2831,25 @@ impl DebugSession {
             .ok_or_else(|| anyhow!("completions: arguments must be object (possibly empty)"))?;
         let text = args
             .get("text")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default();
-        let column = args.get("column").and_then(|v| v.as_i64());
+            .ok_or_else(|| anyhow!("completions: missing arguments.text"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("completions: text must be a string"))?;
+        let column = args
+            .get("column")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| anyhow!("completions: missing arguments.column"))?;
+        if column < 1 {
+            return self.send_err(req, "completions: column must be >= 1");
+        }
+        let column = Some(column);
+        if let Some(frame_value) = args.get("frameId") {
+            let frame_id = frame_value
+                .as_i64()
+                .ok_or_else(|| anyhow!("completions: frameId must be an integer"))?;
+            if frame_id < 0 {
+                return self.send_err(req, "completions: frameId must be non-negative");
+            }
+        }
         let (prefix, start_column, prefix_len) = completion_prefix(text, column);
 
         let mut targets = Vec::new();
@@ -2975,7 +3066,13 @@ impl DebugSession {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("setExpression: missing arguments.value"))?;
 
-        if let Some(frame_id) = req.arguments.get("frameId").and_then(|v| v.as_i64()) {
+        if let Some(frame_value) = req.arguments.get("frameId") {
+            let frame_id = frame_value
+                .as_i64()
+                .ok_or_else(|| anyhow!("setExpression: frameId must be an integer"))?;
+            if frame_id < 0 {
+                return self.send_err(req, "setExpression: frameId must be non-negative");
+            }
             let (thread_id, frame_num) = Self::decode_frame_id(frame_id);
             let pid = self
                 .thread_cache
@@ -3063,16 +3160,21 @@ impl DebugSession {
             .as_object()
             .ok_or_else(|| anyhow!("stepInTargets: arguments must be object"))?;
 
-        if let Some(frame_id) = args.get("frameId").and_then(|v| v.as_i64()) {
-            let (thread_id, frame_num) = Self::decode_frame_id(frame_id);
-            let pid = self
-                .thread_cache
-                .get(&thread_id)
-                .copied()
-                .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
-            let _ = dbg.set_thread_into_focus_by_pid(pid);
-            let _ = dbg.set_frame_into_focus(frame_num);
+        let frame_id = args
+            .get("frameId")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| anyhow!("stepInTargets: missing arguments.frameId"))?;
+        if frame_id < 0 {
+            return self.send_err(req, "stepInTargets: frameId must be non-negative");
         }
+        let (thread_id, frame_num) = Self::decode_frame_id(frame_id);
+        let pid = self
+            .thread_cache
+            .get(&thread_id)
+            .copied()
+            .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
+        let _ = dbg.set_thread_into_focus_by_pid(pid);
+        let _ = dbg.set_frame_into_focus(frame_num);
 
         let asm = dbg.disasm().context("stepInTargets: disasm")?;
         let mut targets = Vec::new();
@@ -3135,14 +3237,47 @@ impl DebugSession {
                 .get("path")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow!("breakpointLocations: missing source.path"))?;
+            if source_path.is_empty() {
+                return self.send_err(req, "breakpointLocations: source.path must not be empty");
+            }
             let line = args
                 .get("line")
                 .and_then(|v| v.as_i64())
                 .ok_or_else(|| anyhow!("breakpointLocations: missing line"))?;
+            if line < 1 {
+                return self.send_err(req, "breakpointLocations: line must be >= 1");
+            }
+            if args.get("endLine").is_some()
+                && args.get("endLine").and_then(|v| v.as_i64()).is_none()
+            {
+                return self.send_err(req, "breakpointLocations: endLine must be an integer");
+            }
             let end_line = args.get("endLine").and_then(|v| v.as_i64()).unwrap_or(line);
+            if end_line < line {
+                return self.send_err(req, "breakpointLocations: endLine must be >= line");
+            }
 
+            if args.get("column").is_some() && args.get("column").and_then(|v| v.as_i64()).is_none()
+            {
+                return self.send_err(req, "breakpointLocations: column must be an integer");
+            }
             let column = args.get("column").and_then(|v| v.as_i64());
+            if let Some(column) = column
+                && column < 1
+            {
+                return self.send_err(req, "breakpointLocations: column must be >= 1");
+            }
+            if args.get("endColumn").is_some()
+                && args.get("endColumn").and_then(|v| v.as_i64()).is_none()
+            {
+                return self.send_err(req, "breakpointLocations: endColumn must be an integer");
+            }
             let end_column = args.get("endColumn").and_then(|v| v.as_i64()).or(column);
+            if let (Some(column), Some(end_column)) = (column, end_column)
+                && end_column < column
+            {
+                return self.send_err(req, "breakpointLocations: endColumn must be >= column");
+            }
 
             let target_path = self.source_map.map_client_to_target(source_path);
             let mut places =
@@ -3178,6 +3313,21 @@ impl DebugSession {
         }
 
         if let Some(reference) = args.get("instructionReference").and_then(|v| v.as_str()) {
+            if reference.is_empty() {
+                return self.send_err(
+                    req,
+                    "breakpointLocations: instructionReference must not be empty",
+                );
+            }
+            if args.get("offset").is_some() && args.get("offset").and_then(|v| v.as_i64()).is_none()
+            {
+                return self.send_err(req, "breakpointLocations: offset must be an integer");
+            }
+            if args.get("endOffset").is_some()
+                && args.get("endOffset").and_then(|v| v.as_i64()).is_none()
+            {
+                return self.send_err(req, "breakpointLocations: endOffset must be an integer");
+            }
             let offset = args.get("offset").and_then(|v| v.as_i64()).unwrap_or(0);
             let end_offset = args.get("endOffset").and_then(|v| v.as_i64());
             let start_addr = Self::parse_memory_reference_with_offset(reference, offset)?;
@@ -3185,10 +3335,10 @@ impl DebugSession {
             let mut breakpoints = Vec::new();
             let mut seen = HashSet::new();
             if let Some(end_offset) = end_offset {
-                let end_addr = Self::parse_memory_reference_with_offset(reference, end_offset)?;
-                if end_addr < start_addr {
+                if end_offset < offset {
                     return self.send_err(req, "breakpointLocations: endOffset is before offset");
                 }
+                let end_addr = Self::parse_memory_reference_with_offset(reference, end_offset)?;
                 let end_exclusive = end_addr.saturating_add(1);
                 let instructions = disassemble_from_range(dbg, start_addr, end_exclusive)?;
                 for ins in instructions {
@@ -3225,11 +3375,14 @@ impl DebugSession {
             .arguments
             .as_object()
             .ok_or_else(|| anyhow!("terminateThreads: arguments must be object"))?;
-        let thread_ids = args
-            .get("threadIds")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
+        let thread_ids_value = args.get("threadIds");
+        let thread_ids = match thread_ids_value {
+            Some(value) => value
+                .as_array()
+                .ok_or_else(|| anyhow!("terminateThreads: threadIds must be array"))?
+                .clone(),
+            None => Vec::new(),
+        };
 
         if thread_ids.is_empty() {
             self.send_success(req)?;
@@ -3242,7 +3395,12 @@ impl DebugSession {
             let Some(thread_id) = thread_id.as_i64() else {
                 return self.send_err(req, "terminateThreads: threadIds must be integers");
             };
-            let pid = Pid::from_raw(thread_id as i32);
+            if thread_id < 0 {
+                return self.send_err(req, "terminateThreads: threadIds must be non-negative");
+            }
+            let pid_raw = i32::try_from(thread_id)
+                .map_err(|_| anyhow!("terminateThreads: threadId out of range"))?;
+            let pid = Pid::from_raw(pid_raw);
             signal::kill(pid, Signal::SIGTERM)
                 .map_err(|err| anyhow!("terminateThreads: failed to signal {pid}: {err}"))?;
         }
@@ -3268,6 +3426,16 @@ impl DebugSession {
         if argv.is_empty() {
             return self.send_err(req, "runInTerminal: args must not be empty");
         }
+        if let Some(kind) = args.get("kind")
+            && kind.as_str().is_none()
+        {
+            return self.send_err(req, "runInTerminal: kind must be a string");
+        }
+        if let Some(title) = args.get("title")
+            && title.as_str().is_none()
+        {
+            return self.send_err(req, "runInTerminal: title must be a string");
+        }
 
         let program = argv
             .first()
@@ -3285,6 +3453,8 @@ impl DebugSession {
 
         if let Some(cwd) = args.get("cwd").and_then(|v| v.as_str()) {
             command.current_dir(cwd);
+        } else if args.get("cwd").is_some() {
+            return self.send_err(req, "runInTerminal: cwd must be a string");
         }
         if let Some(env) = args.get("env").and_then(|v| v.as_object()) {
             for (key, value) in env {
@@ -3293,6 +3463,8 @@ impl DebugSession {
                 };
                 command.env(key, value);
             }
+        } else if args.get("env").is_some() {
+            return self.send_err(req, "runInTerminal: env must be an object");
         }
 
         command
