@@ -13,3 +13,4 @@ result
 #misc
 *.bak
 /.vscode
+*.orig
