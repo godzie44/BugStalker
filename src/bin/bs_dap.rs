@@ -1534,8 +1534,7 @@ impl DebugSession {
             canceled = true;
         }
         if let Some(progress_id) = progress_id && self.canceled_progress_ids.remove(progress_id) {
-                canceled = true;
-            }
+            canceled = true;
         }
 
         if canceled {
