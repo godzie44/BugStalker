@@ -66,7 +66,15 @@ fn build_debug_frame_only_binary() -> PathBuf {
 #[test]
 #[serial]
 fn test_unwind_restores_registers_for_caller_frame() {
-    let process = prepare_debugee_process(CALLS_APP, &[]);
+    // NOTE:
+    // This test relies on the fact that `arg1` and `arg2` in the caller frame (`main`)
+    // are described by DWARF locations that are CFA/SP-relative.
+    //
+    // Correct evaluation of these variables therefore implicitly depends on the unwinder
+    // restoring the caller frame registers (in particular SP/CFA) correctly.
+    //
+    // TODO: Provide a way for tests to express explicit variable location requirements
+    // (e.g. asserting that a variable is CFA-relative), instead of relying on compiler behavior.    let process = prepare_debugee_process(CALLS_APP, &[]);
     let debugee_pid = process.pid();
     let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
