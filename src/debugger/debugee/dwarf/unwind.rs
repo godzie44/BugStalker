@@ -258,6 +258,12 @@ pub struct DwarfUnwinder<'a> {
     debugee: &'a Debugee,
 }
 
+/// Hard safety cap to prevent pathological or corrupted DWARF unwind
+/// from running indefinitely or allocating unbounded memory.
+///
+/// Real-world call stacks are typically far smaller than this value.
+const MAX_UNWIND_DEPTH: usize = 512;
+
 impl<'a> DwarfUnwinder<'a> {
     /// Creates new unwinder.
     ///
@@ -274,8 +280,6 @@ impl<'a> DwarfUnwinder<'a> {
     ///
     /// * pid: thread for unwinding
     pub fn unwind(&self, pid: Pid) -> Result<Backtrace, Error> {
-        const MAX_UNWIND_DEPTH: usize = 512;
-
         let frame_0_location = self
             .debugee
             .tracee_ctl()
