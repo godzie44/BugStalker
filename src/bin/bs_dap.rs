@@ -34,6 +34,7 @@ use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -370,10 +371,14 @@ struct DebugSession {
     exception_filters: Vec<String>,
     last_stop: Option<LastStop>,
     module_info: Option<ModuleInfo>,
+    canceled_request_ids: HashSet<i64>,
+    canceled_progress_ids: HashSet<String>,
 }
 
 const EXCEPTION_FILTER_SIGNAL: &str = "signal";
 const EXCEPTION_FILTER_PROCESS: &str = "process";
+const DEBUGGER_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
+const MEMORY_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum ScopeKind {
@@ -624,6 +629,8 @@ impl DebugSession {
             ],
             last_stop: None,
             module_info: None,
+            canceled_request_ids: HashSet::new(),
+            canceled_progress_ids: HashSet::new(),
         }
     }
 
@@ -1359,6 +1366,15 @@ impl DebugSession {
         self.send_response_raw(req, false, Some(message.to_string()), None)
     }
 
+    fn send_cancelled(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        self.send_response_raw(
+            req,
+            false,
+            Some("cancelled".to_string()),
+            Some(json!({ "cancelled": true })),
+        )
+    }
+
     fn send_response_raw(
         &mut self,
         req: &DapRequest,
@@ -1506,6 +1522,32 @@ impl DebugSession {
         self.debugger = Some(dbg);
         self.start_output_forwarding(stdout_reader, stderr_reader);
         Ok(())
+    }
+
+    fn consume_cancellation(
+        &mut self,
+        req: &DapRequest,
+        progress_id: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        let mut canceled = false;
+        if self.canceled_request_ids.remove(&req.seq) {
+            canceled = true;
+        }
+        if let Some(progress_id) = progress_id {
+            if self.canceled_progress_ids.remove(progress_id) {
+                canceled = true;
+            }
+        }
+
+        if canceled {
+            if let Some(progress_id) = progress_id {
+                self.enqueue_progress_end(progress_id.to_string(), Some("Cancelled".to_string()));
+                self.drain_events()?;
+            }
+            self.send_cancelled(req)?;
+        }
+
+        Ok(canceled)
     }
 
     fn build_debugger_from_process(
@@ -3014,6 +3056,9 @@ impl DebugSession {
     }
 
     fn handle_read_memory(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        if self.consume_cancellation(req, None)? {
+            return Ok(());
+        }
         let dbg = self
             .debugger
             .as_ref()
@@ -3042,9 +3087,23 @@ impl DebugSession {
 
         let addr = Self::parse_memory_reference_with_offset(memory_reference, offset)
             .context("readMemory: invalid memoryReference")?;
+        let start = Instant::now();
         let bytes = dbg
             .read_memory(addr, count as usize)
             .context("readMemory: read_memory")?;
+        let elapsed = start.elapsed();
+        if elapsed > MEMORY_READ_TIMEOUT {
+            return self.send_err(
+                req,
+                format!(
+                    "readMemory: read timed out after {}ms",
+                    MEMORY_READ_TIMEOUT.as_millis()
+                ),
+            );
+        }
+        if self.consume_cancellation(req, None)? {
+            return Ok(());
+        }
         let data = BASE64_ENGINE.encode(bytes);
         self.send_success_body(
             req,
@@ -3390,7 +3449,8 @@ impl DebugSession {
                     .debugger
                     .as_ref()
                     .ok_or_else(|| anyhow!("breakpointLocations: debugger not initialized"))?;
-                let instructions = disassemble_from_range(dbg, start_addr, end_exclusive)?;
+                let instructions =
+                    disassemble_from_range(dbg, start_addr, end_exclusive, MEMORY_READ_TIMEOUT)?;
                 for ins in instructions {
                     if !seen.insert(ins.address) {
                         continue;
@@ -3404,7 +3464,8 @@ impl DebugSession {
                     .debugger
                     .as_ref()
                     .ok_or_else(|| anyhow!("breakpointLocations: debugger not initialized"))?;
-                let instructions = disassemble_from_address(dbg, start_addr, 1)?;
+                let instructions =
+                    disassemble_from_address(dbg, start_addr, 1, MEMORY_READ_TIMEOUT)?;
                 for ins in instructions {
                     if !seen.insert(ins.address) {
                         continue;
@@ -3472,6 +3533,26 @@ impl DebugSession {
     }
 
     fn handle_cancel(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        if req.arguments.is_null() {
+            return self.send_success(req);
+        }
+        let args = req
+            .arguments
+            .as_object()
+            .ok_or_else(|| anyhow!("cancel: arguments must be object"))?;
+        if let Some(request_id) = args.get("requestId") {
+            let request_id = request_id
+                .as_i64()
+                .ok_or_else(|| anyhow!("cancel: requestId must be an integer"))?;
+            self.canceled_request_ids.insert(request_id);
+        }
+        if let Some(progress_id) = args.get("progressId") {
+            let progress_id = progress_id
+                .as_str()
+                .ok_or_else(|| anyhow!("cancel: progressId must be a string"))?;
+            self.canceled_progress_ids.insert(progress_id.to_string());
+        }
+
         self.send_success(req)
     }
 
@@ -3616,51 +3697,67 @@ impl DebugSession {
     }
 
     fn handle_evaluate(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        let dbg = self
-            .debugger
-            .as_mut()
-            .ok_or_else(|| anyhow!("evaluate: debugger not initialized"))?;
-
+        if self.consume_cancellation(req, None)? {
+            return Ok(());
+        }
         let expression = req
             .arguments
             .get("expression")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("evaluate: missing arguments.expression"))?;
 
-        // Optional frameId: if provided, focus thread/frame so evaluation is stable.
-        if let Some(frame_id) = req.arguments.get("frameId").and_then(|v| v.as_i64()) {
-            let (thread_id, frame_num) = Self::decode_frame_id(frame_id);
-            let pid = self
-                .thread_cache
-                .get(&thread_id)
-                .copied()
-                .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
-            let _ = dbg.set_thread_into_focus_by_pid(pid);
-            let _ = dbg.set_frame_into_focus(frame_num);
-        }
+        let (body, elapsed) = {
+            let dbg = self
+                .debugger
+                .as_mut()
+                .ok_or_else(|| anyhow!("evaluate: debugger not initialized"))?;
 
-        let dqe = bs_expr::parser()
-            .parse(expression)
-            .into_result()
-            .map_err(|e| anyhow!("evaluate parse error: {e:?}"))?;
+            // Optional frameId: if provided, focus thread/frame so evaluation is stable.
+            if let Some(frame_id) = req.arguments.get("frameId").and_then(|v| v.as_i64()) {
+                let (thread_id, frame_num) = Self::decode_frame_id(frame_id);
+                let pid = self
+                    .thread_cache
+                    .get(&thread_id)
+                    .copied()
+                    .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
+                let _ = dbg.set_thread_into_focus_by_pid(pid);
+                let _ = dbg.set_frame_into_focus(frame_num);
+            }
 
-        let results = dbg.read_variable(dqe).context("evaluate read_variable")?;
-        if results.is_empty() {
-            return self.send_success_body(
+            let dqe = bs_expr::parser()
+                .parse(expression)
+                .into_result()
+                .map_err(|e| anyhow!("evaluate parse error: {e:?}"))?;
+
+            let start = Instant::now();
+            let results = dbg.read_variable(dqe).context("evaluate read_variable")?;
+            let elapsed = start.elapsed();
+            let body = if results.is_empty() {
+                json!({"result": "<no result>", "variablesReference": 0})
+            } else {
+                let result = results.into_iter().next().unwrap();
+                let type_graph = Rc::new(result.type_graph().clone());
+                let (_id, val) = result.into_identified_value();
+                let child = value_children(&val, type_graph);
+                let vars_ref = child.map(|c| self.vars.alloc(c)).unwrap_or(0);
+                let result_str = render_value_to_string(&val);
+                json!({"result": result_str, "variablesReference": vars_ref})
+            };
+            (body, elapsed)
+        };
+        if elapsed > DEBUGGER_RESPONSE_TIMEOUT {
+            return self.send_err(
                 req,
-                json!({"result": "<no result>", "variablesReference": 0}),
+                format!(
+                    "evaluate: debugger response timed out after {}ms",
+                    DEBUGGER_RESPONSE_TIMEOUT.as_millis()
+                ),
             );
         }
-        let result = results.into_iter().next().unwrap();
-        let type_graph = Rc::new(result.type_graph().clone());
-        let (_id, val) = result.into_identified_value();
-        let child = value_children(&val, type_graph);
-        let vars_ref = child.map(|c| self.vars.alloc(c)).unwrap_or(0);
-        let result_str = render_value_to_string(&val);
-        self.send_success_body(
-            req,
-            json!({"result": result_str, "variablesReference": vars_ref}),
-        )
+        if self.consume_cancellation(req, None)? {
+            return Ok(());
+        }
+        self.send_success_body(req, body)
     }
 
     fn handle_data_breakpoint_info(&mut self, req: &DapRequest) -> anyhow::Result<()> {
@@ -3849,6 +3946,9 @@ impl DebugSession {
     }
 
     fn handle_stack_trace(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        if self.consume_cancellation(req, None)? {
+            return Ok(());
+        }
         let thread_id = req
             .arguments
             .get("threadId")
@@ -3861,14 +3961,31 @@ impl DebugSession {
             .copied()
             .unwrap_or_else(|| Pid::from_raw(thread_id as i32));
 
+        let start = Instant::now();
         let bt = self
             .debugger
             .as_ref()
             .ok_or_else(|| anyhow!("stackTrace: debugger not initialized"))?
             .backtrace(pid)
             .unwrap_or_default();
+        let elapsed = start.elapsed();
+        if elapsed > DEBUGGER_RESPONSE_TIMEOUT {
+            return self.send_err(
+                req,
+                format!(
+                    "stackTrace: debugger response timed out after {}ms",
+                    DEBUGGER_RESPONSE_TIMEOUT.as_millis()
+                ),
+            );
+        }
+        if self.consume_cancellation(req, None)? {
+            return Ok(());
+        }
         let mut frames = Vec::new();
         for (i, f) in bt.iter().enumerate() {
+            if self.consume_cancellation(req, None)? {
+                return Ok(());
+            }
             let (path, line, col, source_reference) = match f.place.as_ref() {
                 Some(p) => (
                     Some(p.file.to_string_lossy().to_string()),
@@ -3878,7 +3995,9 @@ impl DebugSession {
                 ),
                 None => {
                     let addr = f.ip.as_usize();
-                    let disasm = self.disasm_source_for_address(addr)?;
+                    let Some(disasm) = self.disasm_source_for_address(req, addr)? else {
+                        return Ok(());
+                    };
                     (None, Some(1), Some(1), Some(disasm.reference))
                 }
             };
@@ -4322,6 +4441,9 @@ impl DebugSession {
     }
 
     fn handle_disassemble(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        if self.consume_cancellation(req, None)? {
+            return Ok(());
+        }
         let args = req
             .arguments
             .as_object()
@@ -4372,11 +4494,44 @@ impl DebugSession {
             Some(0),
         );
         self.drain_events()?;
+        if self.consume_cancellation(req, Some(&progress_id))? {
+            return Ok(());
+        }
         let dbg = self
             .debugger
             .as_ref()
             .ok_or_else(|| anyhow!("disassemble: debugger not initialized"))?;
-        let instructions = disassemble_from_address(dbg, start_addr, disasm_count)?;
+        let start = Instant::now();
+        let instructions =
+            match disassemble_from_address(dbg, start_addr, disasm_count, MEMORY_READ_TIMEOUT) {
+                Ok(instructions) => instructions,
+                Err(err) => {
+                    self.enqueue_progress_end(
+                        progress_id.clone(),
+                        Some("Disassembly failed".to_string()),
+                    );
+                    self.drain_events()?;
+                    return self.send_err(req, format!("disassemble: {err}"));
+                }
+            };
+        let elapsed = start.elapsed();
+        if elapsed > DEBUGGER_RESPONSE_TIMEOUT {
+            self.enqueue_progress_end(
+                progress_id.clone(),
+                Some("Disassembly timed out".to_string()),
+            );
+            self.drain_events()?;
+            return self.send_err(
+                req,
+                format!(
+                    "disassemble: debugger response timed out after {}ms",
+                    DEBUGGER_RESPONSE_TIMEOUT.as_millis()
+                ),
+            );
+        }
+        if self.consume_cancellation(req, Some(&progress_id))? {
+            return Ok(());
+        }
         let anchor_index = instructions
             .iter()
             .position(|ins| ins.address as usize >= anchor_addr)
@@ -4410,9 +4565,13 @@ impl DebugSession {
         self.send_success_body(req, json!({ "instructions": instructions }))
     }
 
-    fn disasm_source_for_address(&mut self, addr: usize) -> anyhow::Result<DisasmSource> {
+    fn disasm_source_for_address(
+        &mut self,
+        req: &DapRequest,
+        addr: usize,
+    ) -> anyhow::Result<Option<DisasmSource>> {
         if let Some(existing) = self.disasm_cache_by_addr.get(&addr) {
-            return Ok(existing.clone());
+            return Ok(Some(existing.clone()));
         }
 
         let progress_id = self.enqueue_progress_start(
@@ -4421,11 +4580,40 @@ impl DebugSession {
             Some(0),
         );
         self.drain_events()?;
+        if self.consume_cancellation(req, Some(&progress_id))? {
+            return Ok(None);
+        }
         let dbg = self
             .debugger
             .as_ref()
             .ok_or_else(|| anyhow!("disassemble: debugger not initialized"))?;
-        let instructions = disassemble_from_address(dbg, addr, 64)?;
+        let start = Instant::now();
+        let instructions = match disassemble_from_address(dbg, addr, 64, MEMORY_READ_TIMEOUT) {
+            Ok(instructions) => instructions,
+            Err(err) => {
+                self.enqueue_progress_end(
+                    progress_id.clone(),
+                    Some("Disassembly failed".to_string()),
+                );
+                self.drain_events()?;
+                return Err(err);
+            }
+        };
+        let elapsed = start.elapsed();
+        if elapsed > DEBUGGER_RESPONSE_TIMEOUT {
+            self.enqueue_progress_end(
+                progress_id.clone(),
+                Some("Disassembly timed out".to_string()),
+            );
+            self.drain_events()?;
+            anyhow::bail!(
+                "disassemble: debugger response timed out after {}ms",
+                DEBUGGER_RESPONSE_TIMEOUT.as_millis()
+            );
+        }
+        if self.consume_cancellation(req, Some(&progress_id))? {
+            return Ok(None);
+        }
         let content = if instructions.is_empty() {
             format!("No disassembly available at 0x{addr:x}.")
         } else {
@@ -4453,7 +4641,7 @@ impl DebugSession {
         self.disasm_cache_by_addr.insert(addr, entry.clone());
         self.disasm_cache_by_reference
             .insert(reference, entry.clone());
-        Ok(entry)
+        Ok(Some(entry))
     }
 }
 
@@ -4499,6 +4687,7 @@ fn disassemble_from_address(
     dbg: &debugger::Debugger,
     addr: usize,
     instruction_count: usize,
+    timeout: Duration,
 ) -> anyhow::Result<Vec<DisasmInstruction>> {
     let cs = Capstone::new()
         .x86()
@@ -4508,9 +4697,17 @@ fn disassemble_from_address(
         .map_err(|err| anyhow!("disassemble: init capstone: {err}"))?;
     let max_len = 16usize;
     let read_len = instruction_count.saturating_mul(max_len).max(max_len);
+    let start = Instant::now();
     let bytes = dbg
         .read_memory(addr, read_len)
         .context("disassemble: read_memory")?;
+    let elapsed = start.elapsed();
+    if elapsed > timeout {
+        anyhow::bail!(
+            "disassemble: read_memory timed out after {}ms",
+            timeout.as_millis()
+        );
+    }
     let insns = cs
         .disasm_all(&bytes, addr as u64)
         .map_err(|err| anyhow!("disassemble: disasm_all: {err}"))?;
@@ -4543,6 +4740,7 @@ fn disassemble_from_range(
     dbg: &debugger::Debugger,
     start_addr: usize,
     end_addr: usize,
+    timeout: Duration,
 ) -> anyhow::Result<Vec<DisasmInstruction>> {
     if end_addr <= start_addr {
         return Ok(Vec::new());
@@ -4556,9 +4754,17 @@ fn disassemble_from_range(
         .syntax(arch::x86::ArchSyntax::Att)
         .build()
         .map_err(|err| anyhow!("disassemble: init capstone: {err}"))?;
+    let start = Instant::now();
     let bytes = dbg
         .read_memory(start_addr, read_len)
         .context("disassemble: read_memory")?;
+    let elapsed = start.elapsed();
+    if elapsed > timeout {
+        anyhow::bail!(
+            "disassemble: read_memory timed out after {}ms",
+            timeout.as_millis()
+        );
+    }
     let insns = cs
         .disasm_all(&bytes, start_addr as u64)
         .map_err(|err| anyhow!("disassemble: disasm_all: {err}"))?;
