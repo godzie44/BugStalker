@@ -38,7 +38,7 @@ cargo-test:
 	cargo test --features "int_test"
 
 dap-tests: build-examples-for-func-test
-	cargo build --bin bs_dap --features "int_test"
+	cargo build --bin bs-dap --features "int_test"
 	cargo test --test debugger --features "int_test"
 
 int-test-external: build-test
