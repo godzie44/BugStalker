@@ -74,7 +74,8 @@ fn test_unwind_restores_registers_for_caller_frame() {
     // restoring the caller frame registers (in particular SP/CFA) correctly.
     //
     // TODO: Provide a way for tests to express explicit variable location requirements
-    // (e.g. asserting that a variable is CFA-relative), instead of relying on compiler behavior.    let process = prepare_debugee_process(CALLS_APP, &[]);
+    // (e.g. asserting that a variable is CFA-relative), instead of relying on compiler behavior.
+    let process = prepare_debugee_process(CALLS_APP, &[]);
     let debugee_pid = process.pid();
     let info = TestInfo::default();
     let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
