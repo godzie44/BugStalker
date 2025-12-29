@@ -2105,6 +2105,20 @@ impl DebugSession {
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
+        let bps_len = bps.len();
+
+        let progress_id = if bps.is_empty() {
+            None
+        } else {
+            Some(self.enqueue_progress_start(
+                "Searching symbols",
+                Some("Resolving function breakpoints".to_string()),
+                Some(0),
+            ))
+        };
+        if progress_id.is_some() {
+            self.drain_events()?;
+        }
 
         let mut rsp_bps = Vec::new();
         let mut new_breakpoints = Vec::new();
@@ -2227,6 +2241,19 @@ impl DebugSession {
         self.function_breakpoints = new_breakpoints;
         for event in pending_events {
             self.enqueue_event(event);
+        }
+
+        if let Some(progress_id) = progress_id {
+            self.enqueue_progress_update(
+                progress_id.clone(),
+                Some(format!("Resolved {} breakpoint(s)", bps_len)),
+                Some(100),
+            );
+            self.enqueue_progress_end(
+                progress_id,
+                Some("Function breakpoint resolution complete".to_string()),
+            );
+            self.drain_events()?;
         }
 
         self.send_success_body(req, json!({"breakpoints": rsp_bps}))?;
@@ -2964,12 +2991,25 @@ impl DebugSession {
     }
 
     fn handle_modules(&mut self, req: &DapRequest) -> anyhow::Result<()> {
+        let progress_id = self.enqueue_progress_start(
+            "Loading modules",
+            Some("Collecting module list".to_string()),
+            Some(0),
+        );
+        self.drain_events()?;
         let modules = self
             .module_info
             .as_ref()
             .map(|info| vec![info.module.clone()])
             .unwrap_or_default();
         let total = modules.len();
+        self.enqueue_progress_update(
+            progress_id.clone(),
+            Some(format!("Loaded {} module(s)", total)),
+            Some(100),
+        );
+        self.enqueue_progress_end(progress_id, Some("Module list ready".to_string()));
+        self.drain_events()?;
         self.send_success_body(req, json!({ "modules": modules, "totalModules": total }))
     }
 
@@ -3227,12 +3267,11 @@ impl DebugSession {
             .as_object()
             .ok_or_else(|| anyhow!("breakpointLocations: arguments must be object"))?;
 
-        let dbg = self
-            .debugger
-            .as_ref()
-            .ok_or_else(|| anyhow!("breakpointLocations: debugger not initialized"))?;
-
         if let Some(source) = args.get("source") {
+            let dbg = self
+                .debugger
+                .as_ref()
+                .ok_or_else(|| anyhow!("breakpointLocations: debugger not initialized"))?;
             let source_path = source
                 .get("path")
                 .and_then(|v| v.as_str())
@@ -3332,6 +3371,13 @@ impl DebugSession {
             let end_offset = args.get("endOffset").and_then(|v| v.as_i64());
             let start_addr = Self::parse_memory_reference_with_offset(reference, offset)?;
 
+            let progress_id = self.enqueue_progress_start(
+                "Disassembling",
+                Some("Resolving breakpoint locations".to_string()),
+                Some(0),
+            );
+            self.drain_events()?;
+
             let mut breakpoints = Vec::new();
             let mut seen = HashSet::new();
             if let Some(end_offset) = end_offset {
@@ -3340,6 +3386,10 @@ impl DebugSession {
                 }
                 let end_addr = Self::parse_memory_reference_with_offset(reference, end_offset)?;
                 let end_exclusive = end_addr.saturating_add(1);
+                let dbg = self
+                    .debugger
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("breakpointLocations: debugger not initialized"))?;
                 let instructions = disassemble_from_range(dbg, start_addr, end_exclusive)?;
                 for ins in instructions {
                     if !seen.insert(ins.address) {
@@ -3350,6 +3400,10 @@ impl DebugSession {
                     }));
                 }
             } else {
+                let dbg = self
+                    .debugger
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("breakpointLocations: debugger not initialized"))?;
                 let instructions = disassemble_from_address(dbg, start_addr, 1)?;
                 for ins in instructions {
                     if !seen.insert(ins.address) {
@@ -3361,6 +3415,13 @@ impl DebugSession {
                 }
             }
 
+            self.enqueue_progress_update(
+                progress_id.clone(),
+                Some(format!("Found {} location(s)", breakpoints.len())),
+                Some(100),
+            );
+            self.enqueue_progress_end(progress_id, Some("Disassembly complete".to_string()));
+            self.drain_events()?;
             return self.send_success_body(req, json!({ "breakpoints": breakpoints }));
         }
 
@@ -4261,10 +4322,6 @@ impl DebugSession {
     }
 
     fn handle_disassemble(&mut self, req: &DapRequest) -> anyhow::Result<()> {
-        let dbg = self
-            .debugger
-            .as_ref()
-            .ok_or_else(|| anyhow!("disassemble: debugger not initialized"))?;
         let args = req
             .arguments
             .as_object()
@@ -4309,6 +4366,16 @@ impl DebugSession {
         let max_len = 16usize;
         let start_addr = anchor_addr.saturating_sub(back_instructions.saturating_mul(max_len));
         let disasm_count = instruction_count as usize + back_instructions + 16;
+        let progress_id = self.enqueue_progress_start(
+            "Disassembling",
+            Some(format!("Reading {disasm_count} instruction(s)")),
+            Some(0),
+        );
+        self.drain_events()?;
+        let dbg = self
+            .debugger
+            .as_ref()
+            .ok_or_else(|| anyhow!("disassemble: debugger not initialized"))?;
         let instructions = disassemble_from_address(dbg, start_addr, disasm_count)?;
         let anchor_index = instructions
             .iter()
@@ -4333,6 +4400,13 @@ impl DebugSession {
             })
             .collect::<Vec<_>>();
 
+        self.enqueue_progress_update(
+            progress_id.clone(),
+            Some(format!("Prepared {} instruction(s)", instructions.len())),
+            Some(100),
+        );
+        self.enqueue_progress_end(progress_id, Some("Disassembly complete".to_string()));
+        self.drain_events()?;
         self.send_success_body(req, json!({ "instructions": instructions }))
     }
 
@@ -4341,6 +4415,12 @@ impl DebugSession {
             return Ok(existing.clone());
         }
 
+        let progress_id = self.enqueue_progress_start(
+            "Disassembling",
+            Some(format!("Generating source for 0x{addr:x}")),
+            Some(0),
+        );
+        self.drain_events()?;
         let dbg = self
             .debugger
             .as_ref()
@@ -4363,6 +4443,13 @@ impl DebugSession {
             name,
             content,
         };
+        self.enqueue_progress_update(
+            progress_id.clone(),
+            Some("Disassembly ready".to_string()),
+            Some(100),
+        );
+        self.enqueue_progress_end(progress_id, Some("Disassembly complete".to_string()));
+        self.drain_events()?;
         self.disasm_cache_by_addr.insert(addr, entry.clone());
         self.disasm_cache_by_reference
             .insert(reference, entry.clone());
