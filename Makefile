@@ -37,10 +37,6 @@ build-all-rel: build-rel build-examples
 cargo-test:
 	cargo test --features "int_test"
 
-dap-tests: build-examples-for-func-test
-	cargo build --bin yadap --features "int_test"
-	cargo test --test debugger --features "int_test"
-
 int-test-external: build-test
 	sudo python3 -m unittest discover ./tests/integration/ -v -p "*external*"
 
