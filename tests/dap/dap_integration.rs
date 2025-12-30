@@ -1,4 +1,4 @@
-mod dap_client;
+use crate::dap_client;
 
 use base64::Engine as _;
 use dap_client::{DapSession, example_bin, example_source, spawn_attach_target, wait_for_exit};
