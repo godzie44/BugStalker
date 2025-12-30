@@ -80,7 +80,7 @@ See [installation page](https://godzie44.github.io/BugStalker/docs/installation)
 Run the DAP server:
 
 ```shell
-bs-dap --listen 127.0.0.1:4711
+yadap --listen 127.0.0.1:4711
 ```
 
 Example `.vscode/launch.json`:

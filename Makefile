@@ -38,7 +38,7 @@ cargo-test:
 	cargo test --features "int_test"
 
 dap-tests: build-examples-for-func-test
-	cargo build --bin bs-dap --features "int_test"
+	cargo build --bin yadap --features "int_test"
 	cargo test --test debugger --features "int_test"
 
 int-test-external: build-test
@@ -57,6 +57,9 @@ int-test-rel: build-test-rel
 test: build-all cargo-test int-test
 
 test-rel: build-all-rel cargo-test int-test-rel
+
+clean-all:
+	find . -name Cargo.toml -print0 | xargs -0 -n1 dirname | xargs -n1 -I{} sh -c 'echo ">> cleaning {}"; (cd "{}" && cargo clean)'
 
 install:
 	cargo install --path .
