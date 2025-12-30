@@ -1,7 +1,4 @@
-//! BugStalker DAP (Debug Adapter Protocol) adapter.
-//!
-//! This binary exposes a minimal Debug Adapter Protocol server over TCP.
-//! Intended as a building block for IDE integrations (VSCode, etc.).
+//! DAP session implementation (handlers, state machine, and integration with bugstalker::debugger).
 
 use anyhow::{Context, anyhow};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_ENGINE};
@@ -18,17 +15,14 @@ use bugstalker::ui::command::watch::WatchpointIdentity;
 use capstone::prelude::*;
 use chumsky::Parser as _;
 use chumsky::prelude::end;
-use clap::Parser;
 use log::{info, warn};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use regex::escape as regex_escape;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
-use std::fs::OpenOptions;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::rc::Rc;
@@ -36,316 +30,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[derive(Parser, Debug, Clone)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Address to listen on (default: 127.0.0.1:4711)
-    #[clap(long, default_value = "127.0.0.1:4711")]
-    listen: String,
+use crate::yadap::io::DapIo;
+use crate::yadap::protocol::{DapEvent, DapRequest, DapResponse, InternalEvent};
+use crate::yadap::sourcemap::SourceMap;
 
-    /// Exit after the first debug session ends (single-client mode).
-    #[clap(long)]
-    oneshot: bool,
-
-    /// Optional log file for adapter diagnostics (no output to stdout).
-    #[clap(long)]
-    log_file: Option<std::path::PathBuf>,
-
-    /// Trace DAP traffic (requests/responses/events) into the log file.
-    /// Requires --log-file.
-    #[clap(long)]
-    trace_dap: bool,
-
-    /// Discover a specific oracle (maybe more than one)
-    #[clap(short, long)]
-    oracle: Vec<String>,
-}
-
-/// Simple file-based tracer for adapter diagnostics.
-#[derive(Clone)]
-struct FileTracer {
-    file: Arc<Mutex<std::fs::File>>,
-}
-
-impl FileTracer {
-    fn new(path: &std::path::Path) -> anyhow::Result<Self> {
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .with_context(|| format!("open log file {}", path.display()))?;
-        Ok(Self {
-            file: Arc::new(Mutex::new(file)),
-        })
-    }
-
-    fn line(&self, text: &str) {
-        if let Ok(mut file) = self.file.lock() {
-            let _ = writeln!(file, "{text}");
-        }
-    }
-}
-/// DAP request envelope.
-#[derive(Debug, Deserialize)]
-struct DapRequest {
-    seq: i64,
-    #[serde(rename = "type")]
-    r#type: String,
-    command: String,
-    #[serde(default)]
-    arguments: Value,
-}
-
-/// DAP response envelope.
-///
-/// Note: the DAP specification allows responses with no `body` field at all.
-/// Using a `serde_json::Value` keeps the envelope stable and avoids type
-/// inference issues around `None` bodies.
-#[derive(Debug, Serialize)]
-struct DapResponse {
-    seq: i64,
-    #[serde(rename = "type")]
-    r#type: &'static str,
-    request_seq: i64,
-    success: bool,
-    command: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    body: Option<Value>,
-}
-
-/// DAP event envelope.
-#[derive(Debug, Serialize)]
-struct DapEvent {
-    seq: i64,
-    #[serde(rename = "type")]
-    r#type: &'static str,
-    event: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    body: Option<Value>,
-}
-
-/// Small helper for DAP framing.
-struct DapIo {
-    stream: TcpStream,
-    reader: BufReader<TcpStream>,
-    tracer: Option<FileTracer>,
-    trace: bool,
-}
-
-impl DapIo {
-    fn new(stream: TcpStream, tracer: Option<FileTracer>, trace: bool) -> anyhow::Result<Self> {
-        stream.set_nodelay(true)?;
-        let reader = BufReader::new(stream.try_clone()?);
-        Ok(Self {
-            stream,
-            reader,
-            tracer,
-            trace,
-        })
-    }
-
-    fn read_message(&mut self) -> anyhow::Result<Value> {
-        let mut content_length: Option<usize> = None;
-        loop {
-            let mut line = String::new();
-            let read_n = self.reader.read_line(&mut line)?;
-            if read_n == 0 {
-                return Err(anyhow!("DAP connection closed"));
-            }
-            let line = line.trim_end_matches(['\r', '\n']);
-            if line.is_empty() {
-                break;
-            }
-            if let Some(v) = line.strip_prefix("Content-Length:") {
-                content_length = Some(v.trim().parse()?);
-            }
-        }
-
-        let len = content_length.ok_or_else(|| anyhow!("Missing Content-Length header"))?;
-        let mut buf = vec![0u8; len];
-        self.reader.read_exact(&mut buf)?;
-        let msg: Value = serde_json::from_slice(&buf)?;
-        if self.trace
-            && let Some(tracer) = &self.tracer
-            && let Ok(line) = serde_json::to_string(&msg)
-        {
-            tracer.line(&format!("<- {line}"));
-        }
-        Ok(msg)
-    }
-
-    fn write_message<T: Serialize>(&mut self, v: &T) -> anyhow::Result<()> {
-        let payload = serde_json::to_vec(v)?;
-        if self.trace
-            && let Some(tracer) = &self.tracer
-            && let Ok(line) = serde_json::to_string(v)
-        {
-            tracer.line(&format!("-> {line}"));
-        }
-        write!(self.stream, "Content-Length: {}\r\n\r\n", payload.len())?;
-        self.stream.write_all(&payload)?;
-        self.stream.flush()?;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone)]
-enum InternalEvent {
-    Stopped {
-        reason: String,
-        thread_id: Option<i64>,
-        description: Option<String>,
-    },
-    Continued {
-        thread_id: Option<i64>,
-        all_threads_continued: bool,
-    },
-    Thread {
-        reason: &'static str,
-        thread_id: i64,
-    },
-    Breakpoint {
-        reason: &'static str,
-        breakpoint: Value,
-    },
-    Module {
-        reason: &'static str,
-        module: Value,
-    },
-    LoadedSource {
-        reason: &'static str,
-        source: Value,
-    },
-    Process {
-        body: Value,
-    },
-    Exited {
-        code: i32,
-    },
-    Terminated,
-    Output {
-        category: &'static str,
-        output: String,
-    },
-    ProgressStart {
-        progress_id: String,
-        title: String,
-        message: Option<String>,
-        percentage: Option<u32>,
-    },
-    ProgressUpdate {
-        progress_id: String,
-        message: Option<String>,
-        percentage: Option<u32>,
-    },
-    ProgressEnd {
-        progress_id: String,
-        message: Option<String>,
-    },
-    Invalidated {
-        areas: Vec<String>,
-    },
-    Capabilities {
-        capabilities: Value,
-    },
-}
-
-#[derive(Debug, Default, Clone)]
-struct SourceMap {
-    /// Mapping from debuggee/DWARF paths to the client (VSCode) paths.
-    target_to_client: Vec<(String, String)>,
-    /// Reverse mapping from client (VSCode) paths to debuggee/DWARF paths.
-    client_to_target: Vec<(String, String)>,
-}
-
-impl SourceMap {
-    fn from_launch_args(arguments: &Value) -> Self {
-        let mut sm = SourceMap::default();
-        let Some(serde_json::Value::Object(map)) = arguments.get("sourceMap") else {
-            return sm;
-        };
-
-        // Convention: key = target prefix, value = client prefix.
-        for (target_prefix, client_prefix_val) in map.iter() {
-            let Some(client_prefix) = client_prefix_val.as_str() else {
-                continue;
-            };
-
-            let target_norm = Self::norm_prefix(target_prefix);
-            let client_norm = Self::norm_prefix(client_prefix);
-
-            sm.target_to_client
-                .push((target_norm.clone(), client_prefix.to_string()));
-            sm.client_to_target
-                .push((client_norm, target_prefix.to_string()));
-        }
-
-        // Longest prefix wins.
-        sm.target_to_client
-            .sort_by(|a, b| b.0.len().cmp(&a.0.len()));
-        sm.client_to_target
-            .sort_by(|a, b| b.0.len().cmp(&a.0.len()));
-        sm
-    }
-
-    fn map_target_to_client(&self, target_path: &str) -> String {
-        self.apply_map(target_path, &self.target_to_client)
-    }
-
-    fn map_client_to_target(&self, client_path: &str) -> String {
-        self.apply_map(client_path, &self.client_to_target)
-    }
-
-    fn apply_map(&self, path: &str, mapping: &[(String, String)]) -> String {
-        let normalized = Self::norm_path(path);
-        for (from_norm, to_raw) in mapping {
-            if normalized.starts_with(from_norm) {
-                let suffix = &normalized[from_norm.len()..];
-                return Self::join_with_style(to_raw, suffix);
-            }
-        }
-        path.to_string()
-    }
-
-    fn join_with_style(prefix: &str, suffix_norm: &str) -> String {
-        if suffix_norm.is_empty() {
-            return prefix.to_string();
-        }
-        let mut out = prefix.to_string();
-
-        // Avoid double separators.
-        let need_sep = !out.ends_with('/') && !out.ends_with('\\');
-        if need_sep {
-            // Pick separator style by prefix.
-            out.push(if out.contains('\\') { '\\' } else { '/' });
-        }
-
-        let mut suffix = suffix_norm.to_string();
-        // Convert suffix separators to match prefix style.
-        if out.contains('\\') {
-            suffix = suffix.replace('/', "\\");
-        }
-        out.push_str(&suffix);
-        out
-    }
-
-    fn norm_prefix(s: &str) -> String {
-        let mut out = Self::norm_path(s);
-        if !out.ends_with('/') {
-            out.push('/');
-        }
-        out
-    }
-
-    fn norm_path(s: &str) -> String {
-        s.replace('\\', "/")
-    }
-}
-
-/// Debug session state for a single TCP client.
-struct DebugSession {
+pub struct DebugSession {
     io: DapIo,
     server_seq: i64,
     initialized: bool,
@@ -599,7 +288,7 @@ impl VariablesStore {
 }
 
 impl DebugSession {
-    fn new(io: DapIo) -> Self {
+    pub(crate) fn new(io: DapIo) -> Self {
         Self {
             io,
             server_seq: 1,
@@ -4330,7 +4019,7 @@ impl DebugSession {
         Ok(true)
     }
 
-    fn run(mut self, oracles: Vec<String>) -> anyhow::Result<()> {
+    pub(crate) fn run(mut self, oracles: Vec<String>) -> anyhow::Result<()> {
         loop {
             self.drain_events()?;
             let msg = self.io.read_message()?;
@@ -5139,64 +4828,4 @@ impl ThreadFocusByPid for debugger::Debugger {
         }
         Ok(())
     }
-}
-
-fn main() -> anyhow::Result<()> {
-    let logger = env_logger::Logger::from_default_env();
-    let filter = logger.filter();
-    bugstalker::log::LOGGER_SWITCHER.switch(logger, filter);
-
-    let args = Args::parse();
-    // Ensure Rust environment is initialised for non-CLI frontend.
-    // This avoids panics in src/debugger/rust/mod.rs when core tries to access it.
-    bugstalker::debugger::rust::Environment::init(None);
-    let addr: SocketAddr = args.listen.parse().context("Invalid listen address")?;
-    let listener = TcpListener::bind(addr).with_context(|| format!("bind {addr}"))?;
-    info!(target: "dap", "bs-dap listening on {addr}");
-
-    let tracer = match &args.log_file {
-        Some(path) => Some(FileTracer::new(path)?),
-        None => None,
-    };
-    if args.trace_dap && tracer.is_none() {
-        warn!(target: "dap", "--trace-dap requires --log-file; tracing disabled");
-    }
-
-    // Server mode: accept multiple clients sequentially. One client == one debug session.
-    loop {
-        let (stream, peer) = match listener.accept() {
-            Ok(v) => v,
-            Err(err) => {
-                warn!(target: "dap", "accept failed: {err:#}");
-                continue;
-            }
-        };
-        info!(target: "dap", "DAP client connected: {peer}");
-        if let Some(t) = &tracer {
-            t.line(&format!("client connected: {peer}"));
-        }
-
-        let io = match DapIo::new(stream, tracer.clone(), args.trace_dap) {
-            Ok(v) => v,
-            Err(err) => {
-                warn!(target: "dap", "failed to init DAP I/O: {err:#}");
-                continue;
-            }
-        };
-
-        let res = DebugSession::new(io).run(args.oracle.clone());
-        if let Err(err) = res {
-            warn!(target: "dap", "session ended with error: {err:#}");
-            if let Some(t) = &tracer {
-                t.line(&format!("session error: {err:#}"));
-            }
-        } else if let Some(t) = &tracer {
-            t.line("session finished OK");
-        }
-
-        if args.oneshot {
-            break;
-        }
-    }
-    Ok(())
 }
