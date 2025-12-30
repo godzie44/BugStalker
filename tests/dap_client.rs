@@ -270,16 +270,16 @@ impl DapSession {
         let addr = listener.local_addr()?;
         drop(listener);
 
-        let bin_path = std::env::var("CARGO_BIN_EXE_bs-dap")
+        let bin_path = std::env::var("CARGO_BIN_EXE_yadap")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| repo_root().join("target").join("debug").join("bs-dap"));
+            .unwrap_or_else(|_| repo_root().join("target").join("debug").join("yadap"));
         let process = Command::new(bin_path)
             .args(["--listen", &addr.to_string(), "--oneshot"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .context("spawn bs-dap")?;
+            .context("spawn yadap")?;
         let client = DapClient::connect(addr)?;
         Ok(Self {
             client,
@@ -300,6 +300,7 @@ impl DapSession {
         Ok(response)
     }
 
+    #[allow(dead_code)]
     pub fn terminate(&mut self) -> anyhow::Result<Value> {
         let seq = self.client.send_request("terminate", json!({}))?;
         let response = self.client.read_response(seq)?;

@@ -29,14 +29,14 @@ fn assert_response(response: &Value, command: &str, request_seq: i64, success: b
         assert!(response.get("seq").and_then(Value::as_i64).is_some());
         return true;
     }
-    if success && let Some(message) = response.get("message").and_then(Value::as_str) {
-        if message.contains("ENOSYS")
+    if success
+        && let Some(message) = response.get("message").and_then(Value::as_str)
+        && (message.contains("ENOSYS")
             || message.contains("Function not implemented")
             || message.contains("EPERM")
-            || message.contains("Operation not permitted")
-        {
-            return false;
-        }
+            || message.contains("Operation not permitted"))
+    {
+        return false;
     }
     assert_eq!(got_success, Some(success), "response: {response}");
     assert!(response.get("seq").and_then(Value::as_i64).is_some());

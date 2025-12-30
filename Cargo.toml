@@ -21,8 +21,8 @@ name = "bs"
 
 [[bin]]
 bench = false
-path = "src/bin/bs_dap.rs"
-name = "bs-dap"
+path = "src/dap/main.rs"
+name = "yadap"
 
 [profile.release]
 codegen-units = 1
