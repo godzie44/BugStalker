@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 # [?.?.?] Unreleased
 
 ### Added
+
+- dap: introduce DAP extension for VS Code
+- dap: introduce DAP server
+
 ### Changed
 - build: remove libunwind-specific test target
 ### Fixed

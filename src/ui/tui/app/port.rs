@@ -2,8 +2,8 @@ use crate::debugger::address::RelocatedAddress;
 use crate::debugger::register::debug::BreakCondition;
 use crate::debugger::variable::value::Value;
 use crate::debugger::{EventHook, FunctionInfo, PlaceDescriptor};
+use crate::ui::proto::ClientExchanger;
 use crate::ui::tui::output::OutputLine;
-use crate::ui::tui::proto::ClientExchanger;
 use crate::ui::tui::utils::logger::TuiLogLine;
 use crate::version;
 use log::warn;
@@ -130,6 +130,7 @@ impl EventHook for TuiHook {
         num: u32,
         place: Option<PlaceDescriptor>,
         function: Option<&FunctionInfo>,
+        _: Option<u32>,
     ) -> anyhow::Result<()> {
         self.event_queue
             .lock()
@@ -176,6 +177,7 @@ impl EventHook for TuiHook {
         pc: RelocatedAddress,
         place: Option<PlaceDescriptor>,
         function: Option<&FunctionInfo>,
+        _: Option<u32>,
     ) -> anyhow::Result<()> {
         self.event_queue.lock().unwrap().push(UserEvent::Step {
             pc,
@@ -194,7 +196,7 @@ impl EventHook for TuiHook {
         _: u64,
         _: bool,
     ) -> anyhow::Result<()> {
-        self.on_step(pc, place, function)
+        self.on_step(pc, place, function, None)
     }
 
     fn on_signal(&self, signal: Signal) {

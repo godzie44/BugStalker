@@ -17,6 +17,7 @@ use bugstalker::debugger::register::{Register, RegisterMap};
 use bugstalker::debugger::{DebuggerBuilder, rust};
 use serial_test::serial;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 use std::thread;
 
 pub fn prepare_debugee_process(prog: &str, args: &[&'static str]) -> Child<Installed> {
@@ -35,7 +36,13 @@ pub fn prepare_debugee_process(prog: &str, args: &[&'static str]) -> Child<Insta
 
     rust::Environment::init(None);
 
-    let runner = Child::new(prog, args.to_vec(), writer.try_clone().unwrap(), writer);
+    let runner = Child::new(
+        prog,
+        args.to_vec(),
+        None::<&Path>,
+        writer.try_clone().unwrap(),
+        writer,
+    );
     runner.install().unwrap()
 }
 
