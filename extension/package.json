@@ -41,6 +41,7 @@
   },
   "main": "./out/extension.js",
   "publisher": "BugStalker",
+  "icon": "icon.png",
   "contributes": {
     "commands": [
       {
@@ -78,6 +79,16 @@
                   "type": "string"
                 },
                 "description": "Program arguments.",
+                "default": []
+              },
+              "env": {
+                "type": [
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                },
+                "description": "Program environment variables.",
                 "default": []
               },
               "cwd": {
