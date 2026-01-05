@@ -5,15 +5,21 @@ All notable changes to this project will be documented in this file.
 # [?.?.?] Unreleased
 
 ### Added
+### Changed
+### Fixed
+### Deprecated
+### Breaking changes
 
+---
+
+# [0.4.0] Jan 5 2026
+
+### Added
 - dap: introduce DAP extension for VS Code
 - dap: introduce DAP server
 
 ### Changed
 - build: remove libunwind-specific test target
-### Fixed
-### Deprecated
-### Breaking changes
 
 ---
 
