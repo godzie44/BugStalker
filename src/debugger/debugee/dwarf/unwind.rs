@@ -331,10 +331,6 @@ impl<'a> DwarfUnwinder<'a> {
             }
 
             if !visited_ips.insert(return_addr) {
-                warn!(
-                    target: "debugger",
-                    "unwind detected repeated return address {return_addr}, stopping"
-                );
                 break;
             }
 
