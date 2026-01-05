@@ -66,7 +66,7 @@
   * Oracle extension mechanism
   * Built-in tokio oracle (similar to tokio_console but requires no code modifications)
 * **DAP (debugger adapter protocol) support:**
-  * VSCode extension
+  * VSCode [extension](https://marketplace.visualstudio.com/items?itemName=BugStalker.bugstalker)
 * **And many more powerful features!**
 
 ---
