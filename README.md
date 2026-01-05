@@ -65,6 +65,8 @@
 * **Extensible architecture:**
   * Oracle extension mechanism
   * Built-in tokio oracle (similar to tokio_console but requires no code modifications)
+* **DAP (debugger adapter protocol) support:**
+  * VSCode extension
 * **And many more powerful features!**
 
 ---
