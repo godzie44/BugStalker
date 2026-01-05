@@ -3,7 +3,7 @@
   "displayName": "BugStalker",
   "description": "Debugging Rust applications with BugStalker in Visual Studio Code",
   "license": "MIT",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "engines": {
     "vscode": "^1.98.0"
   },
