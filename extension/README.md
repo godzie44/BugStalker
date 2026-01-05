@@ -2,7 +2,7 @@
 
 Debugging Rust applications with BugStalker in Visual Studio Code. For more information see [debugger page](https://github.com/godzie44/BugStalker).
 
-![debugger-demo](https://imgur.com/a/wyfAMW3)
+![debugger-demo](https://godzie44.github.io/BugStalker/assets/images/vs_ext_demo-4264b91e86574df8813f942996c1445e.gif)
 
 ## Procuring the `bs` binary
 
