@@ -99,10 +99,17 @@ const config = {
         items: [
           {
             type: 'docSidebar',
-            sidebarId: 'tutorialSidebar',
+            sidebarId: 'docSidebar',
             position: 'left',
             label: 'Docs',
           },
+          {
+            type: 'docSidebar',
+            sidebarId: 'blogSidebar',
+            position: 'left',
+            label: 'Blog',
+          },
+
           {
             href: 'https://github.com/godzie44/BugStalker',
             label: 'GitHub',
@@ -114,11 +121,15 @@ const config = {
         style: 'dark',
         links: [
           {
-            title: 'Docs',
+            title: 'Site',
             items: [
               {
                 label: 'Docs',
                 to: '/docs/overview',
+              },
+              {
+                label: 'Blog',
+                to: '/docs/blog/release_0_4',
               },
             ],
           },
