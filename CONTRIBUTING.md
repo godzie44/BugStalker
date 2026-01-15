@@ -63,8 +63,8 @@ For easiest test, add this code in `.vscode/launch.json`:
       "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
-      "outFiles": ["${workspaceFolder}/extension/out/**/*.js"],
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension/vscode"],
+      "outFiles": ["${workspaceFolder}/extension/vscode/out/**/*.js"],
       "preLaunchTask": "${defaultBuildTask}",
       "env": {
         "BUGSTALKER_DIR": "${workspaceFolder}"
