@@ -5,19 +5,31 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
   };
 
-  outputs = inputs@{ self, flake-parts, ... }:
-    flake-parts.lib.mkFlake { inherit self inputs; }
-      {
-        systems = [
-          "x86_64-linux"
-          "aarch64-linux"
-        ];
+  outputs =
+    inputs@{
+      self,
+      flake-parts,
+      rust-overlay,
+      ...
+    }:
+    flake-parts.lib.mkFlake { inherit self inputs; } {
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
 
-        perSystem = { self', lib, system, pkgs, config, ... }: {
+      perSystem =
+        {
+          self',
+          system,
+          pkgs,
+          ...
+        }:
+        {
           _module.args.pkgs = import inputs.nixpkgs {
             inherit system;
 
-            overlays = with inputs; [
+            overlays = [
               rust-overlay.overlays.default
             ];
           };
@@ -27,9 +39,22 @@
             program = self'.packages.default;
           };
 
-          packages = rec {
-            default = bugstalker;
-            bugstalker = pkgs.callPackage (import ./nix/package.nix) { };
+          packages = {
+            default = self'.packages.bugstalker;
+            bugstalker = pkgs.callPackage (import ./nix/package.nix) {
+              rustPlatform =
+                let
+                  rust-bin = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+                in
+                pkgs.makeRustPlatform {
+                  cargo = rust-bin;
+                  rustc = rust-bin;
+                };
+            };
+          };
+
+          checks = {
+            inherit (self'.packages) bugstalker;
           };
 
           devShells.default =
@@ -42,11 +67,11 @@
             };
         };
 
-        flake = {
-          homeManagerModules = rec {
-            default = bugstalker;
-            bugstalker = import ./nix/home-manager-module.nix self;
-          };
+      flake = {
+        homeManagerModules = rec {
+          default = bugstalker;
+          bugstalker = import ./nix/home-manager-module.nix self;
         };
       };
+    };
 }

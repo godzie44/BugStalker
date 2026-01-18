@@ -1,6 +1,7 @@
-{ lib
-, rustPlatform
-, pkg-config
+{
+  lib,
+  rustPlatform,
+  pkg-config,
 }:
 let
   cargoToml = builtins.fromTOML (builtins.readFile ../Cargo.toml);
