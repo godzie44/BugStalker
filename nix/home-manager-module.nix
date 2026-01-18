@@ -1,8 +1,16 @@
-self: { config, lib, pkgs, ... }:
+self:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 with lib;
 let
   bugstalker = self.packages.${pkgs.stdenv.hostPlatform.system}.bugstalker;
-  pkgs_with_bugstalker = pkgs // { inherit bugstalker; };
+  pkgs_with_bugstalker = pkgs // {
+    inherit bugstalker;
+  };
 
   cfg = config.programs.bugstalker;
   tomlFormat = pkgs.formats.toml { };

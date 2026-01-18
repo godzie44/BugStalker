@@ -1,4 +1,4 @@
-on: [ push, pull_request ]
+on: [push, pull_request]
 
 name: CI
 
@@ -6,7 +6,7 @@ jobs:
   test:
     strategy:
       matrix:
-        rustc_sup_version: [1.88.0, 1.89.0, 1.90.0, 1.91.0, 1.92.0 ]
+        rustc_sup_version: [1.88.0, 1.89.0, 1.90.0, 1.91.0, 1.92.0]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -48,7 +48,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.13'
+          python-version: "3.13"
       - name: Install pip and test dependencies
         run: |
           sudo apt-get update
@@ -89,3 +89,11 @@ jobs:
         with:
           command: clippy
           args: -- -D warnings
+
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+      - run: nix flake check
