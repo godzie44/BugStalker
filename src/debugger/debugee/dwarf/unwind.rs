@@ -29,21 +29,36 @@ pub struct FrameSpan {
 }
 
 impl FrameSpan {
-    fn new(
-        debugee: &Debugee,
-        ip: RelocatedAddress,
-        fn_name: Option<String>,
-        fn_start_ip: Option<RelocatedAddress>,
-    ) -> Result<Self, Error> {
-        let debug_information = debugee.debug_info(ip)?;
+    fn new(debugee: &Debugee, location: Location) -> Result<Self, Error> {
+        let debug_information = debugee.debug_info(location.pc)?;
+
+        let function = debug_information
+            .find_function_by_pc(location.global_pc)
+            .unwrap_or_default();
+
+        let fn_start_at = function
+            .as_ref()
+            .and_then(|(die_ref, _)| {
+                die_ref.prolog_start_place().ok().map(|prolog| {
+                    prolog
+                        .address
+                        .relocate_to_segment_by_pc(debugee, location.pc)
+                })
+            })
+            .transpose()
+            .unwrap_or_default();
+
+        let pc = location.pc.into_global(debugee)?;
+
         let place = debug_information
-            .find_place_from_pc(ip.into_global(debugee)?)?
+            .find_place_from_pc(pc)
+            .unwrap_or_default()
             .map(|p| p.to_owned());
 
         Ok(FrameSpan {
-            func_name: fn_name,
-            fn_start_ip,
-            ip,
+            func_name: function.and_then(|(_, info)| info.full_name()),
+            fn_start_ip: fn_start_at,
+            ip: location.pc,
             place,
         })
     }
@@ -293,27 +308,7 @@ impl<'a> DwarfUnwinder<'a> {
             &ecx,
         )?;
 
-        let function = self
-            .debugee
-            .debug_info(ecx.location().pc)?
-            .find_function_by_pc(ecx.location().global_pc)?;
-        let fn_start_at = function
-            .as_ref()
-            .and_then(|(func, _)| {
-                func.prolog_start_place().ok().map(|prolog| {
-                    prolog
-                        .address
-                        .relocate_to_segment_by_pc(self.debugee, ecx.location().pc)
-                })
-            })
-            .transpose()?;
-
-        let mut bt = vec![FrameSpan::new(
-            self.debugee,
-            ecx.location().pc,
-            function.and_then(|(_, info)| info.full_name()),
-            fn_start_at,
-        )?];
+        let mut bt = vec![FrameSpan::new(self.debugee, ecx.location())?];
         let mut visited_ips = HashSet::new();
         visited_ips.insert(frame_0_location.pc);
         let Some(mut ucx) = mb_ucx else {
@@ -346,27 +341,7 @@ impl<'a> DwarfUnwinder<'a> {
                 Some(ucx) => ucx,
             };
 
-            let function = self
-                .debugee
-                .debug_info(next_location.pc)?
-                .find_function_by_pc(next_location.global_pc)?;
-            let fn_start_at = function
-                .as_ref()
-                .and_then(|(die_ref, _)| {
-                    die_ref.prolog_start_place().ok().map(|prolog| {
-                        prolog
-                            .address
-                            .relocate_to_segment_by_pc(self.debugee, next_location.pc)
-                    })
-                })
-                .transpose()?;
-
-            let span = FrameSpan::new(
-                self.debugee,
-                next_location.pc,
-                function.and_then(|(_, info)| info.full_name()),
-                fn_start_at,
-            )?;
+            let span = FrameSpan::new(self.debugee, next_location)?;
             bt.push(span);
         }
 
