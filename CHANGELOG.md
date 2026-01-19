@@ -7,11 +7,16 @@ All notable changes to this project will be documented in this file.
 ### Added
 ### Changed
 ### Fixed
-
-- debugger: unwinder no longer stops if there is no debug information in some frame of a call stack
-
 ### Deprecated
 ### Breaking changes
+
+---
+
+# [0.4.1] Jan 19 2026
+
+### Fixed
+
+- debugger: unwinder no longer stops if there is no debug information in some frame of a call stack
 
 ---
 
