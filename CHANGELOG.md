@@ -5,17 +5,23 @@ All notable changes to this project will be documented in this file.
 # [?.?.?] Unreleased
 
 ### Added
+### Changed
+### Fixed
+### Deprecated
+### Breaking changes
+
+---
+
+# [0.4.2] Jan 23 2026
+
+### Added
 
 - debugger: added support rustc 1.93
 
-### Changed
 ### Fixed
 
 - console: fixed `watch +w` command 
 - fix: now `BsUnit::find_exact_place_by_pc` deterministically return always first suitable place
-
-### Deprecated
-### Breaking changes
 
 ---
 
