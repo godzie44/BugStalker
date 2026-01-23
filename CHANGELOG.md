@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 ### Changed
 ### Fixed
+
+- console: fixed `watch +w` command 
+
 ### Deprecated
 ### Breaking changes
 
