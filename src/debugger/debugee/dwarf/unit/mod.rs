@@ -475,7 +475,7 @@ impl BsUnit {
         None
     }
 
-    /// Return place with address equals to given program counter.
+    /// Return first place with address equals to given program counter.
     ///
     /// # Arguments
     ///
@@ -483,7 +483,19 @@ impl BsUnit {
     pub fn find_exact_place_by_pc(&self, pc: GlobalAddress) -> Option<PlaceDescriptor<'_>> {
         let pc = u64::from(pc);
         match self.lines.binary_search_by_key(&pc, |line| line.address) {
-            Ok(p) => self.find_place_by_idx(p),
+            Ok(mut p) => {
+                let mut place = self.find_place_by_idx(p);
+                p -= 1;
+
+                while let Some(next_place) = self.find_place_by_idx(p)
+                    && u64::from(next_place.address) == pc
+                {
+                    place = Some(next_place);
+                    p -= 1;
+                }
+
+                place
+            }
             Err(_) => None,
         }
     }

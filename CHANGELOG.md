@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - console: fixed `watch +w` command 
+- fix: now `BsUnit::find_exact_place_by_pc` deterministically return always first suitable place
 
 ### Deprecated
 ### Breaking changes
