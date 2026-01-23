@@ -5,29 +5,34 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
   };
 
-  outputs = inputs@{ self, flake-parts, rust-overlay, ... }:
+  outputs =
+    inputs@{
+      self,
+      flake-parts,
+      rust-overlay,
+      ...
+    }:
     flake-parts.lib.mkFlake { inherit self inputs; } {
       systems = [
         "x86_64-linux"
         "aarch64-linux"
       ];
 
-      perSystem = { self', system, ... }:
-        let
-          pkgs = import inputs.nixpkgs {
+      perSystem =
+        {
+          self',
+          system,
+          pkgs,
+          ...
+        }:
+        {
+          _module.args.pkgs = import inputs.nixpkgs {
             inherit system;
-            overlays = [ rust-overlay.overlays.default ];
+
+            overlays = [
+              rust-overlay.overlays.default
+            ];
           };
-
-          rust-toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-
-          rustPlatform = pkgs.makeRustPlatform {
-            cargo = rust-toolchain;
-            rustc = rust-toolchain;
-          };
-
-        in {
-          _module.args.pkgs = pkgs;  # Экспортируем pkgs
 
           apps.default = {
             type = "app";
@@ -36,9 +41,15 @@
 
           packages = {
             default = self'.packages.bugstalker;
-            
             bugstalker = pkgs.callPackage (import ./nix/package.nix) {
-              inherit rustPlatform;  # Используем общий rustPlatform
+              rustPlatform =
+                let
+                  rust-bin = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+                in
+                pkgs.makeRustPlatform {
+                  cargo = rust-bin;
+                  rustc = rust-bin;
+                };
             };
           };
 
@@ -46,14 +57,14 @@
             inherit (self'.packages) bugstalker;
           };
 
-          devShells.default = pkgs.mkShell {
-            packages = [ rust-toolchain ];
-            
-            inputsFrom = [ self'.packages.bugstalker ];
-            
-            RUST_BACKTRACE = "full";
-            RUST_SRC_PATH = "${rust-toolchain}/lib/rustlib/src/rust/library";
-          };
+          devShells.default =
+            let
+              bs = self'.packages.default;
+              rust-toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+            in
+            pkgs.mkShell {
+              packages = [ rust-toolchain ] ++ bs.buildInputs ++ bs.nativeBuildInputs;
+            };
         };
 
       flake = {
