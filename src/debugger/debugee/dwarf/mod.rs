@@ -261,7 +261,7 @@ impl DebugInformation {
         Ok(mb_unit.and_then(|u| u.find_place_by_pc(pc)))
     }
 
-    /// Returns place with line address equals to program counter global address.
+    /// Returns first place with line address equals to program counter global address.
     pub fn find_exact_place_from_pc(
         &self,
         pc: GlobalAddress,
