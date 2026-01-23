@@ -23,7 +23,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -1191,7 +1191,13 @@ impl DebugSession {
             program.to_string()
         };
 
-        let proc_tpl = Child::new(program_path, args, stdout_writer, stderr_writer);
+        let proc_tpl = Child::new(
+            program_path,
+            args,
+            None::<PathBuf>,
+            stdout_writer,
+            stderr_writer,
+        );
         let process = proc_tpl
             .install()
             .context("Initial process instantiation")?;
