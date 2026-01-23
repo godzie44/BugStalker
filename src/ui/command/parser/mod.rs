@@ -154,7 +154,7 @@ pub fn watchpoint_cond<'a>() -> impl chumsky::Parser<'a, &'a str, BreakCondition
     let op = |sym| whitespace().then(just(sym)).then(ws_req_or_end);
     op("+rw")
         .to(BreakCondition::DataReadsWrites)
-        .or(op("+rw").to(BreakCondition::DataWrites))
+        .or(op("+w").to(BreakCondition::DataWrites))
         .or(text::whitespace().to(BreakCondition::DataWrites))
 }
 
@@ -904,6 +904,16 @@ fn test_parser() {
                     Dqe::Variable(Selector::by_name("var1", false)),
                 ),
                 BreakCondition::DataReadsWrites,
+            ))),
+        },
+        TestCase {
+            inputs: vec!["watch +w var1", "watch +w  var1 ", "   w  +w  var1   "],
+            expected: Expect::Ok(Command::Watchpoint(watch::Command::Add(
+                WatchpointIdentity::DQE(
+                    "var1".into(),
+                    Dqe::Variable(Selector::by_name("var1", false)),
+                ),
+                BreakCondition::DataWrites,
             ))),
         },
         TestCase {
