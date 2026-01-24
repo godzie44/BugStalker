@@ -208,15 +208,17 @@ impl<'a> UnwindContext<'a> {
                     RegisterRule::ValOffset(offset) => cfa.offset(*offset as isize).into(),
                     RegisterRule::Register(reg) => weak_error!(registers_snap.value(*reg))?,
                     RegisterRule::Expression(expr) => {
+                        let expr = weak_error!(expr.get(&dwarf.eh_frame))?;
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
-                        let expr_result = weak_error!(evaluator.evaluate(ecx, expr.clone()))?;
+                        let expr_result = weak_error!(evaluator.evaluate(ecx, expr))?;
                         let addr = weak_error!(
                             expr_result.into_scalar::<usize>(AddressKind::MemoryAddress)
                         )?;
                         read_register_value(RelocatedAddress::from(addr))?
                     }
                     RegisterRule::ValExpression(expr) => {
+                        let expr = weak_error!(expr.get(&dwarf.eh_frame))?;
                         let evaluator =
                             weak_error!(lazy_evaluator.try_get_or_insert_with(evaluator_init_fn))?;
                         let expr_result = weak_error!(evaluator.evaluate(ecx, expr.clone()))?;
@@ -225,7 +227,6 @@ impl<'a> UnwindContext<'a> {
                     }
                     RegisterRule::Architectural => return None,
                     RegisterRule::Constant(val) => *val,
-                    _ => unreachable!(),
                 };
 
                 Some((*register, value))

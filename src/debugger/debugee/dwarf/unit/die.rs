@@ -5,7 +5,6 @@ use crate::{
     },
     weak_error,
 };
-use fallible_iterator::FallibleIterator;
 use gimli::{
     Attribute, AttributeValue, DW_AT_byte_size, DW_AT_const_value, DW_AT_count,
     DW_AT_data_member_location, DW_AT_discr, DW_AT_discr_value, DW_AT_encoding, DW_AT_frame_base,
@@ -34,7 +33,7 @@ pub enum Die<'a> {
     /// DIE located in debug information sections
     Dwarf {
         dcx: DerefContext<'a, 'a>,
-        die: DebuggingInformationEntry<'a, 'a, EndianArcSlice>,
+        die: DebuggingInformationEntry<EndianArcSlice>,
     },
 }
 
@@ -60,7 +59,7 @@ macro_rules! impl_no_virt {
     };
 }
 
-type GimliDie<'a> = &'a DebuggingInformationEntry<'a, 'a, EndianArcSlice>;
+type GimliDie<'a> = &'a DebuggingInformationEntry<EndianArcSlice>;
 
 impl<'a> Die<'a> {
     impl_no_virt!(offset, UnitOffset, |_, die: GimliDie| { die.offset() });
@@ -75,7 +74,7 @@ impl<'a> Die<'a> {
         dcx.dwarf
             .die_ranges(dcx.unit, die)
             .unwrap_or_default()
-            .collect::<Vec<Range>>()
+            .collect::<Result<Vec<Range>, _>>()
             .unwrap_or_default()
             .into()
     });
@@ -83,42 +82,42 @@ impl<'a> Die<'a> {
     pub fn type_ref(&self) -> Option<DieAddr> {
         match self {
             Die::Virtual { type_ref } => *type_ref,
-            Die::Dwarf { die, .. } => {
-                weak_error!(die.attr(DW_AT_type))?.and_then(DieAddr::from_attr)
-            }
+            Die::Dwarf { die, .. } => die.attr(DW_AT_type).and_then(DieAddr::from_attr),
         }
     }
 
     impl_no_virt!(discr_ref, Option<DieAddr>, |_, die: GimliDie| {
-        weak_error!(die.attr(DW_AT_discr))?.and_then(DieAddr::from_attr)
+        die.attr(DW_AT_discr).and_then(DieAddr::from_attr)
     });
 
     impl_no_virt!(byte_size, Option<u64>, |_, die: GimliDie| {
-        weak_error!(die.attr(DW_AT_byte_size))?.and_then(|val| val.udata_value())
+        die.attr(DW_AT_byte_size).and_then(|val| val.udata_value())
     });
 
     impl_no_virt!(discr_value, Option<i64>, |_, die: GimliDie| {
-        weak_error!(die.attr(DW_AT_discr_value))?.and_then(|val| val.sdata_value())
+        die.attr(DW_AT_discr_value)
+            .and_then(|val| val.sdata_value())
     });
 
     impl_no_virt!(const_value, Option<i64>, |_, die: GimliDie| {
-        weak_error!(die.attr(DW_AT_const_value))?.and_then(|val| val.sdata_value())
+        die.attr(DW_AT_const_value)
+            .and_then(|val| val.sdata_value())
     });
 
     impl_no_virt!(
         location,
         Option<Attribute<EndianArcSlice>>,
-        |_, die: GimliDie| { weak_error!(die.attr(DW_AT_location))? }
+        |_, die: GimliDie| { die.attr(DW_AT_location).cloned() }
     );
 
     impl_no_virt!(
         data_member_location,
         Option<Attribute<EndianArcSlice>>,
-        |_, die: GimliDie| { weak_error!(die.attr(DW_AT_data_member_location))? }
+        |_, die: GimliDie| { die.attr(DW_AT_data_member_location).cloned() }
     );
 
     impl_no_virt!(encoding, Option<gimli::DwAte>, |_, die: GimliDie| {
-        weak_error!(die.attr(DW_AT_encoding))?.and_then(|attr| {
+        die.attr(DW_AT_encoding).and_then(|attr| {
             if let AttributeValue::Encoding(enc) = attr.value() {
                 Some(enc)
             } else {
@@ -130,25 +129,25 @@ impl<'a> Die<'a> {
     impl_no_virt!(
         lower_bound,
         Option<Attribute<EndianArcSlice>>,
-        |_, die: GimliDie| { weak_error!(die.attr(DW_AT_lower_bound))? }
+        |_, die: GimliDie| { die.attr(DW_AT_lower_bound).cloned() }
     );
 
     impl_no_virt!(
         upper_bound,
         Option<Attribute<EndianArcSlice>>,
-        |_, die: GimliDie| { weak_error!(die.attr(DW_AT_upper_bound))? }
+        |_, die: GimliDie| { die.attr(DW_AT_upper_bound).cloned() }
     );
 
     impl_no_virt!(
         count,
         Option<Attribute<EndianArcSlice>>,
-        |_, die: GimliDie| { weak_error!(die.attr(DW_AT_count))? }
+        |_, die: GimliDie| { die.attr(DW_AT_count).cloned() }
     );
 
     impl_no_virt!(
         frame_base,
         Option<Attribute<EndianArcSlice>>,
-        |_, die: GimliDie| { weak_error!(die.attr(DW_AT_frame_base))? }
+        |_, die: GimliDie| { die.attr(DW_AT_frame_base).cloned() }
     );
 
     pub fn for_each_children_t<T>(&self, mut f: impl FnMut(Die<'a>) -> Option<T>) -> Option<T> {
@@ -235,7 +234,7 @@ impl<'a> Die<'a> {
         die: &DebuggingInformationEntry<EndianArcSlice, usize>,
         attr: DwAt,
     ) -> gimli::Result<Option<String>> {
-        die.attr(attr)?
+        die.attr(attr)
             .and_then(|attr| dwarf.attr_string(unit, attr.value()).ok())
             .map(|l| l.to_string_lossy().map(|s| s.to_string()))
             .transpose()
