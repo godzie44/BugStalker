@@ -8,7 +8,6 @@ use crate::debugger::debugee::dwarf::utils::PathSearchIndex;
 use crate::debugger::debugee::dwarf::{EndianArcSlice, NamespaceHierarchy};
 use crate::debugger::error::Error;
 use crate::debugger::rust::Environment;
-use fallible_iterator::FallibleIterator;
 use gimli::{
     AttributeValue, DW_AT_decl_file, DW_AT_decl_line, DW_AT_language, DW_AT_linkage_name,
     DW_AT_name, DW_AT_producer, DW_AT_specification, DebuggingInformationEntry, DwAt, Range,
@@ -37,7 +36,7 @@ impl<'a> DwarfUnitParser<'a> {
         die: &DebuggingInformationEntry<EndianArcSlice, usize>,
         attr: DwAt,
     ) -> gimli::Result<Option<String>> {
-        die.attr(attr)?
+        die.attr(attr)
             .and_then(|attr| self.dwarf.attr_string(unit, attr.value()).ok())
             .map(|l| l.to_string_lossy().map(|s| s.to_string()))
             .transpose()
@@ -60,14 +59,17 @@ impl<'a> DwarfUnitParser<'a> {
         }
         lines.sort_unstable_by_key(|x| x.address);
 
-        let mut ranges = self.dwarf.unit_ranges(&unit)?.collect::<Vec<_>>()?;
+        let mut ranges = self
+            .dwarf
+            .unit_ranges(&unit)?
+            .collect::<Result<Vec<_>, _>>()?;
         ranges.sort_unstable_by_key(|r| r.begin);
 
         let mut cursor = unit.header.entries(&unit.abbreviations);
         cursor.next_dfs()?;
         let root = cursor.current().ok_or(gimli::Error::MissingUnitDie)?;
 
-        let language = root.attr(DW_AT_language)?.and_then(|attr| {
+        let language = root.attr(DW_AT_language).and_then(|attr| {
             if let AttributeValue::Language(lang) = attr.value() {
                 return Some(lang);
             }
@@ -81,7 +83,7 @@ impl<'a> DwarfUnitParser<'a> {
             idx: usize::MAX,
             properties: UnitProperties {
                 encoding: unit.encoding(),
-                offset: unit.header.offset().as_debug_info_offset(),
+                offset: unit.debug_info_offset(),
                 low_pc: unit.low_pc,
                 addr_base: unit.addr_base,
                 loclists_base: unit.loclists_base,
@@ -111,30 +113,14 @@ impl<'a> DwarfUnitParser<'a> {
         let mut parent_index = IndexMap::<UnitOffset, UnitOffset>::new();
 
         let mut cursor = bs_unit.unit.entries();
-        let mut prev_die_offset = None;
-        while let Some((delta_depth, die)) = cursor.next_dfs()? {
-            let parent_offset = match delta_depth {
-                // if 1 then previous die is a parent
-                1 => prev_die_offset,
-                // if 0, then previous die is a sibling
-                0 => parent_index.last().map(|(_, parent)| *parent),
-                // if < 0 then the parent of previous die is a sibling
-                x if x < 0 => {
-                    let get_parent = |mut x| {
-                        let mut parent = *parent_index.last()?.0;
-
-                        while x != 0 {
-                            parent = *parent_index.get(&parent)?;
-                            x += 1;
-                        }
-
-                        Some(*parent_index.get(&parent)?)
-                    };
-                    get_parent(x)
+        let mut parent_offset = None;
+        while cursor.next_entry()? {
+            let Some(die) = cursor.current() else {
+                if let Some(offset) = parent_offset {
+                    parent_offset = parent_index.get(&offset).copied();
                 }
-                _ => unreachable!(),
+                continue;
             };
-
             if let Some(offset) = parent_offset {
                 parent_index.insert(die.offset(), offset);
             }
@@ -149,16 +135,16 @@ impl<'a> DwarfUnitParser<'a> {
                         let name = self.attr_to_string(bs_unit.unit(), d, DW_AT_name)?;
 
                         let mb_file = d
-                            .attr(DW_AT_decl_file)?
+                            .attr(DW_AT_decl_file)
                             .and_then(|attr| attr.udata_value());
                         let mb_line = d
-                            .attr(DW_AT_decl_line)?
+                            .attr(DW_AT_decl_line)
                             .and_then(|attr| attr.udata_value());
                         let decl_file_line =
                             mb_file.and_then(|file_idx| Some((file_idx, mb_line?)));
 
                         let mb_linkage_name = d
-                            .attr(DW_AT_linkage_name)?
+                            .attr(DW_AT_linkage_name)
                             .and_then(|attr| self.dwarf.attr_string(bs_unit.unit(), attr.value()).ok());
 
                         let (fn_ns, linkage_name) = match mb_linkage_name {
@@ -188,7 +174,7 @@ impl<'a> DwarfUnitParser<'a> {
                     let ranges: Box<[Range]> = self
                         .dwarf
                         .die_ranges(bs_unit.unit(), die)?
-                        .collect::<Vec<Range>>()?
+                        .collect::<Result<Vec<Range>, _>>()?
                         .into();
 
                     // subprograms without a range are useless for indexing
@@ -202,7 +188,7 @@ impl<'a> DwarfUnitParser<'a> {
                             })
                         });
 
-                        let specification = die.attr(DW_AT_specification)?.and_then(|attr| {
+                        let specification = die.attr(DW_AT_specification).and_then(|attr| {
                             if let AttributeValue::UnitRef(r) = attr.value() {
                                 return Some(r);
                             }
@@ -236,7 +222,7 @@ impl<'a> DwarfUnitParser<'a> {
                     let name = self.attr_to_string(bs_unit.unit(), die, DW_AT_name)?;
 
                     if let Some(ref name) = name {
-                        let mb_linkage_name = die.attr(DW_AT_linkage_name)?.and_then(|attr| {
+                        let mb_linkage_name = die.attr(DW_AT_linkage_name).and_then(|attr| {
                             self.dwarf.attr_string(bs_unit.unit(), attr.value()).ok()
                         });
 
@@ -299,7 +285,9 @@ impl<'a> DwarfUnitParser<'a> {
                 _ => {}
             };
 
-            prev_die_offset = Some(die.offset());
+            if die.has_children() {
+                parent_offset = Some(die.offset());
+            }
         }
         fn_ranges.sort_unstable_by_key(|dr| dr.range.begin);
 

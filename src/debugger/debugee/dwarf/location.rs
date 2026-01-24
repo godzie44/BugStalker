@@ -2,7 +2,6 @@ use crate::debugger::address::GlobalAddress;
 use crate::debugger::debugee::dwarf::unit::BsUnit;
 use crate::debugger::debugee::dwarf::{DebugInformation, EndianArcSlice};
 use crate::weak_error;
-use fallible_iterator::FallibleIterator;
 use gimli::{Attribute, AttributeValue, Expression};
 
 pub(super) struct Location<'a>(pub(super) &'a Attribute<EndianArcSlice>);
@@ -47,7 +46,11 @@ impl Location<'_> {
 
         let pc = u64::from(pc);
         let entry = iter
-            .find(|list_entry| Ok(list_entry.range.begin <= pc && list_entry.range.end >= pc))
+            .find(|list_entry| match list_entry {
+                Ok(list_entry) => list_entry.range.begin <= pc && list_entry.range.end >= pc,
+                Err(_) => true,
+            })
+            .transpose()
             .ok()?;
 
         entry.map(|e| e.data)

@@ -25,7 +25,6 @@ use crate::debugger::error::Error;
 use crate::debugger::error::Error::{DebugIDFormat, UnitNotFound};
 use crate::debugger::register::{DwarfRegisterMap, RegisterMap};
 use crate::{muted_error, resolve_unit_call, version_switch, weak_error};
-use fallible_iterator::FallibleIterator;
 use gimli::CfaRule::RegisterAndOffset;
 use gimli::{
     BaseAddresses, CfaRule, DebugAddr, DebugFrame, DebugInfoOffset, DebugPubTypes, Dwarf, EhFrame,
@@ -76,6 +75,9 @@ impl Clone for DebugInformation {
                 debug_info: self.inner.debug_info.clone(),
                 debug_line: self.inner.debug_line.clone(),
                 debug_line_str: self.inner.debug_line_str.clone(),
+                debug_macro: self.inner.debug_macro.clone(),
+                debug_macinfo: self.inner.debug_macinfo.clone(),
+                debug_names: self.inner.debug_names.clone(),
                 debug_str: self.inner.debug_str.clone(),
                 debug_str_offsets: self.inner.debug_str_offsets.clone(),
                 debug_types: self.inner.debug_types.clone(),
@@ -180,7 +182,7 @@ impl DebugInformation {
         &self,
         debugee: &Debugee,
         registers: &DwarfRegisterMap,
-        utr: &UnwindTableRow<EndianArcSlice>,
+        utr: &UnwindTableRow<usize>,
         ecx: &ExplorationContext,
     ) -> Result<RelocatedAddress, Error> {
         let rule = utr.cfa();
@@ -194,7 +196,7 @@ impl DebugInformation {
                     .ok_or(UnitNotFound(ecx.location().global_pc))?;
                 let evaluator =
                     resolve_unit_call!(&self.inner, unit, evaluator, debugee, self.dwarf());
-                let expr_result = evaluator.evaluate(ecx, expr.clone())?;
+                let expr_result = evaluator.evaluate(ecx, expr.get(&self.eh_frame)?)?;
 
                 Ok((expr_result.into_scalar::<usize>(AddressKind::Value)?).into())
             }
@@ -782,17 +784,20 @@ impl DebugInformationBuilder {
         let pub_types = mb_pub_types_sect.and_then(|pub_types_sect| {
             pub_types_sect
                 .items()
-                .map(|e| {
-                    let type_name = e.name().to_string_lossy()?.to_string();
-                    let unit_offset = e.unit_header_offset();
-                    Ok((type_name, (unit_offset, e.die_offset())))
+                .map(|e| match e {
+                    Ok(e) => {
+                        let type_name = e.name().to_string_lossy()?.to_string();
+                        let unit_offset = e.unit_header_offset();
+                        Ok((type_name, (unit_offset, e.die_offset())))
+                    }
+                    Err(e) => Err(e),
                 })
-                .collect()
+                .collect::<Result<_, _>>()
                 .ok()
         });
 
         let parser = DwarfUnitParser::new(&dwarf);
-        let headers = dwarf.units().collect::<Vec<_>>()?;
+        let headers = dwarf.units().collect::<Result<Vec<_>, _>>()?;
 
         if headers.is_empty() {
             // no units means no debug info
