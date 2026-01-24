@@ -209,7 +209,7 @@ pub enum DieAddr {
 }
 
 impl DieAddr {
-    fn from_attr(attr: Attribute<EndianArcSlice>) -> Option<DieAddr> {
+    fn from_attr(attr: &Attribute<EndianArcSlice>) -> Option<DieAddr> {
         match attr.value() {
             AttributeValue::DebugInfoRef(offset) => Some(DieAddr::Global(offset)),
             AttributeValue::UnitRef(offset) => Some(DieAddr::Unit(offset)),

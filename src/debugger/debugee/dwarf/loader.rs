@@ -2,8 +2,9 @@ use crate::debugger::debugee::dwarf::EndianArcSlice;
 use crate::debugger::error::Error;
 use gimli::{
     AbbreviationsCache, DebugAbbrev, DebugAddr, DebugAranges, DebugInfo, DebugLine, DebugLineStr,
-    DebugLoc, DebugLocLists, DebugRanges, DebugRngLists, DebugStr, DebugStrOffsets, DebugTypes,
-    Dwarf, DwarfFileType, LocationLists, RangeLists, RunTimeEndian, Section, SectionId,
+    DebugLoc, DebugLocLists, DebugMacinfo, DebugMacro, DebugNames, DebugRanges, DebugRngLists,
+    DebugStr, DebugStrOffsets, DebugTypes, Dwarf, DwarfFileType, LocationLists, RangeLists,
+    RunTimeEndian, Section, SectionId,
 };
 use object::{File, Object, ObjectSection};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
@@ -20,6 +21,9 @@ struct Sections {
     debug_info: Option<DebugInfo<EndianArcSlice>>,
     debug_line: Option<DebugLine<EndianArcSlice>>,
     debug_line_str: Option<DebugLineStr<EndianArcSlice>>,
+    debug_macro: Option<DebugMacro<EndianArcSlice>>,
+    debug_macinfo: Option<DebugMacinfo<EndianArcSlice>>,
+    debug_names: Option<DebugNames<EndianArcSlice>>,
     debug_str: Option<DebugStr<EndianArcSlice>>,
     debug_str_offsets: Option<DebugStrOffsets<EndianArcSlice>>,
     debug_types: Option<DebugTypes<EndianArcSlice>>,
@@ -68,6 +72,9 @@ pub fn load_par(file: &File, endian: RunTimeEndian) -> Result<Dwarf<EndianArcSli
     let load_debug_info = make_sect_loader!(file, endian, debug_info);
     let load_debug_line = make_sect_loader!(file, endian, debug_line);
     let load_debug_line_str = make_sect_loader!(file, endian, debug_line_str);
+    let load_debug_macro = make_sect_loader!(file, endian, debug_macro);
+    let load_debug_macinfo = make_sect_loader!(file, endian, debug_macinfo);
+    let load_debug_names = make_sect_loader!(file, endian, debug_names);
     let load_debug_str = make_sect_loader!(file, endian, debug_str);
     let load_debug_str_offsets = make_sect_loader!(file, endian, debug_str_offsets);
     let load_debug_types = make_sect_loader!(file, endian, debug_types);
@@ -86,6 +93,9 @@ pub fn load_par(file: &File, endian: RunTimeEndian) -> Result<Dwarf<EndianArcSli
         Box::new(load_debug_info),
         Box::new(load_debug_line),
         Box::new(load_debug_line_str),
+        Box::new(load_debug_macro),
+        Box::new(load_debug_macinfo),
+        Box::new(load_debug_names),
         Box::new(load_debug_str),
         Box::new(load_debug_str_offsets),
         Box::new(load_debug_types),
@@ -115,6 +125,9 @@ pub fn load_par(file: &File, endian: RunTimeEndian) -> Result<Dwarf<EndianArcSli
         debug_info: sections.debug_info.expect(SECT_MUST_EXISTS),
         debug_line: sections.debug_line.expect(SECT_MUST_EXISTS),
         debug_line_str: sections.debug_line_str.expect(SECT_MUST_EXISTS),
+        debug_macro: sections.debug_macro.expect(SECT_MUST_EXISTS),
+        debug_macinfo: sections.debug_macinfo.expect(SECT_MUST_EXISTS),
+        debug_names: sections.debug_names.expect(SECT_MUST_EXISTS),
         debug_str: sections.debug_str.expect(SECT_MUST_EXISTS),
         debug_str_offsets: sections.debug_str_offsets.expect(SECT_MUST_EXISTS),
         debug_types: sections.debug_types.expect(SECT_MUST_EXISTS),
