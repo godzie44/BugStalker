@@ -270,16 +270,16 @@ impl DapSession {
         let addr = listener.local_addr()?;
         drop(listener);
 
-        let bin_path = std::env::var("CARGO_BIN_EXE_yadap")
+        let bin_path = std::env::var("CARGO_BIN_EXE_bs")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| repo_root().join("target").join("debug").join("yadap"));
+            .unwrap_or_else(|_| repo_root().join("target").join("debug").join("bs"));
         let process = Command::new(bin_path)
-            .args(["--listen", &addr.to_string(), "--oneshot"])
+            .args(["--dap-remote", &addr.to_string(), "--dap-oneshot"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .context("spawn yadap")?;
+            .context("spawn bs with --dap-remote")?;
         let client = DapClient::connect(addr)?;
         Ok(Self {
             client,
