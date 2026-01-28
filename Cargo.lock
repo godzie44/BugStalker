@@ -212,13 +212,13 @@ dependencies = [
  "clap",
  "crossterm 0.27.0",
  "ctrlc",
- "dap",
  "env_logger",
  "fallible-iterator",
  "gimli",
  "home",
  "indexmap 2.13.0",
  "itertools 0.12.1",
+ "libc",
  "log",
  "lru",
  "memmap2",
@@ -571,17 +571,6 @@ dependencies = [
  "dispatch2",
  "nix 0.31.2",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "dap"
-version = "0.4.1-alpha1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35c7fc89d334ab745ba679f94c7314c9b17ecdcd923c111df6206e9fd7729fa9"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 1.0.69",
 ]
 
 [[package]]
