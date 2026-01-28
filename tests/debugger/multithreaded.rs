@@ -1,5 +1,4 @@
-use crate::common::TestHooks;
-use crate::common::TestInfo;
+use crate::common::{TestHooks, TestInfo, wait_for_stop_line};
 use crate::prepare_debugee_process;
 use crate::{MT_APP, assert_no_proc};
 use bugstalker::debugger::DebuggerBuilder;
@@ -39,11 +38,11 @@ fn test_multithreaded_breakpoints() {
     debugger.set_breakpoint_at_line("mt.rs", 14).unwrap();
 
     debugger.start_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(6));
+    assert_eq!(wait_for_stop_line(&info, 6, 5), 6);
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(36));
+    assert_eq!(wait_for_stop_line(&info, 36, 5), 36);
     debugger.continue_debugee().unwrap();
-    assert_eq!(info.line.take(), Some(24));
+    assert_eq!(wait_for_stop_line(&info, 24, 5), 24);
     debugger.continue_debugee().unwrap();
     assert_eq!(info.line.take(), Some(14));
 

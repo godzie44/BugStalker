@@ -1,17 +1,17 @@
-//! DAP session implementation (handlers, state machine, and integration with bugstalker::debugger).
+//! DAP session implementation (handlers, state machine, and integration with debugger).
 
 use anyhow::{Context, anyhow};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_ENGINE};
-use bugstalker::debugger;
-use bugstalker::debugger::address::{GlobalAddress, RelocatedAddress};
-use bugstalker::debugger::process::{Child, Installed};
-use bugstalker::debugger::register::debug::{BreakCondition, BreakSize};
-use bugstalker::debugger::variable::dqe::{Dqe, Literal};
-use bugstalker::debugger::variable::render::RenderValue;
-use bugstalker::oracle::{Oracle, builtin};
-use bugstalker::ui::command::parser::expression as bs_expr;
-use bugstalker::ui::command::parser::watchpoint_at_address;
-use bugstalker::ui::command::watch::WatchpointIdentity;
+use crate::debugger;
+use crate::debugger::address::{GlobalAddress, RelocatedAddress};
+use crate::debugger::process::{Child, Installed};
+use crate::debugger::register::debug::{BreakCondition, BreakSize};
+use crate::debugger::variable::dqe::{Dqe, Literal};
+use crate::debugger::variable::render::RenderValue;
+use crate::oracle::{Oracle, builtin};
+use crate::ui::command::parser::expression as bs_expr;
+use crate::ui::command::parser::watchpoint_at_address;
+use crate::ui::command::watch::WatchpointIdentity;
 use capstone::prelude::*;
 use chumsky::Parser as _;
 use chumsky::prelude::end;
@@ -30,12 +30,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::yadap::io::DapIo;
-use crate::yadap::protocol::{DapEvent, DapRequest, DapResponse, InternalEvent};
-use crate::yadap::sourcemap::SourceMap;
+use crate::dap::transport::DapTransport;
+use crate::dap::yadap::protocol::{DapEvent, DapRequest, DapResponse, InternalEvent};
+use crate::dap::yadap::sourcemap::SourceMap;
 
 pub struct DebugSession {
-    io: DapIo,
+    io: Box<dyn DapTransport>,
     server_seq: i64,
     initialized: bool,
     debugger: Option<debugger::Debugger>,
@@ -288,7 +288,7 @@ impl VariablesStore {
 }
 
 impl DebugSession {
-    pub(crate) fn new(io: DapIo) -> Self {
+    pub fn new(io: Box<dyn DapTransport>) -> Self {
         Self {
             io,
             server_seq: 1,
@@ -1080,7 +1080,8 @@ impl DebugSession {
             message,
             body,
         };
-        self.io.write_message(&rsp)
+        let value = serde_json::to_value(rsp)?;
+        self.io.write_message(&value)
     }
 
     fn send_event(&mut self, name: &'static str) -> anyhow::Result<()> {
@@ -1099,7 +1100,8 @@ impl DebugSession {
             event: name,
             body,
         };
-        self.io.write_message(&ev)
+        let value = serde_json::to_value(ev)?;
+        self.io.write_message(&value)
     }
 
     fn attach_pid(arguments: &Value) -> anyhow::Result<Pid> {
@@ -4025,7 +4027,7 @@ impl DebugSession {
         Ok(true)
     }
 
-    pub(crate) fn run(mut self, oracles: Vec<String>) -> anyhow::Result<()> {
+    pub fn run(mut self, oracles: Vec<String>) -> anyhow::Result<()> {
         loop {
             self.drain_events()?;
             let msg = self.io.read_message()?;

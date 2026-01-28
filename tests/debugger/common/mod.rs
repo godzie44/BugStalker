@@ -103,13 +103,18 @@ impl EventHook for TestHooks {
 #[macro_export]
 macro_rules! assert_no_proc {
     ($pid:expr) => {
+        // Give the system a bit of time for process cleanup
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        
         let sys = sysinfo::System::new_with_specifics(
             sysinfo::RefreshKind::everything()
                 .without_cpu()
                 .without_memory(),
         );
         assert!(
-            sysinfo::System::process(&sys, sysinfo::Pid::from_u32($pid.as_raw() as u32)).is_none()
+            sysinfo::System::process(&sys, sysinfo::Pid::from_u32($pid.as_raw() as u32)).is_none(),
+            "Process {} should have been terminated but still exists",
+            $pid
         )
     };
 }
@@ -126,4 +131,17 @@ pub fn rust_version(file: &str) -> Option<RustVersion> {
     let string_data = std::str::from_utf8(data).unwrap();
 
     RustVersion::parse(string_data)
+}
+
+/// Wait for a debugger event with retries (useful for multithreaded tests)
+pub fn wait_for_stop_line(info: &TestInfo, expected_line: u64, max_retries: u32) -> u64 {
+    for attempt in 0..max_retries {
+        if let Some(line) = info.line.take() {
+            return line;
+        }
+        if attempt < max_retries - 1 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+    panic!("Timeout waiting for breakpoint at line {}, retries exhausted", expected_line);
 }
