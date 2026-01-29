@@ -2872,35 +2872,35 @@ fn test_debug_trait_repr_vars() {
     assert_eq!(info.line.take(), Some(641));
 
     read_locals!(debugger => v1, v2, v3, s0, s1, s2, s3, s4, str_array, c_enum, r_enum1, r_enum2, opt, my_str, my_string);
-    let fmt_string = call_debug_fmt(&debugger, &v1).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, v1).unwrap();
     assert_eq!(fmt_string, "[]");
-    let fmt_string = call_debug_fmt(&debugger, &v2).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, v2).unwrap();
     assert_eq!(fmt_string, "[]");
-    let fmt_string = call_debug_fmt(&debugger, &v3).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, v3).unwrap();
     assert_eq!(fmt_string, "[1, 23, 3]");
-    let fmt_string = call_debug_fmt(&debugger, &s0).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, s0).unwrap();
     assert_eq!(fmt_string, "Struct0 { a: 1 }");
-    let fmt_string = call_debug_fmt(&debugger, &s1).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, s1).unwrap();
     assert_eq!(fmt_string, "Struct1 { field1: 1, field2: 3 }");
-    let fmt_string = call_debug_fmt(&debugger, &s2).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, s2).unwrap();
     assert_eq!(fmt_string, "Struct1 { field1: 1, field2: \"44\" }");
-    let fmt_string = call_debug_fmt(&debugger, &s3).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, s3).unwrap();
     assert_eq!(fmt_string, "Struct2 { field1: \"66\", field2: 55 }");
-    let fmt_string = call_debug_fmt(&debugger, &s4).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, s4).unwrap();
     assert_eq!(fmt_string, "Struct3 { field1: 11, field2: 12 }");
-    let fmt_string = call_debug_fmt(&debugger, &str_array).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, str_array).unwrap();
     assert_eq!(fmt_string, "[\"abc\", \"ef\", \"g\"]");
-    let fmt_string = call_debug_fmt(&debugger, &c_enum).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, c_enum).unwrap();
     assert_eq!(fmt_string, "A");
-    let fmt_string = call_debug_fmt(&debugger, &r_enum1).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, r_enum1).unwrap();
     assert_eq!(fmt_string, "S1(Struct1 { field1: 100, field2: \"100\" })");
-    let fmt_string = call_debug_fmt(&debugger, &r_enum2).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, r_enum2).unwrap();
     assert_eq!(fmt_string, "S2(Struct2 { field1: 1, field2: 2 })");
-    let fmt_string = call_debug_fmt(&debugger, &opt).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, opt).unwrap();
     assert_eq!(fmt_string, "Some(1)");
-    let fmt_string = call_debug_fmt(&debugger, &my_str).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, my_str).unwrap();
     assert_eq!(fmt_string, "\"some str\"");
-    let fmt_string = call_debug_fmt(&debugger, &my_string).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, my_string).unwrap();
     assert_eq!(fmt_string, "\"some string\"");
 
     debugger.continue_debugee().unwrap();
@@ -2921,9 +2921,9 @@ fn test_debug_trait_repr_args() {
     debugger.start_debugee().unwrap();
 
     read_arg_dqe!(debugger, Dqe::Variable(Selector::Any) => arg1, arg2);
-    let fmt_string = call_debug_fmt(&debugger, &arg1).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, arg1).unwrap();
     assert_eq!(fmt_string, "\"one\"");
-    let fmt_string = call_debug_fmt(&debugger, &arg2).unwrap();
+    let fmt_string = call_debug_fmt(&debugger, arg2).unwrap();
     assert_eq!(fmt_string, "[\"two\", \"three\"]");
 
     debugger.continue_debugee().unwrap();

@@ -5,11 +5,11 @@ edition = "2024"
 publish = false
 
 [dependencies]
-axum = { version = "0.7.5", features = ["default"] }
+axum = { version = "0.7.9", features = ["default"] }
 serde = { version = "1.0", features = ["derive"] }
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.48", features = ["full"] }
 tower = { version = "0.4", features = ["util", "timeout"] }
-tower-http = { version = "0.5.0", features = ["add-extension", "trace"] }
+tower-http = { version = "0.5.2", features = ["add-extension", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-uuid = { version = "1.0", features = ["serde", "v4"] }
+uuid = { version = "1.19", features = ["serde", "v4"] }
