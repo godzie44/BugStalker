@@ -1,7 +1,5 @@
 //! DAP session implementation (handlers, state machine, and integration with debugger).
 
-use anyhow::{Context, anyhow};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_ENGINE};
 use crate::debugger;
 use crate::debugger::address::{GlobalAddress, RelocatedAddress};
 use crate::debugger::process::{Child, Installed};
@@ -12,6 +10,8 @@ use crate::oracle::{Oracle, builtin};
 use crate::ui::command::parser::expression as bs_expr;
 use crate::ui::command::parser::watchpoint_at_address;
 use crate::ui::command::watch::WatchpointIdentity;
+use anyhow::{Context, anyhow};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_ENGINE};
 use capstone::prelude::*;
 use chumsky::Parser as _;
 use chumsky::prelude::end;
