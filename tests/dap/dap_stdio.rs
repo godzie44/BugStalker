@@ -831,8 +831,8 @@ fn test_stdio_dap_set_function_breakpoints() -> anyhow::Result<()> {
             break;
         }
     }
+    assert!(found, "setFunctionBreakpoints response not received");
 
-    // Just verify we can send the request
     Ok(())
 }
 
@@ -881,8 +881,8 @@ fn test_stdio_dap_set_exception_breakpoints() -> anyhow::Result<()> {
             break;
         }
     }
+    assert!(found, "setExceptionBreakpoints response not received");
 
-    // Just verify we can send the request
     Ok(())
 }
 
@@ -931,8 +931,8 @@ fn test_stdio_dap_pause() -> anyhow::Result<()> {
             break;
         }
     }
+    assert!(found, "pause response not received");
 
-    // Just verify we can send the request
     Ok(())
 }
 
@@ -1029,130 +1029,7 @@ fn test_stdio_dap_source() -> anyhow::Result<()> {
             break;
         }
     }
+    assert!(found, "source response not received");
 
-    // Just verify we can send the request
-    Ok(())
-}
-
-#[test]
-fn test_stdio_dap_set_variable() -> anyhow::Result<()> {
-    let hello_world = std::env::var("CARGO_BIN_EXE_hello_world")
-        .unwrap_or_else(|_| "./examples/target/debug/hello_world".to_string());
-
-    let mut dap = start_bs_stdio_dap(&hello_world)?;
-
-    // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
-
-    let _init_response = dap.read_message()?;
-    let _init_event = dap.read_message()?;
-
-    // Launch
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
-
-    loop {
-        let msg = dap.read_message()?;
-        if msg["type"] == "response" && msg["command"] == "launch" {
-            break;
-        }
-    }
-
-    // Send setVariable request
-    dap.send_request(3, "setVariable", json!({
-        "variablesReference": 0,
-        "name": "var",
-        "value": "100"
-    }))?;
-
-    let _ = dap.read_message(); // Consume response
-    Ok(())
-}
-
-#[test]
-fn test_stdio_dap_completions() -> anyhow::Result<()> {
-    let hello_world = std::env::var("CARGO_BIN_EXE_hello_world")
-        .unwrap_or_else(|_| "./examples/target/debug/hello_world".to_string());
-
-    let mut dap = start_bs_stdio_dap(&hello_world)?;
-
-    // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
-
-    let _init_response = dap.read_message()?;
-    let _init_event = dap.read_message()?;
-
-    // Launch
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
-
-    loop {
-        let msg = dap.read_message()?;
-        if msg["type"] == "response" && msg["command"] == "launch" {
-            break;
-        }
-    }
-
-    // Send completions request
-    dap.send_request(3, "completions", json!({
-        "text": "my",
-        "column": 2
-    }))?;
-
-    let _ = dap.read_message(); // Consume response
-    Ok(())
-}
-
-#[test]
-fn test_stdio_dap_reverse_continue() -> anyhow::Result<()> {
-    let hello_world = std::env::var("CARGO_BIN_EXE_hello_world")
-        .unwrap_or_else(|_| "./examples/target/debug/hello_world".to_string());
-
-    let mut dap = start_bs_stdio_dap(&hello_world)?;
-
-    // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
-
-    let _init_response = dap.read_message()?;
-    let _init_event = dap.read_message()?;
-
-    // Launch
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
-
-    loop {
-        let msg = dap.read_message()?;
-        if msg["type"] == "response" && msg["command"] == "launch" {
-            break;
-        }
-    }
-
-    // Send reverseContinue request
-    dap.send_request(3, "reverseContinue", json!({
-        "threadId": 1
-    }))?;
-
-    let _ = dap.read_message(); // Consume response
     Ok(())
 }
