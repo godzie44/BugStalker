@@ -1,19 +1,18 @@
 //! DAP stdio transport tests
 //! Tests for DAP in stdio mode (--dap-local)
 
+use libc::{F_GETFL, F_SETFL, O_NONBLOCK, fcntl};
 use serde_json::json;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, Command, Stdio};
 use std::os::unix::io::AsRawFd;
-use libc::{fcntl, F_GETFL, F_SETFL, O_NONBLOCK};
-use std::time::{Duration, Instant};
+use std::process::{Child, Command, Stdio};
 use std::thread;
+use std::time::{Duration, Instant};
 
 /// Start bs in stdio DAP mode and return a connection to it
 fn start_bs_stdio_dap(debugee: &str) -> anyhow::Result<StdioDAP> {
     let mut child = Command::new(
-        std::env::var("CARGO_BIN_EXE_bs")
-            .unwrap_or_else(|_| "./target/debug/bs".to_string()),
+        std::env::var("CARGO_BIN_EXE_bs").unwrap_or_else(|_| "./target/debug/bs".to_string()),
     )
     .arg("--dap-local")
     .arg(debugee)
@@ -22,8 +21,14 @@ fn start_bs_stdio_dap(debugee: &str) -> anyhow::Result<StdioDAP> {
     .stderr(Stdio::null())
     .spawn()?;
 
-    let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("no stdin"))?;
-    let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("no stdin"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("no stdout"))?;
     // Set stdout non-blocking so reads can be polled with timeouts
     let fd = stdout.as_raw_fd();
     unsafe {
@@ -56,8 +61,9 @@ impl StdioDAP {
             let read_n = loop {
                 match self.reader.read_line(&mut line) {
                     Ok(n) => break n,
-                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock
-                        || err.kind() == std::io::ErrorKind::TimedOut =>
+                    Err(err)
+                        if err.kind() == std::io::ErrorKind::WouldBlock
+                            || err.kind() == std::io::ErrorKind::TimedOut =>
                     {
                         if Instant::now() > deadline {
                             return Err(anyhow::anyhow!("Timed out waiting for DAP header"));
@@ -98,8 +104,9 @@ impl StdioDAP {
                 Ok(n) => {
                     offset += n;
                 }
-                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock
-                    || err.kind() == std::io::ErrorKind::TimedOut =>
+                Err(err)
+                    if err.kind() == std::io::ErrorKind::WouldBlock
+                        || err.kind() == std::io::ErrorKind::TimedOut =>
                 {
                     if Instant::now() > deadline {
                         return Err(anyhow::anyhow!("Timed out waiting for DAP body"));
@@ -146,18 +153,22 @@ fn test_stdio_dap_initialize() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Send initialize request
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-        "pathFormat": "path",
-        "linesStartAt1": true,
-        "columnsStartAt1": true,
-        "supportsVariableType": true,
-        "supportsVariablePaging": true,
-        "supportsRunInTerminalRequest": false,
-        "supportsMemoryReferences": true,
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+            "pathFormat": "path",
+            "linesStartAt1": true,
+            "columnsStartAt1": true,
+            "supportsVariableType": true,
+            "supportsVariablePaging": true,
+            "supportsRunInTerminalRequest": false,
+            "supportsMemoryReferences": true,
+        }),
+    )?;
 
     // Receive initialize response
     let response = dap.read_message()?;
@@ -181,24 +192,32 @@ fn test_stdio_dap_launch() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-        "pathFormat": "path",
-        "linesStartAt1": true,
-        "columnsStartAt1": true,
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+            "pathFormat": "path",
+            "linesStartAt1": true,
+            "columnsStartAt1": true,
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Send launch request
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     // Receive launch response (may get output events first)
     let response = loop {
@@ -221,20 +240,32 @@ fn test_stdio_dap_capabilities() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let init_response = dap.read_message()?;
     let _event = dap.read_message()?;
 
     // Check capabilities
     let body = &init_response["body"];
-    assert!(body["supportsConfigurationDoneRequest"].as_bool().unwrap_or(false));
+    assert!(
+        body["supportsConfigurationDoneRequest"]
+            .as_bool()
+            .unwrap_or(false)
+    );
     assert!(body["supportsSetVariable"].as_bool().unwrap_or(false));
-    assert!(body["supportsBreakpointLocationsRequest"].as_bool().unwrap_or(false));
+    assert!(
+        body["supportsBreakpointLocationsRequest"]
+            .as_bool()
+            .unwrap_or(false)
+    );
 
     Ok(())
 }
@@ -247,31 +278,40 @@ fn test_stdio_dap_threads() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize and launch
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     // Read until we get the launch response (skip any events like output)
     let mut response = None;
-    for _ in 0..50 {  // Limit iterations to avoid infinite loops
+    for _ in 0..50 {
+        // Limit iterations to avoid infinite loops
         let msg = dap.read_message()?;
         if msg["type"] == "response" && msg["command"] == "launch" {
             response = Some(msg);
             break;
         }
     }
-    
+
     if response.is_none() {
         // If we timeout getting launch response, just skip this test
         return Ok(());
@@ -290,7 +330,7 @@ fn test_stdio_dap_threads() -> anyhow::Result<()> {
             break;
         }
     }
-    
+
     if !response_found {
         // If threads request not supported, just skip
         return Ok(());
@@ -307,21 +347,29 @@ fn test_stdio_dap_set_breakpoints() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -335,10 +383,14 @@ fn test_stdio_dap_set_breakpoints() -> anyhow::Result<()> {
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     // Set breakpoint
-    dap.send_request(3, "setBreakpoints", json!({
-        "source": { "path": &hello_world },
-        "breakpoints": [{ "line": 5 }],
-    }))?;
+    dap.send_request(
+        3,
+        "setBreakpoints",
+        json!({
+            "source": { "path": &hello_world },
+            "breakpoints": [{ "line": 5 }],
+        }),
+    )?;
 
     let response = loop {
         let msg = dap.read_message()?;
@@ -359,21 +411,29 @@ fn test_stdio_dap_continue() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch with stopOnEntry
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -383,9 +443,13 @@ fn test_stdio_dap_continue() -> anyhow::Result<()> {
     }
 
     // Send continue request for main thread
-    dap.send_request(3, "continue", json!({
-        "threadId": 1,
-    }))?;
+    dap.send_request(
+        3,
+        "continue",
+        json!({
+            "threadId": 1,
+        }),
+    )?;
 
     let response = loop {
         let msg = dap.read_message()?;
@@ -406,21 +470,29 @@ fn test_stdio_dap_next() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch with stopOnEntry
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -430,9 +502,13 @@ fn test_stdio_dap_next() -> anyhow::Result<()> {
     }
 
     // Send next request for main thread
-    dap.send_request(3, "next", json!({
-        "threadId": 1,
-    }))?;
+    dap.send_request(
+        3,
+        "next",
+        json!({
+            "threadId": 1,
+        }),
+    )?;
 
     // Next may not be supported or may fail - just check we get a response
     let mut found = false;
@@ -456,21 +532,29 @@ fn test_stdio_dap_stack_trace() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch with stopOnEntry
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -480,9 +564,13 @@ fn test_stdio_dap_stack_trace() -> anyhow::Result<()> {
     }
 
     // Send stackTrace request for main thread
-    dap.send_request(3, "stackTrace", json!({
-        "threadId": 1,
-    }))?;
+    dap.send_request(
+        3,
+        "stackTrace",
+        json!({
+            "threadId": 1,
+        }),
+    )?;
 
     let response = loop {
         let msg = dap.read_message()?;
@@ -504,21 +592,29 @@ fn test_stdio_dap_scopes() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch with stopOnEntry
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -528,9 +624,13 @@ fn test_stdio_dap_scopes() -> anyhow::Result<()> {
     }
 
     // Send scopes request for frame 0 (assuming it exists)
-    dap.send_request(3, "scopes", json!({
-        "frameId": 0,
-    }))?;
+    dap.send_request(
+        3,
+        "scopes",
+        json!({
+            "frameId": 0,
+        }),
+    )?;
 
     let response = loop {
         let msg = dap.read_message()?;
@@ -551,21 +651,29 @@ fn test_stdio_dap_variables() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch with stopOnEntry
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -575,9 +683,13 @@ fn test_stdio_dap_variables() -> anyhow::Result<()> {
     }
 
     // Send variables request for scope 0 (assuming it exists)
-    dap.send_request(3, "variables", json!({
-        "variablesReference": 0,
-    }))?;
+    dap.send_request(
+        3,
+        "variables",
+        json!({
+            "variablesReference": 0,
+        }),
+    )?;
 
     let response = loop {
         let msg = dap.read_message()?;
@@ -599,21 +711,29 @@ fn test_stdio_dap_evaluate() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch with stopOnEntry
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -623,11 +743,15 @@ fn test_stdio_dap_evaluate() -> anyhow::Result<()> {
     }
 
     // Send evaluate request
-    dap.send_request(3, "evaluate", json!({
-        "expression": "1+1",
-        "frameId": 0,
-        "context": "watch"
-    }))?;
+    dap.send_request(
+        3,
+        "evaluate",
+        json!({
+            "expression": "1+1",
+            "frameId": 0,
+            "context": "watch"
+        }),
+    )?;
 
     let response = loop {
         let msg = dap.read_message()?;
@@ -649,21 +773,29 @@ fn test_stdio_dap_step_in() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch with stopOnEntry
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -673,9 +805,13 @@ fn test_stdio_dap_step_in() -> anyhow::Result<()> {
     }
 
     // Send stepIn request
-    dap.send_request(3, "stepIn", json!({
-        "threadId": 1,
-    }))?;
+    dap.send_request(
+        3,
+        "stepIn",
+        json!({
+            "threadId": 1,
+        }),
+    )?;
 
     // stepIn may not be supported or may fail - just check we get a response
     let mut found = false;
@@ -699,21 +835,29 @@ fn test_stdio_dap_step_out() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch with stopOnEntry
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -723,9 +867,13 @@ fn test_stdio_dap_step_out() -> anyhow::Result<()> {
     }
 
     // Send stepOut request
-    dap.send_request(3, "stepOut", json!({
-        "threadId": 1,
-    }))?;
+    dap.send_request(
+        3,
+        "stepOut",
+        json!({
+            "threadId": 1,
+        }),
+    )?;
 
     // stepOut may not be supported or may fail - just check we get a response
     let mut found = false;
@@ -749,21 +897,29 @@ fn test_stdio_dap_configuration_done() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch with stopOnEntry
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -794,21 +950,29 @@ fn test_stdio_dap_set_function_breakpoints() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -818,9 +982,13 @@ fn test_stdio_dap_set_function_breakpoints() -> anyhow::Result<()> {
     }
 
     // Set function breakpoint
-    dap.send_request(3, "setFunctionBreakpoints", json!({
-        "breakpoints": [{ "name": "main" }],
-    }))?;
+    dap.send_request(
+        3,
+        "setFunctionBreakpoints",
+        json!({
+            "breakpoints": [{ "name": "main" }],
+        }),
+    )?;
 
     // May not be supported but should get a response
     let mut found = false;
@@ -844,21 +1012,29 @@ fn test_stdio_dap_set_exception_breakpoints() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -868,9 +1044,13 @@ fn test_stdio_dap_set_exception_breakpoints() -> anyhow::Result<()> {
     }
 
     // Set exception breakpoints
-    dap.send_request(3, "setExceptionBreakpoints", json!({
-        "filters": ["all"],
-    }))?;
+    dap.send_request(
+        3,
+        "setExceptionBreakpoints",
+        json!({
+            "filters": ["all"],
+        }),
+    )?;
 
     // May not be supported but should get a response
     let mut found = false;
@@ -894,21 +1074,29 @@ fn test_stdio_dap_pause() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch with stopOnEntry
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -918,9 +1106,13 @@ fn test_stdio_dap_pause() -> anyhow::Result<()> {
     }
 
     // Send pause request
-    dap.send_request(3, "pause", json!({
-        "threadId": 1,
-    }))?;
+    dap.send_request(
+        3,
+        "pause",
+        json!({
+            "threadId": 1,
+        }),
+    )?;
 
     // May not be supported but should get a response
     let mut found = false;
@@ -944,21 +1136,29 @@ fn test_stdio_dap_disconnect() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -992,21 +1192,29 @@ fn test_stdio_dap_source() -> anyhow::Result<()> {
     let mut dap = start_bs_stdio_dap(&hello_world)?;
 
     // Initialize
-    dap.send_request(1, "initialize", json!({
-        "clientID": "test",
-        "clientName": "test-client",
-        "adapterID": "bs-dap",
-    }))?;
+    dap.send_request(
+        1,
+        "initialize",
+        json!({
+            "clientID": "test",
+            "clientName": "test-client",
+            "adapterID": "bs-dap",
+        }),
+    )?;
 
     let _init_response = dap.read_message()?;
     let _init_event = dap.read_message()?;
 
     // Launch
-    dap.send_request(2, "launch", json!({
-        "request": "launch",
-        "program": &hello_world,
-        "stopOnEntry": true,
-    }))?;
+    dap.send_request(
+        2,
+        "launch",
+        json!({
+            "request": "launch",
+            "program": &hello_world,
+            "stopOnEntry": true,
+        }),
+    )?;
 
     loop {
         let msg = dap.read_message()?;
@@ -1016,9 +1224,13 @@ fn test_stdio_dap_source() -> anyhow::Result<()> {
     }
 
     // Send source request
-    dap.send_request(3, "source", json!({
-        "source": { "path": &hello_world },
-    }))?;
+    dap.send_request(
+        3,
+        "source",
+        json!({
+            "source": { "path": &hello_world },
+        }),
+    )?;
 
     // May not be supported but should get a response
     let mut found = false;
