@@ -3,7 +3,7 @@
 
 use anyhow::anyhow;
 use serde_json::Value;
-use std::io::{BufRead, BufReader, Read, Write, Stdin, Stdout};
+use std::io::{BufRead, BufReader, Read, Stdin, Stdout, Write};
 use std::net::TcpStream;
 
 /// Trait for DAP message transport (stdio or TCP).

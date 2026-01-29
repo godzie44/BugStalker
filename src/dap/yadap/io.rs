@@ -1,5 +1,5 @@
-use crate::dap::yadap::tracer::FileTracer;
 use crate::dap::transport::DapTransport;
+use crate::dap::yadap::tracer::FileTracer;
 use anyhow::anyhow;
 use serde::Serialize;
 use serde_json::Value;
@@ -116,4 +116,3 @@ impl DapTransport for DapIo {
         Ok(())
     }
 }
-

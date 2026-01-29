@@ -105,7 +105,7 @@ macro_rules! assert_no_proc {
     ($pid:expr) => {
         // Give the system a bit of time for process cleanup
         std::thread::sleep(std::time::Duration::from_millis(100));
-        
+
         let sys = sysinfo::System::new_with_specifics(
             sysinfo::RefreshKind::everything()
                 .without_cpu()
@@ -143,5 +143,8 @@ pub fn wait_for_stop_line(info: &TestInfo, expected_line: u64, max_retries: u32)
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
     }
-    panic!("Timeout waiting for breakpoint at line {}, retries exhausted", expected_line);
+    panic!(
+        "Timeout waiting for breakpoint at line {}, retries exhausted",
+        expected_line
+    );
 }

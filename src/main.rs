@@ -1,8 +1,8 @@
 //! Debugger application entry point.
 
-use bugstalker::debugger::rust;
-use bugstalker::dap::yadap;
 use bugstalker::dap::transport::DapTransport;
+use bugstalker::dap::yadap;
+use bugstalker::debugger::rust;
 use bugstalker::log::LOGGER_SWITCHER;
 use bugstalker::ui;
 use bugstalker::ui::config::{Theme, UIConfig};
@@ -120,8 +120,11 @@ fn main() {
 
     let args = Args::parse();
     ui::config::set(UIConfig::from(&args));
+    fn fun_name(p: &String) -> PathBuf {
+        PathBuf::from(p)
+    }
 
-    rust::Environment::init(args.std_lib_path.as_ref().map(|p| PathBuf::from(p)));
+    rust::Environment::init(args.std_lib_path.as_ref().map(fun_name));
 
     let debugee_src = || {
         if let Some(ref debugee) = args.debugee {
@@ -166,12 +169,13 @@ fn main() {
 fn run_dap_tcp_server(args: &Args, listen_addr: &str) -> anyhow::Result<()> {
     use log::warn;
     use std::net::{SocketAddr, TcpListener};
-    
-    let addr: SocketAddr = listen_addr.parse()
+
+    let addr: SocketAddr = listen_addr
+        .parse()
         .map_err(|_| anyhow::anyhow!("Invalid listen address: {}", listen_addr))?;
-    let listener = TcpListener::bind(addr)
-        .map_err(|e| anyhow::anyhow!("Failed to bind {}: {}", addr, e))?;
-    
+    let listener =
+        TcpListener::bind(addr).map_err(|e| anyhow::anyhow!("Failed to bind {}: {}", addr, e))?;
+
     log::info!(target: "dap", "DAP TCP server listening on {addr}");
 
     let tracer = match &args.dap_log_file {
@@ -221,4 +225,3 @@ fn run_dap_tcp_server(args: &Args, listen_addr: &str) -> anyhow::Result<()> {
     }
     Ok(())
 }
-
