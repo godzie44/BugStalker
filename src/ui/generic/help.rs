@@ -112,6 +112,11 @@ var *some_array[0] - print dereferenced value of some_array[0]
 var (*some_array)[0] - print first element of *some_array
 ";
 
+pub const HELP_VAR_LOCALS_SUBCOMMAND: &str = "\
+\x1b[32;1mvar locals\x1b[0m
+Print current stack frame local variables
+";
+
 pub const HELP_VAR_DEBUG: &str = "\
 \x1b[32;1mvard\x1b[0m
 Show local and global variables using `Debug` trait, supports data queries expressions over variables (see `help dqe`).
@@ -130,6 +135,11 @@ var *some_array[0] - print dereferenced value of some_array[0]
 var (*some_array)[0] - print first element of *some_array
 ";
 
+pub const HELP_VAR_DEBUG_LOCALS_SUBCOMMAND: &str = "\
+\x1b[32;1mvard locals\x1b[0m
+Show current stack frame local variables using `Debug` trait, supports data queries expressions over variables (see `help dqe`).
+";
+
 pub const HELP_ARG: &str = "\
 \x1b[32;1marg\x1b[0m
 Show current stack frame arguments, supports data queries expressions over arguments (see `help dqe`).
@@ -144,6 +154,11 @@ arg some_arg - print argument with name equals to `some_arg`
 arg *some_arg - dereference and print value if `some_arg` is a pointer or RC/ARC
 ";
 
+pub const HELP_ARG_ALL_SUBCOMMAND: &str = "\
+\x1b[32;1marg all\x1b[0m
+Show all current stack frame arguments, supports data queries expressions over arguments (see `help dqe`).
+";
+
 pub const HELP_ARG_DEBUG: &str = "\
 \x1b[32;1margd\x1b[0m
 Show current stack frame arguments using `Debug` trait, supports data queries expressions over arguments (see `help dqe`).
@@ -156,6 +171,11 @@ Examples of usage:
 arg all - print current stack frame local variables
 arg some_arg - print argument with name equals to `some_arg`
 arg *some_arg - dereference and print value if `some_arg` is a pointer or RC/ARC
+";
+
+pub const HELP_ARG_DEBUG_ALL_SUBCOMMAND: &str = "\
+\x1b[32;1margd all\x1b[0m
+Show all arguments using `Debug` trait, supports data queries expressions over arguments (see `help dqe`).
 ";
 
 pub const HELP_BACKTRACE: &str = "\
@@ -173,6 +193,17 @@ thread {id} - {current ip value}
 ...
 ";
 
+pub const HELP_BACKTRACE_ALL_SUBCOMMAND: &str = "\
+\x1b[32;1mbacktrace all\x1b[0m
+Show backtrace for all running threads
+
+Output format:
+thread {id} - {current ip value}
+{current ip value} - {function name} ({function address} + {offset})
+{the address of the instruction in the overlay stack frame} - {function name} ({function address} + {offset})
+...
+";
+
 pub const HELP_FRAME: &str = "\
 \x1b[32;1mf, frame\x1b[0m
 Show current stack frame info or set frame to focus.
@@ -182,8 +213,23 @@ frame info - show current stack frame information (see output explanation)
 frame switch <number> - set frame <number> to focus
 
 Output format:
+
 cfa: {address} -- canonical frame address
 return address: {address} - return address for current stack frame
+";
+
+pub const HELP_FRAME_INFO_SUBCOMMAND: &str = "\
+\x1b[32;1mframe info\x1b[0m
+Show current stack frame information (see output explanation)
+
+Output format:
+cfa: {address} -- canonical frame address
+return address: {address} - return address for current stack frame
+";
+
+pub const HELP_FRAME_SWITCH_SUBCOMMAND: &str = "\
+\x1b[32;1mframe switch <number>\x1b[0m
+Set numbered frame to focus
 ";
 
 pub const HELP_CONTINUE: &str = "\
@@ -236,6 +282,26 @@ all matching functions). Examples:
 - a breakpoint number (only for `remove` subcommand)
 ";
 
+pub const HELP_BREAK_REMOVE_SUBCOMMAND: &str = "\
+\x1b[32;1mbreak remove <location>|<number>\x1b[0m
+Deactivate and delete selected breakpoint
+
+Possible location format:
+- at instruction. Example: break 0x55555555BD30
+- at function start. A function can be defined by its full name (with namespace) 
+or by function name (in case of possible collisions, breakpoints will be set in 
+all matching functions). Examples:
+    * break fn1
+    * break module1::fn1
+- at code line. Example: break hello_world.rs:15
+- a breakpoint number
+";
+
+pub const HELP_BREAK_INFO_SUBCOMMAND: &str = "\
+\x1b[32;1mbreak info\x1b[0m
+Show all breakpoints
+";
+
 pub const HELP_WATCH: &str = "\
 \x1b[32;1mw, watch\x1b[0m
 Manage watchpoints. Note that watchpoints for local variables and watchpoints for global varibales
@@ -257,6 +323,22 @@ Examples:
 * watch arr[2] - set watchpoint to 2nd element of variable `arr`
 ";
 
+pub const HELP_WATCH_REMOVE_SUBCOMMAND: &str = "\
+\x1b[32;1mwatch remove <addr:size>|<expression>|<number>\x1b[0m
+Deactivate and delete selected watchpoint
+
+Examples:
+* watch remove 0x00000004:4 - deactivate and delete watchpoint from memory region [0x0..04:0x0..07]
+* watch remove var1 - deactivate and delete watchpoint from variable `var1`
+* watch remove struct1.field1 - deactivate and delete watchpoint from `field1` of variable `struct1`
+* watch remove arr[2] - deactivate and delete watchpoint from 2nd element of variable `arr`
+";
+
+pub const HELP_WATCH_INFO_SUBCOMMAND: &str = "\
+\x1b[32;1mwatch info\x1b[0m
+Show all watchpoints
+";
+
 pub const HELP_SYMBOL: &str = "\
 \x1b[32;1msymbol\x1b[0m
 Print symbols matched by regular expression.
@@ -275,6 +357,18 @@ memory write <address> <value> - writes 8-byte value to address in debuggee memo
 Note that little endian byte order will be used when writing, so the last byte of <value> will be written at the first byte of the address
 ";
 
+pub const HELP_MEMORY_READ_SUBCOMMAND: &str = "\
+\x1b[32;1mmemory read <address>\x1b[0m
+Print 8-byte block at address in debuggee memory
+Note that little endian byte order will be used when writing, so the last byte of <value> will be written at the first byte of the address
+";
+
+pub const HELP_MEMORY_WRITE_SUBCOMMAND: &str = "\
+\x1b[32;1mmemory write <address> <value>\x1b[0m
+Writes 8-byte value to address in debuggee memory. 
+Note that little endian byte order will be used when writing, so the last byte of <value> will be written at the first byte of the address
+";
+
 pub const HELP_REGISTER: &str = "\
 \x1b[32;1mreg, register\x1b[0m
 Read, write, or view debugged program registers (x86_64 registers support).
@@ -283,6 +377,23 @@ Available subcommands:
 register read <reg_name> - print value of register by name (x86_64 register name in lowercase)
 register write <reg_name> <value> - set new value to register by name
 register info - print list of registers with it values
+";
+
+pub const HELP_REGISTER_READ_SUBCOMMAND: &str = "\
+\x1b[32;1mregister read <reg_name>\x1b[0m
+Read debugged program registers (x86_64 registers support).
+(x86_64 register name in lowercase)
+";
+
+pub const HELP_REGISTER_WRITE_SUBCOMMAND: &str = "\
+\x1b[32;1mregister write <reg_name> <value>\x1b[0m
+Write debugged program registers (x86_64 registers support).
+(x86_64 register name in lowercase)
+";
+
+pub const HELP_REGISTER_INFO_SUBCOMMAND: &str = "\
+\x1b[32;1mregister info\x1b[0m
+Print debugged program registers with it values (x86_64 registers support).
 ";
 
 pub const HELP_THREAD: &str = "\
@@ -295,12 +406,32 @@ thread current - prints thread that has focus
 thread switch <number> - set thread <number> to focus
 ";
 
+pub const HELP_THREAD_INFO_SUBCOMMAND: &str = "\
+\x1b[32;1mthread info\x1b[0m
+Shows threads information.
+";
+
+pub const HELP_THREAD_CURRENT_SUBCOMMAND: &str = "\
+\x1b[32;1mthread current\x1b[0m
+Prints thread that has focus.
+";
+
+pub const HELP_THREAD_SWITCH_SUBCOMMAND: &str = "\
+\x1b[32;1mthread switch <number>\x1b[0m
+Set thread to focus.
+";
+
 pub const HELP_SHARED_LIB: &str = "\
 \x1b[32;1msharedlib\x1b[0m
 Show shared libraries information.
 
 Available subcommands:
 sharedlib info - print list of loaded shared libraries and their mapping addresses
+";
+
+pub const HELP_SHARED_LIB_INFO_SUBCOMMAND: &str = "\
+\x1b[32;1msharedlib info\x1b[0m
+Prints list of loaded shared libraries and their mapping addresses
 ";
 
 pub const HELP_SOURCE: &str = "\
@@ -311,6 +442,16 @@ Available subcommands:
 source fn - show code of function in focus 
 source asm - show assembly of function in focus 
 source <bounds> - show line in focus with <bounds> lines up and down of this line
+";
+
+pub const HELP_SOURCE_FN_SUBCOMMAND: &str = "\
+\x1b[32;1msource fn\x1b[0m
+Shows code of function in focus.
+";
+
+pub const HELP_SOURCE_ASM_SUBCOMMAND: &str = "\
+\x1b[32;1msource asm\x1b[0m
+Shows assembly of function in focus.
 ";
 
 pub const HELP_ASYNC: &str = "\
@@ -326,6 +467,31 @@ async next, async stepover - perform a stepover within the context of the curren
 async finish, async stepout - execute the program until the current task moves into the completed state
 ";
 
+pub const HELP_ASYNC_BACKTRACE_SUBCOMMAND: &str = "\
+\x1b[32;1masync backtrace\x1b[0m
+Show state of async workers and blocking threads (currently for tokio runtime only).
+
+Available subcommands:
+async backtrace all - show info about all running tasks 
+";
+
+pub const HELP_ASYNC_TASK_SUBCOMMAND: &str = "\
+\x1b[32;1masync task <async_fn_regex>\x1b[0m
+Show active task (active task means a task that is running on the thread that is currently in focus) if `async_fn_regex` parameter is empty,
+or show task list with async functions matched by regular expression (currently for tokio runtime only).
+";
+
+pub const HELP_ASYNC_NEXT_STEPOVER_SUBCOMMANDS: &str = "\
+\x1b[32;1masync next, async stepover\x1b[0m
+Perform a stepover within the context of the current task. If the task moves into a completed state,
+the application will stop too (currently for tokio runtime only).
+";
+
+pub const HELP_ASYNC_FINISH_STEPOUT_SUBCOMMANDS: &str = "\
+\x1b[32;1masync finish, async stepout\x1b[0m
+Execute the program until the current task moves into the completed state (currently for tokio runtime only).
+";
+
 pub const HELP_TRIGGER: &str = "\
 \x1b[32;1mtrigger\x1b[0m
 Define a list of commands that will be executed when a certain event is triggered (at a breakpoint or watchpoint hit).
@@ -336,6 +502,26 @@ trigger - define a list of commands that will be executed when a previously defi
 trigger b <number> - define a list of commands that will be executed when the given breakpoint is hit
 trigger w <number> - define a list of commands that will be executed when the given watchpoint is hit
 trigger info - show the list of triggers
+";
+
+pub const HELP_TRIGGER_ANY_SUBCOMMAND: &str = "\
+\x1b[32;1mtrigger any\x1b[0m
+Define a list of commands that will be executed when any breakpoint or watchpoint is hit
+";
+
+pub const HELP_TRIGGER_BRAKEPOINT_SUBCOMMAND: &str = "\
+\x1b[32;1mtrigger b <number>\x1b[0m
+Define a list of commands that will be executed when the given breakpoint is hit
+";
+
+pub const HELP_TRIGGER_WATCHPOINT_SUBCOMMAND: &str = "\
+\x1b[32;1mtrigger w <number>\x1b[0m
+Define a list of commands that will be executed when the given watchpoint is hit
+";
+
+pub const HELP_TRIGGER_INFO_SUBCOMMAND: &str = "\
+\x1b[32;1mtrigger info\x1b[0m
+Shows the list of triggers
 ";
 
 pub const HELP_CALL: &str = "\
@@ -373,6 +559,9 @@ pub const HELP_QUIT: &str = "\
 Exit the BugStalker, kill debugee before it.
 ";
 
+pub const HELP_UNKNOWN_SUBCOMMAND: &str = "\
+Unknown subcommand";
+
 #[derive(Default)]
 pub struct Helper {
     oracle_help: Option<String>,
@@ -389,18 +578,61 @@ impl Helper {
     }
 
     pub fn help_for_command(&self, command: Option<&str>) -> &str {
-        match command {
+        let (main_command, sub_command) = match command {
+            None => (None, None),
+            Some(s) => {
+                let mut parts = s.split_whitespace();
+                let main = parts.next();
+                let sub = parts.next();
+                (main, sub)
+            }
+        };
+
+        match main_command {
             None => HELP,
             Some("dqe") => DQE_DESCRIPTION,
             Some("dqe literal") => DQE_LITERAL_DESCRIPTION,
-            Some(parser::VAR_COMMAND) => HELP_VAR,
-            Some(parser::ARG_COMMAND) => HELP_ARG,
-            Some(parser::VAR_DEBUG_COMMAND) => HELP_VAR_DEBUG,
-            Some(parser::ARG_DEBUG_COMMAND) => HELP_ARG_DEBUG,
-            Some(parser::BACKTRACE_COMMAND) | Some(parser::BACKTRACE_COMMAND_SHORT) => {
-                HELP_BACKTRACE
+            Some(parser::VAR_COMMAND) => {
+                match sub_command {
+                    None => HELP_VAR,
+                    Some(parser::VAR_LOCAL_KEY) => HELP_VAR_LOCALS_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
             }
-            Some(parser::FRAME_COMMAND) | Some(parser::FRAME_COMMAND_SHORT) => HELP_FRAME,
+            Some(parser::ARG_COMMAND) => {
+                match sub_command {
+                    None => HELP_ARG,
+                    Some(parser::ARG_ALL_KEY) => HELP_ARG_ALL_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
+            }
+            Some(parser::VAR_DEBUG_COMMAND) => {
+                match sub_command {
+                    None => HELP_VAR_DEBUG,
+                    Some(parser::VAR_LOCAL_KEY) => HELP_VAR_DEBUG_LOCALS_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
+            }
+            Some(parser::ARG_DEBUG_COMMAND) => {
+                match sub_command {
+                    None => HELP_ARG_DEBUG,
+                    Some(parser::ARG_ALL_KEY) => HELP_ARG_DEBUG_ALL_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
+            }
+            Some(parser::BACKTRACE_COMMAND) | Some(parser::BACKTRACE_COMMAND_SHORT) =>
+                match sub_command {
+                    None => HELP_BACKTRACE,
+                    Some(parser::BACKTRACE_ALL_SUBCOMMAND) => HELP_BACKTRACE_ALL_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
+            Some(parser::FRAME_COMMAND) | Some(parser::FRAME_COMMAND_SHORT) =>
+                match sub_command {
+                    None => HELP_FRAME,
+                    Some(parser::FRAME_COMMAND_INFO_SUBCOMMAND) => HELP_FRAME_INFO_SUBCOMMAND,
+                    Some(parser::FRAME_COMMAND_SWITCH_SUBCOMMAND) => HELP_FRAME_SWITCH_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
             Some(parser::CONTINUE_COMMAND) | Some(parser::CONTINUE_COMMAND_SHORT) => HELP_CONTINUE,
             Some(parser::RUN_COMMAND) | Some(parser::RUN_COMMAND_SHORT) => HELP_RUN,
             Some(parser::STEP_INSTRUCTION_COMMAND) => HELP_STEPI,
@@ -411,16 +643,87 @@ impl Helper {
             Some(parser::STEP_OVER_COMMAND) | Some(parser::STEP_OVER_COMMAND_SHORT) => {
                 HELP_STEPOVER
             }
-            Some(parser::BREAK_COMMAND) | Some(parser::BREAK_COMMAND_SHORT) => HELP_BREAK,
-            Some(parser::WATCH_COMMAND) | Some(parser::WATCH_COMMAND_SHORT) => HELP_WATCH,
+            Some(parser::BREAK_COMMAND) | Some(parser::BREAK_COMMAND_SHORT) =>
+                match sub_command {
+                    None => HELP_BREAK,
+                    Some(parser::BREAK_REMOVE_SUBCOMMAND) | Some(parser::BREAK_REMOVE_SUBCOMMAND_SHORT) => HELP_BREAK_REMOVE_SUBCOMMAND,
+                    Some(parser::BREAK_INFO_SUBCOMMAND) => HELP_BREAK_INFO_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
+            Some(parser::WATCH_COMMAND) | Some(parser::WATCH_COMMAND_SHORT) =>
+                match sub_command {
+                    None => HELP_WATCH,
+                    Some(parser::WATCH_REMOVE_SUBCOMMAND) | Some(parser::WATCH_REMOVE_SUBCOMMAND_SHORT) => HELP_WATCH_REMOVE_SUBCOMMAND,
+                    Some(parser::WATCH_INFO_SUBCOMMAND) => HELP_WATCH_INFO_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
             Some(parser::SYMBOL_COMMAND) => HELP_SYMBOL,
-            Some(parser::MEMORY_COMMAND) | Some(parser::MEMORY_COMMAND_SHORT) => HELP_MEMORY,
-            Some(parser::REGISTER_COMMAND) | Some(parser::REGISTER_COMMAND_SHORT) => HELP_REGISTER,
-            Some(parser::THREAD_COMMAND) => HELP_THREAD,
-            Some(parser::SHARED_LIB_COMMAND) => HELP_SHARED_LIB,
-            Some(parser::SOURCE_COMMAND) => HELP_SOURCE,
-            Some(parser::ASYNC_COMMAND) => HELP_ASYNC,
-            Some(parser::TRIGGER_COMMAND) => HELP_TRIGGER,
+            Some(parser::MEMORY_COMMAND) | Some(parser::MEMORY_COMMAND_SHORT) => {
+                match sub_command {
+                    None => HELP_MEMORY,
+                    Some(parser::MEMORY_COMMAND_READ_SUBCOMMAND) => HELP_MEMORY_READ_SUBCOMMAND,
+                    Some(parser::MEMORY_COMMAND_WRITE_SUBCOMMAND) => HELP_MEMORY_WRITE_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
+            }
+            Some(parser::REGISTER_COMMAND) | Some(parser::REGISTER_COMMAND_SHORT) => {
+                match sub_command {
+                    None => HELP_REGISTER,
+                    Some(parser::REGISTER_COMMAND_READ_SUBCOMMAND) => HELP_REGISTER_READ_SUBCOMMAND,
+                    Some(parser::REGISTER_COMMAND_WRITE_SUBCOMMAND) => HELP_REGISTER_WRITE_SUBCOMMAND,
+                    Some(parser::REGISTER_COMMAND_INFO_SUBCOMMAND) => HELP_REGISTER_INFO_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
+            }
+            Some(parser::THREAD_COMMAND) => {
+                match sub_command {
+                    None => HELP_THREAD,
+                    Some(parser::THREAD_COMMAND_CURRENT_SUBCOMMAND) => HELP_THREAD_CURRENT_SUBCOMMAND,
+                    Some(parser::THREAD_COMMAND_INFO_SUBCOMMAND) => HELP_THREAD_INFO_SUBCOMMAND,
+                    Some(parser::THREAD_COMMAND_SWITCH_SUBCOMMAND) => HELP_THREAD_SWITCH_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
+            }
+            Some(parser::SHARED_LIB_COMMAND) => {
+                match sub_command {
+                    None => HELP_SHARED_LIB,
+                    Some(parser::SHARED_LIB_COMMAND_INFO_SUBCOMMAND) => HELP_SHARED_LIB_INFO_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
+            }
+            Some(parser::SOURCE_COMMAND) => {
+                match sub_command {
+                    None => HELP_SOURCE,
+                    Some(parser::SOURCE_COMMAND_FUNCTION_SUBCOMMAND) => HELP_SOURCE_FN_SUBCOMMAND,
+                    Some(parser::SOURCE_COMMAND_DISASM_SUBCOMMAND) => HELP_SOURCE_ASM_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
+            }
+            Some(parser::ASYNC_COMMAND) => {
+                match sub_command {
+                    None => HELP_ASYNC,
+                    Some(parser::ASYNC_COMMAND_BACKTRACE_SUBCOMMAND) | Some(parser::ASYNC_COMMAND_BACKTRACE_SUBCOMMAND_SHORT) => {
+                        HELP_ASYNC_BACKTRACE_SUBCOMMAND
+                    }
+                    Some(parser::ASYNC_COMMAND_STEP_OUT_SUBCOMMAND) | Some(parser::ASYNC_COMMAND_STEP_OUT_SUBCOMMAND_SHORT) => {
+                        HELP_ASYNC_FINISH_STEPOUT_SUBCOMMANDS
+                    }
+                    Some(parser::ASYNC_COMMAND_STEP_OVER_SUBCOMMAND) | Some(parser::ASYNC_COMMAND_STEP_OVER_SUBCOMMAND_SHORT) => {
+                        HELP_ASYNC_NEXT_STEPOVER_SUBCOMMANDS
+                    }
+                    Some(parser::ASYNC_COMMAND_TASK_SUBCOMMAND) => HELP_ASYNC_TASK_SUBCOMMAND,
+                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                }
+            }
+            Some(parser::TRIGGER_COMMAND) => {
+                match sub_command {
+                    Some(parser::TRIGGER_COMMAND_ANY_TRIGGER_SUBCOMMAND) => HELP_TRIGGER_ANY_SUBCOMMAND,
+                    Some(parser::TRIGGER_COMMAND_BRKPT_TRIGGER_SUBCOMMAND) => HELP_TRIGGER_BRAKEPOINT_SUBCOMMAND,
+                    Some(parser::TRIGGER_COMMAND_WP_TRIGGER_SUBCOMMAND) => HELP_TRIGGER_WATCHPOINT_SUBCOMMAND,
+                    Some(parser::TRIGGER_COMMAND_INFO_SUBCOMMAND) => HELP_TRIGGER_INFO_SUBCOMMAND,
+                    _ => HELP_TRIGGER
+                }
+            }
             Some(parser::CALL_COMMAND) => HELP_CALL,
             Some(parser::ORACLE_COMMAND) => self.oracle_help.as_deref().unwrap_or(HELP_ORACLE),
             Some("tui") => HELP_TUI,
