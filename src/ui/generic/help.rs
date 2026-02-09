@@ -592,47 +592,39 @@ impl Helper {
             None => HELP,
             Some("dqe") => DQE_DESCRIPTION,
             Some("dqe literal") => DQE_LITERAL_DESCRIPTION,
-            Some(parser::VAR_COMMAND) => {
-                match sub_command {
-                    None => HELP_VAR,
-                    Some(parser::VAR_LOCAL_KEY) => HELP_VAR_LOCALS_SUBCOMMAND,
-                    _ => HELP_UNKNOWN_SUBCOMMAND,
-                }
-            }
-            Some(parser::ARG_COMMAND) => {
-                match sub_command {
-                    None => HELP_ARG,
-                    Some(parser::ARG_ALL_KEY) => HELP_ARG_ALL_SUBCOMMAND,
-                    _ => HELP_UNKNOWN_SUBCOMMAND,
-                }
-            }
-            Some(parser::VAR_DEBUG_COMMAND) => {
-                match sub_command {
-                    None => HELP_VAR_DEBUG,
-                    Some(parser::VAR_LOCAL_KEY) => HELP_VAR_DEBUG_LOCALS_SUBCOMMAND,
-                    _ => HELP_UNKNOWN_SUBCOMMAND,
-                }
-            }
-            Some(parser::ARG_DEBUG_COMMAND) => {
-                match sub_command {
-                    None => HELP_ARG_DEBUG,
-                    Some(parser::ARG_ALL_KEY) => HELP_ARG_DEBUG_ALL_SUBCOMMAND,
-                    _ => HELP_UNKNOWN_SUBCOMMAND,
-                }
-            }
-            Some(parser::BACKTRACE_COMMAND) | Some(parser::BACKTRACE_COMMAND_SHORT) =>
+            Some(parser::VAR_COMMAND) => match sub_command {
+                None => HELP_VAR,
+                Some(parser::VAR_LOCAL_KEY) => HELP_VAR_LOCALS_SUBCOMMAND,
+                _ => HELP_UNKNOWN_SUBCOMMAND,
+            },
+            Some(parser::ARG_COMMAND) => match sub_command {
+                None => HELP_ARG,
+                Some(parser::ARG_ALL_KEY) => HELP_ARG_ALL_SUBCOMMAND,
+                _ => HELP_UNKNOWN_SUBCOMMAND,
+            },
+            Some(parser::VAR_DEBUG_COMMAND) => match sub_command {
+                None => HELP_VAR_DEBUG,
+                Some(parser::VAR_LOCAL_KEY) => HELP_VAR_DEBUG_LOCALS_SUBCOMMAND,
+                _ => HELP_UNKNOWN_SUBCOMMAND,
+            },
+            Some(parser::ARG_DEBUG_COMMAND) => match sub_command {
+                None => HELP_ARG_DEBUG,
+                Some(parser::ARG_ALL_KEY) => HELP_ARG_DEBUG_ALL_SUBCOMMAND,
+                _ => HELP_UNKNOWN_SUBCOMMAND,
+            },
+            Some(parser::BACKTRACE_COMMAND) | Some(parser::BACKTRACE_COMMAND_SHORT) => {
                 match sub_command {
                     None => HELP_BACKTRACE,
                     Some(parser::BACKTRACE_ALL_SUBCOMMAND) => HELP_BACKTRACE_ALL_SUBCOMMAND,
                     _ => HELP_UNKNOWN_SUBCOMMAND,
                 }
-            Some(parser::FRAME_COMMAND) | Some(parser::FRAME_COMMAND_SHORT) =>
-                match sub_command {
-                    None => HELP_FRAME,
-                    Some(parser::FRAME_COMMAND_INFO_SUBCOMMAND) => HELP_FRAME_INFO_SUBCOMMAND,
-                    Some(parser::FRAME_COMMAND_SWITCH_SUBCOMMAND) => HELP_FRAME_SWITCH_SUBCOMMAND,
-                    _ => HELP_UNKNOWN_SUBCOMMAND,
-                }
+            }
+            Some(parser::FRAME_COMMAND) | Some(parser::FRAME_COMMAND_SHORT) => match sub_command {
+                None => HELP_FRAME,
+                Some(parser::FRAME_COMMAND_INFO_SUBCOMMAND) => HELP_FRAME_INFO_SUBCOMMAND,
+                Some(parser::FRAME_COMMAND_SWITCH_SUBCOMMAND) => HELP_FRAME_SWITCH_SUBCOMMAND,
+                _ => HELP_UNKNOWN_SUBCOMMAND,
+            },
             Some(parser::CONTINUE_COMMAND) | Some(parser::CONTINUE_COMMAND_SHORT) => HELP_CONTINUE,
             Some(parser::RUN_COMMAND) | Some(parser::RUN_COMMAND_SHORT) => HELP_RUN,
             Some(parser::STEP_INSTRUCTION_COMMAND) => HELP_STEPI,
@@ -643,20 +635,20 @@ impl Helper {
             Some(parser::STEP_OVER_COMMAND) | Some(parser::STEP_OVER_COMMAND_SHORT) => {
                 HELP_STEPOVER
             }
-            Some(parser::BREAK_COMMAND) | Some(parser::BREAK_COMMAND_SHORT) =>
-                match sub_command {
-                    None => HELP_BREAK,
-                    Some(parser::BREAK_REMOVE_SUBCOMMAND) | Some(parser::BREAK_REMOVE_SUBCOMMAND_SHORT) => HELP_BREAK_REMOVE_SUBCOMMAND,
-                    Some(parser::BREAK_INFO_SUBCOMMAND) => HELP_BREAK_INFO_SUBCOMMAND,
-                    _ => HELP_UNKNOWN_SUBCOMMAND,
-                }
-            Some(parser::WATCH_COMMAND) | Some(parser::WATCH_COMMAND_SHORT) =>
-                match sub_command {
-                    None => HELP_WATCH,
-                    Some(parser::WATCH_REMOVE_SUBCOMMAND) | Some(parser::WATCH_REMOVE_SUBCOMMAND_SHORT) => HELP_WATCH_REMOVE_SUBCOMMAND,
-                    Some(parser::WATCH_INFO_SUBCOMMAND) => HELP_WATCH_INFO_SUBCOMMAND,
-                    _ => HELP_UNKNOWN_SUBCOMMAND,
-                }
+            Some(parser::BREAK_COMMAND) | Some(parser::BREAK_COMMAND_SHORT) => match sub_command {
+                None => HELP_BREAK,
+                Some(parser::BREAK_REMOVE_SUBCOMMAND)
+                | Some(parser::BREAK_REMOVE_SUBCOMMAND_SHORT) => HELP_BREAK_REMOVE_SUBCOMMAND,
+                Some(parser::BREAK_INFO_SUBCOMMAND) => HELP_BREAK_INFO_SUBCOMMAND,
+                _ => HELP_UNKNOWN_SUBCOMMAND,
+            },
+            Some(parser::WATCH_COMMAND) | Some(parser::WATCH_COMMAND_SHORT) => match sub_command {
+                None => HELP_WATCH,
+                Some(parser::WATCH_REMOVE_SUBCOMMAND)
+                | Some(parser::WATCH_REMOVE_SUBCOMMAND_SHORT) => HELP_WATCH_REMOVE_SUBCOMMAND,
+                Some(parser::WATCH_INFO_SUBCOMMAND) => HELP_WATCH_INFO_SUBCOMMAND,
+                _ => HELP_UNKNOWN_SUBCOMMAND,
+            },
             Some(parser::SYMBOL_COMMAND) => HELP_SYMBOL,
             Some(parser::MEMORY_COMMAND) | Some(parser::MEMORY_COMMAND_SHORT) => {
                 match sub_command {
@@ -670,60 +662,59 @@ impl Helper {
                 match sub_command {
                     None => HELP_REGISTER,
                     Some(parser::REGISTER_COMMAND_READ_SUBCOMMAND) => HELP_REGISTER_READ_SUBCOMMAND,
-                    Some(parser::REGISTER_COMMAND_WRITE_SUBCOMMAND) => HELP_REGISTER_WRITE_SUBCOMMAND,
+                    Some(parser::REGISTER_COMMAND_WRITE_SUBCOMMAND) => {
+                        HELP_REGISTER_WRITE_SUBCOMMAND
+                    }
                     Some(parser::REGISTER_COMMAND_INFO_SUBCOMMAND) => HELP_REGISTER_INFO_SUBCOMMAND,
                     _ => HELP_UNKNOWN_SUBCOMMAND,
                 }
             }
-            Some(parser::THREAD_COMMAND) => {
-                match sub_command {
-                    None => HELP_THREAD,
-                    Some(parser::THREAD_COMMAND_CURRENT_SUBCOMMAND) => HELP_THREAD_CURRENT_SUBCOMMAND,
-                    Some(parser::THREAD_COMMAND_INFO_SUBCOMMAND) => HELP_THREAD_INFO_SUBCOMMAND,
-                    Some(parser::THREAD_COMMAND_SWITCH_SUBCOMMAND) => HELP_THREAD_SWITCH_SUBCOMMAND,
-                    _ => HELP_UNKNOWN_SUBCOMMAND,
+            Some(parser::THREAD_COMMAND) => match sub_command {
+                None => HELP_THREAD,
+                Some(parser::THREAD_COMMAND_CURRENT_SUBCOMMAND) => HELP_THREAD_CURRENT_SUBCOMMAND,
+                Some(parser::THREAD_COMMAND_INFO_SUBCOMMAND) => HELP_THREAD_INFO_SUBCOMMAND,
+                Some(parser::THREAD_COMMAND_SWITCH_SUBCOMMAND) => HELP_THREAD_SWITCH_SUBCOMMAND,
+                _ => HELP_UNKNOWN_SUBCOMMAND,
+            },
+            Some(parser::SHARED_LIB_COMMAND) => match sub_command {
+                None => HELP_SHARED_LIB,
+                Some(parser::SHARED_LIB_COMMAND_INFO_SUBCOMMAND) => HELP_SHARED_LIB_INFO_SUBCOMMAND,
+                _ => HELP_UNKNOWN_SUBCOMMAND,
+            },
+            Some(parser::SOURCE_COMMAND) => match sub_command {
+                None => HELP_SOURCE,
+                Some(parser::SOURCE_COMMAND_FUNCTION_SUBCOMMAND) => HELP_SOURCE_FN_SUBCOMMAND,
+                Some(parser::SOURCE_COMMAND_DISASM_SUBCOMMAND) => HELP_SOURCE_ASM_SUBCOMMAND,
+                _ => HELP_UNKNOWN_SUBCOMMAND,
+            },
+            Some(parser::ASYNC_COMMAND) => match sub_command {
+                None => HELP_ASYNC,
+                Some(parser::ASYNC_COMMAND_BACKTRACE_SUBCOMMAND)
+                | Some(parser::ASYNC_COMMAND_BACKTRACE_SUBCOMMAND_SHORT) => {
+                    HELP_ASYNC_BACKTRACE_SUBCOMMAND
                 }
-            }
-            Some(parser::SHARED_LIB_COMMAND) => {
-                match sub_command {
-                    None => HELP_SHARED_LIB,
-                    Some(parser::SHARED_LIB_COMMAND_INFO_SUBCOMMAND) => HELP_SHARED_LIB_INFO_SUBCOMMAND,
-                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                Some(parser::ASYNC_COMMAND_STEP_OUT_SUBCOMMAND)
+                | Some(parser::ASYNC_COMMAND_STEP_OUT_SUBCOMMAND_SHORT) => {
+                    HELP_ASYNC_FINISH_STEPOUT_SUBCOMMANDS
                 }
-            }
-            Some(parser::SOURCE_COMMAND) => {
-                match sub_command {
-                    None => HELP_SOURCE,
-                    Some(parser::SOURCE_COMMAND_FUNCTION_SUBCOMMAND) => HELP_SOURCE_FN_SUBCOMMAND,
-                    Some(parser::SOURCE_COMMAND_DISASM_SUBCOMMAND) => HELP_SOURCE_ASM_SUBCOMMAND,
-                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                Some(parser::ASYNC_COMMAND_STEP_OVER_SUBCOMMAND)
+                | Some(parser::ASYNC_COMMAND_STEP_OVER_SUBCOMMAND_SHORT) => {
+                    HELP_ASYNC_NEXT_STEPOVER_SUBCOMMANDS
                 }
-            }
-            Some(parser::ASYNC_COMMAND) => {
-                match sub_command {
-                    None => HELP_ASYNC,
-                    Some(parser::ASYNC_COMMAND_BACKTRACE_SUBCOMMAND) | Some(parser::ASYNC_COMMAND_BACKTRACE_SUBCOMMAND_SHORT) => {
-                        HELP_ASYNC_BACKTRACE_SUBCOMMAND
-                    }
-                    Some(parser::ASYNC_COMMAND_STEP_OUT_SUBCOMMAND) | Some(parser::ASYNC_COMMAND_STEP_OUT_SUBCOMMAND_SHORT) => {
-                        HELP_ASYNC_FINISH_STEPOUT_SUBCOMMANDS
-                    }
-                    Some(parser::ASYNC_COMMAND_STEP_OVER_SUBCOMMAND) | Some(parser::ASYNC_COMMAND_STEP_OVER_SUBCOMMAND_SHORT) => {
-                        HELP_ASYNC_NEXT_STEPOVER_SUBCOMMANDS
-                    }
-                    Some(parser::ASYNC_COMMAND_TASK_SUBCOMMAND) => HELP_ASYNC_TASK_SUBCOMMAND,
-                    _ => HELP_UNKNOWN_SUBCOMMAND,
+                Some(parser::ASYNC_COMMAND_TASK_SUBCOMMAND) => HELP_ASYNC_TASK_SUBCOMMAND,
+                _ => HELP_UNKNOWN_SUBCOMMAND,
+            },
+            Some(parser::TRIGGER_COMMAND) => match sub_command {
+                Some(parser::TRIGGER_COMMAND_ANY_TRIGGER_SUBCOMMAND) => HELP_TRIGGER_ANY_SUBCOMMAND,
+                Some(parser::TRIGGER_COMMAND_BRKPT_TRIGGER_SUBCOMMAND) => {
+                    HELP_TRIGGER_BRAKEPOINT_SUBCOMMAND
                 }
-            }
-            Some(parser::TRIGGER_COMMAND) => {
-                match sub_command {
-                    Some(parser::TRIGGER_COMMAND_ANY_TRIGGER_SUBCOMMAND) => HELP_TRIGGER_ANY_SUBCOMMAND,
-                    Some(parser::TRIGGER_COMMAND_BRKPT_TRIGGER_SUBCOMMAND) => HELP_TRIGGER_BRAKEPOINT_SUBCOMMAND,
-                    Some(parser::TRIGGER_COMMAND_WP_TRIGGER_SUBCOMMAND) => HELP_TRIGGER_WATCHPOINT_SUBCOMMAND,
-                    Some(parser::TRIGGER_COMMAND_INFO_SUBCOMMAND) => HELP_TRIGGER_INFO_SUBCOMMAND,
-                    _ => HELP_TRIGGER
+                Some(parser::TRIGGER_COMMAND_WP_TRIGGER_SUBCOMMAND) => {
+                    HELP_TRIGGER_WATCHPOINT_SUBCOMMAND
                 }
-            }
+                Some(parser::TRIGGER_COMMAND_INFO_SUBCOMMAND) => HELP_TRIGGER_INFO_SUBCOMMAND,
+                _ => HELP_TRIGGER,
+            },
             Some(parser::CALL_COMMAND) => HELP_CALL,
             Some(parser::ORACLE_COMMAND) => self.oracle_help.as_deref().unwrap_or(HELP_ORACLE),
             Some("tui") => HELP_TUI,
