@@ -2,6 +2,10 @@ on: [push, pull_request]
 
 name: CI
 
+env:
+  MSRV: 1.89.0
+  LRV: 1.93.0
+
 jobs:
   test:
     strategy:
@@ -14,22 +18,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install libc6-dbg
-      - name: Install rustc for test applications
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: ${{ matrix.rustc_sup_version }}
-          override: true
-          components: rustfmt, clippy
+      - name: Install rust toolchain
+        run: |
+          rustup toolchain install ${{ matrix.rustc_sup_version }}
+          rustup toolchain install $MSRV
       - name: Build test applications for functional testing
         run: make build-examples-for-func-test RUST_VERSION=${{ matrix.rustc_sup_version }}
-      - name: Verify msrv
-        run: "grep '^rust-version = .1.89.0.' Cargo.toml"
-      - name: Install actual rustc
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: 1.89.0
-          override: true
-          components: rustfmt, clippy
+      - name: Verify test applications rustc version
+        run: |
+          strings examples/target/debug/calc | grep "^rustc version" | grep ${{ matrix.rustc_sup_version }}
       - name: Run functional tests
         uses: actions-rs/cargo@v1
         with:
@@ -40,11 +37,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Install rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: 1.93.0
-          override: true
-          components: rustfmt, clippy
+        run: |
+          rustup toolchain install $LRV
+          rustup toolchain install $MSRV
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -62,11 +57,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install libc6-dbg
-      - name: Build debugger and test programs
+      - name: Build debugger and test applications
         run: |
-          rustup show
           make build-rel
-          make build-examples RUST_VERSION=stable
+          make build-examples RUST_VERSION=$LRV
+      - name: Verify test applications and debugger rustc versions
+        run: |
+          strings ./target/release/bs | grep "rustc version" | grep $MSRV
+          strings ./examples/target/debug/calc | grep "^rustc version" | grep $LRV
       - name: Run integration tests
         run: make int-test-rel
 
@@ -75,13 +73,14 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Install rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: 1.93.0
-          override: true
-          components: rustfmt, clippy
+        run: |
+          rustup toolchain install $MSRV
+          rustup component add --toolchain $MSRV rustfmt clippy
+          rustup override set $MSRV
       - name: Build debugger and test programs
         run: make build-all
+      - name: Verify msrv
+        run: "grep \"^rust-version = .$MSRV.\" Cargo.toml"
       - name: Run cargo fmt
         uses: actions-rs/cargo@v1
         with:
