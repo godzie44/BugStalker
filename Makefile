@@ -10,23 +10,25 @@ build-test:
 build-test-rel:
 	cargo build --release --features "int_test"
 
+RUST_VERSION ?= stable
+
 build-examples-for-func-test:
 	cd examples; \
-	cargo build -p calc_lib; \
-	$(SHLIB_SO_PATH) cargo build; \
+	cargo +$(RUST_VERSION) build -p calc_lib; \
+	$(SHLIB_SO_PATH) cargo +$(RUST_VERSION) build; \
 
 build-examples: build-examples-for-func-test
 	cd examples; \
-	cargo build --manifest-path tokio_tcp/tokio_1_40/Cargo.toml; \
-	cargo build --manifest-path tokio_tcp/tokio_1_41/Cargo.toml; \
-	cargo build --manifest-path tokio_tcp/tokio_1_42/Cargo.toml; \
-	cargo build --manifest-path tokio_tcp/tokio_1_43/Cargo.toml; \
-	cargo build --manifest-path tokio_tcp/tokio_1_44/Cargo.toml; \
-	cargo build --manifest-path tokio_vars/tokio_1_40/Cargo.toml; \
-	cargo build --manifest-path tokio_vars/tokio_1_41/Cargo.toml; \
-	cargo build --manifest-path tokio_vars/tokio_1_42/Cargo.toml; \
-	cargo build --manifest-path tokio_vars/tokio_1_43/Cargo.toml; \
-	cargo build --manifest-path tokio_vars/tokio_1_44/Cargo.toml; \
+	cargo +$(RUST_VERSION) build --manifest-path tokio_tcp/tokio_1_40/Cargo.toml; \
+	cargo +$(RUST_VERSION) build --manifest-path tokio_tcp/tokio_1_41/Cargo.toml; \
+	cargo +$(RUST_VERSION) build --manifest-path tokio_tcp/tokio_1_42/Cargo.toml; \
+	cargo +$(RUST_VERSION) build --manifest-path tokio_tcp/tokio_1_43/Cargo.toml; \
+	cargo +$(RUST_VERSION) build --manifest-path tokio_tcp/tokio_1_44/Cargo.toml; \
+	cargo +$(RUST_VERSION) build --manifest-path tokio_vars/tokio_1_40/Cargo.toml; \
+	cargo +$(RUST_VERSION) build --manifest-path tokio_vars/tokio_1_41/Cargo.toml; \
+	cargo +$(RUST_VERSION) build --manifest-path tokio_vars/tokio_1_42/Cargo.toml; \
+	cargo +$(RUST_VERSION) build --manifest-path tokio_vars/tokio_1_43/Cargo.toml; \
+	cargo +$(RUST_VERSION) build --manifest-path tokio_vars/tokio_1_44/Cargo.toml; \
 
 build-all: build build-examples
 
