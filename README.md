@@ -86,5 +86,5 @@ Any contributions are very welcome.
 
 ## Copyright
 
-© 2025 Derevtsov Konstantin. Distributed under the MIT License.
+© 2026 Derevtsov Konstantin. Distributed under the MIT License.
 
