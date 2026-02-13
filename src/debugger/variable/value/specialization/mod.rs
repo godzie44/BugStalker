@@ -733,7 +733,7 @@ impl<'a> VariableParserExtension<'a> {
         };
         let head = val.assume_field_as_scalar_number("head")? as usize;
 
-        let wrapped_start = head % cap;
+        let wrapped_start = if cap == 0 { 0 } else { head % cap };
         let head_len = cap - wrapped_start;
 
         let slice_ranges = if head_len >= len {
