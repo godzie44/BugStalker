@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 mod bfs;
 pub(super) mod parser;
+pub mod serialize;
 pub mod specialization;
 
 pub use crate::debugger::variable::value::specialization::SpecializedValue;
@@ -495,7 +496,7 @@ impl Value {
                     Some(Literal::String(uuid.to_string()))
                 }
                 SpecializedValue::SystemTime(time) => {
-                    let time = chrono::NaiveDateTime::from_timestamp_opt(time.0, time.1)?;
+                    let time = chrono::DateTime::from_timestamp(time.0, time.1)?;
                     Some(Literal::String(
                         time.format("%Y-%m-%d %H:%M:%S").to_string(),
                     ))
@@ -974,8 +975,7 @@ impl Value {
                     .map(|v| v.match_literal(literal))
                     .unwrap_or_default(),
                 SpecializedValue::SystemTime(time) => {
-                    let Some(time) = chrono::NaiveDateTime::from_timestamp_opt(time.0, time.1)
-                    else {
+                    let Some(time) = chrono::DateTime::from_timestamp(time.0, time.1) else {
                         return false;
                     };
 

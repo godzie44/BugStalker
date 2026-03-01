@@ -1,5 +1,4 @@
-use crate::common::TestHooks;
-use crate::common::TestInfo;
+use crate::common::{TestHooks, TestInfo, wait_for_stop_line};
 use crate::{SIGNALS_APP, SLEEPER_APP, assert_no_proc, prepare_debugee_process};
 use bugstalker::debugger::DebuggerBuilder;
 use nix::sys::signal;
@@ -86,7 +85,7 @@ fn test_signal_stop_multi_thread_multiple_signal() {
     debugger.continue_debugee().unwrap();
     debugger.continue_debugee().unwrap();
 
-    assert_eq!(info.line.take(), Some(62));
+    assert_eq!(wait_for_stop_line(&info, 62, 5), 62);
     debugger.continue_debugee().unwrap();
 
     assert_no_proc!(debugee_pid);

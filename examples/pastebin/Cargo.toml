@@ -6,7 +6,7 @@ workspace = "./.."
 publish = false
 
 [dependencies]
-rocket = "0.5.0-rc.3"
+rocket = "0.5.1"
 rand = "0.8"
 
 # FIXME: looks like rocket currently doesnt work with rust 1.80+

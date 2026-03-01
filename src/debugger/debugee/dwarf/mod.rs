@@ -464,6 +464,53 @@ impl DebugInformation {
         Ok(result)
     }
 
+    /// Return all places that correspond to the given file and line range.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_tpl`: file name template (full path or part of a file path)
+    /// * `start_line`: starting line (inclusive)
+    /// * `end_line`: ending line (inclusive)
+    pub fn find_places_in_line_range(
+        &self,
+        file_tpl: &str,
+        start_line: u64,
+        end_line: u64,
+    ) -> Result<Vec<PlaceDescriptor<'_>>, Error> {
+        let files = self.files_index.get(file_tpl);
+        let (start_line, end_line) = if start_line <= end_line {
+            (start_line, end_line)
+        } else {
+            (end_line, start_line)
+        };
+
+        let mut result = Vec::new();
+        let mut seen = HashSet::new();
+
+        for (unit_idx, file_lines) in &files {
+            let unit = self.unit_ensure(*unit_idx);
+            for &line_idx in file_lines {
+                let line_row = unit.line(line_idx);
+                if !line_row.is_stmt() {
+                    continue;
+                }
+                let line = line_row.line;
+                if line < start_line || line > end_line {
+                    continue;
+                }
+
+                if let Some(place) = unit.find_place_by_idx(line_idx) {
+                    let key = (place.address, place.line_number, place.column_number);
+                    if seen.insert(key) {
+                        result.push(place);
+                    }
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
     /// Search all places for functions that relevant to template.
     /// Note, that result place points to the end of function prolog.
     ///

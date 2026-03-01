@@ -15,7 +15,15 @@ pub struct Environment {
 
 impl Environment {
     pub fn current() -> &'static Self {
-        ENVIRONMENT.get().unwrap()
+        // Historically BugStalker initialised the Rust environment from the CLI frontends.
+        // Non-CLI frontends (e.g. the DAP adapter) may legitimately skip that step.
+        // In that case, lazily initialise with best-effort defaults to avoid panics.
+        if ENVIRONMENT.get().is_none() {
+            Environment::init(None);
+        }
+        ENVIRONMENT
+            .get()
+            .expect("BugStalker Rust environment must be initialised")
     }
 
     pub fn init(std_lib_path: Option<PathBuf>) {

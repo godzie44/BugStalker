@@ -250,6 +250,10 @@ impl ArrayType {
         self.element_type
     }
 
+    pub fn byte_size_hint(&self) -> Option<u64> {
+        self.byte_size
+    }
+
     fn lower_bound(&self, evcx: &EvaluationContext) -> i64 {
         self.lower_bound.value(evcx).unwrap_or(0)
     }

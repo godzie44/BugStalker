@@ -1,0 +1,10 @@
+[package]
+name = "dap_except_info"
+version = "0.0.0"
+edition = "2024"
+workspace = "./.."
+publish = false
+
+[[bin]]
+name = "dap_except_info"
+path = "src/main.rs"

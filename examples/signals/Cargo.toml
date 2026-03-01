@@ -6,7 +6,7 @@ workspace = "./.."
 publish = false
 
 [dependencies]
-signal-hook = "0.3.17"
+signal-hook = "0.3.18"
 nix = {version = "0.28.0", features = ["process", "signal", "uio", "personality", "ptrace"]}
 
 [[bin]]

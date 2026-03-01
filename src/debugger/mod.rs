@@ -23,6 +23,7 @@ pub use debugee::FunctionRange;
 pub use debugee::RegionInfo;
 pub use debugee::ThreadSnapshot;
 pub use debugee::dwarf::Symbol;
+pub use debugee::dwarf::r#type::ComplexType;
 pub use debugee::dwarf::r#type::TypeDeclaration;
 pub use debugee::dwarf::unit::FunctionInfo;
 pub use debugee::dwarf::unit::PlaceDescriptor;
@@ -30,6 +31,7 @@ pub use debugee::dwarf::unit::PlaceDescriptorOwned;
 /// Public unwind API backed by the internal DWARF unwinder (no libunwind feature gate).
 pub use debugee::dwarf::unwind;
 pub use debugee::tracee::Tracee;
+pub use debugee::tracer::StopReason;
 pub use error::Error;
 pub use watchpoint::WatchpointView;
 pub use watchpoint::WatchpointViewOwned;
@@ -39,7 +41,7 @@ use crate::debugger::address::{Address, GlobalAddress, RelocatedAddress};
 use crate::debugger::breakpoint::{Breakpoint, BreakpointRegistry, BrkptType, UninitBreakpoint};
 use crate::debugger::debugee::dwarf::DwarfUnwinder;
 use crate::debugger::debugee::dwarf::unwind::Backtrace;
-use crate::debugger::debugee::tracer::{StopReason, TraceContext};
+use crate::debugger::debugee::tracer::TraceContext;
 use crate::debugger::debugee::{Debugee, ExecutionStatus, Location};
 use crate::debugger::error::Error::{
     FrameNotFound, Hook, ProcessNotStarted, Ptrace, RegisterNameNotFound, UnwindNoContext,
@@ -63,6 +65,7 @@ use nix::sys::signal::{SIGKILL, Signal};
 use nix::sys::wait::{WaitStatus, waitpid};
 use nix::unistd::Pid;
 use object::Object;
+use os_pipe::PipeWriter;
 use regex::Regex;
 use std::ffi::c_long;
 use std::path::{Path, PathBuf};
@@ -341,6 +344,23 @@ impl<H: EventHook + 'static> DebuggerBuilder<H> {
             Debugger::new(process, NopHook {}, self.oracles)
         }
     }
+
+    /// Create a debugger attached to a running process.
+    ///
+    /// # Arguments
+    ///
+    /// * `pid`: debugee process id
+    /// * `stdout`: stdout pipe for future restarts
+    /// * `stderr`: stderr pipe for future restarts
+    pub fn build_attached(
+        self,
+        pid: Pid,
+        stdout: PipeWriter,
+        stderr: PipeWriter,
+    ) -> Result<Debugger, Error> {
+        let process = Child::from_external(pid, stdout, stderr)?;
+        self.build(process)
+    }
 }
 
 /// Main structure of bug-stalker, control debugee state and provides application functionality.
@@ -359,6 +379,8 @@ pub struct Debugger {
     expl_context: ExplorationContext,
     /// Map of name -> (oracle, installed flag) pairs.
     oracles: IndexMap<&'static str, (Arc<dyn Oracle>, bool)>,
+    /// Detach flag to skip destructive cleanup on drop.
+    detached: bool,
 }
 
 impl Debugger {
@@ -401,6 +423,7 @@ impl Debugger {
                 .into_iter()
                 .map(|oracle| (oracle.name(), (oracle, false)))
                 .collect(),
+            detached: false,
         })
     }
 
@@ -434,6 +457,35 @@ impl Debugger {
 
     pub fn process(&self) -> &Child<Installed> {
         &self.process
+    }
+
+    pub fn detach(&mut self) -> Result<(), Error> {
+        if self.detached {
+            return Ok(());
+        }
+
+        _ = self.breakpoints.disable_all_breakpoints(&self.debugee);
+        self.watchpoints
+            .clear_all(self.debugee.tracee_ctl(), &mut self.breakpoints);
+
+        let current_tids: Vec<Pid> = self
+            .debugee
+            .tracee_ctl()
+            .tracee_iter()
+            .map(|t| t.pid)
+            .collect();
+
+        if !current_tids.is_empty() {
+            current_tids
+                .iter()
+                .try_for_each(|tid| sys::ptrace::detach(*tid, None).map_err(Ptrace))?;
+
+            signal::kill(self.debugee.tracee_ctl().proc_pid(), Signal::SIGCONT)
+                .map_err(|e| Syscall("kill", e))?;
+        }
+
+        self.detached = true;
+        Ok(())
     }
 
     pub fn set_hook(&mut self, hooks: impl EventHook + 'static) {
@@ -719,10 +771,35 @@ impl Debugger {
         self.start_debugee_inner(false, false)
     }
 
+    /// Start and execute debugee, returning a structured stop reason.
+    ///
+    /// This API is primarily intended for protocol adapters (e.g. DAP), where the UI needs
+    /// a machine-readable reason why the debugee stopped.
+    pub fn start_debugee_with_reason(&mut self) -> Result<StopReason, Error> {
+        // Reuse existing validation logic and then return the underlying stop reason.
+        match self.debugee.execution_status() {
+            ExecutionStatus::Unload => self.continue_execution(),
+            ExecutionStatus::InProgress | ExecutionStatus::Exited => Err(Error::AlreadyRun),
+        }
+    }
+
     /// Start and execute debugee. Restart if debugee already started.
     /// Return when debugee stopped or ends.
     pub fn start_debugee_force(&mut self) -> Result<(), Error> {
         self.start_debugee_inner(true, false)
+    }
+
+    /// Start and execute debugee (restart if already started), returning a structured stop reason.
+    pub fn start_debugee_force_with_reason(&mut self) -> Result<StopReason, Error> {
+        match self.debugee.execution_status() {
+            ExecutionStatus::Unload => self.continue_execution(),
+            ExecutionStatus::InProgress | ExecutionStatus::Exited => {
+                self.restart_debugee()?;
+                // restart_debugee itself continues execution until the next stop.
+                // If it returns successfully, we are already stopped; map this to a synthetic reason.
+                Ok(StopReason::DebugeeStart)
+            }
+        }
     }
 
     /// Dry start debugee. Return immediately.
@@ -739,6 +816,21 @@ impl Debugger {
         disable_when_not_stared!(self);
         self.continue_execution()?;
         Ok(())
+    }
+
+    /// Continue debugee execution and return a structured stop reason.
+    pub fn continue_debugee_with_reason(&mut self) -> Result<StopReason, Error> {
+        disable_when_not_stared!(self);
+        self.continue_execution()
+    }
+
+    /// Interrupt (pause) execution of the whole debugee process.
+    ///
+    /// This is used by non-interactive frontends (e.g. DAP) to implement the `pause` request.
+    pub fn pause_debugee(&mut self) -> Result<(), Error> {
+        let active_bps = self.breakpoints.active_breakpoints();
+        self.debugee
+            .pause(TraceContext::new(&active_bps, &self.watchpoints))
     }
 
     /// Return list of symbols matching regular expression.
@@ -1082,6 +1174,49 @@ impl Debugger {
             .disasm(self.ecx(), &self.breakpoints.active_breakpoints())
     }
 
+    /// Resolve function name and source place for a global address.
+    pub fn resolve_function_at_pc(
+        &self,
+        pc: GlobalAddress,
+    ) -> Result<Option<(String, Option<PlaceDescriptorOwned>)>, Error> {
+        disable_when_not_stared!(self);
+        for dwarf in self.debugee.debug_info_all() {
+            if let Ok(Some((_func, info))) = dwarf.find_function_by_pc(pc) {
+                let name = info
+                    .full_name()
+                    .or_else(|| info.name.clone())
+                    .or_else(|| info.linkage_name.clone())
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                let place = dwarf.find_place_from_pc(pc)?.map(|p| p.to_owned());
+                return Ok(Some((name, place)));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Return all breakpoint-capable places for a file line range.
+    pub fn breakpoint_places_for_file_range(
+        &self,
+        file_tpl: &str,
+        start_line: u64,
+        end_line: u64,
+    ) -> Result<Vec<PlaceDescriptorOwned>, Error> {
+        let (start_line, end_line) = if start_line <= end_line {
+            (start_line, end_line)
+        } else {
+            (end_line, start_line)
+        };
+        let mut out = Vec::new();
+        for dwarf in self.debugee.debug_info_all() {
+            if !dwarf.has_debug_info() {
+                continue;
+            }
+            let places = dwarf.find_places_in_line_range(file_tpl, start_line, end_line)?;
+            out.extend(places.into_iter().map(|p| p.to_owned()));
+        }
+        Ok(out)
+    }
+
     /// Return two place descriptors, at the start and at the end of the current function.
     pub fn current_function_range(&self) -> Result<FunctionRange<'_>, Error> {
         disable_when_not_stared!(self);
@@ -1091,6 +1226,9 @@ impl Debugger {
 
 impl Drop for Debugger {
     fn drop(&mut self) {
+        if self.detached {
+            return;
+        }
         if self.process.is_external() {
             _ = self.breakpoints.disable_all_breakpoints(&self.debugee);
             // drain all watchpoints before terminating the process

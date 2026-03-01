@@ -41,6 +41,15 @@ For major features:
 * Use the `ui::console::cfg::nightly` macro to conceal console UI elements
 * Ensure your implementation follows this pattern if contributing substantial changes
 
+### Running DAP tests
+
+Use the Makefile target to build the DAP adapter and run the debugger integration
+tests:
+
+```shell
+make dap-tests
+```
+
 ## Adding support for new compiler version, checklist
 
 - [ ] add a new rustc version into `src/version.rs`
