@@ -24,7 +24,7 @@ pub struct Args {
 
     /// Enable Debug Adapter Protocol in stdio mode (embedded in terminal/IDE)
     #[clap(long)]
-    #[arg(default_value_t = false)]
+    #[arg(default_value_t = false, aliases=["dap"])]
     dap_local: bool,
 
     /// Enable Debug Adapter Protocol in TCP server mode
