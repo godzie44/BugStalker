@@ -416,7 +416,7 @@ impl<'a> VariableParserExtension<'a> {
                 version_switch!(
                     rv,
                     .. (1 . 89) => member.value.field("__0").map(Box::new),
-                    (1 . 89) .. => {
+                    (1 . 89) .. (1 . 94) => {
                         let get_val_from_storage = || {
                             let Value::Struct(storage) = inner_val else {
                                 return None;
@@ -424,7 +424,23 @@ impl<'a> VariableParserExtension<'a> {
 
                             storage.field("value")?.field("value")?
                                     .field("value")?
-                                    .field("value").map(Box::new)
+                                    .field("value")
+                                    .map(Box::new)
+                        };
+
+                        get_val_from_storage()
+                    },
+                    (1 . 94) .. => {
+                        let get_val_from_storage = || {
+                            let Value::Struct(storage) = inner_val else {
+                                return None;
+                            };
+
+                            storage.field("value")?.field("value")?
+                                    .field("value")?
+                                    .field("value")?
+                                    .field("__0")
+                                    .map(Box::new)
                         };
 
                         get_val_from_storage()
