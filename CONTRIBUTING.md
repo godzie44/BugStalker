@@ -52,6 +52,57 @@ For major features:
 - [ ] create and submit a pool request
 - [ ] create a new release from master branch
 
-### Note on Deprecated Development Model
+## Testing DAP extension in VSCode
+
+For easiest test, add this code in `.vscode/launch.json`:
+
+```
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
+      "outFiles": ["${workspaceFolder}/extension/out/**/*.js"],
+      "preLaunchTask": "${defaultBuildTask}",
+      "env": {
+        "BUGSTALKER_DIR": "${workspaceFolder}"
+      }
+    }
+  ]
+}
+```
+
+and this into `.vscode/tasks.json`:
+
+```
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "watch",
+      "problemMatcher": "$tsc-watch",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "never"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/extension"
+      }
+    }
+  ]
+}
+```
+
+Now you can test the DAP extension by pressing F5 in VSCode.
+
+## Note on Deprecated Development Model
 
 The previous GitFlow-like model (see doc/flow.png) has been discontinued. Refer to #64 for details on this decision.

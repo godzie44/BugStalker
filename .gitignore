@@ -6,6 +6,7 @@
 .idea
 /tests/integration/__pycache__
 .direnv/
+.vscode
 
 # output of `nix build`
 result
