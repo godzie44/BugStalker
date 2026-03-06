@@ -75,5 +75,31 @@ Tokio application with timers. Useful for testing `async ...` commands.
 
 Just some code using for testing a `call` command.
 
+### Dap_set_variable
+
+Application with composite values for DAP `setVariable` testing.
+
 **TODO**
 This should be a single application that may compiled into binaries with different library versions. But, for now, looks like this is not possible.
+
+### Dap_exception_details
+
+Nested calls that trigger a SIGSEGV to validate DAP `exceptionInfo` source/stack trace reporting.
+
+### Dap_exception_filters
+
+Application that raises a signal or loops to validate DAP exception breakpoint filters.
+
+### Dap_attach
+
+Application that prints its PID and keeps running for DAP attach testing.
+
+### Dap_source_map
+
+Small application that includes a module under a `./nptl/` path to exercise DAP `source` request
+path mapping and normalization fallback logic.
+
+### Dap_disassemble
+
+Application that raises `SIGSTOP` after some arithmetic work to test DAP `disassemble` and
+`sourceReference` handling for frames without source information.

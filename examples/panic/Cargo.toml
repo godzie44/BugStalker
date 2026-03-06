@@ -10,4 +10,4 @@ name = "panic"
 path = "src/panic.rs"
 
 [dependencies]
-uuid = { version = "1.8.0", features = ["v4", "v7"] }
+uuid = { version = "1.19.0", features = ["v4", "v7"] }

@@ -6,6 +6,6 @@ workspace = "./.."
 publish = false
 
 [dependencies]
-tokio = { version = "1.40.0", features = ["time", "default", "rt-multi-thread", "macros"] }
+tokio = { version = "1.48.0", features = ["time", "default", "rt-multi-thread", "macros"] }
 rand = "0.8"
-log = "0.4.20"
+log = "0.4.29"

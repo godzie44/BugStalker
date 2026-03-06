@@ -1,5 +1,7 @@
 //! Debugger application entry point.
 
+use bugstalker::dap::transport::DapTransport;
+use bugstalker::dap::yadap;
 use bugstalker::debugger::rust;
 use bugstalker::log::LOGGER_SWITCHER;
 use bugstalker::ui;
@@ -20,9 +22,26 @@ pub struct Args {
     #[arg(default_value_t = false)]
     tui: bool,
 
+    /// Enable Debug Adapter Protocol in stdio mode (embedded in terminal/IDE)
     #[clap(long)]
-    #[arg(default_value_t = false)]
-    dap: bool,
+    #[arg(default_value_t = false, aliases=["dap"])]
+    dap_local: bool,
+
+    /// Enable Debug Adapter Protocol in TCP server mode
+    #[clap(long)]
+    dap_remote: Option<String>,
+
+    /// DAP: exit after first debug session
+    #[clap(long)]
+    dap_oneshot: bool,
+
+    /// DAP: log file for adapter diagnostics
+    #[clap(long)]
+    dap_log_file: Option<PathBuf>,
+
+    /// DAP: trace protocol traffic (requires --dap-log-file)
+    #[clap(long)]
+    dap_trace: bool,
 
     /// Attach to running process PID
     #[clap(long, short)]
@@ -101,8 +120,11 @@ fn main() {
 
     let args = Args::parse();
     ui::config::set(UIConfig::from(&args));
+    fn fun_name(p: &String) -> PathBuf {
+        PathBuf::from(p)
+    }
 
-    rust::Environment::init(args.std_lib_path.map(PathBuf::from));
+    rust::Environment::init(args.std_lib_path.as_ref().map(fun_name));
 
     let debugee_src = || {
         if let Some(ref debugee) = args.debugee {
@@ -121,12 +143,19 @@ fn main() {
         }
     };
 
-    let interface = if args.tui {
+    // Determine interface mode
+    let interface = if args.dap_local {
+        // Stdio DAP mode
+        Interface::DAP
+    } else if let Some(listen_addr) = &args.dap_remote {
+        // TCP DAP server mode
+        run_dap_tcp_server(&args, listen_addr)
+            .unwrap_or_exit(ErrorKind::Io, "DAP TCP server error");
+        return;
+    } else if args.tui {
         Interface::TUI {
             source: debugee_src(),
         }
-    } else if args.dap {
-        Interface::DAP
     } else {
         Interface::Default {
             source: debugee_src(),
@@ -135,4 +164,64 @@ fn main() {
 
     ui::supervisor::Supervisor::run(interface, &args.oracle)
         .unwrap_or_exit(ErrorKind::InvalidSubcommand, "Application error")
+}
+
+fn run_dap_tcp_server(args: &Args, listen_addr: &str) -> anyhow::Result<()> {
+    use log::warn;
+    use std::net::{SocketAddr, TcpListener};
+
+    let addr: SocketAddr = listen_addr
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid listen address: {}", listen_addr))?;
+    let listener =
+        TcpListener::bind(addr).map_err(|e| anyhow::anyhow!("Failed to bind {}: {}", addr, e))?;
+
+    log::info!(target: "dap", "DAP TCP server listening on {addr}");
+
+    let tracer = match &args.dap_log_file {
+        Some(path) => Some(yadap::tracer::FileTracer::new(path)?),
+        None => None,
+    };
+    if args.dap_trace && tracer.is_none() {
+        warn!(target: "dap", "--dap-trace requires --dap-log-file; tracing disabled");
+    }
+
+    // Server mode: accept multiple clients sequentially. One client == one debug session.
+    loop {
+        let (stream, peer) = match listener.accept() {
+            Ok(v) => v,
+            Err(err) => {
+                warn!(target: "dap", "accept failed: {err:#}");
+                continue;
+            }
+        };
+        log::info!(target: "dap", "DAP client connected: {peer}");
+        if let Some(t) = &tracer {
+            t.line(&format!("client connected: {peer}"));
+        }
+
+        let io = match yadap::io::DapIo::new(stream, tracer.clone(), args.dap_trace) {
+            Ok(v) => v,
+            Err(err) => {
+                warn!(target: "dap", "failed to init DAP I/O: {err:#}");
+                continue;
+            }
+        };
+
+        let transport: Box<dyn DapTransport> = Box::new(io);
+        let res = yadap::session::DebugSession::new(transport).run(args.oracle.clone());
+        if let Err(err) = res {
+            warn!(target: "dap", "session ended with error: {err:#}");
+            if let Some(t) = &tracer {
+                t.line(&format!("session error: {err:#}"));
+            }
+        } else if let Some(t) = &tracer {
+            t.line("session finished OK");
+        }
+
+        if args.dap_oneshot {
+            break;
+        }
+    }
+    Ok(())
 }
