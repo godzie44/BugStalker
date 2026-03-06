@@ -1382,7 +1382,8 @@ fn test_read_hashmap() {
     let hash_map_type = version_switch!(
             rust_version,
             .. (1 . 76) => "HashMap<bool, i64, std::collections::hash::map::RandomState>",
-            (1 . 76) .. => "HashMap<bool, i64, std::hash::random::RandomState>",
+            (1 . 76) .. (1 . 94) => "HashMap<bool, i64, std::hash::random::RandomState>",
+            (1 . 94) .. => "HashMap<bool, i64, std::hash::random::RandomState, alloc::alloc::Global>",
     )
     .unwrap();
 
@@ -1400,7 +1401,8 @@ fn test_read_hashmap() {
     let hash_map_type = version_switch!(
             rust_version,
             .. (1 . 76) => "HashMap<&str, alloc::vec::Vec<i32, alloc::alloc::Global>, std::collections::hash::map::RandomState>",
-            (1 . 76) .. => "HashMap<&str, alloc::vec::Vec<i32, alloc::alloc::Global>, std::hash::random::RandomState>",
+            (1 . 76) .. (1 . 94) => "HashMap<&str, alloc::vec::Vec<i32, alloc::alloc::Global>, std::hash::random::RandomState>",
+            (1 . 94) .. => "HashMap<&str, alloc::vec::Vec<i32, alloc::alloc::Global>, std::hash::random::RandomState, alloc::alloc::Global>",
     ).unwrap();
     assert_hashmap(hm2.value(), hash_map_type, |items| {
         assert_eq!(items.len(), 2);
@@ -1427,7 +1429,8 @@ fn test_read_hashmap() {
     let hash_map_type = version_switch!(
             rust_version,
             .. (1 . 76) => "HashMap<i32, i32, std::collections::hash::map::RandomState>",
-            (1 . 76) .. => "HashMap<i32, i32, std::hash::random::RandomState>",
+            (1 . 76) .. (1 . 94) => "HashMap<i32, i32, std::hash::random::RandomState>",
+            (1 . 94) .. => "HashMap<i32, i32, std::hash::random::RandomState, alloc::alloc::Global>",
     )
     .unwrap();
     assert_hashmap(hm3.value(), hash_map_type, |items| {
@@ -1447,12 +1450,14 @@ fn test_read_hashmap() {
     let hash_map_type = version_switch!(
             rust_version,
             .. (1 . 76) => "HashMap<alloc::string::String, std::collections::hash::map::HashMap<i32, i32, std::collections::hash::map::RandomState>, std::collections::hash::map::RandomState>",
-            (1 . 76) .. => "HashMap<alloc::string::String, std::collections::hash::map::HashMap<i32, i32, std::hash::random::RandomState>, std::hash::random::RandomState>",
+            (1 . 76) .. (1 . 94) => "HashMap<alloc::string::String, std::collections::hash::map::HashMap<i32, i32, std::hash::random::RandomState>, std::hash::random::RandomState>",
+            (1 . 94) .. => "HashMap<alloc::string::String, std::collections::hash::map::HashMap<i32, i32, std::hash::random::RandomState, alloc::alloc::Global>, std::hash::random::RandomState, alloc::alloc::Global>",
     ).unwrap();
     let inner_hash_map_type = version_switch!(
             rust_version,
             .. (1 . 76) => "HashMap<i32, i32, std::collections::hash::map::RandomState>",
-            (1 . 76) .. => "HashMap<i32, i32, std::hash::random::RandomState>",
+            (1 . 76) .. (1 . 94) => "HashMap<i32, i32, std::hash::random::RandomState>",
+            (1 . 94) .. => "HashMap<i32, i32, std::hash::random::RandomState, alloc::alloc::Global>",
     )
     .unwrap();
     assert_hashmap(hm4.value(), hash_map_type, |items| {
@@ -1563,7 +1568,8 @@ fn test_read_hashset() {
     let hashset_type = version_switch!(
             rust_version,
             .. (1 . 76) => "HashSet<i32, std::collections::hash::map::RandomState>",
-            (1 . 76) .. => "HashSet<i32, std::hash::random::RandomState>",
+            (1 . 76) .. (1 . 94) => "HashSet<i32, std::hash::random::RandomState>",
+            (1 . 94) .. => "HashSet<i32, std::hash::random::RandomState, alloc::alloc::Global>",
     )
     .unwrap();
 
@@ -1590,7 +1596,8 @@ fn test_read_hashset() {
     let hashset_type = version_switch!(
             rust_version,
             .. (1 . 76) => "HashSet<alloc::vec::Vec<i32, alloc::alloc::Global>, std::collections::hash::map::RandomState>",
-            (1 . 76) .. => "HashSet<alloc::vec::Vec<i32, alloc::alloc::Global>, std::hash::random::RandomState>",
+            (1 . 76) .. (1 . 94) => "HashSet<alloc::vec::Vec<i32, alloc::alloc::Global>, std::hash::random::RandomState>",
+            (1 . 94) .. => "HashSet<alloc::vec::Vec<i32, alloc::alloc::Global>, std::hash::random::RandomState, alloc::alloc::Global>",
     ).unwrap();
     assert_hashset(hs3.value(), hashset_type, |items| {
         assert_eq!(items.len(), 1);
@@ -2469,7 +2476,8 @@ fn test_zst_types() {
     let hashmap_type = version_switch!(
             rust_version,
             .. (1 . 76) => "HashMap<(), i32, std::collections::hash::map::RandomState>",
-            (1 . 76) .. => "HashMap<(), i32, std::hash::random::RandomState>",
+            (1 . 76) .. (1 . 94) => "HashMap<(), i32, std::hash::random::RandomState>",
+            (1 . 94) .. => "HashMap<(), i32, std::hash::random::RandomState, alloc::alloc::Global>",
     )
     .unwrap();
     assert_hashmap(hash_map_zst_key.value(), hashmap_type, |items| {
@@ -2481,7 +2489,8 @@ fn test_zst_types() {
     let hashmap_type = version_switch!(
             rust_version,
             .. (1 . 76) => "HashMap<i32, (), std::collections::hash::map::RandomState>",
-            (1 . 76) .. => "HashMap<i32, (), std::hash::random::RandomState>",
+            (1 . 76) .. (1 . 94) => "HashMap<i32, (), std::hash::random::RandomState>",
+            (1 . 94) .. => "HashMap<i32, (), std::hash::random::RandomState, alloc::alloc::Global>",
     )
     .unwrap();
     assert_hashmap(hash_map_zst_val.value(), hashmap_type, |items| {
@@ -2493,7 +2502,8 @@ fn test_zst_types() {
     let hashmap_type = version_switch!(
             rust_version,
             .. (1 . 76) => "HashMap<(), (), std::collections::hash::map::RandomState>",
-            (1 . 76) .. => "HashMap<(), (), std::hash::random::RandomState>",
+            (1 . 76) .. (1 . 94) => "HashMap<(), (), std::hash::random::RandomState>",
+            (1 . 94) .. => "HashMap<(), (), std::hash::random::RandomState, alloc::alloc::Global>",
     )
     .unwrap();
     assert_hashmap(hash_map_zst.value(), hashmap_type, |items| {
@@ -2505,7 +2515,8 @@ fn test_zst_types() {
     let hashset_type = version_switch!(
             rust_version,
             .. (1 . 76) => "HashSet<(), std::collections::hash::map::RandomState>",
-            (1 . 76) .. => "HashSet<(), std::hash::random::RandomState>",
+            (1 . 76) .. (1 . 94) => "HashSet<(), std::hash::random::RandomState>",
+            (1 . 94) .. => "HashSet<(), std::hash::random::RandomState, alloc::alloc::Global>",
     )
     .unwrap();
     assert_hashset(hash_set_zst.value(), hashset_type, |items| {
@@ -2814,7 +2825,8 @@ fn test_address_operator() {
     let inner_hash_map_type = version_switch!(
             rust_version(VARS_APP).unwrap(),
             .. (1 . 76) => "&HashMap<i32, i32, std::collections::hash::map::RandomState>",
-            (1 . 76) .. => "&HashMap<i32, i32, std::hash::random::RandomState>",
+            (1 . 76) .. (1 . 94) => "&HashMap<i32, i32, std::hash::random::RandomState>",
+            (1 . 94) .. => "&HashMap<i32, i32, std::hash::random::RandomState, alloc::alloc::Global>",
     )
     .unwrap();
     assert_pointer(addr_hm3.value(), inner_hash_map_type);
