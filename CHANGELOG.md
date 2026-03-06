@@ -12,6 +12,24 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+# [0.4.3] March 6 2026
+
+### Added
+
+- debugger: added support rustc 1.94
+- debugger: help for subcommands (#81)
+
+### Changed
+
+- debugger: set MSRV to 1.89.0 (#139)
+- debugger: update gimli to 0.33.0
+
+### Fixed
+
+- debugger: panic when capacity of VecDeq equals to 0 (#144)
+
+---
+
 # [0.4.2] Jan 23 2026
 
 ### Added
