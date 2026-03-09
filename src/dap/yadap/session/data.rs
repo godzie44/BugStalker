@@ -499,7 +499,11 @@ pub fn render_value_to_string(v: &debugger::variable::value::Value) -> String {
             format!("{ptr:p}")
         }
         Some(debugger::variable::render::ValueLayout::Wrapped(inner)) => {
+            format!(
+                "{}::{}",
+                RenderValue::r#type(inner).name_fmt(),
             render_value_to_string(inner)
+            )
         }
         Some(debugger::variable::render::ValueLayout::Structure(_)) => "{...}".to_string(),
         Some(debugger::variable::render::ValueLayout::IndexedList(_)) => "[...]".to_string(),
@@ -733,6 +737,7 @@ fn value_children(
             }
             Some(out)
         }
+        ValueLayout::Wrapped(v) => value_children(v, type_graph),
         _ => None,
     }
 }
