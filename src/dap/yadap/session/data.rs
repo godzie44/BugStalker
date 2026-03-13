@@ -745,7 +745,7 @@ fn value_children(
                     type_name: None,
                     child: cell_qr
                         .as_ref()
-                        .and_then(|qr| value_children(&qr, type_graph.clone())),
+                        .and_then(|qr| value_children(qr, type_graph.clone())),
                     write: None,
                     source: cell_qr.map(|qr| qr.value().clone()),
                 });
@@ -764,15 +764,14 @@ fn value_children(
             let qr = qr.clone().modify_value(|pcx, v| v.deref(pcx));
 
             if let Some(deref_qr) = qr {
-                let mut out = Vec::new();
-                out.push(VarItem {
-                    name: format!("deref"),
+                let out = vec![VarItem {
+                    name: "deref".to_string(),
                     value: render_value_to_string(deref_qr.value()),
                     type_name: Some(deref_qr.value().r#type().to_string()),
                     child: value_children(&deref_qr, type_graph.clone()),
                     write: value_write_meta(deref_qr.value(), type_graph.clone()),
                     source: Some(deref_qr.value().clone()),
-                });
+                }];
                 Some(out)
             } else {
                 None

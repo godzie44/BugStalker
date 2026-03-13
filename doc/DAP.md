@@ -39,13 +39,12 @@ bs --dap-remote 127.0.0.1:4711 --dap-oneshot ./my_program
 bs --dap-local ./my_program
 
 # With logging
-bs --dap-local --dap-log-file debug.log --dap-trace ./my_program
+bs --dap-local --dap-log-file debug.log ./my_program
 ```
 
 **Flags:**
 - `--dap-local` - Enable DAP in stdio mode
 - `--dap-log-file <PATH>` - Log DAP traffic to file (optional)
-- `--dap-trace` - Trace DAP messages to log file (requires `--dap-log-file`)
 
 ### DAP TCP Mode
 
@@ -57,14 +56,13 @@ bs --dap-remote 127.0.0.1:4711 ./my_program
 bs --dap-remote 127.0.0.1:4711 --dap-oneshot ./my_program
 
 # With diagnostics
-bs --dap-remote 127.0.0.1:4711 --dap-log-file server.log --dap-trace
+bs --dap-remote 127.0.0.1:4711 --dap-log-file server.log
 ```
 
 **Flags:**
 - `--dap-remote <ADDR>` - Enable DAP TCP server on address:port
 - `--dap-oneshot` - Exit after first debug session
 - `--dap-log-file <PATH>` - Log adapter diagnostics (for debugging the adapter itself)
-- `--dap-trace` - Trace all DAP protocol messages
 
 ### Combining with Other Options
 
@@ -321,8 +319,7 @@ This might happen with:
 ### DAP messages not appearing in logs
 
 1. Use `--dap-log-file <PATH>` to specify log file
-2. Use `--dap-trace` flag to enable message tracing
-3. Ensure the path is writable: `touch /tmp/test.log` to verify
+2. Ensure the path is writable: `touch /tmp/test.log` to verify
 
 ## Testing
 
@@ -371,7 +368,6 @@ cargo test --test dap -- --nocapture
 # Standard debugging with full logging
 bs --dap-remote 127.0.0.1:4711 \
    --dap-log-file /tmp/bs-dap.log \
-   --dap-trace \
    ./target/debug/myapp
 ```
 

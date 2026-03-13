@@ -1,5 +1,6 @@
 //! Debugger application entry point.
 
+use bugstalker::dap;
 use bugstalker::dap::transport::DapTransport;
 use bugstalker::dap::yadap;
 use bugstalker::debugger::rust;
@@ -38,10 +39,6 @@ pub struct Args {
     /// DAP: log file for adapter diagnostics
     #[clap(long)]
     dap_log_file: Option<PathBuf>,
-
-    /// DAP: trace protocol traffic (requires --dap-log-file)
-    #[clap(long)]
-    dap_trace: bool,
 
     /// Attach to running process PID
     #[clap(long, short)]
@@ -146,7 +143,11 @@ fn main() {
     // Determine interface mode
     let interface = if args.dap_local {
         // Stdio DAP mode
-        Interface::DAP
+        let tracer = args.dap_log_file.as_ref().map(|path| {
+            dap::tracer::FileTracer::new(path).unwrap_or_exit(ErrorKind::Io, "DAP server error")
+        });
+
+        Interface::DAP { tracer }
     } else if let Some(listen_addr) = &args.dap_remote {
         // TCP DAP server mode
         run_dap_tcp_server(&args, listen_addr)
@@ -179,12 +180,9 @@ fn run_dap_tcp_server(args: &Args, listen_addr: &str) -> anyhow::Result<()> {
     log::info!(target: "dap", "DAP TCP server listening on {addr}");
 
     let tracer = match &args.dap_log_file {
-        Some(path) => Some(yadap::tracer::FileTracer::new(path)?),
+        Some(path) => Some(dap::tracer::FileTracer::new(path)?),
         None => None,
     };
-    if args.dap_trace && tracer.is_none() {
-        warn!(target: "dap", "--dap-trace requires --dap-log-file; tracing disabled");
-    }
 
     // Server mode: accept multiple clients sequentially. One client == one debug session.
     loop {
@@ -200,7 +198,7 @@ fn run_dap_tcp_server(args: &Args, listen_addr: &str) -> anyhow::Result<()> {
             t.line(&format!("client connected: {peer}"));
         }
 
-        let io = match yadap::io::DapIo::new(stream, tracer.clone(), args.dap_trace) {
+        let io = match dap::transport::new_tcp_transport(stream, tracer.clone()) {
             Ok(v) => v,
             Err(err) => {
                 warn!(target: "dap", "failed to init DAP I/O: {err:#}");
