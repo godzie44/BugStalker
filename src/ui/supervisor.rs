@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use crate::dap;
+use crate::dap::yadap;
 use crate::debugger::DebuggerBuilder;
 use crate::debugger::process::{Child, Installed};
 use crate::oracle::builtin;
@@ -10,13 +12,17 @@ use anyhow::Context;
 use log::{info, warn};
 use nix::unistd::Pid;
 
-use super::dap::DapApplication;
-
 /// Interface type.
 pub enum Interface<'a> {
-    TUI { source: DebugeeSource<'a> },
-    Default { source: DebugeeSource<'a> },
-    DAP,
+    TUI {
+        source: DebugeeSource<'a>,
+    },
+    Default {
+        source: DebugeeSource<'a>,
+    },
+    DAP {
+        tracer: Option<dap::tracer::FileTracer>,
+    },
 }
 
 /// Source from which debugee is created or attached.
@@ -60,7 +66,7 @@ impl DebugeeSource<'_> {
 pub enum Application {
     TUI(TuiApplication),
     Terminal(TerminalApplication),
-    DAP(DapApplication),
+    DAP(Option<dap::tracer::FileTracer>),
 }
 
 impl Application {
@@ -68,7 +74,12 @@ impl Application {
         match self {
             Application::TUI(tui_app) => tui_app.run(),
             Application::Terminal(term_app) => term_app.run(),
-            Application::DAP(dap_app) => dap_app.run(),
+            Application::DAP(tracer) => {
+                let transport = dap::transport::new_stdio_transport(tracer);
+                let session = yadap::session::DebugSession::new(Box::new(transport));
+                session.run(vec![])?;
+                Ok(ControlFlow::Exit)
+            }
         }
     }
 }
@@ -134,9 +145,7 @@ impl Supervisor {
                     .context("Build debugger")?;
                 Application::Terminal(app)
             }
-            Interface::DAP => Application::DAP(DapApplication::new(move || {
-                DebuggerBuilder::new().with_oracles(oracles.clone())
-            })?),
+            Interface::DAP { tracer } => Application::DAP(tracer),
         };
 
         loop {

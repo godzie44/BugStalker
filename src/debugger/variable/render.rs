@@ -154,7 +154,7 @@ impl RenderValue for Value {
                     ValueLayout::PreRendered(Cow::Owned(uuid.to_string()))
                 }
                 SpecializedValue::SystemTime((sec, n_sec)) => {
-                    let mb_dt = chrono::NaiveDateTime::from_timestamp_opt(*sec, *n_sec);
+                    let mb_dt = chrono::DateTime::from_timestamp(*sec, *n_sec);
                     let dt_rendered = mb_dt
                         .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                         .unwrap_or("Broken date time".to_string());

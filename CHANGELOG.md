@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 # [?.?.?] Unreleased
 
 ### Added
+
+- dap: new DAP server with remote debugging support
+
 ### Changed
 ### Fixed
 ### Deprecated
