@@ -1,7 +1,7 @@
 //! DAP session implementation (handlers, state machine, and integration with debugger).
 
 use crate::dap::transport::DapTransport;
-use crate::dap::yadap::protocol::{DapEvent, DapRequest, DapResponse, InternalEvent};
+use crate::dap::yadap::protocol::{self, DapRequest, DapResponse, InternalEvent};
 use crate::dap::yadap::sourcemap::SourceMap;
 use crate::debugger;
 use crate::oracle::{Oracle, builtin};
@@ -12,6 +12,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
+use std::sync::atomic::AtomicI64;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -25,8 +26,8 @@ pub mod other;
 pub mod source;
 
 pub struct DebugSession {
-    io: Box<dyn DapTransport>,
-    server_seq: i64,
+    io: Arc<Mutex<dyn DapTransport>>,
+    server_seq: Arc<std::sync::atomic::AtomicI64>,
     initialized: bool,
     debugger: Option<debugger::Debugger>,
     session_mode: Option<init::SessionMode>,
@@ -43,7 +44,7 @@ pub struct DebugSession {
     disasm_cache_by_addr: HashMap<usize, source::DisasmSource>,
     disasm_cache_by_reference: HashMap<i64, source::DisasmSource>,
     next_source_reference: i64,
-    events: Arc<Mutex<Vec<InternalEvent>>>,
+    events: Vec<InternalEvent>,
     next_progress_id: u64,
     terminated: bool,
     exit_code: Option<i32>,
@@ -92,10 +93,10 @@ impl VariablesStore {
 }
 
 impl DebugSession {
-    pub fn new(io: Box<dyn DapTransport>) -> Self {
+    pub fn new(io: Arc<Mutex<dyn DapTransport>>) -> Self {
         Self {
             io,
-            server_seq: 1,
+            server_seq: Arc::new(AtomicI64::new(1)),
             initialized: false,
             debugger: None,
             session_mode: None,
@@ -112,7 +113,7 @@ impl DebugSession {
             disasm_cache_by_addr: HashMap::new(),
             disasm_cache_by_reference: HashMap::new(),
             next_source_reference: 1,
-            events: Arc::new(Mutex::new(Vec::new())),
+            events: Vec::new(),
             next_progress_id: 1,
             terminated: false,
             exit_code: None,
@@ -128,9 +129,8 @@ impl DebugSession {
     }
 
     fn next_seq(&mut self) -> i64 {
-        let s = self.server_seq;
-        self.server_seq += 1;
-        s
+        self.server_seq
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
     fn next_progress_id(&mut self) -> String {
@@ -139,10 +139,8 @@ impl DebugSession {
         format!("bs-progress-{id}")
     }
 
-    fn enqueue_event(&self, ev: InternalEvent) {
-        if let Ok(mut q) = self.events.lock() {
-            q.push(ev);
-        }
+    fn enqueue_event(&mut self, ev: InternalEvent) {
+        self.events.push(ev);
     }
 
     fn enqueue_progress_start(
@@ -162,7 +160,7 @@ impl DebugSession {
     }
 
     fn enqueue_progress_update(
-        &self,
+        &mut self,
         progress_id: String,
         message: Option<String>,
         percentage: Option<u32>,
@@ -174,18 +172,18 @@ impl DebugSession {
         });
     }
 
-    fn enqueue_progress_end(&self, progress_id: String, message: Option<String>) {
+    fn enqueue_progress_end(&mut self, progress_id: String, message: Option<String>) {
         self.enqueue_event(InternalEvent::ProgressEnd {
             progress_id,
             message,
         });
     }
 
-    fn enqueue_invalidated(&self, areas: Vec<String>) {
+    fn enqueue_invalidated(&mut self, areas: Vec<String>) {
         self.enqueue_event(InternalEvent::Invalidated { areas });
     }
 
-    fn enqueue_capabilities(&self, capabilities: Value) {
+    fn enqueue_capabilities(&mut self, capabilities: Value) {
         self.enqueue_event(InternalEvent::Capabilities { capabilities });
     }
 
@@ -202,7 +200,7 @@ impl DebugSession {
         self.child_links.clear();
     }
 
-    fn enqueue_thread_event(&self, reason: &'static str, thread_id: i64) {
+    fn enqueue_thread_event(&mut self, reason: &'static str, thread_id: i64) {
         self.enqueue_event(InternalEvent::Thread { reason, thread_id });
     }
 
@@ -230,9 +228,7 @@ impl DebugSession {
     fn drain_events(&mut self) -> anyhow::Result<()> {
         // Drain queued internal events.
         let mut drained = Vec::new();
-        if let Ok(mut q) = self.events.lock() {
-            drained.append(&mut *q);
-        }
+        drained.append(&mut self.events);
 
         // If we already terminated this session, ignore any late events (output/stopped etc.).
         if self.terminated {
@@ -257,6 +253,8 @@ impl DebugSession {
         }
 
         if let Some(code) = exit_code {
+            self.send_events(|ev| matches!(ev, InternalEvent::Output { .. }), &drained)?;
+
             // Natural process exit: exited -> terminated (exactly once).
             self.emit_process_end()?;
             self.terminated = true;
@@ -267,6 +265,8 @@ impl DebugSession {
         }
 
         if has_terminated {
+            self.send_events(|ev| matches!(ev, InternalEvent::Output { .. }), &drained)?;
+
             // User-initiated termination: terminated only (exactly once).
             self.emit_process_end()?;
             self.terminated = true;
@@ -274,7 +274,19 @@ impl DebugSession {
             return Ok(());
         }
 
+        self.send_events(|_| true, &drained)
+    }
+
+    fn send_events<F: Fn(&InternalEvent) -> bool>(
+        &mut self,
+        filter: F,
+        drained: &[InternalEvent],
+    ) -> anyhow::Result<()> {
         for ev in drained {
+            if !filter(ev) {
+                continue;
+            }
+
             match ev {
                 InternalEvent::Stopped {
                     reason,
@@ -453,7 +465,9 @@ impl DebugSession {
             body,
         };
         let value = serde_json::to_value(rsp)?;
-        self.io.write_message(&value)
+
+        let mut lock = self.io.lock().unwrap();
+        lock.write_message(&value)
     }
 
     fn send_event(&mut self, name: &'static str) -> anyhow::Result<()> {
@@ -466,14 +480,10 @@ impl DebugSession {
     }
 
     fn send_event_raw(&mut self, name: &'static str, body: Option<Value>) -> anyhow::Result<()> {
-        let ev = DapEvent {
-            seq: self.next_seq(),
-            r#type: "event",
-            event: name,
-            body,
-        };
-        let value = serde_json::to_value(ev)?;
-        self.io.write_message(&value)
+        let seq = self.next_seq();
+        let mut lock = self.io.lock().unwrap();
+
+        protocol::send_event(seq, &mut *lock, name, body)
     }
 
     fn consume_cancellation(
@@ -523,7 +533,8 @@ impl DebugSession {
         stderr_reader: os_pipe::PipeReader,
     ) {
         // Start stdout/stderr forwarding.
-        let evq = self.events.clone();
+        let io = self.io.clone();
+        let seq = self.server_seq.clone();
         thread::spawn(move || {
             let mut reader = BufReader::new(stdout_reader);
             let mut buf = String::new();
@@ -532,11 +543,17 @@ impl DebugSession {
                 match reader.read_line(&mut buf) {
                     Ok(0) => break,
                     Ok(_) => {
-                        if let Ok(mut q) = evq.lock() {
-                            q.push(InternalEvent::Output {
-                                category: "stdout",
-                                output: buf.clone(),
-                            });
+                        let s = seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                        {
+                            let mut lock = io.lock().unwrap();
+                            // TODO log it somehow
+                            _ = protocol::send_event(
+                                s,
+                                &mut *lock,
+                                "output",
+                                Some(json!({ "category": "stdout", "output": buf.clone() })),
+                            );
                         }
                     }
                     Err(_) => break,
@@ -544,7 +561,9 @@ impl DebugSession {
             }
         });
 
-        let evq = self.events.clone();
+        let io = self.io.clone();
+        let seq = self.server_seq.clone();
+
         thread::spawn(move || {
             let mut reader = BufReader::new(stderr_reader);
             let mut buf = String::new();
@@ -553,11 +572,17 @@ impl DebugSession {
                 match reader.read_line(&mut buf) {
                     Ok(0) => break,
                     Ok(_) => {
-                        if let Ok(mut q) = evq.lock() {
-                            q.push(InternalEvent::Output {
-                                category: "stderr",
-                                output: buf.clone(),
-                            });
+                        let s = seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                        {
+                            let mut lock = io.lock().unwrap();
+                            // TODO log it somehow
+                            _ = protocol::send_event(
+                                s,
+                                &mut *lock,
+                                "output",
+                                Some(json!({ "category": "stderr", "output": buf.clone() })),
+                            );
                         }
                     }
                     Err(_) => break,
@@ -636,7 +661,11 @@ impl DebugSession {
     pub fn run(mut self, oracles: Vec<String>) -> anyhow::Result<()> {
         loop {
             self.drain_events()?;
-            let msg = self.io.read_message()?;
+
+            let msg = {
+                let mut lock = self.io.lock().unwrap();
+                lock.read_message()?
+            };
             let req: DapRequest = serde_json::from_value(msg)?;
             if req.r#type != "request" {
                 continue;

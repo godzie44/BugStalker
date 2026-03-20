@@ -10,6 +10,9 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 ### Fixed
+
+- dap: now output events send immediately
+
 ### Deprecated
 ### Breaking changes
 

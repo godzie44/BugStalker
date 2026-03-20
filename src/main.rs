@@ -1,7 +1,6 @@
 //! Debugger application entry point.
 
 use bugstalker::dap;
-use bugstalker::dap::transport::DapTransport;
 use bugstalker::dap::yadap;
 use bugstalker::debugger::rust;
 use bugstalker::log::LOGGER_SWITCHER;
@@ -14,6 +13,8 @@ use std::fmt::Display;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -206,7 +207,7 @@ fn run_dap_tcp_server(args: &Args, listen_addr: &str) -> anyhow::Result<()> {
             }
         };
 
-        let transport: Box<dyn DapTransport> = Box::new(io);
+        let transport = Arc::new(Mutex::new(io));
         let res = yadap::session::DebugSession::new(transport).run(args.oracle.clone());
         if let Err(err) = res {
             warn!(target: "dap", "session ended with error: {err:#}");
