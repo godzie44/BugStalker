@@ -142,11 +142,11 @@ impl super::DebugSession {
             .as_ref()
             .ok_or_else(|| anyhow!("process event: debugger not initialized"))?;
         let process = dbg.process();
-        let program = process.program();
-        let name = Path::new(program)
+        let program = process.program().to_string();
+        let name = Path::new(&program)
             .file_name()
             .and_then(|s| s.to_str())
-            .unwrap_or(program)
+            .unwrap_or(&program)
             .to_string();
         let pid = process.pid().as_raw() as i64;
         let start_method = match self.session_mode {
@@ -159,6 +159,7 @@ impl super::DebugSession {
             "isLocalProcess": true,
             "startMethod": start_method,
         });
+
         self.enqueue_event(InternalEvent::Process { body: process_body });
 
         let module_id = pid.to_string();

@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use crate::dap;
 use crate::dap::yadap;
@@ -76,7 +77,8 @@ impl Application {
             Application::Terminal(term_app) => term_app.run(),
             Application::DAP(tracer) => {
                 let transport = dap::transport::new_stdio_transport(tracer);
-                let session = yadap::session::DebugSession::new(Box::new(transport));
+                let transport = Arc::new(Mutex::new(transport));
+                let session = yadap::session::DebugSession::new(transport);
                 session.run(vec![])?;
                 Ok(ControlFlow::Exit)
             }

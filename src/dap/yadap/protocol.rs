@@ -1,3 +1,4 @@
+use crate::dap::transport::DapTransport;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -101,4 +102,20 @@ pub enum InternalEvent {
     Capabilities {
         capabilities: Value,
     },
+}
+
+pub fn send_event(
+    seq: i64,
+    io: &mut dyn DapTransport,
+    name: &'static str,
+    body: Option<Value>,
+) -> anyhow::Result<()> {
+    let ev = DapEvent {
+        seq,
+        r#type: "event",
+        event: name,
+        body,
+    };
+    let value = serde_json::to_value(ev)?;
+    io.write_message(&value)
 }
