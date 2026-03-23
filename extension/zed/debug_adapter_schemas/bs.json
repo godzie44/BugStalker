@@ -1,0 +1,34 @@
+{
+  "properties": {
+    "request": {
+      "type": "string",
+      "enum": ["launch", "attach"],
+      "description": "Launch new process or attach to existed",
+      "default": "launch"
+    },
+    "program": {
+      "type": "string",
+      "description": "Path to the binary to be debugged",
+      "default": "${file}"
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Working directory for the debugged program"
+    },
+    "args": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Command line arguments to pass to the program"
+    },
+    "env": {
+      "type": "object",
+      "description": "Environment variables to pass to the program",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "required": ["request", "program"]
+}

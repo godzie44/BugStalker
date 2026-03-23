@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - dap: new DAP server with remote debugging support
+- dap: `Zed` extension
 
 ### Changed
 ### Fixed

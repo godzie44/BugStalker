@@ -1,0 +1,9 @@
+id = "bs"
+name = "BugStalker"
+version = "0.1.0"
+schema_version = 1
+authors = ["Derevtsov Konstantin <godzie@yandex.ru>"]
+description = "Debugging Rust applications with BugStalker in Zed"
+repository = "https://github.com/godzie44/BugStalker"
+
+[debug_adapters.bs]
