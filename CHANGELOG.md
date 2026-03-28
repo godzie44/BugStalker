@@ -5,17 +5,22 @@ All notable changes to this project will be documented in this file.
 # [?.?.?] Unreleased
 
 ### Added
+### Changed
+### Fixed
+### Deprecated
+### Breaking changes
+
+---
+# [0.4.4] March 28 2026
+
+### Added
 
 - dap: new DAP server with remote debugging support
 - dap: `Zed` extension
 
-### Changed
 ### Fixed
 
 - dap: now output events send immediately
-
-### Deprecated
-### Breaking changes
 
 ---
 
