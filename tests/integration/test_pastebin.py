@@ -56,6 +56,7 @@ class PastebinTestCase(unittest.TestCase):
 
         self.debugger.expect_in_output('21     let id = PasteId::new(ID_LENGTH);')
         self.debugger.cmd('next', '22     paste')
+        self.debugger.cmd('next', '22     paste')
         self.debugger.cmd('next', '23         .open(128.kibibytes())')
         self.debugger.cmd('next', '24         .into_file(id.file_path())')
         self.debugger.cmd('next', '22     paste')

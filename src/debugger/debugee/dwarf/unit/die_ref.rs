@@ -417,6 +417,27 @@ impl<'dbg> FatDieRef<'dbg, Function> {
         })
     }
 
+    pub fn epilog_begin(&self) -> Result<Option<PlaceDescriptor<'_>>, Error> {
+        let ranges = self.ranges();
+
+        let start_place = self.prolog_end_place()?;
+        let mut place = start_place;
+        let end_addr = self.end_instruction()?;
+
+        while place.address < end_addr {
+            if place.address.in_ranges(&ranges) && place.epilog_begin {
+                return Ok(Some(place));
+            }
+
+            match place.next() {
+                None => break,
+                Some(next_place) => place = next_place,
+            }
+        }
+
+        Ok(None)
+    }
+
     pub fn ranges(&self) -> Box<[Range]> {
         let Some(die) = weak_error!(self.deref()) else {
             return Box::default();
