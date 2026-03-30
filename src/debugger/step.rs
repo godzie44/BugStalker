@@ -3,7 +3,7 @@ use crate::debugger::breakpoint::Breakpoint;
 use crate::debugger::debugee::dwarf::unit::PlaceDescriptorOwned;
 use crate::debugger::debugee::tracer::{StopReason, TraceContext, WatchpointHitType};
 use crate::debugger::error::Error;
-use crate::debugger::error::Error::{NoFunctionRanges, PlaceNotFound, ProcessExit};
+use crate::debugger::error::Error::{NoFunctionRanges, ProcessExit};
 use crate::debugger::{Debugger, ExplorationContext};
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
@@ -286,12 +286,9 @@ impl Debugger {
         let fn_file = info.decl_file_line.map(|fl| fl.0);
 
         let prolog = func.prolog()?;
+        let epilog_begin = func.epilog_begin()?;
         let dwarf = &self.debugee.debug_info(current_location.pc)?;
         let inline_ranges = func.inline_ranges();
-
-        let current_place = dwarf
-            .find_place_from_pc(current_location.global_pc)?
-            .ok_or(PlaceNotFound(current_location.global_pc))?;
 
         let mut step_over_breakpoints = vec![];
         let mut to_delete = vec![];
@@ -321,14 +318,21 @@ impl Debugger {
                     continue;
                 }
 
+                // skip places in function epilog
+                if let Some(eb) = epilog_begin.as_ref()
+                    && place.address > eb.address
+                {
+                    match place.next() {
+                        None => break,
+                        Some(n) => place = n,
+                    }
+                    continue;
+                }
+
                 // guard against a step at inlined function body
                 let in_inline_range = place.address.in_ranges(&inline_ranges);
 
-                if !in_inline_range
-                    && place.is_stmt
-                    && place.address != current_place.address
-                    && place.line_number != current_place.line_number
-                {
+                if !in_inline_range && place.is_stmt {
                     let load_addr = place
                         .address
                         .relocate_to_segment_by_pc(&self.debugee, current_location.pc)?;

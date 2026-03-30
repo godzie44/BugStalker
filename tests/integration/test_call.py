@@ -55,7 +55,7 @@ class FunctionCallTestCase(unittest.TestCase):
         addr3 = self.debugger.search_in_output(r'arg3.*\[(.*)\]')
 
         self.debugger.cmd('call print_deref ' + addr1 + ' ' + addr2 + ' ' + addr3, 'deref is 100 101 Foo { bar: 102, baz: "103" }')
-                
+
     def test_fmt_vars(self):
         """Test vard command"""
         self.debugger = Debugger(path='./examples/target/debug/vars')

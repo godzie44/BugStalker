@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 ### Changed
 ### Fixed
+
+- debugger: stepover may skip some lines in for loops
+
 ### Deprecated
 ### Breaking changes
 

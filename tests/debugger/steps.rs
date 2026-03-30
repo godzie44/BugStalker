@@ -194,3 +194,32 @@ fn test_step_over_on_fn_decl() {
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);
 }
+
+#[test]
+#[serial]
+fn test_step_over_for_loop_issue_156() {
+    let process = prepare_debugee_process(VARS_APP, &[]);
+    let debugee_pid = process.pid();
+    let info = TestInfo::default();
+    let builder = DebuggerBuilder::new().with_hooks(TestHooks::new(info.clone()));
+    let mut debugger = builder.build(process).unwrap();
+
+    debugger.set_breakpoint_at_line("vars.rs", 358).unwrap();
+
+    debugger.start_debugee().unwrap();
+    assert_eq!(info.line.take(), Some(358));
+    debugger.step_over().unwrap();
+    assert_eq!(info.line.take(), Some(358));
+
+    for _ in 0..100 {
+        debugger.step_over().unwrap();
+        assert_eq!(info.line.take(), Some(359));
+    }
+
+    debugger.step_over().unwrap();
+    assert_eq!(info.line.take(), Some(363));
+
+    debugger.continue_debugee().unwrap();
+
+    assert_no_proc!(debugee_pid);
+}
