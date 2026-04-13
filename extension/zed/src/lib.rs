@@ -23,7 +23,7 @@ struct BsDebugConfig {
 struct BsExtension;
 
 impl BsExtension {
-    pub const NAME: &'static str = "bs";
+    pub const NAME: &'static str = "bugstalker-dap";
 }
 
 impl zed::Extension for BsExtension {

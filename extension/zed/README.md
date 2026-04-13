@@ -1,4 +1,4 @@
 # zed-bs-extension
 
-BugStalker (Rust) debugger for Zed
+[BugStalker](https://github.com/godzie44/BugStalker) (Rust) debugger for Zed
 
