@@ -5,16 +5,25 @@ All notable changes to this project will be documented in this file.
 # [?.?.?] Unreleased
 
 ### Added
+### Changed
+### Fixed
+### Deprecated
+### Breaking changes
+
+# [0.4.5] Apr 18 2026
+
+### Added
 
 - debugger: added support for rustc 1.95
 
 ### Changed
+
+- lock gimli version to 0.33.0
+- dap: rename Zed extension id
+
 ### Fixed
 
 - debugger: stepover may skip some lines in for loops
-
-### Deprecated
-### Breaking changes
 
 ---
 # [0.4.4] March 28 2026
