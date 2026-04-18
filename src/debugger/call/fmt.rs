@@ -46,7 +46,12 @@ impl WriteStringVTable {
     pub fn new(dbg: &Debugger, ver: RustVersion) -> Result<Self, FmtCallError> {
         const STRING_DROP_IN_PLACE: &str = "core::ptr::drop_in_place<alloc::string::String>";
         const STRING_DROP_IN_PLACE_NAME: &str = "drop_in_place<alloc::string::String>";
-        const STRING_WRITE_FMT: &str = "core::fmt::Write::write_fmt";
+        let string_write_fmt_linkage: &str = version_switch!(
+        ver,
+            (1 . 81).. (1 . 95) =>  "core::fmt::Write::write_fmt",
+            (1 . 95) .. => "write_fmt",
+        )
+        .ok_or(FmtCallError::UnsupportedRustC)?;
 
         let string_write_fmt_name = version_switch!(
             ver,
@@ -71,7 +76,8 @@ impl WriteStringVTable {
 
         let drop_in_place_fn_addr =
             find_fn_for_vtable(STRING_DROP_IN_PLACE, Some(STRING_DROP_IN_PLACE_NAME))?;
-        let write_fmt_addr = find_fn_for_vtable(STRING_WRITE_FMT, Some(string_write_fmt_name))?;
+        let write_fmt_addr =
+            find_fn_for_vtable(string_write_fmt_linkage, Some(string_write_fmt_name))?;
         let write_char_addr = find_fn_for_vtable(STRING_WRITE_CHAR, None)?;
         let write_str_addr = find_fn_for_vtable(STRING_WRITE_STR, None)?;
 

@@ -140,6 +140,7 @@ static SUPPORTED_RUSTC: &[(RustVersion, RustVersion)] = supported!(
     1 . 92;
     1 . 93;
     1 . 94;
+    1 . 95;
 );
 
 pub fn supported_versions_to_string() -> String {
