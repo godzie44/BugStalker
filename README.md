@@ -67,6 +67,7 @@
   * Built-in tokio oracle (similar to tokio_console but requires no code modifications)
 * **DAP (Debug Adapter Protocol) support:**
   * VSCode [extension](https://marketplace.visualstudio.com/items?itemName=BugStalker.bugstalker)
+  * Zed [extension](https://zed.dev/extensions/bugstalker-dap)
   * Two modes: stdio (embedded) and TCP (remote)
   * See [DAP Documentation](./doc/DAP.md) for details
 * **And many more powerful features!**

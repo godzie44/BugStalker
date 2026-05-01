@@ -344,6 +344,7 @@ cargo test --test dap -- --nocapture
 | IDE | Type | Extension | Status |
 |-----|------|-----------|--------|
 | VSCode | Stdio | [Official](https://marketplace.visualstudio.com/items?itemName=BugStalker.bugstalker) | ✅ Fully supported |
+| Zed | Stdio | [Official](https://zed.dev/extensions/bugstalker-dap) | ✅ Fully supported |
 | Neovim | TCP | Community | 🟡 Via DAP plugins |
 | Emacs | TCP | dap-mode | 🟡 Via DAP plugins |
 | JetBrains IDEs | TCP | Custom | 🟡 Manual setup |
