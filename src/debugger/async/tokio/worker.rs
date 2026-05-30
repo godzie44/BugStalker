@@ -16,6 +16,7 @@ use crate::debugger::{Debugger, Error, ThreadSnapshot, Tracee, utils};
 use crate::type_from_cache;
 use crate::ui::command::parser::expression;
 use crate::version::RustVersion;
+use crate::version_switch;
 use crate::weak_error;
 use chumsky::Parser;
 
@@ -26,8 +27,15 @@ pub(super) struct LocalQueue {
     pub buff: Vec<Task>,
 }
 
-fn extract_u32_from_atomic_u64(val: Value) -> Option<u32> {
-    let value = val.field("v")?.field("value")?;
+fn extract_u32_from_atomic_u64(rustc_ver: RustVersion, val: Value) -> Option<u32> {
+    let mut value = val.field("v")?.field("value")?;
+
+    value = version_switch!(
+            rustc_ver,
+            .. (1 . 96) => value,
+            (1 . 96) .. => value.field("__0")?,
+    )?;
+
     if let Value::Scalar(value) = value
         && let Some(SupportedScalar::U64(u)) = value.value
     {
@@ -36,12 +44,19 @@ fn extract_u32_from_atomic_u64(val: Value) -> Option<u32> {
     None
 }
 
-fn extract_u32_from_atomic_32(val: Value) -> Option<u32> {
-    let value = val
+fn extract_u32_from_atomic_32(rustc_ver: RustVersion, val: Value) -> Option<u32> {
+    let mut value = val
         .field("inner")?
         .field("value")?
         .field("v")?
         .field("value")?;
+
+    value = version_switch!(
+            rustc_ver,
+            .. (1 . 96) => value,
+            (1 . 96) .. => value.field("__0")?,
+    )?;
+
     if let Value::Scalar(value) = value
         && let Some(SupportedScalar::U32(u)) = value.value
     {
@@ -54,13 +69,14 @@ fn extract_u32_from_atomic_32(val: Value) -> Option<u32> {
 impl LocalQueue {
     fn from_query_result(
         debugger: &Debugger,
+        rustc_ver: RustVersion,
         local_queue_inner: QueryResult,
     ) -> Option<LocalQueue> {
         let head = local_queue_inner.clone().into_value().field("head")?;
-        let head = extract_u32_from_atomic_u64(head)?;
+        let head = extract_u32_from_atomic_u64(rustc_ver, head)?;
 
         let tail = local_queue_inner.clone().into_value().field("tail")?;
-        let tail = extract_u32_from_atomic_32(tail)?;
+        let tail = extract_u32_from_atomic_32(rustc_ver, tail)?;
 
         let mut task_buffer = Vec::with_capacity((tail - head) as usize);
         let buffer = local_queue_inner
@@ -99,6 +115,7 @@ impl LocalQueue {
 }
 
 /// Async worker known states.
+#[derive(Debug)]
 pub(super) enum WorkerState {
     RunTask(usize),
     Park,
@@ -233,7 +250,7 @@ impl WorkerInternal {
 
         Some(Self {
             state,
-            local_queue: LocalQueue::from_query_result(debugger, local_queue)?,
+            local_queue: LocalQueue::from_query_result(debugger, rustc_version, local_queue)?,
         })
     }
 }

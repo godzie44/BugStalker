@@ -2109,7 +2109,10 @@ fn test_read_atomic() {
     read_locals!(debugger => int32_atomic, _int32, int32_atomic_ptr);
     assert_idents!(int32_atomic => "int32_atomic", int32_atomic_ptr => "int32_atomic_ptr");
 
-    assert_struct(int32_atomic.value(), "AtomicI32", |i, member| match i {
+    let rust_version = rust_version(VARS_APP).unwrap();
+    _ = version_switch!(
+        rust_version,
+        .. (1 . 96) =>     assert_struct(int32_atomic.value(), "AtomicI32", |i, member| match i {
         0 => assert_member(member, "v", |val| {
             assert_struct(val, "UnsafeCell<i32>", |i, member| match i {
                 0 => assert_member(member, "value", |val| {
@@ -2119,9 +2122,30 @@ fn test_read_atomic() {
             })
         }),
         _ => panic!("1 members expected"),
-    });
+    }),
+        (1 . 96) .. => assert_struct(int32_atomic.value(), "Atomic<i32>", |i, member| match i {
+        0 => assert_member(member, "v", |val| {
+            assert_struct(
+                val,
+                "UnsafeCell<core::sync::atomic::private::Align4<i32>>",
+                |i, member| match i {
+                    0 => assert_member(member, "value", |val| {
+                        assert_struct(val, "Align4<i32>", |i, member| {
+                            assert_eq!(i, 0);
+                            assert_scalar(&member.value, "i32", Some(SupportedScalar::I32(1)))
+                        });
+                    }),
+                    _ => panic!("1 members expected"),
+                },
+            )
+        }),
+        _ => panic!("1 members expected"),
+    }),
+    );
 
-    assert_struct(
+    _ = version_switch!(
+        rust_version,
+        .. (1 . 96) => assert_struct(
         int32_atomic_ptr.value(),
         "AtomicPtr<i32>",
         |i, member| match i {
@@ -2133,11 +2157,46 @@ fn test_read_atomic() {
             }),
             _ => panic!("1 members expected"),
         },
+    ),
+        (1 . 96) .. => assert_struct(
+        int32_atomic_ptr.value(),
+        "Atomic<*mut i32>",
+        |i: usize, member| match i {
+            0 => assert_member(member, "v", |val| {
+                assert_struct(
+                    val,
+                    "UnsafeCell<core::sync::atomic::private::Align8<*mut i32>>",
+                    |i, member| match i {
+                        // 0 => assert_member(member, "value", |val| assert_pointer(val, "*mut i32")),
+                        0 => assert_struct(&member.value, "Align8<*mut i32>", |i, member| {
+                            assert_eq!(i, 0);
+                            assert_pointer(&member.value, "*mut i32");
+                        }),
+                        _ => panic!("1 members expected"),
+                    },
+                )
+            }),
+            _ => panic!("1 members expected"),
+        },
+    ),
     );
 
-    let deref = int32_atomic_ptr
+    let deref = version_switch!(
+        rust_version,
+        .. (1 . 96) => int32_atomic_ptr
         .clone()
-        .modify_value(|pcx, v| v.field("p").unwrap().field("value").unwrap().deref(pcx));
+        .modify_value(|pcx, v| v.field("p").unwrap().field("value").unwrap().deref(pcx)),
+        (1 . 96) .. => int32_atomic_ptr.clone().modify_value(|pcx, v| {
+        v.field("v")
+            .unwrap()
+            .field("value")
+            .unwrap()
+            .field("__0")
+            .unwrap()
+            .deref(pcx)
+    }),
+    )
+    .unwrap();
     assert_scalar(deref.unwrap().value(), "i32", Some(SupportedScalar::I32(2)));
 
     debugger.continue_debugee().unwrap();
@@ -2270,7 +2329,9 @@ fn test_shared_ptr() {
 
     assert_arc(arc0.value(), "Arc<i32, alloc::alloc::Global>");
     let deref = arc0.clone().modify_value(|pcx, v| v.deref(pcx));
-    assert_struct(
+    _ = version_switch!(
+            rust_version,
+            .. (1 . 96) => assert_struct(
         deref.unwrap().value(),
         "ArcInner<i32>",
         |i, member| match i {
@@ -2303,11 +2364,72 @@ fn test_shared_ptr() {
             }),
             _ => panic!("3 members expected"),
         },
+    ),
+            (1 . 96) .. => assert_struct(
+        deref.unwrap().value(),
+        "ArcInner<i32>",
+        |i, member| match i {
+            0 => assert_member(member, "strong", |val| {
+                assert_struct(val, "Atomic<usize>", |i, member| match i {
+                    0 => assert_member(member, "v", |val| {
+                        assert_struct(
+                            val,
+                            "UnsafeCell<core::sync::atomic::private::Align8<usize>>",
+                            |i, member| match i {
+                                0 => assert_member(member, "value", |val| {
+                                    assert_struct(val, "Align8<usize>", |i, member| {
+                                        assert_eq!(i, 0);
+                                        assert_scalar(
+                                            &member.value,
+                                            "usize",
+                                            Some(SupportedScalar::Usize(2)),
+                                        )
+                                    });
+                                }),
+                                _ => panic!("1 members expected"),
+                            },
+                        )
+                    }),
+                    _ => panic!("1 member expected"),
+                })
+            }),
+            1 => assert_member(member, "weak", |val| {
+                assert_struct(val, "Atomic<usize>", |i, member| match i {
+                    0 => assert_member(member, "v", |val| {
+                        assert_struct(
+                            val,
+                            "UnsafeCell<core::sync::atomic::private::Align8<usize>>",
+                            |i, member| match i {
+                                0 => assert_member(member, "value", |val| {
+                                    assert_struct(val, "Align8<usize>", |i, member| {
+                                        assert_eq!(i, 0);
+                                        assert_scalar(
+                                            &member.value,
+                                            "usize",
+                                            Some(SupportedScalar::Usize(2)),
+                                        )
+                                    });
+                                }),
+                                _ => panic!("1 members expected"),
+                            },
+                        )
+                    }),
+                    _ => panic!("1 member expected"),
+                })
+            }),
+            2 => assert_member(member, "data", |val| {
+                assert_scalar(val, "i32", Some(SupportedScalar::I32(2)))
+            }),
+            _ => panic!("3 members expected"),
+        },
+    ),
     );
 
     assert_arc(arc1.value(), "Arc<i32, alloc::alloc::Global>");
     let deref = arc1.clone().modify_value(|pcx, v| v.deref(pcx));
-    assert_struct(
+    _ = version_switch!(
+        rust_version,
+        .. (1 . 96) =>     assert_struct(
         deref.unwrap().value(),
         "ArcInner<i32>",
         |i, member| match i {
@@ -2340,6 +2462,63 @@ fn test_shared_ptr() {
             }),
             _ => panic!("3 members expected"),
         },
+    ),
+        (1 . 96) .. => assert_struct(
+        deref.unwrap().value(),
+        "ArcInner<i32>",
+        |i, member| match i {
+            0 => assert_member(member, "strong", |val| {
+                assert_struct(val, "Atomic<usize>", |i, member| match i {
+                    0 => assert_member(member, "v", |val| {
+                        assert_struct(
+                            val,
+                            "UnsafeCell<core::sync::atomic::private::Align8<usize>>",
+                            |_, member| {
+                                assert_member(member, "value", |val| {
+                                    assert_struct(val, "Align8<usize>", |i, member| {
+                                        assert_eq!(i, 0);
+                                        assert_scalar(
+                                            &member.value,
+                                            "usize",
+                                            Some(SupportedScalar::Usize(2)),
+                                        )
+                                    });
+                                })
+                            },
+                        )
+                    }),
+                    _ => panic!("1 member expected"),
+                })
+            }),
+            1 => assert_member(member, "weak", |val| {
+                assert_struct(val, "Atomic<usize>", |i, member| match i {
+                    0 => assert_member(member, "v", |val| {
+                        assert_struct(
+                            val,
+                            "UnsafeCell<core::sync::atomic::private::Align8<usize>>",
+                            |_, member| {
+                                assert_member(member, "value", |val| {
+                                    assert_struct(val, "Align8<usize>", |i, member| {
+                                        assert_eq!(i, 0);
+                                        assert_scalar(
+                                            &member.value,
+                                            "usize",
+                                            Some(SupportedScalar::Usize(2)),
+                                        )
+                                    });
+                                })
+                            },
+                        )
+                    }),
+                    _ => panic!("1 member expected"),
+                })
+            }),
+            2 => assert_member(member, "data", |val| {
+                assert_scalar(val, "i32", Some(SupportedScalar::I32(2)))
+            }),
+            _ => panic!("3 members expected"),
+        },
+    ),
     );
 
     assert_arc(weak_arc2.value(), "Weak<i32, alloc::alloc::Global>");
@@ -2347,7 +2526,10 @@ fn test_shared_ptr() {
         .clone()
         .modify_value(|pcx, v| v.deref(pcx))
         .unwrap();
-    assert_struct(deref.value(), "ArcInner<i32>", |i, member| match i {
+
+    _ = version_switch!(
+        rust_version,
+        .. (1 . 96) =>     assert_struct(deref.value(), "ArcInner<i32>", |i, member| match i {
         0 => assert_member(member, "strong", |val| {
             assert_struct(val, "AtomicUsize", |i, member| match i {
                 0 => assert_member(member, "v", |val| {
@@ -2376,7 +2558,60 @@ fn test_shared_ptr() {
             assert_scalar(val, "i32", Some(SupportedScalar::I32(2)))
         }),
         _ => panic!("3 members expected"),
-    });
+    }),
+        (1 . 96) .. => assert_struct(deref.value(), "ArcInner<i32>", |i, member| match i {
+        0 => assert_member(member, "strong", |val| {
+            assert_struct(val, "Atomic<usize>", |i, member| match i {
+                0 => assert_member(member, "v", |val| {
+                    assert_struct(
+                        val,
+                        "UnsafeCell<core::sync::atomic::private::Align8<usize>>",
+                        |_, member| {
+                            assert_member(member, "value", |val| {
+                                assert_struct(val, "Align8<usize>", |i, member| {
+                                    assert_eq!(i, 0);
+                                    assert_scalar(
+                                        &member.value,
+                                        "usize",
+                                        Some(SupportedScalar::Usize(2)),
+                                    )
+                                });
+                            })
+                        },
+                    )
+                }),
+                _ => panic!("1 member expected"),
+            })
+        }),
+        1 => assert_member(member, "weak", |val| {
+            assert_struct(val, "Atomic<usize>", |i, member| match i {
+                0 => assert_member(member, "v", |val| {
+                    assert_struct(
+                        val,
+                        "UnsafeCell<core::sync::atomic::private::Align8<usize>>",
+                        |_, member| {
+                            assert_member(member, "value", |val| {
+                                assert_struct(val, "Align8<usize>", |i, member| {
+                                    assert_eq!(i, 0);
+                                    assert_scalar(
+                                        &member.value,
+                                        "usize",
+                                        Some(SupportedScalar::Usize(2)),
+                                    )
+                                });
+                            })
+                        },
+                    )
+                }),
+                _ => panic!("1 member expected"),
+            })
+        }),
+        2 => assert_member(member, "data", |val| {
+            assert_scalar(val, "i32", Some(SupportedScalar::I32(2)))
+        }),
+        _ => panic!("3 members expected"),
+    }),
+    );
 
     debugger.continue_debugee().unwrap();
     assert_no_proc!(debugee_pid);

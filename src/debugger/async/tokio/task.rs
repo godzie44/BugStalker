@@ -13,7 +13,9 @@ use crate::{
             value::{RustEnumValue, Value},
         },
     },
-    resolve_unit_call, weak_error,
+    resolve_unit_call,
+    version::RustVersion,
+    weak_error,
 };
 use core::str;
 
@@ -118,14 +120,22 @@ pub fn task_header_state_value_and_ptr(
             "Header::state field not found in structure",
         )))?;
 
+    let rustc_version = state.unit().rustc_version().unwrap_or_default();
+
     let state = state
         .modify_value(|_, state| {
-            state
+            let mut v = state
                 .field("val")?
                 .field("inner")?
                 .field("value")?
                 .field("v")?
-                .field("value")
+                .field("value");
+
+            if rustc_version >= RustVersion::new(1, 96, 0) {
+                v = v?.field("__0");
+            }
+
+            v
         })
         .ok_or(Error::Async(AsyncError::IncorrectAssumption(
             "Unexpected Header::state layout",
