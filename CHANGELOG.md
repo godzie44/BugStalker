@@ -10,6 +10,13 @@ All notable changes to this project will be documented in this file.
 ### Deprecated
 ### Breaking changes
 
+# [0.4.6] May 30 2026
+
+### Added
+
+- debugger: added support for rustc 1.96
+- DAP: add notes about Zed extension
+
 # [0.4.5] Apr 18 2026
 
 ### Added
