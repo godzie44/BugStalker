@@ -747,7 +747,21 @@ impl<'a> VariableParserExtension<'a> {
         } else {
             guard_cap(extract_capacity(pcx, &val)? as i64) as usize
         };
-        let head = val.assume_field_as_scalar_number("head")? as usize;
+
+        let rust_version = pcx
+            .evcx
+            .rustc_version()
+            .ok_or(ParsingError::UnsupportedVersion)?;
+
+        let head = version_switch!(
+        rust_version,
+        .. (1 . 97) => val.assume_field_as_scalar_number("head")? as usize,
+        (1 . 97) .. => {
+            Value::Struct(val.assume_field_as_struct("head")?)
+            .assume_field_as_scalar_number("__0")? as usize
+        },
+        )
+        .ok_or(ParsingError::UnsupportedVersion)?;
 
         let wrapped_start = if cap == 0 { 0 } else { head % cap };
         let head_len = cap - wrapped_start;

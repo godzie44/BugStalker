@@ -44,8 +44,19 @@ struct WriteStringVTable {
 
 impl WriteStringVTable {
     pub fn new(dbg: &Debugger, ver: RustVersion) -> Result<Self, FmtCallError> {
-        const STRING_DROP_IN_PLACE: &str = "core::ptr::drop_in_place<alloc::string::String>";
-        const STRING_DROP_IN_PLACE_NAME: &str = "drop_in_place<alloc::string::String>";
+        let string_drop_in_place = version_switch!(
+        ver,
+            (1 . 81) .. (1 . 97) =>  "core::ptr::drop_in_place<alloc::string::String>",
+            (1 . 97) .. => "core::ptr::drop_glue::<alloc::string::String>",
+        )
+        .ok_or(FmtCallError::UnsupportedRustC)?;
+        let string_drop_in_place_name = version_switch!(
+        ver,
+            (1 . 81) .. (1 . 97) =>  "drop_in_place<alloc::string::String>",
+            (1 . 97) .. => "drop_glue<alloc::string::String>",
+        )
+        .ok_or(FmtCallError::UnsupportedRustC)?;
+
         let string_write_fmt_linkage: &str = version_switch!(
         ver,
             (1 . 81).. (1 . 95) =>  "core::fmt::Write::write_fmt",
@@ -75,7 +86,7 @@ impl WriteStringVTable {
         };
 
         let drop_in_place_fn_addr =
-            find_fn_for_vtable(STRING_DROP_IN_PLACE, Some(STRING_DROP_IN_PLACE_NAME))?;
+            find_fn_for_vtable(string_drop_in_place, Some(string_drop_in_place_name))?;
         let write_fmt_addr =
             find_fn_for_vtable(string_write_fmt_linkage, Some(string_write_fmt_name))?;
         let write_char_addr = find_fn_for_vtable(STRING_WRITE_CHAR, None)?;
@@ -131,9 +142,12 @@ struct FmtCallingPlan {
     need_indirection: bool,
 }
 
-fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCallingPlan, Error> {
+fn create_fmt_calling_plan(
+    dbg: &Debugger,
+    var: &QueryResult,
+    ver: RustVersion,
+) -> Result<FmtCallingPlan, Error> {
     let mut type_name = var.value().r#type().to_string();
-
     // hack, cause linkage name for `String` type coming without namespace
     if type_name.as_str() == "String" {
         type_name = "alloc::string::String".to_string();
@@ -155,10 +169,18 @@ fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCalli
         if type_params.is_empty() {
             return Ok(None);
         }
-        let params_string: String = type_params.keys().join(",");
-        let l_bracket = type_name.find("<").ok_or(FmtCallError::UnsupportedType)?;
-        let r_bracket = type_name.find(">").ok_or(FmtCallError::UnsupportedType)?;
-        type_name.replace_range(l_bracket + 1..r_bracket, &params_string);
+
+        _ = version_switch!(
+        ver,
+            .. (1 . 97) =>  {
+                let params_string: String = type_params.keys().join(",");
+                let l_bracket = type_name.find("<").ok_or(FmtCallError::UnsupportedType)?;
+                let r_bracket = type_name.find(">").ok_or(FmtCallError::UnsupportedType)?;
+                type_name.replace_range(l_bracket + 1..r_bracket, &params_string);
+            },
+            (1 . 97) .. => type_name = type_name.replace(", alloc::alloc::Global", ""),
+        );
+
         let linkage_name: String = format!("<{type_name} as core::fmt::Debug>::fmt");
 
         let concrete_types = type_params
@@ -173,7 +195,7 @@ fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCalli
         let fmt_fn_name = format!("fmt<{concrete_types}>");
 
         let fmt_fn_info_result = gcx()
-        .with_call_cache(|cc| cc.get_or_insert(dbg, &linkage_name, Some(&fmt_fn_name)));
+            .with_call_cache(|cc| cc.get_or_insert(dbg, &linkage_name, Some(&fmt_fn_name)));
 
         if let Ok(fmt_fn) = fmt_fn_info_result {
             return Ok(Some(fmt_fn.fn_addr()));
@@ -267,9 +289,22 @@ fn create_fmt_calling_plan(dbg: &Debugger, var: &QueryResult) -> Result<FmtCalli
     // Currently this used in just one case - for &str type,
     // but perhaps the use will expand in the future
     let fmt_fn_name = format!("fmt<{type_name}>");
-    let fmt_fn_info_result = gcx().with_call_cache(|cc| {
-        cc.get_or_insert(dbg, "<&T as core::fmt::Debug>::fmt", Some(&fmt_fn_name))
-    });
+    let fmt_fn_info_result = version_switch!(
+    ver,
+        .. (1 . 97) =>  {
+            gcx().with_call_cache(|cc| {
+                cc.get_or_insert(dbg, "<&T as core::fmt::Debug>::fmt", Some(&fmt_fn_name))
+            })
+        },
+        (1 . 97) .. => gcx().with_call_cache(|cc| {
+        cc.get_or_insert(
+            dbg,
+            &format!("<&{type_name} as core::fmt::Debug>::fmt"),
+            Some(&fmt_fn_name),
+        )
+    }),
+    )
+    .expect("all version are covered");
 
     if let Ok(fmt_fn) = fmt_fn_info_result {
         return Ok(FmtCallingPlan {
@@ -412,7 +447,7 @@ pub fn call_debug_fmt(dbg: &Debugger, var: &QueryResult) -> Result<String, Error
         .ok_or(FmtCallError::UnsupportedRustC)?;
 
     debug!("prepare calling plan for core::fmt::Debug::fmt");
-    let calling_plan = create_fmt_calling_plan(dbg, var)?;
+    let calling_plan = create_fmt_calling_plan(dbg, var, rust_version)?;
 
     debug!("prepare vtable for String as core::fmt::Write");
     let write_string_vtable = WriteStringVTable::new(dbg, rust_version)?;

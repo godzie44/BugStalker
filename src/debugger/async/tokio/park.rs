@@ -32,8 +32,9 @@ pub fn try_as_park_thread(
         let Some(fn_name) = frame.func_name.as_ref() else {
             return false;
         };
-        fn_name.contains("CachedParkThread::block_on")
-            && !fn_name.contains("CachedParkThread::block_on::")
+        (fn_name.contains("CachedParkThread::block_on")
+            && !fn_name.contains("CachedParkThread::block_on::"))
+            || fn_name.contains("CachedParkThread>::block_on")
     }) else {
         return Ok(None);
     };
