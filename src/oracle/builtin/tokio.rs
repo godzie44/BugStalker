@@ -161,72 +161,104 @@ impl Oracle for TokioOracle {
     }
 
     fn ready_for_install(&self, dbg: &Debugger) -> bool {
-        let poll_symbols = dbg
-            .get_symbols("tokio::runtime::task::raw::RawTask::poll*")
-            .unwrap_or_default();
-        if poll_symbols.is_empty() {
-            return false;
-        }
+        let expected_symbols = [
+            [
+                "tokio::runtime::task::raw::RawTask::poll*",
+                ".*runtime::task::raw::RawTask>::poll.*",
+            ],
+            [
+                "tokio::runtime::task::raw::RawTask::new*",
+                ".*runtime::task::raw::RawTask>::new.*",
+            ],
+            [
+                "tokio::runtime::task::raw::RawTask::shutdown*",
+                ".*runtime::task::raw::RawTask>::shutdown.*",
+            ],
+        ];
 
-        let new_symbols = dbg
-            .get_symbols("tokio::runtime::task::raw::RawTask::new*")
-            .unwrap_or_default();
-        if new_symbols.is_empty() {
-            return false;
-        }
+        for symbols in expected_symbols {
+            let found = symbols
+                .iter()
+                .any(|sym| !dbg.get_symbols(sym).unwrap_or_default().is_empty());
 
-        let shutdown_symbols = dbg
-            .get_symbols("tokio::runtime::task::raw::RawTask::shutdown*")
-            .unwrap_or_default();
-        if shutdown_symbols.is_empty() {
-            return false;
+            if !found {
+                return false;
+            }
         }
 
         true
     }
 
     fn spy_points(self: Arc<Self>) -> Vec<CreateTransparentBreakpointRequest> {
-        let oracle = self.clone();
-        let poll_handler = move |dbg: &mut Debugger| {
-            if let Err(e) = oracle.on_poll(dbg) {
-                warn!(target: "tokio oracle", "poll task: {e}")
+        fn make_poll_handler(oracle: Arc<TokioOracle>) -> impl Fn(&mut Debugger) {
+            move |dbg: &mut Debugger| {
+                if let Err(e) = oracle.clone().on_poll(dbg) {
+                    warn!(target: "tokio oracle", "poll task: {e}")
+                }
             }
-        };
+        }
 
         let poll_brkpt = CreateTransparentBreakpointRequest::function(
             "tokio::runtime::task::raw::RawTask::poll",
-            poll_handler,
+            make_poll_handler(self.clone()),
+        );
+        let poll_brkpt2 = CreateTransparentBreakpointRequest::function(
+            "runtime::task::raw::RawTask>::poll",
+            make_poll_handler(self.clone()),
         );
 
-        let oracle = self.clone();
-        let new_handler = move |dbg: &mut Debugger| {
-            if let Err(e) = oracle.on_new(dbg) {
-                warn!(target: "tokio oracle", "new task: {e}")
+        fn make_new_handler(oracle: Arc<TokioOracle>) -> impl Fn(&mut Debugger) {
+            move |dbg: &mut Debugger| {
+                if let Err(e) = oracle.on_new(dbg) {
+                    warn!(target: "tokio oracle", "new task: {e}")
+                }
             }
-        };
+        }
         let new_brkpt = CreateTransparentBreakpointRequest::function(
             "tokio::runtime::task::raw::RawTask::new",
-            new_handler,
+            make_new_handler(self.clone()),
+        );
+        let new_brkpt2 = CreateTransparentBreakpointRequest::function(
+            "runtime::task::raw::RawTask>::new",
+            make_new_handler(self.clone()),
         );
 
-        let oracle = self.clone();
-        let drop_handler = move |dbg: &mut Debugger| {
-            if let Err(e) = oracle.on_drop(dbg) {
-                warn!(target: "tokio oracle", "drop task: {e}")
+        fn make_drop_handler(oracle: Arc<TokioOracle>) -> impl Fn(&mut Debugger) {
+            move |dbg: &mut Debugger| {
+                if let Err(e) = oracle.on_drop(dbg) {
+                    warn!(target: "tokio oracle", "drop task: {e}")
+                }
             }
-        };
+        }
 
         //there are two ways when a tokio task may be dropped
         let dealloc_brkpt = CreateTransparentBreakpointRequest::function(
             "tokio::runtime::task::raw::RawTask::dealloc",
-            drop_handler.clone(),
+            make_drop_handler(self.clone()),
+        );
+        let dealloc_brkpt2 = CreateTransparentBreakpointRequest::function(
+            "runtime::task::raw::RawTask>::dealloc",
+            make_drop_handler(self.clone()),
         );
         let shutdown_brkpt = CreateTransparentBreakpointRequest::function(
             "tokio::runtime::task::raw::RawTask::shutdown",
-            drop_handler,
+            make_drop_handler(self.clone()),
+        );
+        let shutdown_brkpt2 = CreateTransparentBreakpointRequest::function(
+            "runtime::task::raw::RawTask>::shutdown",
+            make_drop_handler(self.clone()),
         );
 
-        vec![poll_brkpt, new_brkpt, dealloc_brkpt, shutdown_brkpt]
+        vec![
+            poll_brkpt,
+            poll_brkpt2,
+            new_brkpt,
+            new_brkpt2,
+            dealloc_brkpt,
+            dealloc_brkpt2,
+            shutdown_brkpt,
+            shutdown_brkpt2,
+        ]
     }
 }
 

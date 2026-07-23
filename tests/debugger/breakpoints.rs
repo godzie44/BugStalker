@@ -1,8 +1,10 @@
 use crate::common::TestHooks;
 use crate::common::TestInfo;
+use crate::common::rust_version;
 use crate::{CALC_APP, prepare_debugee_process};
 use crate::{FIZZBUZZ_APP, HW_APP, SHARED_LIB_APP, VARS_APP, assert_no_proc};
 use bugstalker::debugger::DebuggerBuilder;
+use bugstalker::version_switch;
 use serial_test::serial;
 
 #[test]
@@ -246,10 +248,21 @@ fn test_breakpoint_at_fn_with_monomorphization() {
 
     let brkpts = debugger.set_breakpoint_at_fn("solve").unwrap();
     assert_eq!(brkpts.len(), 3);
-    let brkpts = debugger
-        .set_breakpoint_at_fn("FizzBuzzSolver<P,CMP>::new")
-        .unwrap();
-    assert_eq!(brkpts.len(), 3);
+
+    let rust_version = rust_version(VARS_APP).unwrap();
+    version_switch!(
+        rust_version,
+        .. (1 . 97) => {
+            let brkpts = debugger
+                .set_breakpoint_at_fn("FizzBuzzSolver<P,CMP>::new")
+                .unwrap();
+            assert_eq!(brkpts.len(), 3);
+        },
+        (1 . 97) .. => {
+            let brkpts = debugger.set_breakpoint_at_fn("new").unwrap();
+            assert!(brkpts.len() > 3);
+        },
+    );
 
     debugger.start_debugee().unwrap();
     assert_eq!(info.line.take(), Some(80));

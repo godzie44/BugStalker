@@ -150,7 +150,9 @@ impl WorkerInternal {
             let Some(fn_name) = frame.func_name.as_ref() else {
                 return false;
             };
-            fn_name.ends_with("Context::run_task")
+            fn_name
+                .ends_with("<tokio::runtime::scheduler::multi_thread::worker::Context>::run_task")
+                || fn_name.ends_with("Context::run_task")
         });
         if let Some(frame_num) = run_task_frame_num {
             state = Some(WorkerState::RunTask(frame_num));
@@ -160,7 +162,8 @@ impl WorkerInternal {
             let Some(fn_name) = frame.func_name.as_ref() else {
                 return false;
             };
-            fn_name.ends_with("Context::park")
+            fn_name.ends_with("<tokio::runtime::scheduler::multi_thread::worker::Context>::park")
+                || fn_name.ends_with("Context::park")
         });
         if park_frame_num.is_some() {
             state = Some(WorkerState::Park);
