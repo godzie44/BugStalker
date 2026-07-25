@@ -1,3 +1,4 @@
+#![allow(unused, unused_assignments, dead_code)]
 use std::thread;
 use std::time::Duration;
 
