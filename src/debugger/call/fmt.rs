@@ -137,9 +137,12 @@ impl DebugFormattable for Value {
     }
 }
 
+#[derive(Default)]
 struct FmtCallingPlan {
     fmt_fn_addr: RelocatedAddress,
     need_indirection: bool,
+    self_is_slice: bool,
+    slice_size: usize,
 }
 
 fn create_fmt_calling_plan(
@@ -153,14 +156,35 @@ fn create_fmt_calling_plan(
         type_name = "alloc::string::String".to_string();
     }
 
+    let r#type = &var.type_graph().types[&var.type_graph().root()];
+
     // fast path, try to find fmt function using "<{type_name} as core::fmt::Debug>::fmt" pattern
     let naive_linkage_name = format!("<{type_name} as core::fmt::Debug>::fmt");
     let fn_info_result =
         gcx().with_call_cache(|cc| cc.get_or_insert(dbg, &naive_linkage_name, None));
     if let Ok(fn_info) = fn_info_result {
+        if let TypeDeclaration::Array(_) = r#type {
+            let size = var
+                .value()
+                .as_array()
+                .expect("infallible")
+                .items
+                .as_ref()
+                .map(|items| items.len())
+                .unwrap_or_default();
+
+            return Ok(FmtCallingPlan {
+                fmt_fn_addr: fn_info.fn_addr(),
+                need_indirection: false,
+                self_is_slice: true,
+                slice_size: size,
+            });
+        }
+
         return Ok(FmtCallingPlan {
             fmt_fn_addr: fn_info.fn_addr(),
             need_indirection: false,
+            ..Default::default()
         });
     }
 
@@ -203,7 +227,6 @@ fn create_fmt_calling_plan(
         Ok(None)
     };
 
-    let r#type = &var.type_graph().types[&var.type_graph().root()];
     match r#type {
         TypeDeclaration::Array(array_type) => {
             const ARRAY_DEBUG_FMT_LINKAGE_NAME: &str =
@@ -234,6 +257,7 @@ fn create_fmt_calling_plan(
                 return Ok(FmtCallingPlan {
                     fmt_fn_addr: fmt_fn.fn_addr(),
                     need_indirection: false,
+                    ..Default::default()
                 });
             }
         }
@@ -243,6 +267,7 @@ fn create_fmt_calling_plan(
                 return Ok(FmtCallingPlan {
                     fmt_fn_addr: fn_addr,
                     need_indirection: false,
+                    ..Default::default()
                 });
             }
         }
@@ -276,6 +301,7 @@ fn create_fmt_calling_plan(
                 return Ok(FmtCallingPlan {
                     fmt_fn_addr: fn_addr,
                     need_indirection: false,
+                    ..Default::default()
                 });
             }
         }
@@ -310,6 +336,7 @@ fn create_fmt_calling_plan(
         return Ok(FmtCallingPlan {
             fmt_fn_addr: fmt_fn.fn_addr(),
             need_indirection: true,
+            ..Default::default()
         });
     }
 
@@ -510,10 +537,18 @@ pub fn call_debug_fmt(dbg: &Debugger, var: &QueryResult) -> Result<String, Error
         Ok((alloc_ptr, formatter_ptr, string_header_ptr, var_addr))
     })?;
 
-    let args = CallArgs(Box::new([
-        (self_arg as u64, RegType::General),
-        (formatter_ptr as u64, RegType::General),
-    ]));
+    let args = if calling_plan.self_is_slice {
+        CallArgs(Box::new([
+            (self_arg as u64, RegType::General),
+            (calling_plan.slice_size as u64, RegType::General),
+            (formatter_ptr as u64, RegType::General),
+        ]))
+    } else {
+        CallArgs(Box::new([
+            (self_arg as u64, RegType::General),
+            (formatter_ptr as u64, RegType::General),
+        ]))
+    };
 
     let mut debug_fmt_call_result = dbg
         .call_fn_raw(calling_plan.fmt_fn_addr, args)

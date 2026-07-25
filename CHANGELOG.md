@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 ### Changed
 ### Fixed
+
+- debugger: the `vard` command fails for slices after Rustc 1.97
+
 ### Deprecated
 ### Breaking changes
 
