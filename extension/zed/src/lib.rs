@@ -66,13 +66,13 @@ impl zed::Extension for BsExtension {
 
         let (command, arguments) = user_provided_debug_adapter_path
             // TODO how to get arguments if user_provided_debug_adapter_path is defined? (currently its hardcoded)
-            .map(|path| (path, vec!["--dap".into()]))
+            .map(|path| (path, vec!["--dap-local".into()]))
             .or_else(|| {
                 let bs = worktree.which("bs")?;
                 Some((
                     bs,
                     vec![
-                        "--dap".into(),
+                        "--dap-local".into(),
                         "--dap-log-file".into(),
                         "/tmp/bs-zed-1.log".into(),
                     ],
