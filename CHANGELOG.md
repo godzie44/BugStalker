@@ -7,12 +7,19 @@ All notable changes to this project will be documented in this file.
 ### Added
 ### Changed
 ### Fixed
+### Deprecated
+### Breaking changes
+
+# [0.4.8] Unreleased
+
+### Added
+
+- debugger: added support for rustc 1.98
+
+### Fixed
 
 - debugger: the `vard` command fails for slices after Rustc 1.97
 - DAP: fix linter warinings in DAP example programs
-
-### Deprecated
-### Breaking changes
 
 # [0.4.7] Jul 23 2026
 

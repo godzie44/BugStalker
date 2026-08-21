@@ -5,6 +5,7 @@ mod tokio;
 use crate::debugger::address::Address;
 pub use crate::debugger::r#async::future::AsyncFnFutureState;
 pub use crate::debugger::r#async::future::Future;
+use crate::version::Version;
 use nix::sys::signal::Signal;
 pub use tokio::TokioVersion;
 pub use tokio::extract_tokio_version_naive;
@@ -248,7 +249,18 @@ impl Debugger {
         let initial_task_context = self
             .read_variable(Dqe::Variable(Selector::by_name("_task_context", true)))?
             .pop_if_single_el()
-            .and_then(|qr| qr.into_value().into_raw_ptr())
+            .and_then(|qr| {
+                let rustc_version = qr.unit().rustc_version().unwrap_or_default();
+
+                if rustc_version >= Version((1, 98, 0)) {
+                    qr.into_value()
+                        .field("__0")?
+                        .field("pointer")?
+                        .into_raw_ptr()
+                } else {
+                    qr.into_value().into_raw_ptr()
+                }
+            })
             .and_then(|ptr| ptr.value)
             .ok_or(AsyncError::IncorrectAssumption(
                 "`_task_context` local variable should exist",
