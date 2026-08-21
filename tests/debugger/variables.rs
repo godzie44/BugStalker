@@ -1033,10 +1033,19 @@ fn test_read_tls_variables() {
         })
     });
 
-    read_var_dqe!(debugger, Dqe::Variable(Selector::by_name(
+    let vars = debugger
+        .read_variable(Dqe::Variable(Selector::by_name(
             "THREAD_LOCAL_VAR_2",
             false,
-        )) => tls_var_2);
+        )))
+        .unwrap();
+
+    let tls_var_2 = if rust_version >= Version((1, 98, 0)) {
+        &vars[1]
+    } else {
+        &vars[0]
+    };
+
     version_switch!(
         rust_version,
         .. (1 . 80) => {
