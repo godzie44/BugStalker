@@ -10,7 +10,13 @@ All notable changes to this project will be documented in this file.
 ### Deprecated
 ### Breaking changes
 
-# [0.4.8] Unreleased
+# [0.4.9] Oct 10 2026
+
+### Added
+
+- debugger: added support for rustc 1.99
+
+# [0.4.8] Aug 21 2026
 
 ### Added
 
