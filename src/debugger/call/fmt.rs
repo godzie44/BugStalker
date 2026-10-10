@@ -67,7 +67,8 @@ impl WriteStringVTable {
         let string_write_fmt_name = version_switch!(
             ver,
                 (1 . 81) .. (1 . 87) =>  "write_fmt<std::io::Write::write_fmt::Adapter<std::io::stdio::StdoutLock>>",
-                (1 . 87) .. => "write_fmt<std::io::default_write_fmt::Adapter<std::io::stdio::StdoutLock>>",
+                (1 . 87) .. (1 . 99) => "write_fmt<std::io::default_write_fmt::Adapter<std::io::stdio::StdoutLock>>",
+                (1 . 99) .. => "write_fmt<core::io::write::default_write_fmt::Adapter<std::io::stdio::StdoutLock>>",
             )
             .ok_or(FmtCallError::UnsupportedRustC)?;
 
