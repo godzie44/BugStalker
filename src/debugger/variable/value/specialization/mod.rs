@@ -430,7 +430,7 @@ impl<'a> VariableParserExtension<'a> {
 
                         get_val_from_storage()
                     },
-                    (1 . 94) .. => {
+                    (1 . 94) .. (1 . 100) => {
                         let get_val_from_storage = || {
                             let Value::Struct(storage) = inner_val else {
                                 return None;
@@ -440,6 +440,20 @@ impl<'a> VariableParserExtension<'a> {
                                     .field("value")?
                                     .field("value")?
                                     .field("__0")
+                                    .map(Box::new)
+                        };
+
+                        get_val_from_storage()
+                    },
+                    (1 . 100) .. => {
+                        let get_val_from_storage = || {
+                            let Value::Struct(storage) = inner_val else {
+                                return None;
+                            };
+
+                            storage.field("value")?.field("value")?
+                                    .field("value")?
+                                    .field("value")
                                     .map(Box::new)
                         };
 
