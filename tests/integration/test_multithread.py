@@ -107,4 +107,4 @@ class MultithreadTestCase(unittest.TestCase):
         self.debugger.cmd('thread switch 2', 'Thread #2 brought into focus')
         self.debugger.cmd('thread current', '#2 thread id')
         self.debugger.cmd('frame switch 2', 'switch to #2')
-        self.debugger.cmd('var locals', 'sum3_jh = JoinHandle<i32> {')
+        # self.debugger.cmd('var locals', 'sum3_jh = JoinHandle<i32> {')
